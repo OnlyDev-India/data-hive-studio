@@ -1,0 +1,9 @@
+@layer{
+    .react-flow{
+        @apply !bg-secondary
+    }
+
+    .react-flow .react-flow__controls button{
+        @apply !bg-popover !border-border
+    }
+}

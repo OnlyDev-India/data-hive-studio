@@ -1,0 +1,31 @@
+@layer {
+  .react-data-grid {
+    border-collapse: collapse; /* Ensure borders don't double */
+    @apply w-full;
+  }
+
+  .react-data-grid .rdg-row {
+    @apply hover:!bg-primary/10;
+  }
+
+  .react-data-grid .rdg-row-even {
+    @apply bg-secondary/20;
+  }
+  .react-data-grid .rdg-row-odd {
+    @apply bg-secondary/80;
+  }
+  .react-data-grid .rdg-cell {
+    @apply text-xs md:text-sm flex items-center text-foreground;
+  }
+  .react-data-grid .rdg-cell[aria-selected="true"] {
+    @apply border outline-primary border-muted rounded-md;
+  }
+
+  .react-data-grid .rdg-cell[role="columnheader"] {
+    @apply bg-muted text-muted-foreground !w-full !relative;
+  }
+
+  .react-data-grid .rdg-header-cell {
+    @apply border;
+  }
+}
