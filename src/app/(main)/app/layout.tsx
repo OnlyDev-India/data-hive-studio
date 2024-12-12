@@ -8,7 +8,7 @@ import {
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { connectDb } from "@/lib/actions/fetch-data";
 import { HandlersTypes } from "@/lib/databases/db";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import React from "react";
 
@@ -20,15 +20,7 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
     connectionString: connectionUrl?.value || "",
     dbType: (dbType?.value as HandlersTypes) || null,
   });
-  if (!response?.success) redirect("/");
-  const headersList = headers();
-  // read the custom x-url header
-  const host = headersList.get("host") || "";
-  const referer = headersList.get("referer") || "";
-  const pathname = referer
-    .replace(host, "")
-    .replace("http://", "")
-    .replace("https://", "");
+  // if (!response?.success) redirect("/");
 
   return (
     <div className="h-screen w-screen">

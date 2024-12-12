@@ -1,0 +1,40 @@
+@layer {
+  .react-data-grid-new-table {
+    border-collapse: collapse; /* Ensure borders don't double */
+    @apply w-full;
+  }
+
+  .react-data-grid-new-table .rdg-row-invalid {
+    @apply !bg-destructive/10;
+  }
+  .react-data-grid-new-table .rdg-cell {
+    @apply hover:bg-primary/10;
+  }
+  .react-data-grid-new-table .rdg-row-even .rdg-cell:has(> .no-bg) {
+    @apply bg-secondary/20;
+  }
+  .react-data-grid-new-table .rdg-row-odd .rdg-cell:has(> .no-bg) {
+    @apply bg-secondary/80;
+  }
+
+  .react-data-grid-new-table .rdg-row-even {
+    @apply bg-secondary/20;
+  }
+  .react-data-grid-new-table .rdg-row-odd {
+    @apply bg-secondary/80;
+  }
+  .react-data-grid-new-table .rdg-cell {
+    @apply text-xs md:text-sm flex items-center text-foreground;
+  }
+  .react-data-grid-new-table .rdg-cell[aria-selected="true"] {
+    @apply border outline-none border-muted rounded-none;
+  }
+
+  .react-data-grid-new-table .rdg-cell[role="columnheader"] {
+    @apply bg-muted text-muted-foreground !w-full !relative;
+  }
+
+  .react-data-grid-new-table .rdg-header-cell {
+    @apply border;
+  }
+}

@@ -46,6 +46,12 @@ export async function getTableRelations(table_name: string) {
   return await dbConnection.getTableRelations(table_name);
 }
 
+export async function dropTable(table_name: string) {
+  if (!dbConnection)
+    return { data: null, error: "No connection to the database" };
+  return await dbConnection.dropTable(table_name);
+}
+
 export async function executeQuery(query: string) {
   if (!dbConnection)
     return {

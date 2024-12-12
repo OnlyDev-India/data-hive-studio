@@ -65,11 +65,16 @@ export class PostgresClient {
 
       // Execute the query
       const columns = await this.conn.pool.query(query);
-      
 
       // Organize the results into a structured format
       const tableFieldsMap: {
-        [key: string]: { name: string; type: string, key_type: string, foreign_table_name: string, foreign_column_name: string }[];
+        [key: string]: {
+          name: string;
+          type: string;
+          key_type: string;
+          foreign_table_name: string;
+          foreign_column_name: string;
+        }[];
       } = {};
       columns.rows.forEach((row: any) => {
         if (!tableFieldsMap[row.table_name]) {
@@ -211,6 +216,26 @@ export class PostgresClient {
       return { data, error: null };
     } catch (error: any) {
       console.error("Error fetching columns:", error);
+      return { data: null, error: error.message };
+    }
+  }
+  async dropTable(table_name: string) {
+    if (!this.conn.pool) {
+      return { data: null, error: "No connection to the database" };
+    }
+
+    try {
+      // Query to drop the table
+      const query = `
+        DROP TABLE IF EXISTS "${table_name}";
+      `;
+
+      // Execute the query
+      await this.conn.pool.query(query);
+
+      return { data: null, error: null };
+    } catch (error: any) {
+      console.error("Error dropping table:", error);
       return { data: null, error: error.message };
     }
   }

@@ -16,9 +16,9 @@ import SideBarTables from "../views/sidebar-tables";
 const SubSideBar = async () => {
   const isDbConnected = await isConnectedToDb();
 
-  if (!isDbConnected) {
-    redirect("/");
-  }
+  // if (!isDbConnected) {
+  //   redirect("/");
+  // }
 
   return (
     <div className="bg-secondary h-full px-1 overflow-auto relative">

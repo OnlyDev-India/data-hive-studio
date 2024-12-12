@@ -9,8 +9,8 @@ const store = configureStore({
   reducer: {
     openFiles: openFileSlice,
     query: querySlice,
-    editor: editorSlice,
     tables: tablesSlice,
+    editor: editorSlice,
     appDB: appDBSlice,
   },
   middleware: (getDefaultMiddleware) =>

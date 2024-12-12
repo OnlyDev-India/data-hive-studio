@@ -107,4 +107,7 @@ export class SqliteClient {
   async getTablesData(table_name: string) {
     return false as any;
   }
+  async dropTable(tableName: string) {
+    return false as any;
+  }
 }

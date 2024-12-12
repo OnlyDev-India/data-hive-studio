@@ -40,7 +40,6 @@ const CodeEditor = ({}: CodeEditorProps) => {
 
   useEffect(() => {
     if (queryOutput) {
-      console.log(queryOutput);
       const { data }: any = queryOutput;
       if (data) {
         setData(

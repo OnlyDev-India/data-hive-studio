@@ -12,6 +12,8 @@ import {
   addTableFile,
   addTableStructureFile,
 } from "@/redux/features/open-files";
+import { dropTable } from "@/lib/actions/fetch-data";
+import { fetchTables } from "@/redux/features/tables";
 
 const TablesMenu = ({
   children,
@@ -32,17 +34,32 @@ const TablesMenu = ({
     navigator.clipboard.writeText(table_name);
   };
 
+  const handleDropTable = async () => {
+    const result = await dropTable(table_name);
+    dispatch(fetchTables() as any);
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
       <ContextMenuContent className="px-2 py-1 min-w-[150px]">
-        <ContextMenuItem onSelect={handleViewData} className="text-xs">View Data</ContextMenuItem>
+        <ContextMenuItem onSelect={handleViewData} className="text-xs">
+          View Data
+        </ContextMenuItem>
         <ContextMenuItem onSelect={handleOpenStructure} className="text-xs">
           View Structure
         </ContextMenuItem>
-        <ContextMenuItem disabled className="text-xs">Export to file</ContextMenuItem>
+        <ContextMenuItem disabled className="text-xs">
+          Export to file
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={handleCopyName} className="text-xs">Copy Name</ContextMenuItem>
+        <ContextMenuItem onSelect={handleCopyName} className="text-xs">
+          Copy Name
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={handleDropTable} className="text-xs">
+          Drop Table
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -7,12 +7,9 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { addNewTableFile } from "@/redux/features/open-files";
 import { fetchTables } from "@/redux/features/tables";
-import {
-  ChevronRightIcon,
-  PlusIcon,
-  RotateCwIcon
-} from "lucide-react";
+import { ChevronRightIcon, PlusIcon, RotateCwIcon } from "lucide-react";
 import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
@@ -23,6 +20,10 @@ const SideBarTables = () => {
 
   const handleFetchTables = async () => {
     dispatch(fetchTables() as any);
+  };
+
+  const handleAddNewTable = () => {
+    dispatch(addNewTableFile());
   };
 
   useEffect(() => {
@@ -61,6 +62,7 @@ const SideBarTables = () => {
           <Button
             variant={"ghost"}
             size={"icon"}
+            onClick={handleAddNewTable}
             className="text-muted-foreground hover:text-foreground"
           >
             <PlusIcon />

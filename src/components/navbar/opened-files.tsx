@@ -7,10 +7,12 @@ import { useDispatch, useSelector } from "react-redux";
 import { Button } from "../ui/button";
 import {
   CodeIcon,
+  Grid2X2PlusIcon,
   PencilRulerIcon,
   PlayIcon,
   PlusIcon,
-  TableIcon, XIcon
+  TableIcon,
+  XIcon,
 } from "lucide-react";
 import {
   addOpenFiles,
@@ -23,11 +25,13 @@ import { setExecutingQuery, setQueryOutput } from "@/redux/features/query";
 import { executeQuery } from "@/lib/actions/fetch-data";
 import StructureView from "../views/structure";
 import { fetchTables } from "@/redux/features/tables";
+import NewTableView from "../views/newTable";
 
 const tabIcons = {
   table: TableIcon,
   file: CodeIcon,
   structure: PencilRulerIcon,
+  newTable: Grid2X2PlusIcon,
 };
 
 const OpenedFiles = () => {
@@ -73,8 +77,6 @@ const OpenedFiles = () => {
   };
 
   const handleAddNewFile = () => {
-    console.log("add new file");
-
     dispatch(addOpenFiles());
   };
 
@@ -181,6 +183,7 @@ const OpenedFiles = () => {
       {currentFile?.type === "file" && <CodeEditor />}
       {currentFile?.type === "table" && <TableView />}
       {currentFile?.type === "structure" && <StructureView />}
+      {currentFile?.type === "newTable" && <NewTableView />}
     </Tabs>
   );
 };

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import ReactDataGrid, { Column, SortColumn } from "react-data-grid";
+import { useMemo } from "react";
+import ReactDataGrid, { Column } from "react-data-grid";
 import "react-data-grid/lib/styles.css";
 import "@/styles/table.css";
 

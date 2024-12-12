@@ -105,6 +105,23 @@ export const openFileSlice = createSlice({
       state.openFiles.push(newFile);
       state.currentFile = newFile;
     },
+    addNewTableFile: (state) => {
+      const file = state.openFiles.find(
+        (file: any) => file.type === "newTable"
+      );
+      if (file) {
+        state.currentFile = file;
+        return;
+      }
+      const newFile: FileType = {
+        id: (state.openFiles.length + 1).toString(),
+        name: "New Table",
+        tableName:"qwdfes",//unique just for make this file unique from other tables
+        type: "newTable",
+      };
+      state.openFiles.push(newFile);
+      state.currentFile = newFile;
+    },
   },
 });
 
@@ -117,6 +134,7 @@ export const {
   addTableFile,
   addTableStructureFile,
   resetOpenFiles,
+  addNewTableFile,
 } = openFileSlice.actions;
 
 export default openFileSlice.reducer;
