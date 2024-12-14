@@ -11,7 +11,7 @@ import {
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import "@/styles/visualizer.css";
 import { useSelector } from "react-redux";
@@ -23,9 +23,11 @@ import { LayoutPanelLeftIcon, LayoutPanelTopIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import BuildingBlocks from "@public/building-blocks.json";
+import Lottie from "lottie-react";
 
 const nodeTypes = {
   databaseSchema: DatabaseSchemaNode,
@@ -64,6 +66,7 @@ const SchemaVisualizer = () => {
   const { tables } = useSelector((state: any) => state.tables);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges] = useEdgesState<Edge>([]);
+  const [loading, setLoading] = useState(true);
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
@@ -112,60 +115,70 @@ const SchemaVisualizer = () => {
     });
     setNodes(nodes);
     setEdges(edges);
+    onLayout("LR");
   };
   useEffect(() => {
     if (tables?.length > 0) {
       createNodesAndEdges(tables);
-      setTimeout(() => onLayout("LR"), 1000);
+      setTimeout(() => {
+        onLayout("LR");
+        setLoading(false);
+      }, 4000);
     }
   }, [tables]);
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      nodeTypes={nodeTypes}
-      fitView
-    >
-      <Background variant={BackgroundVariant.Dots} />
-      <Panel
-        position="top-left"
-        className="flex gap-2 bg-popover px-4 py-1 rounded-md"
+    <div className="relative h-full w-full">
+      {loading && (
+        <>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-popover/40 backdrop-blur-md z-[1000] rounded-lg shadow-lg">
+            <Lottie animationData={BuildingBlocks} className="h-full" />
+          </div>
+          <div className="absolute top-0 left-0 w-full h-full bg-transparent z-[999] rounded-md" />
+        </>
+      )}
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        nodeTypes={nodeTypes}
+        fitView
       >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={"secondary"}
-              size={"icon"}
-              className="bg-popover h-7 w-7"
-              onClick={() => onLayout("TB")}
-            >
-              <LayoutPanelTopIcon />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Vertical Layout</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={"secondary"}
-              size={"icon"}
-              className="bg-popover h-7 w-7"
-              onClick={() => onLayout("LR")}
-            >
-              <LayoutPanelLeftIcon />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Horizontal Layout</TooltipContent>
-        </Tooltip>
-      </Panel>
-      <Controls showInteractive={false}>
-        <ControlButton onClick={() => onLayout("LR")}>
-          <LayoutPanelLeftIcon />
-        </ControlButton>
-      </Controls>
-    </ReactFlow>
+        <Background variant={BackgroundVariant.Dots} />
+        <Panel
+          position="top-left"
+          className="flex gap-2 bg-popover px-4 py-1 rounded-md"
+        >
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"secondary"}
+                size={"icon"}
+                className="bg-popover h-7 w-7"
+                onClick={() => onLayout("TB")}
+              >
+                <LayoutPanelTopIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Vertical Layout</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"secondary"}
+                size={"icon"}
+                className="bg-popover h-7 w-7"
+                onClick={() => onLayout("LR")}
+              >
+                <LayoutPanelLeftIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Horizontal Layout</TooltipContent>
+          </Tooltip>
+        </Panel>
+        <Controls showInteractive={false}/>
+      </ReactFlow>
+    </div>
   );
 };
 

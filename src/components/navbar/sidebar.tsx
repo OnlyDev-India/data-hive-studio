@@ -16,8 +16,9 @@ import { useDispatch } from "react-redux";
 import { resetOpenFiles } from "@/redux/features/open-files";
 import { resetEditor } from "@/redux/features/editor";
 import { resetQuery } from "@/redux/features/query";
-import { resetTables } from "@/redux/features/tables";
+import { fetchTables, resetTables } from "@/redux/features/tables";
 import Link from "next/link";
+import { useEffect } from "react";
 
 const Sidebar = () => {
   const router = useRouter();
@@ -31,6 +32,12 @@ const Sidebar = () => {
     dispatch(resetTables());
     router.push("/");
   };
+  const handleFetchTables = async () => {
+    dispatch(fetchTables() as any);
+  };
+  useEffect(() => {
+    handleFetchTables();
+  }, [dispatch]);
   return (
     <div className="flex flex-col items-center pb-2">
       <div

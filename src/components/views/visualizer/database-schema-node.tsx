@@ -39,7 +39,7 @@ export function DatabaseSchemaNode({
                   type="source"
                   position={Position.Right}
                   className="p-0"
-                  handleClassName="p-0"
+                  // handleClassName="p-0"
                   labelClassName="p-0"
                 />
               </TableCell>

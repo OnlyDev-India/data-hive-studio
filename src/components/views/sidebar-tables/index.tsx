@@ -26,9 +26,6 @@ const SideBarTables = () => {
     dispatch(addNewTableFile());
   };
 
-  useEffect(() => {
-    handleFetchTables();
-  }, [dispatch]);
   return (
     <Collapsible
       defaultOpen
@@ -54,7 +51,10 @@ const SideBarTables = () => {
             variant={"ghost"}
             size={"icon"}
             onClick={handleFetchTables}
-            className="group-hover:visible invisible text-muted-foreground hover:text-foreground"
+            className={cn(
+              "group-hover:visible invisible text-muted-foreground hover:text-foreground",
+              { visible: loading }
+            )}
             title="Reload tables"
           >
             <RotateCwIcon className={cn({ "animate-spin": loading })} />
