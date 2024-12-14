@@ -151,9 +151,9 @@ const Table = ({
       width: 30,
       frozen: true,
       cellClass:
-        "!bg-background hover:!bg-background !rounded-none aria-[selected='true']:outline-none",
+        "!bg-background hover:!bg-background !rounded-none aria-[selected='true']:outline-none border",
       headerCellClass:
-        "bg-muted text-muted-foreground aria-[selected='true']:outline-none",
+        "bg-muted text-muted-foreground aria-[selected='true']:outline-none border",
       renderHeaderCell: ({ column }: any) => {
         const isChecked =
           selectedRows.length === gridRows.length && gridRows.length > 0;
@@ -224,36 +224,36 @@ const Table = ({
     });
   }, [data, sortColumns]);
 
-  const filterComparator = (a: any, b: any, compare: string): boolean => {
-    switch (compare) {
-      case "equals":
-        if (typeof a === "string" && typeof b === "string") {
-          return (
-            a.toLowerCase().includes(b.toLowerCase()) ||
-            b.toLowerCase().includes(a.toLowerCase())
-          ); // Return true if either includes the other
-        }
-        return a === b;
-      case "not equals":
-        if (typeof a === "string" && typeof b === "string") {
-          return !(
-            a.toLowerCase().includes(b.toLowerCase()) ||
-            b.toLowerCase().includes(a.toLowerCase())
-          ); // Return true if either includes the other
-        }
-        return a !== b;
-      case "greater than":
-        return a > b;
-      case "less than":
-        return a < b;
-      case "greater than or equal":
-        return a >= b;
-      case "less than or equal":
-        return a <= b;
-      default:
-        return true; // If no valid compare, return all
-    }
-  };
+  // const filterComparator = (a: any, b: any, compare: string): boolean => {
+  //   switch (compare) {
+  //     case "equals":
+  //       if (typeof a === "string" && typeof b === "string") {
+  //         return (
+  //           a.toLowerCase().includes(b.toLowerCase()) ||
+  //           b.toLowerCase().includes(a.toLowerCase())
+  //         ); // Return true if either includes the other
+  //       }
+  //       return a === b;
+  //     case "not equals":
+  //       if (typeof a === "string" && typeof b === "string") {
+  //         return !(
+  //           a.toLowerCase().includes(b.toLowerCase()) ||
+  //           b.toLowerCase().includes(a.toLowerCase())
+  //         ); // Return true if either includes the other
+  //       }
+  //       return a !== b;
+  //     case "greater than":
+  //       return a > b;
+  //     case "less than":
+  //       return a < b;
+  //     case "greater than or equal":
+  //       return a >= b;
+  //     case "less than or equal":
+  //       return a <= b;
+  //     default:
+  //       return true; // If no valid compare, return all
+  //   }
+  // };
 
   const handleRowChange = (rows: Row[], changesRows: any) => {
     const rowIndexes = changesRows.indexes;

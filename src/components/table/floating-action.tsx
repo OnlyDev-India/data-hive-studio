@@ -101,6 +101,7 @@ const FloatingActions = ({
               variant={"ghost"}
               className="text-white px-2 hover:bg-red-500/30 hover:text-red-500 h-7"
               onClick={handleDeleteRows}
+              disabled={loading?true:false}
             >
               <Trash2Icon /> Delete
             </Button>
@@ -115,7 +116,7 @@ const FloatingActions = ({
               variant={"ghost"}
               className="text-white px-2 h-7"
               onClick={handleUpdateChanges}
-              disabled={loading === "updating"}
+              disabled={loading?true:false}
             >
               {loading === "updating" ? (
                 <LoaderIcon className="animate-spin" />
@@ -128,6 +129,7 @@ const FloatingActions = ({
               variant={"ghost"}
               className="text-white px-2 h-7"
               onClick={handleDiscardChanges}
+              disabled={loading?true:false}
             >
               <ClipboardXIcon />
               Discard All Changes

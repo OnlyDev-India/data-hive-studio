@@ -147,7 +147,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                     <SelectItem
                       key={column.key}
                       value={column.key}
-                      className="focus:bg-primary/60 cursor-pointer"
+                      className="focus:bg-primary/60 cursor-pointer text-xs"
                     >
                       <p className="flex items-center gap-2">
                         {Icon && <Icon size={14} className="text-yellow-400" />}
@@ -178,7 +178,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                     <SelectItem
                       key={column.key}
                       value={column.key}
-                      className="focus:bg-primary/60 cursor-pointer"
+                      className="focus:bg-primary/60 text-xs cursor-pointer"
                     >
                       {column.value}
                     </SelectItem>
