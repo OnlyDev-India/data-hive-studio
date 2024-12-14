@@ -8,7 +8,7 @@ export const initialFormData = {
         name: "id",
         type: "UUID",
         isNull: false,
-        defaultValue: "",
+        defaultValue: "gen_random_uuid()",
         keyType: "PRIMARY",
         foreignTable: "",
         foreignTableColumn: "",

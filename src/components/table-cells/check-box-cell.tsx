@@ -1,6 +1,6 @@
 import React from "react";
 import { RenderCellProps } from "react-data-grid";
-import { Checkbox } from "../../../ui/checkbox";
+import { Checkbox } from "../ui/checkbox";
 
 interface CheckBoxCellProps extends RenderCellProps<any> {
   name: string;

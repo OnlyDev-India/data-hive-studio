@@ -1,9 +1,9 @@
 import { CustomColumns } from "@/types/table.type";
 import { RenderCellProps } from "react-data-grid";
 import { pgSqlTypes } from "@/types/db.type";
-import InputCell from "@/components/views/newTable/table-cells/input-cell";
-import CheckBoxCell from "@/components/views/newTable/table-cells/check-box-cell";
-import SelectCell from "@/components/views/newTable/table-cells/select-cell";
+import InputCell from "@/components/table-cells/input-cell";
+import CheckBoxCell from "@/components/table-cells/check-box-cell";
+import SelectCell from "@/components/table-cells/select-cell";
 import { useSelector } from "react-redux";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";

@@ -37,7 +37,7 @@ export async function getTablesData(table_name: string) {
     return { data: null, error: "No connection to the database" };
   const { data, error } = await dbConnection.getTablesData(table_name);
 
-  return { data, error };
+  return { data: JSON.stringify(data), error };
 }
 
 export async function getTableRelations(table_name: string) {
@@ -88,4 +88,22 @@ export async function disconnectDb() {
   if (!dbConnection) return false;
   cookies().delete("currentConnection");
   cookies().delete("dbType");
+}
+
+export async function updateTable(
+  tableName: string,
+  data: Array<{
+    oldValue: Record<string, any>;
+    newValue: Record<string, any>;
+  }>
+) {
+  if (!dbConnection) return false;
+  const response = await dbConnection.updateTable(tableName, data);
+  return { ...response, data: JSON.stringify(response.data) };
+}
+
+export async function deleteTableData(tableName: string, data: any[]) {
+  if (!dbConnection) return false;
+  const response = await dbConnection.deleteTableData(tableName, data);
+  return { ...response, data: JSON.stringify(response.data) };
 }

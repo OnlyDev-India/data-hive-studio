@@ -5,4 +5,8 @@ interface FileType {
   code?: string;
   tableName?: string;
   tableData?: any;
+  tableFilter?: {
+    filter:any;
+    applyFilter: boolean;
+  };
 }

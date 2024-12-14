@@ -110,4 +110,16 @@ export class SqliteClient {
   async dropTable(tableName: string) {
     return false as any;
   }
+  async updateTable(
+    tableName: string,
+    data: Array<{
+      oldValue: Record<string, any>;
+      newValue: Record<string, any>;
+    }>
+  ) {
+    return false as any;
+  }
+  async deleteTableData(tableName: string, data: any[]) {
+    return false as any;
+  }
 }

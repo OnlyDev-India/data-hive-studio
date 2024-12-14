@@ -105,7 +105,7 @@ const OpenedFiles = () => {
       // get the whole code from the editor
       const code = editor.getValue();
 
-      dispatch(updateFile({ code }));
+      dispatch(updateFile({ id: currentFile?.id, code }));
     }
   };
 
@@ -133,7 +133,7 @@ const OpenedFiles = () => {
               >
                 <TabsTrigger
                   value={index.toString()}
-                  className="h-full rounded-none pr-0"
+                  className="h-full rounded-none pr-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 >
                   <span className="flex items-center gap-1 text-xs">
                     {Icon && <Icon size={14} className="text-primary" />}

@@ -14,67 +14,82 @@ const TableView = () => {
   );
   const dispatch = useDispatch();
 
-  const fetchData = async () => {
+  const fetchData = async (filter?: { filter: any; applyFilter: boolean }) => {
     setLoading(true);
+    console.log(filter);
+
     const { data } = await getTablesData(currentFile?.tableName || "");
     const { columns } = await getTableColumns(currentFile?.tableName || "");
 
-    if (data) {
-      setData(data); // Set fetched data
-    }
-    if (columns) {
-      setColumns(columns);
-      dispatch(updateFile({ tableData: { columns, rows: data || [] } }));
+    if (columns && data) {
+      dispatch(
+        updateFile({
+          id: currentFile?.id,
+          tableData: { columns, rows: (await JSON.parse(data || "")) || [] },
+        })
+      );
     } // Set fetched columns
+    if (filter?.applyFilter) {
+      dispatch(
+        updateFile({
+          id: currentFile?.id,
+          tableFilter: { filter: filter.filter, applyFilter: false },
+        })
+      );
+    }
     setLoading(false);
   };
 
   useEffect(() => {
     if (currentFile?.tableName) {
       const tableData = currentFile?.tableData;
-      if (!tableData) fetchData();
+      const tableFilter = currentFile?.tableFilter;
+      if (tableFilter?.applyFilter) fetchData(tableFilter);
+      else if (!tableData) fetchData();
       else {
         setData(tableData.rows);
         setColumns(tableData.columns);
       }
     }
-  }, [currentFile?.tableName]);
+  }, [currentFile?.tableName, currentFile?.tableFilter?.applyFilter]);
   // console.log(currentFile);
 
+  useEffect(() => {
+    if (currentFile?.tableName) {
+      const tableData = currentFile?.tableData;
+      if (tableData) {
+        setData(tableData.rows);
+        setColumns(tableData.columns);
+      }
+    }
+  }, [currentFile?.tableData]);
+
   return (
-    <>
-      {loading ? (
-        <div className="h-full w-full flex items-center justify-center gap-2">
-          <LoaderCircleIcon className="animate-spin text-primary" />
-          <p>Fetching...</p>
-        </div>
-      ) : (
-        columns &&
-        data && (
-          <Table
-            data={
-              data?.map((item: any) => {
-                const copiedItem = JSON.parse(JSON.stringify(item));
-                Object.keys(item).forEach((key) => {
-                  if (typeof item[key] === "object")
-                    copiedItem[key] = item[key]?.toString();
-                });
-                return copiedItem;
-              }) || []
-            }
-            columns={columns?.map(
-              (col: { column_name: any; data_type: any; key_type: any }) => ({
-                key: col.column_name,
-                name: col.column_name,
-                data_type: col.data_type,
-                key_type: col.key_type,
-              })
-            )}
-            refetchData={fetchData}
-          />
-        )
-      )}
-    </>
+    columns &&
+    data && (
+      <Table
+        data={
+          data?.map((item: any) => {
+            const copiedItem = JSON.parse(JSON.stringify(item));
+            Object.keys(item).forEach((key) => {
+              if (typeof item[key] === "object")
+                copiedItem[key] = item[key]?.toString();
+            });
+            return copiedItem;
+          }) || []
+        }
+        columns={columns?.map(
+          (col: { column_name: any; data_type: any; key_type: any }) => ({
+            key: col.column_name,
+            name: col.column_name,
+            data_type: col.data_type,
+            key_type: col.key_type,
+          })
+        )}
+        refetchData={fetchData}
+        isFetching={loading}
+      />
+    )
   );
 };
 

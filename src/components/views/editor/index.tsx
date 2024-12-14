@@ -71,7 +71,7 @@ const CodeEditor = ({}: CodeEditorProps) => {
   };
 
   const debounce = useDebouncedCallback((value: string) => {
-    dispatch(updateFile({ code: value }));
+    dispatch(updateFile({ id:currentFile?.id, code: value }));
   }, 300);
 
   const updateCode = (value: string | undefined) => {
