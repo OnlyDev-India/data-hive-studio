@@ -23,6 +23,7 @@ import { useDebouncedCallback } from "@/hooks/debounce";
 import { updateFile } from "@/redux/features/open-files";
 import Lottie from "lottie-react";
 import LoadingAnimation from "@public/loading.json";
+import { FileType } from "@/types/file.type";
 
 interface CodeEditorProps {}
 

@@ -26,6 +26,7 @@ import { executeQuery } from "@/lib/actions/fetch-data";
 import StructureView from "../views/structure";
 import { fetchTables } from "@/redux/features/tables";
 import NewTableView from "../views/newTable";
+import { FileType } from "@/types/file.type";
 
 const tabIcons = {
   table: TableIcon,

@@ -18,14 +18,13 @@ import InputCell from "../table-cells/input-cell";
 import FloatingActions from "./floating-action";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
+import ExportTable from "./export-table";
+import { Row } from "@/types/table.type";
+import { FileType } from "@/types/file.type";
 
 // Define the structure of the data (you can update this based on your actual data)
 interface ColumnProps extends Column<any> {
   data_type?: string;
-}
-
-interface Row {
-  [key: string]: any; // Dynamic data rows
 }
 
 interface TableProps {
@@ -46,15 +45,17 @@ const Table = ({
   // React Data Grid requires columns and rows
   const [gridRows, setGridRows] = useState<Row[]>([]);
   const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
-  const [changedRows, setChangedRows] = useState<{
-    [key: number]: { old: Row; new: Row };
-  }>({});
+  // const [changedRows, setChangedRows] = useState<{
+  //   [key: number]: { old: Row; new: Row };
+  // }>({});
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
 
-  const [isFilter, setIsFilter] = useState<boolean>(false);
   const [filterDivHeight, setFilterDivHeight] = useState<number>(56);
 
-  const { currentFile } = useSelector((state: any) => state.openFiles);
+  const { currentFile }: { currentFile: FileType } = useSelector(
+    (state: any) => state.openFiles
+  );
+  const { changedRows } = currentFile.tableOperations || {};
   const dispatch = useDispatch();
 
   const filterRef = useRef<HTMLDivElement>(null);
@@ -97,7 +98,7 @@ const Table = ({
         cellClass:
           "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border",
         headerCellClass:
-          "bg-muted text-muted-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border",
+          "bg-muted text-muted-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
           <div className="w-full h-full cursor-pointer flex items-center justify-between">
             <p className="flex gap-2">
@@ -154,7 +155,7 @@ const Table = ({
         "!bg-background hover:!bg-background !rounded-none aria-[selected='true']:outline-none border",
       headerCellClass:
         "bg-muted text-muted-foreground aria-[selected='true']:outline-none border",
-      renderHeaderCell: ({ column }: any) => {
+      renderHeaderCell: () => {
         const isChecked =
           selectedRows.length === gridRows.length && gridRows.length > 0;
         const handleCheckedChanges = (checked: boolean) => {
@@ -210,7 +211,7 @@ const Table = ({
     };
 
     return [checkBoxColumn, ...newColumns];
-  }, [columns, sortColumns, selectedRows]);
+  }, [columns, sortColumns, selectedRows, gridRows]);
 
   const sortedData = useMemo((): readonly Row[] => {
     if (sortColumns.length === 0) return data;
@@ -260,7 +261,7 @@ const Table = ({
     const newRow = rows[rowIndexes[0]];
     // console.log({ ...changedRows, [rowIndexes[0]]: row });
     const oldRow = gridRows[rowIndexes[0]];
-    let changedData = { ...changedRows };
+    const changedData = { ...changedRows };
     if (changedData[rowIndexes[0]]?.old) {
       changedData[rowIndexes[0]] = {
         old: changedData[rowIndexes[0]].old,
@@ -281,37 +282,68 @@ const Table = ({
     }
 
     // console.log(changedData);
-
-    setChangedRows(changedData);
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          changedRows: changedData,
+        },
+      })
+    );
     setGridRows(rows);
   };
 
   const handleUpdateChanges = (type: string) => {
     switch (type) {
       case "update":
-        setChangedRows([]);
+        dispatch(
+          updateFile({
+            id: currentFile?.id,
+            tableOperations: {
+              ...currentFile?.tableOperations,
+              changedRows: {},
+            },
+          })
+        );
         return;
       case "delete":
         setSelectedRows([]);
         return;
       default:
-        setChangedRows([]);
+        dispatch(
+          updateFile({
+            id: currentFile?.id,
+            tableOperations: {
+              ...currentFile?.tableOperations,
+              changedRows: {},
+            },
+          })
+        );
         setSelectedRows([]);
         setGridRows(data);
         return;
     }
   };
 
-  useEffect(() => {
-    setGridRows(sortedData as any);
-  }, [sortedData]);
+  const updatedData = useMemo(() => {
+    const changedRows = currentFile?.tableOperations?.changedRows;
+    if (!changedRows) return sortedData;
 
-  useEffect(() => {
-    if (currentFile?.tableFilter) {
-      setIsFilter(true);
+    if (Object.keys(changedRows).length > 0) {
+      const keys = Object.keys(changedRows);
+      const newRows = [...sortedData];
+      keys.forEach((key) => {
+        newRows[+key] = changedRows[+key].new;
+      });
+      return newRows;
     }
-  }, [currentFile?.tableFilter]);
+    return sortedData;
+  }, [sortedData, currentFile?.tableOperations?.changedRows]);
 
+  useEffect(() => {
+    setGridRows(updatedData as any);
+  }, [updatedData, currentFile?.tableName]);
   const updateDivHeight = () => {
     if (filterRef.current) {
       setFilterDivHeight(filterRef.current.offsetHeight || 0);
@@ -320,48 +352,22 @@ const Table = ({
 
   useEffect(() => {
     updateDivHeight();
-    // console.log(currentFile?.tableName, currentFile?.tableFilter);
-
-    if (
-      currentFile?.tableName &&
-      currentFile?.tableFilter?.filter?.length === 0
-    ) {
-      setIsFilter(false);
-    }
   }, [
     currentFile?.tableName,
-    currentFile?.tableFilter?.filter?.length,
+    currentFile?.tableFilter?.filterOpened,
     isFetching,
-    isFilter,
   ]);
 
   const handleIsFilter = () => {
-    setIsFilter(!isFilter);
-    if (!isFilter) {
-      dispatch(
-        updateFile({
-          id: currentFile?.id,
-          tableFilter: {
-            filter: [
-              {
-                column: columns[0],
-                compare: "equals",
-                value: "",
-                separator: "WHERE",
-              },
-            ],
-            applyFilter: false,
-          },
-        })
-      );
-    } else {
-      dispatch(
-        updateFile({
-          id: currentFile?.id,
-          tableFilter: { filter: [], applyFilter: true },
-        })
-      );
-    }
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filterOpened: !currentFile?.tableFilter?.filterOpened,
+        },
+      })
+    );
   };
 
   return (
@@ -409,11 +415,14 @@ const Table = ({
                   <ListFilterIcon />
                   Filter
                 </Button>
+                <ExportTable />
               </div>
             </div>
-            <div className="overflow-auto max-h-40 scrollable-container-gutter">
-              {isFilter && <Filter columns={columns} />}
-            </div>
+            {currentFile?.tableFilter?.filterOpened && (
+              <div className="overflow-auto max-h-40 bg-secondary p-4 scrollable-container-gutter">
+                <Filter columns={columns} />
+              </div>
+            )}
           </div>
           {isFetching ? (
             <div className="h-full w-full flex items-center justify-center gap-2">
@@ -433,11 +442,11 @@ const Table = ({
               }}
             >
               {(selectedRows.length > 0 ||
-                Object.keys(changedRows).length > 0) && (
+                (changedRows && Object.keys(changedRows).length > 0)) && (
                 <FloatingActions
                   selectedRows={selectedRows}
                   changedRows={changedRows}
-                  tableName={currentFile?.tableName}
+                  tableName={currentFile?.tableName || ""}
                   updatedRows={gridRows}
                   handleUpdateTableChanges={handleUpdateChanges}
                 />
@@ -452,7 +461,7 @@ const Table = ({
                 onRowsChange={handleRowChange} // Handling row changes
                 rowClass={(_, rowIndex) => {
                   let classNames = "bg-background ";
-                  if (changedRows[rowIndex]) {
+                  if (changedRows?.[rowIndex]) {
                     classNames += "bg-primary/10 ";
                   }
                   if (selectedRows.includes(rowIndex)) {

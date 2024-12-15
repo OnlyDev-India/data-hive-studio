@@ -1,3 +1,4 @@
+import { FileType } from "@/types/file.type";
 import { createSlice } from "@reduxjs/toolkit";
 
 const initialState: {
@@ -93,7 +94,18 @@ export const openFileSlice = createSlice({
         name: action.payload.table_name,
         type: "table",
         tableName: action.payload.table_name,
-        tableFilter: { filter: [], applyFilter: false },
+        tableFilter: {
+          filter: {
+            oldFilter: [],
+            newFilter: [],
+          },
+          applyFilter: false,
+          filterOpened: false,
+        },
+        tableOperations: {
+          selectedRows: [],
+          changedRows: {},
+        },
       };
       state.openFiles.push(newFile);
       state.currentFile = newFile;

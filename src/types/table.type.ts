@@ -21,3 +21,7 @@ export interface CustomColumns extends Column<any> {
     extraFiled: any
   ) => React.ReactNode;
 }
+
+export interface Row {
+  [key: string]: any; // Dynamic data rows
+}

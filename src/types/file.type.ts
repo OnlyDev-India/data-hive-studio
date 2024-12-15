@@ -1,4 +1,6 @@
-interface FileType {
+import { Row } from "./table.type";
+
+export interface FileType {
   id: string;
   name: string;
   type: "file" | "table" | "structure" | "newTable";
@@ -6,7 +8,15 @@ interface FileType {
   tableName?: string;
   tableData?: any;
   tableFilter?: {
-    filter:any;
+    filter: {
+      oldFilter: any;
+      newFilter: any;
+    };
     applyFilter: boolean;
+    filterOpened: boolean;
+  };
+  tableOperations?: {
+    selectedRows: Row[];
+    changedRows: { [key: number]: { old: Row; new: Row } };
   };
 }

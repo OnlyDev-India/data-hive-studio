@@ -1,9 +1,9 @@
 import { getTableColumns, getTablesData } from "@/lib/actions/fetch-data";
 import { useEffect, useState } from "react";
 import Table from "../../table";
-import { LoaderCircleIcon } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
+import { FileType } from "@/types/file.type";
 
 const TableView = () => {
   const [data, setData] = useState<any[]>([]);
@@ -14,28 +14,64 @@ const TableView = () => {
   );
   const dispatch = useDispatch();
 
-  const fetchData = async (filter?: { filter: any; applyFilter: boolean }) => {
-    setLoading(true);
-    console.log(filter);
+  const fetchData = async () => {
+    if (!currentFile) return;
+    const tableName = currentFile.tableName;
+    if (!tableName) return;
+    const tableFilter = currentFile.tableFilter;
 
-    const { data } = await getTablesData(currentFile?.tableName || "");
-    const { columns } = await getTableColumns(currentFile?.tableName || "");
+    if (tableFilter && tableFilter.applyFilter) {
+      const { filter } = tableFilter;
+      if (!filter) return;
 
-    if (columns && data) {
+      if (JSON.stringify(filter.oldFilter) === JSON.stringify(filter.newFilter))
+        return;
+      setLoading(true);
+
+      const oldFilter = filter.newFilter.filter((item: any) => item.value);
+
+      // All logic will Go here to fetch the data with the query
+
       dispatch(
         updateFile({
           id: currentFile?.id,
-          tableData: { columns, rows: (await JSON.parse(data || "")) || [] },
+          tableFilter: {
+            ...tableFilter,
+            filter: {
+              oldFilter: oldFilter,
+              newFilter: filter.newFilter,
+            },
+            applyFilter: false,
+          },
         })
       );
-    } // Set fetched columns
-    if (filter?.applyFilter) {
-      dispatch(
-        updateFile({
-          id: currentFile?.id,
-          tableFilter: { filter: filter.filter, applyFilter: false },
-        })
-      );
+    } else {
+      // this executes when there is no filter applied
+      setLoading(true);
+      const { data } = await getTablesData(tableName || "");
+      const { columns } = await getTableColumns(tableName || "");
+
+      if (columns && data) {
+        const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
+          const copiedItem = JSON.parse(JSON.stringify(item));
+          Object.keys(item).forEach((key) => {
+            if (typeof item[key] === "object")
+              copiedItem[key] = item[key]?.toString();
+          });
+          return copiedItem;
+        });
+        dispatch(
+          updateFile({
+            id: currentFile?.id,
+            tableData: {
+              columns,
+              rows,
+            },
+          })
+        );
+        setData(rows);
+        setColumns(columns);
+      } // Set fetched columns
     }
     setLoading(false);
   };
@@ -43,9 +79,7 @@ const TableView = () => {
   useEffect(() => {
     if (currentFile?.tableName) {
       const tableData = currentFile?.tableData;
-      const tableFilter = currentFile?.tableFilter;
-      if (tableFilter?.applyFilter) fetchData(tableFilter);
-      else if (!tableData) fetchData();
+      if (!tableData || currentFile?.tableFilter?.applyFilter) fetchData();
       else {
         setData(tableData.rows);
         setColumns(tableData.columns);
@@ -54,30 +88,21 @@ const TableView = () => {
   }, [currentFile?.tableName, currentFile?.tableFilter?.applyFilter]);
   // console.log(currentFile);
 
-  useEffect(() => {
-    if (currentFile?.tableName) {
-      const tableData = currentFile?.tableData;
-      if (tableData) {
-        setData(tableData.rows);
-        setColumns(tableData.columns);
-      }
-    }
-  }, [currentFile?.tableData]);
+  // useEffect(() => {
+  //   if (currentFile?.tableName) {
+  //     const tableData = currentFile?.tableData;
+  //     if (tableData) {
+  //       setData(tableData.rows);
+  //       setColumns(tableData.columns);
+  //     }
+  //   }
+  // }, [currentFile?.tableData?.rows, currentFile?.tableData?.columns]);
 
   return (
     columns &&
     data && (
       <Table
-        data={
-          data?.map((item: any) => {
-            const copiedItem = JSON.parse(JSON.stringify(item));
-            Object.keys(item).forEach((key) => {
-              if (typeof item[key] === "object")
-                copiedItem[key] = item[key]?.toString();
-            });
-            return copiedItem;
-          }) || []
-        }
+        data={data}
         columns={columns?.map(
           (col: { column_name: any; data_type: any; key_type: any }) => ({
             key: col.column_name,

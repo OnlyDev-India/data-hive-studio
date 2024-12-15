@@ -67,8 +67,7 @@ export const columns: CustomColumns[] = [
   {
     key: "foreignTable",
     name: "Foreign Table",
-    renderCell: (props: RenderCellProps<any>) => {
-      const { tables } = useSelector((state: any) => state.tables);
+    customRenderCell: (props: RenderCellProps<any>, { tables }) => {
       return (
         <SelectCell
           {...props}

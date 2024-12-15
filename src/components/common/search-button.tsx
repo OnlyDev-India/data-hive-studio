@@ -18,7 +18,7 @@ export function CommandMenu() {
   // const [tables, setTables] = React.useState<any[]>([]);
   const { tables } = useSelector((state: any) => state.tables);
   const dispatch = useDispatch();
-  let router = useRouter();
+  const router = useRouter();
 
   // React.useEffect(() => {
   //   const fetchTables = async () => {

@@ -99,7 +99,7 @@ const NewTableView = () => {
     return {
       ...column,
       renderCell: (props: RenderCellProps<any>) =>
-        customRenderCell(props, { deleteColumn, getForeignTableFields }),
+        customRenderCell(props, { deleteColumn, getForeignTableFields, tables }),
     };
   });
 

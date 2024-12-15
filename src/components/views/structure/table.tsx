@@ -34,7 +34,7 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         cellClass:
           "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-none bg-popover border-b-4 border-background",
         headerCellClass:
-          "bg-background text-muted-foreground aria-[selected='true']:outline-none",
+          "bg-background text-muted-foreground aria-[selected='true']:outline-none !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
           <div className="w-full h-full cursor-pointer flex items-center justify-between">
             <p className="flex gap-2">
@@ -70,6 +70,7 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         headerRowHeight={50} // Header row height
         rowClass={(_, rowIndex) => {
           let classNames = "bg-background ";
+          classNames += "";//for fixing the bug that classNames is not reassigned
           return classNames;
         }}
         className="fill-grid h-full bg-background react-data-grid"

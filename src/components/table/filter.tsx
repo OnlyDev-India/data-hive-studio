@@ -48,7 +48,14 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
     dispatch(
       updateFile({
         id: currentFile?.id,
-        tableFilter: { filter: filterValues, applyFilter: false },
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filter: {
+            oldFilter: currentFile?.tableFilter?.filter?.oldFilter,
+            newFilter: updatedFilter,
+          },
+          applyFilter: false,
+        },
       })
     );
   };
@@ -60,7 +67,14 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
     dispatch(
       updateFile({
         id: currentFile?.id,
-        tableFilter: { filter: addedFilter, applyFilter: false },
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filter: {
+            oldFilter: currentFile?.tableFilter?.filter?.oldFilter,
+            newFilter: addedFilter,
+          },
+          applyFilter: false,
+        },
       })
     );
   };
@@ -72,29 +86,65 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
     dispatch(
       updateFile({
         id: currentFile?.id,
-        tableFilter: { filter: removedFilter, applyFilter: false },
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filter: {
+            oldFilter: currentFile?.tableFilter?.filter?.oldFilter,
+            newFilter: removedFilter,
+          },
+          applyFilter: false,
+        },
       })
     );
   };
 
-  const handleApplyFilter = () => {
+  const handleApplyFilters = () => {
     // console.log(filterValues);
     dispatch(
       updateFile({
         id: currentFile?.id,
-        tableFilter: { filter: filterValues, applyFilter: true },
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filter: {
+            oldFilter: currentFile?.tableFilter?.filter?.oldFilter,
+            newFilter: filterValues,
+          },
+          applyFilter: true,
+        },
+      })
+    );
+  };
+
+  const handleRemoveFilters = () => {
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filter: {
+            oldFilter: [],
+            newFilter: [initialFilter],
+          },
+          applyFilter: true,
+        },
       })
     );
   };
 
   useEffect(() => {
-    if (currentFile?.tableName)
-      setFilterValues(currentFile?.tableFilter?.filter || [initialFilter]);
-  }, [currentFile?.tableName, currentFile?.tableFilter?.filter]);
+    
+    if (currentFile?.tableName) {
+      if (currentFile?.tableFilter?.filter?.oldFilter?.length > 0) {
+        setFilterValues(currentFile?.tableFilter?.filter?.oldFilter);
+      } else {
+        setFilterValues([initialFilter]);
+      }
+    }
+  }, [currentFile?.tableName, currentFile?.tableFilter?.filter?.oldFilter]);
 
   return (
-    <div className="flex-1 flex gap-2 bg-secondary p-4">
-      <div className="flex-1 flex flex-col gap-2 bg-secondary">
+    <div className="flex-1 flex gap-2">
+      <div className="flex-1 flex flex-col gap-2">
         {filterValues.map((filterValue: any, index: number) => (
           <div key={index} className="flex gap-2 items-center">
             <Select
@@ -213,14 +263,23 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           </div>
         ))}
       </div>
-      <div className="h-8 flex items-center">
+      <div className="h-8 flex items-center gap-2">
         <Button
           variant={"outline"}
           className="h-7 px-2 bg-primary hover:bg-primary/70 border-border [&_svg]:size-3"
-          onClick={handleApplyFilter}
+          onClick={handleApplyFilters}
         >
-          Apply Filter
+          Apply
         </Button>
+        {currentFile?.tableFilter?.filter?.oldFilter?.length > 0 && (
+          <Button
+            variant={"outline"}
+            className="h-7 px-2 border-border [&_svg]:size-3"
+            onClick={handleRemoveFilters}
+          >
+            Clear
+          </Button>
+        )}
       </div>
     </div>
   );
