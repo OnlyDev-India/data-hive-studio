@@ -55,6 +55,8 @@ const FloatingActions = ({
           },
         })
       );
+    }else if(response.updateError){
+      toast.error(response.updateError);
     }
 
     setLoading(null);

@@ -88,15 +88,15 @@ const TableView = () => {
   }, [currentFile?.tableName, currentFile?.tableFilter?.applyFilter]);
   // console.log(currentFile);
 
-  // useEffect(() => {
-  //   if (currentFile?.tableName) {
-  //     const tableData = currentFile?.tableData;
-  //     if (tableData) {
-  //       setData(tableData.rows);
-  //       setColumns(tableData.columns);
-  //     }
-  //   }
-  // }, [currentFile?.tableData?.rows, currentFile?.tableData?.columns]);
+  useEffect(() => {
+    if (currentFile?.tableName) {
+      const tableData = currentFile?.tableData;
+      if (tableData) {
+        setData(tableData.rows);
+        setColumns(tableData.columns);
+      }
+    }
+  }, [currentFile?.tableData?.rows, currentFile?.tableData?.columns]);
 
   return (
     columns &&

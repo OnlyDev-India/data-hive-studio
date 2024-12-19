@@ -126,6 +126,7 @@ export class PostgresClient {
       return { data: null, error: error.message };
     }
   }
+
   async getTableColumns(tableName: string): Promise<{ columns: any | null }> {
     if (!this.conn.pool) {
       return { columns: null };
@@ -339,9 +340,9 @@ export class PostgresClient {
     if (!this.conn.pool)
       return {
         data: null,
-        message: null,
-        isTableEffected: false,
-        error: "Invalid inputs",
+        effectedRows: null,
+        updatedError: "Invalid inputs",
+        fetchError: "Invalid inputs",
       };
 
     // return query;
@@ -356,9 +357,9 @@ export class PostgresClient {
     }
     return {
       data: null,
-      message: null,
-      isTableEffected: false,
-      error: "",
+      effectedRows: null,
+      updatedError: "Invalid inputs",
+      fetchError: "Invalid inputs",
     };
   }
 
@@ -441,10 +442,15 @@ export class PostgresClient {
 
     return queries.join("\n");
   }
-
+  
   formatValue(value: any): string {
     if (value === null) return "NULL";
     if (typeof value === "string") {
+      // Check if the string can be converted to a number
+      const numberValue = Number(value);
+      if (!isNaN(numberValue)) {
+        return numberValue.toString(); // Return as integer
+      }
       // Check if the string can be parsed as a date
       const parsedDate = Date.parse(value);
       if (!isNaN(parsedDate)) {
