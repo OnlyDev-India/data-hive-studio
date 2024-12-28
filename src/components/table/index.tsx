@@ -52,7 +52,7 @@ const Table = ({
   const [gridRows, setGridRows] = useState<Row[]>([]);
   const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
   // const [selectedRows, setSelectedRows] = useState<number[]>([]);
-  const [isNewRows, setIsNewRows] = useState<boolean>(false);
+  // const [isNewRows, setIsNewRows] = useState<boolean>(false);
 
   const [filterDivHeight, setFilterDivHeight] = useState<number>(56);
 
@@ -115,7 +115,7 @@ const Table = ({
         },
       })
     );
-    setIsNewRows(true);
+    // setIsNewRows(true);
   };
 
   const handleRemoveNewRecord = (rowIdx?: number) => {
@@ -393,7 +393,7 @@ const Table = ({
   };
 
   const handleResetChanges = () => {
-    let restoredRows = JSON.parse(JSON.stringify(data)).filter((row:any)=>!row.isNew);
+    const restoredRows = JSON.parse(JSON.stringify(data)).filter((row:any)=>!row.isNew);
 
     if (changedRows) {
       Object.entries(changedRows).forEach(([index, change]: [string, any]) => {
