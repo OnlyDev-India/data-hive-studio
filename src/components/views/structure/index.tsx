@@ -22,7 +22,7 @@ const StructureView = () => {
     const { data } = await getTableRelations(currentFile.tableName);
 
     if (columns && data) {
-      dispatch(updateFile({ tableData: { columns, relations: data } }));
+      dispatch(updateFile({ id: currentFile?.id, tableData: { columns, relations: data } }));
     }
     setLoading(false);
   };

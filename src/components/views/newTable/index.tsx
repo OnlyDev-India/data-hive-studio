@@ -99,7 +99,7 @@ const NewTableView = () => {
     return {
       ...column,
       renderCell: (props: RenderCellProps<any>) =>
-        customRenderCell(props, { deleteColumn, getForeignTableFields }),
+        customRenderCell(props, { deleteColumn, getForeignTableFields, tables }),
     };
   });
 
@@ -119,7 +119,7 @@ const NewTableView = () => {
     const dbType = cookies["dbType"];
     const initialData = initialFormData[dbType as keyof typeof initialFormData];
     setFormData(initialData as TableForm);
-    dispatch(updateFile({ tableData: initialData }));
+    dispatch(updateFile({ id: currentFile?.id, tableData: initialData }));
   };
 
   useEffect(() => {
@@ -160,7 +160,7 @@ const NewTableView = () => {
       ],
     };
     setFormData(updatedFormData as any);
-    dispatch(updateFile({ tableData: updatedFormData }));
+    dispatch(updateFile({ id: currentFile?.id, tableData: updatedFormData }));
   };
 
   const deleteColumn = (index: number) => {
@@ -169,13 +169,13 @@ const NewTableView = () => {
       columns: formData?.columns?.filter((_, i) => i !== index),
     };
     setFormData(updatedFormData as any);
-    dispatch(updateFile({ tableData: updatedFormData }));
+    dispatch(updateFile({ id: currentFile?.id, tableData: updatedFormData }));
   };
 
   const handleDataChange = (rows: any[]) => {
     const updatedFormData = { ...formData, columns: rows };
     setFormData(updatedFormData as any);
-    dispatch(updateFile({ tableData: updatedFormData }));
+    dispatch(updateFile({ id: currentFile?.id, tableData: updatedFormData }));
   };
 
   const getForeignTableFields = (rowIdx: number) => {

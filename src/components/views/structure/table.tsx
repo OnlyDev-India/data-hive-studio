@@ -3,8 +3,6 @@
 import { useMemo } from "react";
 import ReactDataGrid, { Column } from "react-data-grid";
 import "react-data-grid/lib/styles.css";
-import "@/styles/table.css";
-
 import { cn } from "@/lib/utils";
 
 // Define the structure of the data (you can update this based on your actual data)
@@ -33,6 +31,10 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         ...column,
         width: 200,
         resizable: true,
+        cellClass:
+          "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-none bg-popover border-b-4 border-background",
+        headerCellClass:
+          "bg-background text-muted-foreground aria-[selected='true']:outline-none !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
           <div className="w-full h-full cursor-pointer flex items-center justify-between">
             <p className="flex gap-2">
@@ -66,7 +68,11 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         rows={data} // Dynamically set rows
         rowHeight={40} // Row height
         headerRowHeight={50} // Header row height
-        // onRowsChange={(newRows) => } // Handling row changes
+        rowClass={(_, rowIndex) => {
+          let classNames = "bg-background ";
+          classNames += "";//for fixing the bug that classNames is not reassigned
+          return classNames;
+        }}
         className="fill-grid h-full bg-background react-data-grid"
       />
     </div>

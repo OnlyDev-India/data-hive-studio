@@ -6,15 +6,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../../ui/select";
+} from "../ui/select";
 import { cn } from "@/lib/utils";
-import { Input } from "../../../ui/input";
+import { Input } from "../ui/input";
 import { useState } from "react";
 
 interface SelectCellProps extends RenderCellProps<any> {
   name: string;
   items: { label: string; value: string | null }[];
   disabled?: boolean;
+  className?: string;
 }
 
 const SelectCell = ({
@@ -22,21 +23,32 @@ const SelectCell = ({
   onRowChange,
   name,
   items,
+  className,
   disabled = false,
 }: SelectCellProps) => {
   const [search, setSearch] = useState("");
-  const value = row[name]?.trim();
+  const value =
+    typeof row[name] === "string" ? row[name]?.trim() : row[name]?.toString();
 
   return (
     <Select
       value={value}
-      onValueChange={(value) => onRowChange({ ...row, [name]: value })}
+      onValueChange={(value) =>
+        onRowChange({
+          ...row,
+          [name]: value === "true" ? true : value === "false" ? false : value,
+        })
+      }
     >
       <SelectTrigger
         disabled={disabled}
-        className={cn("focus:outline-none focus:ring-0 border-0 p-0", {
-          "[&_span]:text-muted-foreground": value === "" || !value,
-        })}
+        className={cn(
+          "focus:outline-none focus:ring-0 border-0 p-0",
+          {
+            "[&_span]:text-muted-foreground": value === "" || !value,
+          },
+          className
+        )}
       >
         <SelectValue placeholder={"(null)"} />
       </SelectTrigger>
@@ -52,7 +64,7 @@ const SelectCell = ({
             item.label.toLowerCase().includes(search.toLowerCase())
           )
           .map((item, index) => (
-            <SelectItem key={index} value={item.value || " "}>
+            <SelectItem key={index} value={item.value?.toString() || " "}>
               {item.label}
             </SelectItem>
           ))}

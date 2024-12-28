@@ -1,21 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import ReactDataGrid, { Column, SortColumn } from "react-data-grid";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactDataGrid, {
+  Column,
+  RenderCellProps,
+  SortColumn,
+} from "react-data-grid";
 import "react-data-grid/lib/styles.css";
-import "@/styles/table.css";
 import Filter from "./filter";
 import { Button } from "../ui/button";
-import { RefreshCcwIcon } from "lucide-react";
+import {
+  ListFilterIcon,
+  LoaderCircleIcon,
+  PlusIcon,
+  RefreshCcwIcon,
+  XIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import ForeignKeyCells from "../table-cells/foreign-key-cells";
+import { Checkbox } from "../ui/checkbox";
+import SelectCell from "../table-cells/select-cell";
+import InputCell from "../table-cells/input-cell";
+import FloatingActions from "./floating-action";
+import { useDispatch, useSelector } from "react-redux";
+import { updateFile } from "@/redux/features/open-files";
+import ExportTable from "./export-table";
+import { Row } from "@/types/table.type";
+import { FileType } from "@/types/file.type";
 
 // Define the structure of the data (you can update this based on your actual data)
 interface ColumnProps extends Column<any> {
   data_type?: string;
-}
-
-interface Row {
-  [key: string]: any; // Dynamic data rows
 }
 
 interface TableProps {
@@ -23,17 +38,37 @@ interface TableProps {
   data: Row[];
   refetchData?: () => void;
   isSmall?: boolean;
+  isFetching?: boolean;
 }
 
-const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
+const Table = ({
+  columns,
+  data,
+  refetchData,
+  isSmall,
+  isFetching,
+}: TableProps) => {
   // React Data Grid requires columns and rows
-  // const [gridRows, setGridRows] = useState<Row[]>([]);
+  const [gridRows, setGridRows] = useState<Row[]>([]);
   const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
-  const [filterValue, setFilterValue] = useState<{
-    column: ColumnProps | null;
-    value: any;
-    compare: any;
-  }>({ column: null, value: "", compare: null });
+  // const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  const [isNewRows, setIsNewRows] = useState<boolean>(false);
+
+  const [filterDivHeight, setFilterDivHeight] = useState<number>(56);
+
+  const { currentFile }: { currentFile: FileType } = useSelector(
+    (state: any) => state.openFiles
+  );
+  const { changedRows, insertedRows, selectedRows } =
+    currentFile.tableOperations || {};
+  const dispatch = useDispatch();
+
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  const isFloatingActionsVisible =
+    (selectedRows && selectedRows.length > 0) ||
+    (changedRows && Object.keys(changedRows).length > 0) ||
+    (insertedRows ? insertedRows > 0 : false);
 
   const comparator = (a: Row, b: Row): number => {
     for (const sort of sortColumns) {
@@ -61,8 +96,66 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
     return 0; // Equal values
   };
 
+  const handleAddRecord = () => {
+    const newRow: any = {};
+    Object.keys(data[0]).forEach((key) => {
+      newRow[key] = "";
+    });
+    newRow["isNew"] = true;
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: [newRow, ...gridRows],
+        },
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          insertedRows: gridRows.filter((row) => row.isNew)?.length + 1,
+        },
+      })
+    );
+    setIsNewRows(true);
+  };
+
+  const handleRemoveNewRecord = (rowIdx?: number) => {
+    let newRows;
+
+    if (rowIdx === 0 || rowIdx) {
+      newRows = gridRows.filter((_, index) => index !== rowIdx);
+    } else {
+      newRows = gridRows.filter((row) => !row.isNew);
+    }
+
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: newRows,
+        },
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          insertedRows: newRows.filter((row) => row.isNew)?.length,
+        },
+      })
+    );
+  };
+
+  const setSelectedRows = (selectRows: number[]) => {
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          selectedRows: selectRows,
+        },
+      })
+    );
+  };
+
   const updatedColumns: Column<any>[] = useMemo(() => {
-    return columns.map((column) => {
+    const newColumns = columns.map((column) => {
       const data_type = column.data_type;
 
       return {
@@ -70,6 +163,18 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         width: 200,
         resizable: true,
         sortable: true,
+        cellClass: (row: any) => {
+          return cn(
+            "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border" +
+              ` ${
+                row.isNew
+                  ? "aria-[selected='false']:text-yellow-800 aria-[selected='true']:bg-background"
+                  : ""
+              }`
+          );
+        },
+        headerCellClass:
+          "bg-muted text-muted-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
           <div className="w-full h-full cursor-pointer flex items-center justify-between">
             <p className="flex gap-2">
@@ -86,20 +191,118 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
             </span>
           </div>
         ),
-        renderCell: ({ row }: any) => {
+        renderCell: (props: any) => {
+          const { row, column } = props;
+          if (column.key_type === "FOREIGN KEY") {
+            return <ForeignKeyCells {...props} disabled={false} />;
+          }
+          if (column.data_type === "boolean") {
+            return (
+              <SelectCell
+                name={column.key}
+                className="px-3"
+                {...props}
+                items={[
+                  { label: "true", value: true },
+                  { label: "false", value: false },
+                ]}
+              />
+            );
+          }
+          // console.log(isValidDate(props.row.createdAt));
+
           return (
-            <span
-              className={cn("w-full pl-2 truncate", {
-                "text-muted-foreground": !row[column.key],
-              })}
-            >
-              {!row[column.key] ? "null" : row[column.key]?.toString()}
-            </span>
+            <InputCell
+              name={column.key}
+              {...props}
+              className="px-3 !border-0"
+            />
           );
         },
       };
     });
-  }, [columns, sortColumns]);
+
+    const checkBoxColumn: Column<any> = {
+      key: "checkbox",
+      name: "CheckBox",
+      width: 30,
+      frozen: true,
+      cellClass:
+        "!bg-background hover:!bg-background !rounded-none aria-[selected='true']:outline-none border",
+      headerCellClass:
+        "bg-muted text-muted-foreground aria-[selected='true']:outline-none border",
+      renderHeaderCell: () => {
+        const isChecked =
+          selectedRows &&
+          selectedRows.length === gridRows.length &&
+          gridRows.length > 0;
+        const handleCheckedChanges = (checked: boolean) => {
+          if (checked) {
+            setSelectedRows(gridRows.map((_, index) => index));
+          } else {
+            setSelectedRows([]);
+          }
+        };
+        return (
+          <div className="w-full group flex items-center justify-center">
+            <Checkbox
+              checked={isChecked}
+              className={cn("invisible group-hover:visible", {
+                visible: selectedRows && selectedRows.length > 0,
+              })}
+              onCheckedChange={handleCheckedChanges}
+            />
+          </div>
+        );
+      },
+      renderCell: ({ row, rowIdx }: RenderCellProps<any>) => {
+        const selectedRowsSet = new Set(selectedRows);
+        const selectedRowsArray = Array.from(selectedRowsSet);
+        const handleCheckedChanges = (checked: boolean) => {
+          if (checked) {
+            selectedRowsArray.push(rowIdx);
+            setSelectedRows(selectedRowsArray);
+          } else {
+            selectedRowsArray.splice(selectedRowsArray.indexOf(rowIdx), 1);
+            setSelectedRows(selectedRowsArray);
+          }
+        };
+        return (
+          <div className="w-full h-full group flex items-center justify-center">
+            {row.isNew ? (
+              <Button
+                variant="ghost"
+                size={"icon"}
+                className="p-0 h-full w-full [&_svg]:size-3"
+                onClick={() => handleRemoveNewRecord(rowIdx)}
+              >
+                <XIcon />
+              </Button>
+            ) : (
+              <>
+                <Checkbox
+                  checked={selectedRowsArray.includes(rowIdx)}
+                  onCheckedChange={handleCheckedChanges}
+                  className={cn("hidden group-hover:inline-block", {
+                    "inline-block": selectedRowsArray.length > 0,
+                  })}
+                />
+                <p
+                  className={cn("group-hover:hidden inline-block", {
+                    hidden: selectedRowsArray.length > 0,
+                  })}
+                >
+                  {rowIdx + 1}
+                </p>
+              </>
+            )}
+          </div>
+        );
+      },
+    };
+
+    return [checkBoxColumn, ...newColumns];
+  }, [columns, sortColumns, selectedRows, gridRows]);
 
   const sortedData = useMemo((): readonly Row[] => {
     if (sortColumns.length === 0) return data;
@@ -113,87 +316,287 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
     });
   }, [data, sortColumns]);
 
-  const filterComparator = (a: any, b: any, compare: string): boolean => {
-    switch (compare) {
-      case "equals":
-        if (typeof a === "string" && typeof b === "string") {
-          return (
-            a.toLowerCase().includes(b.toLowerCase()) ||
-            b.toLowerCase().includes(a.toLowerCase())
-          ); // Return true if either includes the other
-        }
-        return a === b;
-      case "not equals":
-        if (typeof a === "string" && typeof b === "string") {
-          return !(
-            a.toLowerCase().includes(b.toLowerCase()) ||
-            b.toLowerCase().includes(a.toLowerCase())
-          ); // Return true if either includes the other
-        }
-        return a !== b;
-      case "greater than":
-        return a > b;
-      case "less than":
-        return a < b;
-      case "greater than or equal":
-        return a >= b;
-      case "less than or equal":
-        return a <= b;
+  // const filterComparator = (a: any, b: any, compare: string): boolean => {
+  //   switch (compare) {
+  //     case "equals":
+  //       if (typeof a === "string" && typeof b === "string") {
+  //         return (
+  //           a.toLowerCase().includes(b.toLowerCase()) ||
+  //           b.toLowerCase().includes(a.toLowerCase())
+  //         ); // Return true if either includes the other
+  //       }
+  //       return a === b;
+  //     case "not equals":
+  //       if (typeof a === "string" && typeof b === "string") {
+  //         return !(
+  //           a.toLowerCase().includes(b.toLowerCase()) ||
+  //           b.toLowerCase().includes(a.toLowerCase())
+  //         ); // Return true if either includes the other
+  //       }
+  //       return a !== b;
+  //     case "greater than":
+  //       return a > b;
+  //     case "less than":
+  //       return a < b;
+  //     case "greater than or equal":
+  //       return a >= b;
+  //     case "less than or equal":
+  //       return a <= b;
+  //     default:
+  //       return true; // If no valid compare, return all
+  //   }
+  // };
+
+  const handleRowChange = (rows: Row[], changesRows: any) => {
+    const rowIndexes = changesRows.indexes;
+    const newRow = rows[rowIndexes[0]];
+    // console.log({ ...changedRows, [rowIndexes[0]]: row });
+    const oldRow = gridRows[rowIndexes[0]];
+    const changedData = { ...changedRows };
+    if (newRow.isNew) {
+      // return;
+    } else if (changedData[rowIndexes[0]]?.old) {
+      changedData[rowIndexes[0]] = {
+        old: changedData[rowIndexes[0]].old,
+        new: newRow,
+      };
+    } else {
+      changedData[rowIndexes[0]] = {
+        old: oldRow,
+        new: newRow,
+      };
+    }
+
+    if (
+      !newRow.isNew &&
+      JSON.stringify(changedData[rowIndexes[0]].old) ===
+        JSON.stringify(changedData[rowIndexes[0]].new)
+    ) {
+      delete changedData[rowIndexes[0]];
+    }
+
+    // console.log(changedData);
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: rows,
+        },
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          changedRows: changedData,
+        },
+      })
+    );
+    // setGridRows(rows);
+  };
+
+  const handleResetChanges = () => {
+    let restoredRows = JSON.parse(JSON.stringify(data)).filter((row:any)=>!row.isNew);
+
+    if (changedRows) {
+      Object.entries(changedRows).forEach(([index, change]: [string, any]) => {
+        restoredRows[parseInt(index)] = change.old;
+      });
+    }
+
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: restoredRows,
+        },
+        tableOperations: {
+          changedRows: {},
+          insertedRows: 0,
+          selectedRows: [],
+        },
+      })
+    );
+  };
+
+  const handleUpdateChanges = (type: string) => {
+    switch (type) {
+      case "update":
+        dispatch(
+          updateFile({
+            id: currentFile?.id,
+            tableOperations: {
+              ...currentFile?.tableOperations,
+              changedRows: {},
+            },
+          })
+        );
+        return;
+      case "delete":
+        setSelectedRows([]);
+        return;
       default:
-        return true; // If no valid compare, return all
+        handleResetChanges();
+        // setGridRows(data);
+        return;
     }
   };
 
-  const filterData = useMemo(() => {
-    const filterColumn = filterValue.column;
-    const filterValueValue = filterValue.value;
-    const filterCompare = filterValue.compare;
-    if (!filterColumn || !filterCompare || filterValueValue === "")
-      return sortedData;
+  const updatedData = useMemo(() => {
+    const changedRows = currentFile?.tableOperations?.changedRows;
+    if (!changedRows) return sortedData;
 
-    // based on filterCompare compare values from sortedData and // Implement filtering based on the selected compare
-    return sortedData.filter((row) => {
-      const value = row[filterColumn.key];
-      return filterComparator(value, filterValueValue, filterCompare);
-    });
-  }, [sortedData, filterValue]);
+    if (Object.keys(changedRows).length > 0) {
+      const keys = Object.keys(changedRows);
+      const newRows = [...sortedData];
+      keys.forEach((key) => {
+        newRows[+key] = changedRows[+key].new;
+      });
+      return newRows;
+    }
+    return sortedData;
+  }, [sortedData, currentFile?.tableOperations?.changedRows]);
+
+  useEffect(() => {
+    setGridRows(updatedData as any);
+  }, [updatedData, currentFile?.tableName]);
+  const updateDivHeight = () => {
+    if (filterRef.current) {
+      setFilterDivHeight(filterRef.current.offsetHeight || 0);
+    }
+  };
+
+  useEffect(() => {
+    updateDivHeight();
+  }, [
+    currentFile?.tableName,
+    currentFile?.tableFilter?.filterOpened,
+    isFetching,
+  ]);
+
+  const handleIsFilter = () => {
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableFilter: {
+          ...currentFile?.tableFilter,
+          filterOpened: !currentFile?.tableFilter?.filterOpened,
+        },
+      })
+    );
+  };
 
   return (
     <div
-      className={cn("h-[calc(100vh-3rem)] px-2", {
+      className={cn("h-[calc(100vh-3rem)] px-0", {
         "h-[calc(100%-2.3rem)]": isSmall,
       })}
     >
-      {!columns || columns?.length === 0 ? (
+      {!isFetching && (!columns || columns?.length === 0) ? (
         <div className="h-full flex items-center justify-center">
           <p className="text-muted-foreground">No data found</p>
         </div>
       ) : (
         <>
-          <div className="h-10 flex items-center gap-2">
-            {refetchData && (
-              <Button variant={"secondary"} size={"icon"} onClick={refetchData}>
-                <RefreshCcwIcon />
-              </Button>
+          <div className="py-2" ref={filterRef}>
+            <div className="h-10 flex items-center justify-between gap-2 px-4">
+              <div>
+                {isFetching ? (
+                  <LoaderCircleIcon
+                    className="animate-spin text-muted-foreground"
+                    size={12}
+                  />
+                ) : (
+                  <span className="text-muted-foreground text-xs">
+                    {gridRows.length} row{gridRows.length > 0 && "s"}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={"outline"}
+                  onClick={handleAddRecord}
+                  className="h-7 px-2 border-border [&_svg]:size-3"
+                >
+                  <PlusIcon />
+                  Add Record
+                </Button>
+                <Button
+                  variant={"outline"}
+                  onClick={handleIsFilter}
+                  className="h-7 px-2 border-border [&_svg]:size-3"
+                >
+                  <ListFilterIcon />
+                  Filter
+                </Button>
+                {refetchData && (
+                  <Button
+                    variant={"outline"}
+                    size={"icon"}
+                    onClick={refetchData}
+                    className="h-7 w-7 border-border [&_svg]:size-3"
+                  >
+                    <RefreshCcwIcon />
+                  </Button>
+                )}
+                <ExportTable />
+              </div>
+            </div>
+            {currentFile?.tableFilter?.filterOpened && (
+              <div className="overflow-auto max-h-40 bg-secondary p-4 scrollable-container-gutter">
+                <Filter columns={columns} />
+              </div>
             )}
-            <Filter columns={columns} setFilter={setFilterValue} />
           </div>
-          <div
-            className={cn("h-[calc(100vh-5.5rem)]", {
-              "h-[calc(100%-2.3rem)]": isSmall,
-            })}
-          >
-            <ReactDataGrid
-              columns={updatedColumns} // Dynamically set columns
-              rows={filterData} // Dynamically set rows
-              rowHeight={40} // Row height
-              headerRowHeight={50} // Header row height
-              sortColumns={sortColumns}
-              onSortColumnsChange={setSortColumns}
-              // onRowsChange={(newRows) => } // Handling row changes
-              className="fill-grid h-full bg-background react-data-grid"
-            />
-          </div>
+          {isFetching ? (
+            <div className="h-full w-full flex items-center justify-center gap-2">
+              <LoaderCircleIcon className="animate-spin text-primary" />
+              <p>Fetching...</p>
+            </div>
+          ) : (
+            <div
+              style={{
+                height: isSmall
+                  ? `calc(100% - ${
+                      filterDivHeight ? filterDivHeight + "px" : "2.3rem"
+                    })`
+                  : `calc(100vh - ${
+                      filterDivHeight ? filterDivHeight + 42 + "px" : "5.5rem"
+                    })`,
+              }}
+            >
+              {isFloatingActionsVisible && (
+                <FloatingActions
+                  selectedRows={selectedRows}
+                  changedRows={changedRows}
+                  tableName={currentFile?.tableName || ""}
+                  updatedRows={gridRows}
+                  handleUpdateTableChanges={handleUpdateChanges}
+                />
+              )}
+              <ReactDataGrid
+                columns={updatedColumns} // Dynamically set columns
+                rows={gridRows} // Dynamically set rows
+                rowHeight={30} // Row height
+                headerRowHeight={40} // Header row height
+                sortColumns={sortColumns}
+                onSortColumnsChange={setSortColumns}
+                onRowsChange={handleRowChange} // Handling row changes
+                rowClass={(row, rowIndex) => {
+                  let classNames = "bg-background ";
+                  if (changedRows?.[rowIndex]) {
+                    classNames += "bg-primary/10 ";
+                  }
+                  if (selectedRows && selectedRows.includes(rowIndex)) {
+                    classNames += "bg-destructive/20 ";
+                  }
+                  if (row.isNew) {
+                    classNames += "bg-yellow-100 ";
+                  }
+                  return classNames;
+                }}
+                className="fill-grid h-full bg-background react-data-grid"
+              />
+            </div>
+          )}
         </>
       )}
     </div>

@@ -22,7 +22,7 @@ const SubSideBar = async () => {
 
   return (
     <div className="bg-secondary h-full px-1 overflow-auto relative">
-      <div className="h-10 flex items-center gap-2 border-b-2 py-2 bg-secondary shadow-md z-10">
+      {/* <div className="h-10 flex items-center gap-2 border-b-2 py-2 bg-secondary shadow-md z-10">
         <div
           className={cn("h-2 w-2 rounded-full bg-green-500", {
             "bg-red-400": !isDbConnected,
@@ -31,8 +31,8 @@ const SubSideBar = async () => {
         <p className="text-foreground">
           {isDbConnected ? "Connected" : "Not Connected"}
         </p>
-      </div>
-      <div className="h-[calc(100%-2.5rem)] overflow-auto scrollable-container-gutter pb-4">
+      </div> */}
+      <div className="h-[100%] overflow-auto scrollable-container-gutter pb-4">
         <SideBarTables />
       </div>
     </div>

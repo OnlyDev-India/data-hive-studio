@@ -1,10 +1,5 @@
-import {
-  Client,
-  FieldDef,
-  Pool,
-  types,
-  QueryResult as PgQueryResult,
-} from "pg";
+import { FilterType } from "@/types/table.type";
+import { Client, Pool, types } from "pg";
 import { identify } from "sql-query-identifier";
 
 export class PostgresClient {
@@ -103,7 +98,8 @@ export class PostgresClient {
   }
 
   async getTablesData(
-    tableName: string
+    tableName: string,
+    filters?: FilterType[]
   ): Promise<{ data: any; error: string | null }> {
     if (!this.conn.pool) {
       return { data: null, error: "No connection to the database" };
@@ -111,10 +107,15 @@ export class PostgresClient {
 
     try {
       // Query to retrieve table names, column names, and their data types from the 'public' schema
+      let whereQuery = "";
+      if (filters) {
+        whereQuery = this.generateWhereQuery(filters) || "";
+      }
 
       const query = `
                 SELECT *
-                FROM public."${tableName}";
+                FROM "${tableName}"
+                ${whereQuery};
             `;
 
       // Execute the query
@@ -126,6 +127,7 @@ export class PostgresClient {
       return { data: null, error: error.message };
     }
   }
+
   async getTableColumns(tableName: string): Promise<{ columns: any | null }> {
     if (!this.conn.pool) {
       return { columns: null };
@@ -254,6 +256,7 @@ export class PostgresClient {
         data: null,
         message: null,
         isTableEffected: false,
+        effectedRows: 0,
         error: "No connection to the database",
       };
     }
@@ -268,10 +271,15 @@ export class PostgresClient {
         commands.filter((item) => item !== "SELECT").length > 0;
 
       if (Array.isArray(result)) {
+        const totalRowCount = result.reduce(
+          (sum, res) => sum + res.rowCount,
+          0
+        );
         return {
           data: { rows: [], columns: [] },
           message: result.length + " Query executed successfully",
           isTableEffected,
+          effectedRows: totalRowCount,
           error: null,
         };
       }
@@ -295,6 +303,7 @@ export class PostgresClient {
         data: { rows: result.rows, columns: columns || [] },
         message: null,
         isTableEffected,
+        effectedRows: result.rowCount || 0,
         error: null,
       };
     } catch (error: any) {
@@ -303,6 +312,7 @@ export class PostgresClient {
         data: null,
         message: null,
         isTableEffected: false,
+        effectedRows: 0,
         error: error.message,
       };
     }
@@ -318,5 +328,262 @@ export class PostgresClient {
       console.error("Error:", error);
       return { success: false, error: error.message };
     }
+  }
+
+  async insertRecord(data: {
+    tableName: string;
+    values: { [key: string]: any }[];
+  }) {
+    if (!this.conn.pool) {
+      return {
+        data: null,
+        effectedRows: 0,
+        error: "No connection to the database",
+      };
+    }
+    try {
+      // Create the INSERT query
+      const { tableName, values } = data;
+      const columnsList = Object.keys(values[0])
+        .map((col) => `"${col}"`)
+        .join(", ");
+      const valuesList = values
+        .map(
+          (row) =>
+            `(${Object.values(row)
+              .map((value) => this.formatValue(value))
+              .join(", ")})`
+        )
+        .join(", ");
+      const query = `
+        INSERT INTO "${tableName}" (${columnsList})
+        VALUES ${valuesList}
+        RETURNING *;
+      `;
+      // Execute the query
+      const result = await this.executeQuery(query);
+
+      if (result.data) {
+        return {
+          data: result.data.rows,
+          effectedRows: result.effectedRows,
+          error: result.error,
+        };
+      }
+      return {
+        data: null,
+        effectedRows: result.effectedRows,
+        error: result.error,
+      };
+    } catch (error: any) {
+      console.error("Error inserting records:", error);
+      return {
+        data: null,
+        effectedRows: 0,
+        error: error.message,
+      };
+    }
+  }
+
+  async updateTable(
+    tableName: string,
+    data: Array<{
+      oldValue: Record<string, any>;
+      newValue: Record<string, any>;
+    }>
+  ) {
+    const query = await this.generateUpdateQuery(tableName, data);
+    if (!this.conn.pool)
+      return {
+        data: null,
+        effectedRows: null,
+        updatedError: "Invalid inputs",
+        fetchError: "Invalid inputs",
+      };
+
+    // return query;
+    if (query) {
+      const originalQuery = query.toString();
+      const { effectedRows, error: updateError } = await this.executeQuery(
+        originalQuery
+      );
+      const { data, error: fetchError } = await this.getTablesData(tableName);
+
+      return { effectedRows, data, updateError, fetchError };
+    }
+    return {
+      data: null,
+      effectedRows: null,
+      updatedError: "Invalid inputs",
+      fetchError: "Invalid inputs",
+    };
+  }
+
+  async generateUpdateQuery(
+    tableName: string,
+    data: Array<{
+      oldValue: Record<string, any>;
+      newValue: Record<string, any>;
+    }>
+  ) {
+    if (!tableName || !data || !data.length) {
+      console.error("Invalid inputs");
+      return null;
+    }
+
+    const queries = data.map(({ oldValue, newValue }) => {
+      if (!oldValue || !newValue) {
+        console.error("Each entry must have both oldValue and newValue");
+        return null;
+      }
+
+      // Generate SET clause
+      const setClauses = Object.keys(newValue)
+        .map((key) => `"${key}" = ${this.formatValue(newValue[key])}`)
+        .join(", ");
+
+      // Generate WHERE clause
+      const whereClauses = Object.keys(oldValue)
+        .map((key) => `"${key}" = ${this.formatValue(oldValue[key])}`)
+        .join(" AND ");
+
+      return `UPDATE "${tableName}" SET ${setClauses} WHERE ${whereClauses};`;
+    });
+
+    return queries.join("\n");
+  }
+
+  async deleteTableData(tableName: string, data: any[]) {
+    const query = await this.generateDeleteQuery(tableName, data);
+    if (!this.conn.pool)
+      return {
+        data: null,
+        message: null,
+        isTableEffected: false,
+        error: "Invalid inputs",
+      };
+
+    // return query;
+    if (query) {
+      console.log(query);
+      const originalQuery = query.toString();
+      const { effectedRows, error: updateError } = await this.executeQuery(
+        originalQuery
+      );
+      const { data, error: fetchError } = await this.getTablesData(tableName);
+
+      return { effectedRows, data, updateError, fetchError };
+    }
+    return {
+      data: null,
+      message: null,
+      isTableEffected: false,
+      error: "failed to generate query",
+    };
+  }
+
+  async generateDeleteQuery(tableName: string, data: any[]) {
+    if (!tableName || !data || !data.length) {
+      return null;
+    }
+
+    const queries = data.map((entry) => {
+      // Generate WHERE clause
+      const whereClauses = Object.keys(entry)
+        .map((key) => `"${key}" = ${this.formatValue(entry[key])}`)
+        .join(" AND ");
+
+      return `DELETE FROM "${tableName}" WHERE ${whereClauses};`;
+    });
+
+    return queries.join("\n");
+  }
+
+  formatValue(value: any): string {
+    if (value === null) return "NULL";
+    if (typeof value === "string") {
+      // Check if the string can be converted to a number
+      const numberValue = Number(value);
+      if (!isNaN(numberValue)) {
+        return `'${numberValue.toString()}'`; // Return as integer
+      }
+      // Check if the string can be parsed as a date
+      const parsedDate = Date.parse(value);
+      if (!isNaN(parsedDate)) {
+        const date = new Date(parsedDate);
+        const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1)
+          .toString()
+          .padStart(2, "0")}-${date
+          .getDate()
+          .toString()
+          .padStart(2, "0")} ${date
+          .getHours()
+          .toString()
+          .padStart(2, "0")}:${date
+          .getMinutes()
+          .toString()
+          .padStart(2, "0")}:${date
+          .getSeconds()
+          .toString()
+          .padStart(2, "0")}.${date
+          .getMilliseconds()
+          .toString()
+          .padStart(3, "0")}`;
+        return `'${formattedDate}'`; // Return formatted date
+      }
+      return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
+    }
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    // check for date
+    return value.toString();
+  }
+
+  generateWhereQuery(query: FilterType[]) {
+    if (!query || !query.length) {
+      return null;
+    }
+
+    const whereClauses = query
+      .map(({ column, compare, separator, value }) => {
+        if (
+          column === undefined ||
+          compare === undefined ||
+          separator === undefined ||
+          value === undefined
+        ) {
+          return "";
+        }
+        const formattedValue = this.formatValue(value);
+        let comparator;
+        switch (compare) {
+          case "equals":
+            comparator = "=";
+            break;
+          case "not equals":
+            comparator = "!=";
+            break;
+          case "greater than":
+            comparator = ">";
+            break;
+          case "less than":
+            comparator = "<";
+            break;
+          case "greater than or equal":
+            comparator = ">=";
+            break;
+          case "less than or equal":
+            comparator = "<=";
+            break;
+          default:
+            return null;
+        }
+        if (comparator) {
+          return `${separator} ${column} ${comparator} ${formattedValue}`;
+        }
+        return "";
+      })
+      .join(" ");
+
+    return whereClauses;
   }
 }

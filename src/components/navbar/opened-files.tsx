@@ -26,6 +26,7 @@ import { executeQuery } from "@/lib/actions/fetch-data";
 import StructureView from "../views/structure";
 import { fetchTables } from "@/redux/features/tables";
 import NewTableView from "../views/newTable";
+import { FileType } from "@/types/file.type";
 
 const tabIcons = {
   table: TableIcon,
@@ -105,7 +106,7 @@ const OpenedFiles = () => {
       // get the whole code from the editor
       const code = editor.getValue();
 
-      dispatch(updateFile({ code }));
+      dispatch(updateFile({ id: currentFile?.id, code }));
     }
   };
 
@@ -133,7 +134,7 @@ const OpenedFiles = () => {
               >
                 <TabsTrigger
                   value={index.toString()}
-                  className="h-full rounded-none pr-0"
+                  className="h-full rounded-none pr-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 >
                   <span className="flex items-center gap-1 text-xs">
                     {Icon && <Icon size={14} className="text-primary" />}
@@ -163,14 +164,16 @@ const OpenedFiles = () => {
           </div>
         </TabsList>
         <div className="h-10 px-2 flex items-center bg-secondary gap-2">
-          <Button
-            variant={"ghost"}
-            size="icon"
-            className="h-6 w-6 min-w-6"
-            onClick={handleRunQuery}
-          >
-            <PlayIcon size={14} />
-          </Button>
+          {currentFile?.type === "file" && (
+            <Button
+              variant={"ghost"}
+              size="icon"
+              className="h-6 w-6 min-w-6"
+              onClick={handleRunQuery}
+            >
+              <PlayIcon size={14} />
+            </Button>
+          )}
           {/* <Button
             disabled
             className="h-6 text-foreground"

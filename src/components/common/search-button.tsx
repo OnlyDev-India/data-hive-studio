@@ -9,26 +9,26 @@ import {
   CommandList,
 } from "../ui/command";
 import { SearchIcon, TableIcon } from "lucide-react";
-import { getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { addTableFile } from "@/redux/features/open-files";
 import { useRouter } from "next/navigation";
 
 export function CommandMenu() {
   const [open, setOpen] = React.useState(false);
-  const [tables, setTables] = React.useState<any[]>([]);
+  // const [tables, setTables] = React.useState<any[]>([]);
+  const { tables } = useSelector((state: any) => state.tables);
   const dispatch = useDispatch();
-  let router = useRouter();
+  const router = useRouter();
 
-  React.useEffect(() => {
-    const fetchTables = async () => {
-      if (open) {
-        const fetchedTables = await getTablesWithFieldsFromDb();
-        setTables(fetchedTables || []);
-      }
-    };
-    fetchTables();
-  }, [open]);
+  // React.useEffect(() => {
+  //   const fetchTables = async () => {
+  //     if (open) {
+  //       const fetchedTables = await getTablesWithFieldsFromDb();
+  //       setTables(fetchedTables || []);
+  //     }
+  //   };
+  //   fetchTables();
+  // }, [open]);
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -62,7 +62,7 @@ export function CommandMenu() {
         <CommandList className="bg-background">
           <CommandEmpty>No results found.</CommandEmpty>
           <CommandGroup heading={`Tables ${tables ? tables.length : 0}`}>
-            {tables?.map((table: any, index) => (
+            {tables?.map((table: any, index: number) => (
               <CommandItem
                 key={index}
                 className="data-[selected=true]:bg-secondary"

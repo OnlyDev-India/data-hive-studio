@@ -1,3 +1,4 @@
+import { FileType } from "@/types/file.type";
 import { createSlice } from "@reduxjs/toolkit";
 
 const initialState: {
@@ -44,12 +45,23 @@ export const openFileSlice = createSlice({
 
       if (!currentFile) return;
 
-      const index = state.openFiles.findIndex(
-        (file: any) => file.id === currentFile.id.toString()
-      );
-
-      state.openFiles[index] = { ...currentFile, ...action.payload };
-      state.currentFile = { ...currentFile, ...action.payload };
+      let index;
+      if (action.payload.id) {
+        index = state.openFiles.findIndex(
+          (file: any) => file.id === action.payload.id.toString()
+        );
+      } else {
+        index = state.openFiles.findIndex(
+          (file: any) => file.id === currentFile.id.toString()
+        );
+      }
+      if (
+        !action.payload.id ||
+        action.payload.id.toString() === currentFile.id.toString()
+      ) {
+        state.currentFile = { ...state.openFiles[index], ...action.payload };
+      }
+      state.openFiles[index] = { ...state.openFiles[index], ...action.payload };
     },
     removeFile: (state, action) => {
       const index = state.openFiles.findIndex(
@@ -82,6 +94,19 @@ export const openFileSlice = createSlice({
         name: action.payload.table_name,
         type: "table",
         tableName: action.payload.table_name,
+        tableFilter: {
+          filter: {
+            oldFilter: [],
+            newFilter: [],
+          },
+          applyFilter: false,
+          filterOpened: false,
+        },
+        tableOperations: {
+          selectedRows: [],
+          changedRows: {},
+          insertedRows: 0,
+        },
       };
       state.openFiles.push(newFile);
       state.currentFile = newFile;
@@ -116,7 +141,7 @@ export const openFileSlice = createSlice({
       const newFile: FileType = {
         id: (state.openFiles.length + 1).toString(),
         name: "New Table",
-        tableName:"qwdfes",//unique just for make this file unique from other tables
+        tableName: "qwdfes", //unique just for make this file unique from other tables
         type: "newTable",
       };
       state.openFiles.push(newFile);
