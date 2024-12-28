@@ -9,7 +9,13 @@ import ReactDataGrid, {
 import "react-data-grid/lib/styles.css";
 import Filter from "./filter";
 import { Button } from "../ui/button";
-import { ListFilterIcon, LoaderCircleIcon, RefreshCcwIcon } from "lucide-react";
+import {
+  ListFilterIcon,
+  LoaderCircleIcon,
+  PlusIcon,
+  RefreshCcwIcon,
+  XIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import ForeignKeyCells from "../table-cells/foreign-key-cells";
 import { Checkbox } from "../ui/checkbox";
@@ -45,20 +51,24 @@ const Table = ({
   // React Data Grid requires columns and rows
   const [gridRows, setGridRows] = useState<Row[]>([]);
   const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
-  // const [changedRows, setChangedRows] = useState<{
-  //   [key: number]: { old: Row; new: Row };
-  // }>({});
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  // const [selectedRows, setSelectedRows] = useState<number[]>([]);
+  const [isNewRows, setIsNewRows] = useState<boolean>(false);
 
   const [filterDivHeight, setFilterDivHeight] = useState<number>(56);
 
   const { currentFile }: { currentFile: FileType } = useSelector(
     (state: any) => state.openFiles
   );
-  const { changedRows } = currentFile.tableOperations || {};
+  const { changedRows, insertedRows, selectedRows } =
+    currentFile.tableOperations || {};
   const dispatch = useDispatch();
 
   const filterRef = useRef<HTMLDivElement>(null);
+
+  const isFloatingActionsVisible =
+    (selectedRows && selectedRows.length > 0) ||
+    (changedRows && Object.keys(changedRows).length > 0) ||
+    (insertedRows ? insertedRows > 0 : false);
 
   const comparator = (a: Row, b: Row): number => {
     for (const sort of sortColumns) {
@@ -86,6 +96,64 @@ const Table = ({
     return 0; // Equal values
   };
 
+  const handleAddRecord = () => {
+    const newRow: any = {};
+    Object.keys(data[0]).forEach((key) => {
+      newRow[key] = "";
+    });
+    newRow["isNew"] = true;
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: [newRow, ...gridRows],
+        },
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          insertedRows: gridRows.filter((row) => row.isNew)?.length + 1,
+        },
+      })
+    );
+    setIsNewRows(true);
+  };
+
+  const handleRemoveNewRecord = (rowIdx?: number) => {
+    let newRows;
+
+    if (rowIdx === 0 || rowIdx) {
+      newRows = gridRows.filter((_, index) => index !== rowIdx);
+    } else {
+      newRows = gridRows.filter((row) => !row.isNew);
+    }
+
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: newRows,
+        },
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          insertedRows: newRows.filter((row) => row.isNew)?.length,
+        },
+      })
+    );
+  };
+
+  const setSelectedRows = (selectRows: number[]) => {
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableOperations: {
+          ...currentFile?.tableOperations,
+          selectedRows: selectRows,
+        },
+      })
+    );
+  };
+
   const updatedColumns: Column<any>[] = useMemo(() => {
     const newColumns = columns.map((column) => {
       const data_type = column.data_type;
@@ -95,8 +163,16 @@ const Table = ({
         width: 200,
         resizable: true,
         sortable: true,
-        cellClass:
-          "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border",
+        cellClass: (row: any) => {
+          return cn(
+            "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border" +
+              ` ${
+                row.isNew
+                  ? "aria-[selected='false']:text-yellow-800 aria-[selected='true']:bg-background"
+                  : ""
+              }`
+          );
+        },
         headerCellClass:
           "bg-muted text-muted-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
@@ -157,7 +233,9 @@ const Table = ({
         "bg-muted text-muted-foreground aria-[selected='true']:outline-none border",
       renderHeaderCell: () => {
         const isChecked =
-          selectedRows.length === gridRows.length && gridRows.length > 0;
+          selectedRows &&
+          selectedRows.length === gridRows.length &&
+          gridRows.length > 0;
         const handleCheckedChanges = (checked: boolean) => {
           if (checked) {
             setSelectedRows(gridRows.map((_, index) => index));
@@ -170,17 +248,17 @@ const Table = ({
             <Checkbox
               checked={isChecked}
               className={cn("invisible group-hover:visible", {
-                visible: selectedRows.length > 0,
+                visible: selectedRows && selectedRows.length > 0,
               })}
               onCheckedChange={handleCheckedChanges}
             />
           </div>
         );
       },
-      renderCell: ({ rowIdx }: RenderCellProps<any>) => {
+      renderCell: ({ row, rowIdx }: RenderCellProps<any>) => {
+        const selectedRowsSet = new Set(selectedRows);
+        const selectedRowsArray = Array.from(selectedRowsSet);
         const handleCheckedChanges = (checked: boolean) => {
-          const selectedRowsSet = new Set(selectedRows);
-          const selectedRowsArray = Array.from(selectedRowsSet);
           if (checked) {
             selectedRowsArray.push(rowIdx);
             setSelectedRows(selectedRowsArray);
@@ -190,21 +268,34 @@ const Table = ({
           }
         };
         return (
-          <div className="w-full group flex items-center justify-center">
-            <Checkbox
-              checked={selectedRows.includes(rowIdx)}
-              onCheckedChange={handleCheckedChanges}
-              className={cn("hidden group-hover:inline-block", {
-                "inline-block": selectedRows.length > 0,
-              })}
-            />
-            <p
-              className={cn("group-hover:hidden inline-block", {
-                hidden: selectedRows.length > 0,
-              })}
-            >
-              {rowIdx + 1}
-            </p>
+          <div className="w-full h-full group flex items-center justify-center">
+            {row.isNew ? (
+              <Button
+                variant="ghost"
+                size={"icon"}
+                className="p-0 h-full w-full [&_svg]:size-3"
+                onClick={() => handleRemoveNewRecord(rowIdx)}
+              >
+                <XIcon />
+              </Button>
+            ) : (
+              <>
+                <Checkbox
+                  checked={selectedRowsArray.includes(rowIdx)}
+                  onCheckedChange={handleCheckedChanges}
+                  className={cn("hidden group-hover:inline-block", {
+                    "inline-block": selectedRowsArray.length > 0,
+                  })}
+                />
+                <p
+                  className={cn("group-hover:hidden inline-block", {
+                    hidden: selectedRowsArray.length > 0,
+                  })}
+                >
+                  {rowIdx + 1}
+                </p>
+              </>
+            )}
           </div>
         );
       },
@@ -262,7 +353,9 @@ const Table = ({
     // console.log({ ...changedRows, [rowIndexes[0]]: row });
     const oldRow = gridRows[rowIndexes[0]];
     const changedData = { ...changedRows };
-    if (changedData[rowIndexes[0]]?.old) {
+    if (newRow.isNew) {
+      // return;
+    } else if (changedData[rowIndexes[0]]?.old) {
       changedData[rowIndexes[0]] = {
         old: changedData[rowIndexes[0]].old,
         new: newRow,
@@ -275,8 +368,9 @@ const Table = ({
     }
 
     if (
+      !newRow.isNew &&
       JSON.stringify(changedData[rowIndexes[0]].old) ===
-      JSON.stringify(changedData[rowIndexes[0]].new)
+        JSON.stringify(changedData[rowIndexes[0]].new)
     ) {
       delete changedData[rowIndexes[0]];
     }
@@ -285,13 +379,42 @@ const Table = ({
     dispatch(
       updateFile({
         id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: rows,
+        },
         tableOperations: {
           ...currentFile?.tableOperations,
           changedRows: changedData,
         },
       })
     );
-    setGridRows(rows);
+    // setGridRows(rows);
+  };
+
+  const handleResetChanges = () => {
+    let restoredRows = JSON.parse(JSON.stringify(data)).filter((row:any)=>!row.isNew);
+
+    if (changedRows) {
+      Object.entries(changedRows).forEach(([index, change]: [string, any]) => {
+        restoredRows[parseInt(index)] = change.old;
+      });
+    }
+
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableData: {
+          columns: currentFile?.tableData?.columns,
+          rows: restoredRows,
+        },
+        tableOperations: {
+          changedRows: {},
+          insertedRows: 0,
+          selectedRows: [],
+        },
+      })
+    );
   };
 
   const handleUpdateChanges = (type: string) => {
@@ -311,17 +434,8 @@ const Table = ({
         setSelectedRows([]);
         return;
       default:
-        dispatch(
-          updateFile({
-            id: currentFile?.id,
-            tableOperations: {
-              ...currentFile?.tableOperations,
-              changedRows: {},
-            },
-          })
-        );
-        setSelectedRows([]);
-        setGridRows(data);
+        handleResetChanges();
+        // setGridRows(data);
         return;
     }
   };
@@ -397,6 +511,22 @@ const Table = ({
                 )}
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  variant={"outline"}
+                  onClick={handleAddRecord}
+                  className="h-7 px-2 border-border [&_svg]:size-3"
+                >
+                  <PlusIcon />
+                  Add Record
+                </Button>
+                <Button
+                  variant={"outline"}
+                  onClick={handleIsFilter}
+                  className="h-7 px-2 border-border [&_svg]:size-3"
+                >
+                  <ListFilterIcon />
+                  Filter
+                </Button>
                 {refetchData && (
                   <Button
                     variant={"outline"}
@@ -407,14 +537,6 @@ const Table = ({
                     <RefreshCcwIcon />
                   </Button>
                 )}
-                <Button
-                  variant={"outline"}
-                  onClick={handleIsFilter}
-                  className="h-7 px-2 border-border [&_svg]:size-3"
-                >
-                  <ListFilterIcon />
-                  Filter
-                </Button>
                 <ExportTable />
               </div>
             </div>
@@ -441,8 +563,7 @@ const Table = ({
                     })`,
               }}
             >
-              {(selectedRows.length > 0 ||
-                (changedRows && Object.keys(changedRows).length > 0)) && (
+              {isFloatingActionsVisible && (
                 <FloatingActions
                   selectedRows={selectedRows}
                   changedRows={changedRows}
@@ -459,13 +580,16 @@ const Table = ({
                 sortColumns={sortColumns}
                 onSortColumnsChange={setSortColumns}
                 onRowsChange={handleRowChange} // Handling row changes
-                rowClass={(_, rowIndex) => {
+                rowClass={(row, rowIndex) => {
                   let classNames = "bg-background ";
                   if (changedRows?.[rowIndex]) {
                     classNames += "bg-primary/10 ";
                   }
-                  if (selectedRows.includes(rowIndex)) {
+                  if (selectedRows && selectedRows.includes(rowIndex)) {
                     classNames += "bg-destructive/20 ";
+                  }
+                  if (row.isNew) {
+                    classNames += "bg-yellow-100 ";
                   }
                   return classNames;
                 }}

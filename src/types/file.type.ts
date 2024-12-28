@@ -16,7 +16,8 @@ export interface FileType {
     filterOpened: boolean;
   };
   tableOperations?: {
-    selectedRows: Row[];
+    selectedRows: number[];
     changedRows: { [key: number]: { old: Row; new: Row } };
+    insertedRows: number;
   };
 }

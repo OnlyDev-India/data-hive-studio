@@ -25,3 +25,10 @@ export interface CustomColumns extends Column<any> {
 export interface Row {
   [key: string]: any; // Dynamic data rows
 }
+
+export interface FilterType {
+  column: string;
+  compare: string;
+  separator: string;
+  value: any;
+}

@@ -1,5 +1,6 @@
 "use server";
 import { connectionHandler, dbConnection, handlers } from "@/lib/databases/db";
+import { FilterType } from "@/types/table.type";
 import { cookies } from "next/headers";
 
 // console.log(cookies().get("currentConnection")?.value);
@@ -32,10 +33,10 @@ export async function getTableColumns(table_name: string) {
   const { columns } = await dbConnection.getTableColumns(table_name);
   return { columns };
 }
-export async function getTablesData(table_name: string) {
+export async function getTablesData(table_name: string, filters?: FilterType[]) {
   if (!dbConnection)
     return { data: null, error: "No connection to the database" };
-  const { data, error } = await dbConnection.getTablesData(table_name);
+  const { data, error } = await dbConnection.getTablesData(table_name, filters);
 
   return { data: JSON.stringify(data), error };
 }
@@ -105,5 +106,14 @@ export async function updateTable(
 export async function deleteTableData(tableName: string, data: any[]) {
   if (!dbConnection) return false;
   const response = await dbConnection.deleteTableData(tableName, data);
+  return { ...response, data: JSON.stringify(response.data) };
+}
+
+export async function insertTableData(data: {
+  tableName: string;
+  values: any[][];
+}) {
+  if (!dbConnection) return false;
+  const response = await dbConnection.insertRecord(data);
   return { ...response, data: JSON.stringify(response.data) };
 }

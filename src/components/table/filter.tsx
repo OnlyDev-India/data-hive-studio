@@ -22,7 +22,7 @@ interface ColumnProps extends Column<any> {
 
 const Filter = ({ columns }: { columns: ColumnProps[] }) => {
   const initialFilter = {
-    column: columns[0],
+    column: columns[0].key,
     compare: "equals",
     value: "",
     separator: "WHERE",
@@ -32,10 +32,10 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
   const { currentFile } = useSelector((state: any) => state.openFiles);
   const dispatch = useDispatch();
 
-  const debounce = useDebouncedCallback((filter: any) => {
-    // setFilter(filter);
-    dispatch(updateFile({ id: currentFile?.id, tableFilter: filter }));
-  }, 1000);
+  // const debounce = useDebouncedCallback((filter: any) => {
+  //   // setFilter(filter);
+  //   dispatch(updateFile({ id: currentFile?.id, tableFilter: filter }));
+  // }, 1000);
 
   const handleFilterValueChange = (
     value: string,
@@ -43,6 +43,8 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
     type: keyof typeof initialFilter
   ) => {
     const updatedFilter = JSON.parse(JSON.stringify(filterValues));
+    console.log(value);
+    
     updatedFilter[index][type] = value;
     setFilterValues(updatedFilter);
     dispatch(
@@ -123,12 +125,13 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           ...currentFile?.tableFilter,
           filter: {
             oldFilter: [],
-            newFilter: [initialFilter],
+            newFilter: [],
           },
           applyFilter: true,
         },
       })
     );
+    setFilterValues([initialFilter]);
   };
 
   useEffect(() => {

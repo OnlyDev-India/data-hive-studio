@@ -11,7 +11,7 @@ interface InputCellProps extends RenderCellProps<any> {
 const InputCell = ({ row, onRowChange, name ,className}: InputCellProps) => {
   return (
     <Input
-      value={row[name]}
+      value={row[name]||""}
       title="Double click to edit"
       placeholder="null"
       onChange={(e) => onRowChange({ ...row, [name]: e.target.value })}

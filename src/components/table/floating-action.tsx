@@ -2,15 +2,22 @@
 import React from "react";
 import { Button } from "../ui/button";
 import {
+  BetweenHorizontalStartIcon,
   ClipboardXIcon,
   HardDriveUploadIcon,
   LoaderIcon,
   Trash2Icon,
 } from "lucide-react";
-import { deleteTableData, updateTable } from "@/lib/actions/fetch-data";
+import {
+  deleteTableData,
+  insertTableData,
+  updateTable,
+} from "@/lib/actions/fetch-data";
 import { toast } from "sonner";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
+import { FileType } from "@/types/file.type";
+import DeleteModal from "../modals/delete-modal";
 interface Row {
   [key: string]: any; // Dynamic data rows
 }
@@ -29,10 +36,13 @@ const FloatingActions = ({
   tableName,
   handleUpdateTableChanges,
 }: FloatingActionsProps) => {
-  const [loading, setLoading] = React.useState<"updating" | "deleting" | null>(
-    null
+  const [loading, setLoading] = React.useState<
+    "updating" | "adding" | "deleting" | null
+  >(null);
+  const { currentFile }: { currentFile: FileType } = useSelector(
+    (state: any) => state.openFiles
   );
-  const { currentFile } = useSelector((state: any) => state.openFiles);
+  const newRows = currentFile?.tableOperations?.insertedRows;
   const dispatch = useDispatch();
   const handleUpdateChanges = async () => {
     if (!changedRows) return;
@@ -42,20 +52,21 @@ const FloatingActions = ({
       newValue: row.new,
     }));
     const response = await updateTable(tableName, changedData);
+    
 
     if (response.effectedRows) {
       toast.success(`Updated ${response.effectedRows} rows`);
       handleUpdateTableChanges?.("update");
-      dispatch(
-        updateFile({
-          id: currentFile?.id,
-          tableData: {
-            columns: currentFile?.tableData?.columns,
-            rows: JSON.parse(response.data),
-          },
-        })
-      );
-    }else if(response.updateError){
+      // dispatch(
+      //   updateFile({
+      //     id: currentFile?.id,
+      //     tableData: {
+      //       columns: currentFile?.tableData?.columns,
+      //       rows: JSON.parse(response.data),
+      //     },
+      //   })
+      // );
+    } else if (response.updateError) {
       toast.error(response.updateError);
     }
 
@@ -70,10 +81,11 @@ const FloatingActions = ({
     );
     if (!deletingRows) return;
     const response = await deleteTableData(tableName, deletingRows);
-    console.log(response);
-
-    // if (response.effectedRows) {
-    toast.success(`Deleted ${response.effectedRows} rows`);
+    toast.success(
+      `${response.effectedRows} row${
+        response.effectedRows > 1 ? "s" : ""
+      } Deleted`
+    );
     handleUpdateTableChanges?.("delete");
     dispatch(
       updateFile({
@@ -84,6 +96,51 @@ const FloatingActions = ({
         },
       })
     );
+    setLoading(null);
+  };
+
+  const handleInsertRows = async () => {
+    if (!newRows || newRows === 0) return;
+    if (!currentFile || !currentFile?.tableName) return;
+    const insertingRows = currentFile?.tableData?.rows
+      .filter((row: any) => row.isNew)
+      .map((row: any) => {
+        const copiedRow = JSON.parse(JSON.stringify(row));
+        delete copiedRow.isNew;
+        return Object.fromEntries(
+          Object.entries(copiedRow).filter(
+            ([_, value]) =>
+              value !== null && value !== undefined && value !== ""
+          )
+        );
+      });
+    if (!insertingRows || insertingRows.length === 0) return;
+    setLoading("adding");
+
+    const response = await insertTableData({
+      tableName: currentFile.tableName,
+      values: insertingRows,
+    });
+    if (response.data && response.data !== "null") {
+      const newRows = JSON.parse(response.data);
+      toast.success(`${newRows?.length} records inserted`);
+      handleUpdateTableChanges?.("discard");
+      dispatch(
+        updateFile({
+          id: currentFile?.id,
+          tableData: {
+            columns: currentFile?.tableData?.columns,
+            rows: [
+              ...newRows,
+              ...currentFile?.tableData?.rows.filter((row: any) => !row.isNew),
+            ],
+          },
+        })
+      );
+    } else if (response.error) {
+      toast.error(response.error);
+    }
+
     setLoading(null);
   };
 
@@ -99,14 +156,20 @@ const FloatingActions = ({
             <p className="text-sm text-muted-foreground whitespace-nowrap">
               {selectedRows.length} Selected:
             </p>
-            <Button
-              variant={"ghost"}
-              className="text-white px-2 hover:bg-red-500/30 hover:text-red-500 h-7"
-              onClick={handleDeleteRows}
-              disabled={loading?true:false}
-            >
-              <Trash2Icon /> Delete
-            </Button>
+            <DeleteModal description={`${selectedRows.length} rows will be deleted and can't be undone`} onConfirm={handleDeleteRows}>
+              <Button
+                variant={"ghost"}
+                className="text-white px-2 hover:bg-red-500/30 hover:text-red-500 h-7"
+                disabled={loading ? true : false}
+              >
+                {loading === "deleting" ? (
+                  <LoaderIcon className="animate-spin" />
+                ) : (
+                  <Trash2Icon />
+                )}{" "}
+                Delete
+              </Button>
+            </DeleteModal>
           </>
         )}
         {changedRows && Object.keys(changedRows).length > 0 && (
@@ -118,7 +181,7 @@ const FloatingActions = ({
               variant={"ghost"}
               className="text-white px-2 h-7"
               onClick={handleUpdateChanges}
-              disabled={loading?true:false}
+              disabled={loading ? true : false}
             >
               {loading === "updating" ? (
                 <LoaderIcon className="animate-spin" />
@@ -127,17 +190,37 @@ const FloatingActions = ({
               )}{" "}
               Apply
             </Button>
+          </>
+        )}
+        {newRows !== null && newRows !== undefined && newRows > 0 && (
+          <>
+            <p className="text-sm text-muted-foreground whitespace-nowrap">
+              {newRows} Added:
+            </p>
             <Button
               variant={"ghost"}
               className="text-white px-2 h-7"
-              onClick={handleDiscardChanges}
-              disabled={loading?true:false}
+              onClick={handleInsertRows}
+              disabled={loading ? true : false}
             >
-              <ClipboardXIcon />
-              Discard All Changes
+              {loading === "adding" ? (
+                <LoaderIcon className="animate-spin" />
+              ) : (
+                <BetweenHorizontalStartIcon />
+              )}{" "}
+              Insert
             </Button>
           </>
         )}
+        <Button
+          variant={"ghost"}
+          className="text-white px-2 h-7"
+          onClick={handleDiscardChanges}
+          disabled={loading ? true : false}
+        >
+          <ClipboardXIcon />
+          Discard All Changes
+        </Button>
       </div>
     </div>
   );

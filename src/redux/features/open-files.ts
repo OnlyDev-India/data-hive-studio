@@ -105,6 +105,7 @@ export const openFileSlice = createSlice({
         tableOperations: {
           selectedRows: [],
           changedRows: {},
+          insertedRows: 0,
         },
       };
       state.openFiles.push(newFile);

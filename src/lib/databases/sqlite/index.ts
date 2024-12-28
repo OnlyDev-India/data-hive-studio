@@ -122,4 +122,10 @@ export class SqliteClient {
   async deleteTableData(tableName: string, data: any[]) {
     return false as any;
   }
+  async insertRecord(data: {
+    tableName: string;
+    values: any[][];
+  }) {
+    return false as any;
+  }
 }

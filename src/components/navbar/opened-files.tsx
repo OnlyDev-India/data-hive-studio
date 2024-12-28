@@ -164,14 +164,16 @@ const OpenedFiles = () => {
           </div>
         </TabsList>
         <div className="h-10 px-2 flex items-center bg-secondary gap-2">
-          <Button
-            variant={"ghost"}
-            size="icon"
-            className="h-6 w-6 min-w-6"
-            onClick={handleRunQuery}
-          >
-            <PlayIcon size={14} />
-          </Button>
+          {currentFile?.type === "file" && (
+            <Button
+              variant={"ghost"}
+              size="icon"
+              className="h-6 w-6 min-w-6"
+              onClick={handleRunQuery}
+            >
+              <PlayIcon size={14} />
+            </Button>
+          )}
           {/* <Button
             disabled
             className="h-6 text-foreground"

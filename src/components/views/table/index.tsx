@@ -4,6 +4,7 @@ import Table from "../../table";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import { FileType } from "@/types/file.type";
+import { toast } from "sonner";
 
 const TableView = () => {
   const [data, setData] = useState<any[]>([]);
@@ -20,7 +21,11 @@ const TableView = () => {
     if (!tableName) return;
     const tableFilter = currentFile.tableFilter;
 
-    if (tableFilter && tableFilter.applyFilter) {
+    if (
+      tableFilter &&
+      tableFilter.applyFilter &&
+      tableFilter.filter.newFilter.length > 0
+    ) {
       const { filter } = tableFilter;
       if (!filter) return;
 
@@ -31,20 +36,40 @@ const TableView = () => {
       const oldFilter = filter.newFilter.filter((item: any) => item.value);
 
       // All logic will Go here to fetch the data with the query
+      const { data } = await getTablesData(tableName, filter.newFilter);
+      const { columns } = await getTableColumns(tableName || "");
 
-      dispatch(
-        updateFile({
-          id: currentFile?.id,
-          tableFilter: {
-            ...tableFilter,
-            filter: {
-              oldFilter: oldFilter,
-              newFilter: filter.newFilter,
+      if (columns && data) {
+        const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
+          const copiedItem = JSON.parse(JSON.stringify(item));
+          Object.keys(item).forEach((key) => {
+            if (typeof item[key] === "object")
+              copiedItem[key] = item[key]?.toString();
+          });
+          return copiedItem;
+        });
+
+        dispatch(
+          updateFile({
+            id: currentFile?.id,
+            tableData: {
+              columns,
+              rows,
             },
-            applyFilter: false,
-          },
-        })
-      );
+            tableFilter: {
+              ...tableFilter,
+              filter: {
+                oldFilter: oldFilter,
+                newFilter: filter.newFilter,
+              },
+              applyFilter: false,
+            },
+          })
+        );
+      } else {
+        toast.error("Failed to Apply filter");
+      }
+      setLoading(false);
     } else {
       // this executes when there is no filter applied
       setLoading(true);
@@ -69,8 +94,8 @@ const TableView = () => {
             },
           })
         );
-        setData(rows);
-        setColumns(columns);
+        // setData(rows);
+        // setColumns(columns);
       } // Set fetched columns
     }
     setLoading(false);
