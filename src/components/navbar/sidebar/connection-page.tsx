@@ -10,30 +10,32 @@ import React from "react";
 
 const ConnectionPageSidebar = () => {
   return (
-    <div className="z-10 h-full w-full flex-col justify-center bg-background px-0">
+    <div className="z-10 h-full w-full flex-col justify-center bg-background px-0 py-4">
+      {window?.electron && (
+        <div
+          className={cn(
+            "w-full rounded-none border-l-2 border-transparent px-2 data-[state=active]:border-primary",
+          )}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size={"icon"}
+                variant={"secondary"}
+                className="flex items-center justify-center rounded-full"
+              >
+                <LaptopMinimalIcon size={20} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>
+              Local Workspace
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      )}
       <div
         className={cn(
-          "w-full rounded-none border-l-2 border-transparent p-2 data-[state=active]:border-primary",
-        )}
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size={"icon"}
-              variant={"secondary"}
-              className="flex items-center justify-center rounded-full"
-            >
-              <LaptopMinimalIcon size={20} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={10}>
-            Local Workspace
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      <div
-        className={cn(
-          "w-full rounded-none border-l-2 border-transparent p-2 data-[state=active]:border-primary",
+          "w-full rounded-none border-l-2 border-transparent px-2 data-[state=active]:border-primary",
         )}
       >
         <Tooltip>

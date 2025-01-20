@@ -32,7 +32,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
           <div
             key={index}
             className={cn(
-              "w-full rounded-none border-l-2 border-transparent p-2 text-muted-foreground data-[state=active]:border-primary",
+              "w-full rounded-none border-l-2 border-transparent p-2 text-muted-foreground hover:text-foreground data-[state=active]:border-primary",
               {
                 "border-primary text-foreground": pathname.includes(item.link),
               },

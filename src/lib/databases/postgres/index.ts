@@ -188,7 +188,7 @@ export class PostgresClient {
         }
         if (orderBy && orderBy?.length > 0) {
           const { columnKey, direction } = orderBy[0];
-          whereQuery += ` ORDER BY ${columnKey} ${direction}`;
+          whereQuery += ` ORDER BY "${columnKey}" ${direction}`;
         }
         if (pagination) {
           const { page, limit } = pagination;

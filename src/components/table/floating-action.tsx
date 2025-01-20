@@ -16,7 +16,7 @@ import {
 import { toast } from "sonner";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
-import { FileType } from "@/types/file.type";
+import { FileTableType } from "@/types/file.type";
 import DeleteModal from "../modals/delete-modal";
 interface Row {
   [key: string]: any; // Dynamic data rows
@@ -39,10 +39,10 @@ const FloatingActions = ({
   const [loading, setLoading] = React.useState<
     "updating" | "adding" | "deleting" | null
   >(null);
-  const { currentFile }: { currentFile: FileType } = useSelector(
+  const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
   );
-  const newRows = currentFile?.tableOperations?.insertedRows;
+  const newRows = currentFile.tableOperations?.insertedRows;
   const dispatch = useDispatch();
   const handleUpdateChanges = async () => {
     if (!changedRows) return;
@@ -79,9 +79,9 @@ const FloatingActions = ({
     handleUpdateTableChanges?.("delete");
     dispatch(
       updateFile({
-        id: currentFile?.id,
+        id: currentFile.id,
         tableData: {
-          columns: currentFile?.tableData?.columns,
+          columns: currentFile.tableData?.columns,
           rows: JSON.parse(response.data),
         },
       }),
@@ -91,8 +91,8 @@ const FloatingActions = ({
 
   const handleInsertRows = async () => {
     if (!newRows || newRows === 0) return;
-    if (!currentFile || !currentFile?.tableName) return;
-    const insertingRows = currentFile?.tableData?.rows
+    if (!currentFile || !currentFile.tableName) return;
+    const insertingRows = currentFile.tableData?.rows
       .filter((row: any) => row.isNew)
       .map((row: any) => {
         const copiedRow = JSON.parse(JSON.stringify(row));
@@ -117,12 +117,12 @@ const FloatingActions = ({
       handleUpdateTableChanges?.("discard");
       dispatch(
         updateFile({
-          id: currentFile?.id,
+          id: currentFile.id,
           tableData: {
-            columns: currentFile?.tableData?.columns,
+            columns: currentFile.tableData?.columns,
             rows: [
               ...newRows,
-              ...currentFile?.tableData?.rows.filter((row: any) => !row.isNew),
+              ...currentFile.tableData?.rows.filter((row: any) => !row.isNew),
             ],
           },
         }),
@@ -140,7 +140,7 @@ const FloatingActions = ({
 
   return (
     <div className="absolute bottom-5 left-1/2 z-10 -translate-x-1/2">
-      <div className="flex items-center gap-2 rounded-lg border border-primary bg-popover px-6 py-2 shadow-md">
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-6 py-2 shadow-md">
         {selectedRows && selectedRows.length > 0 && (
           <>
             <p className="whitespace-nowrap text-sm text-muted-foreground">
@@ -207,7 +207,7 @@ const FloatingActions = ({
         )}
         <Button
           variant={"ghost"}
-          className="h-7 px-2 text-foreground"
+          className="h-7 px-2 text-foreground hover:bg-popover"
           onClick={handleDiscardChanges}
           disabled={loading ? true : false}
         >
