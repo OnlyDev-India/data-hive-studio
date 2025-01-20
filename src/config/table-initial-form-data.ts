@@ -1,6 +1,6 @@
-import { pgSqlTypes } from "@/types/db.type";
+import { NewTableInitialStateType } from "@/types/file.type";
 
-export const initialFormData = {
+export const initialFormData: Record<string, NewTableInitialStateType> = {
   pgSql: {
     name: "untitled",
     columns: [

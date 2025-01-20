@@ -6,13 +6,13 @@ export const initAppData = createAsyncThunk(
   "tables/connectToAppDB",
   async () => {
     // const tables = await getTablesWithFieldsFromDb();
-    
+
     const {
       data: { rows: connections },
     } = await getConnections();
     if (connections) return { connections };
     return { connections: null };
-  }
+  },
 );
 
 const initialState: {
@@ -42,7 +42,7 @@ export const appDBSlice = createSlice({
     removeConnection: (state, action) => {
       if (state.connections) {
         const remainingConnection = state.connections.filter(
-          ({ id }) => id !== action.payload.id
+          ({ id }) => id !== action.payload.id,
         );
         state.connections = remainingConnection;
       }
@@ -50,7 +50,7 @@ export const appDBSlice = createSlice({
     addOrUpdateConnection: (state, action) => {
       if (state.connections) {
         const index = state.connections.findIndex(
-          ({ id }) => id === action.payload.id
+          ({ id }) => id === action.payload.id,
         );
         if (index !== -1) {
           // Update existing connection

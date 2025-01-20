@@ -16,6 +16,12 @@ const handler = {
   getAppDbPath() {
     return ipcRenderer.invoke("app-db-path");
   },
+  updateTheme(theme: string) {
+    ipcRenderer.invoke("update-theme", theme);
+  },
+  openSelectDir(path: string) {
+    return ipcRenderer.invoke("open-select-dir", path);
+  },
 };
 
 contextBridge.exposeInMainWorld("electron", handler);

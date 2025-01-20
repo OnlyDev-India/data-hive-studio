@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import {
+  ConnectionDetailsType,
   ConnectionsType,
   DbConnectionColors,
   DbConnectionsTypes,
@@ -36,6 +37,7 @@ import { createConnection, updateConnection } from "@/lib/actions/app-data";
 import { initAppData, setCurrentConnection } from "@/redux/features/appdb";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { cn } from "@/lib/utils";
+import { parseConnectionString } from "@/lib/helper/connection-details";
 
 const ConnectionForm = () => {
   const [loading, setLoading] = React.useState<
@@ -45,7 +47,7 @@ const ConnectionForm = () => {
     currentConnection,
     loading: appLoading,
   }: { currentConnection: ConnectionsType; loading: boolean } = useSelector(
-    (state: any) => state.appDB
+    (state: any) => state.appDB,
   );
 
   const dispatch = useDispatch();
@@ -77,9 +79,23 @@ const ConnectionForm = () => {
 
   // 2. Define a submit handler.
   async function onSubmit(values: z.infer<typeof connectionFormSchema>) {
+    const config = parseConnectionString(values.connection_string);
+    if (config.error) {
+      toast.error(config.error);
+      return;
+    }
+    const dbConfig = {
+      user: config.user,
+      host: config.host,
+      database: config.database,
+      password: config.password,
+      port: config.port, // Default PostgreSQL port
+      ssl: config.ssl ? { rejectUnauthorized: false } : false, // Handle SSL
+    };
     setLoading("connecting");
     const response = await testConnection({
-      connectionString: values.connection_string,
+      connectionDetails: dbConfig as ConnectionDetailsType,
+      // connectionString: values.connection_string,
       isConnect: true,
       dbType: values.connection_type as any,
     });
@@ -125,13 +141,28 @@ const ConnectionForm = () => {
   }
 
   async function onTest() {
+    const config = parseConnectionString(form.getValues().connection_string);
+    if (config.error) {
+      toast.error(config.error);
+      return;
+    }
     setLoading("testing");
+    const dbConfig = {
+      user: config.user,
+      host: config.host,
+      database: config.database,
+      password: config.password,
+      port: config.port, // Default PostgreSQL port
+      ssl: config.ssl ? { rejectUnauthorized: false } : false, // Handle SSL
+    };
     const response = await testConnection({
-      connectionString: form.getValues().connection_string,
+      connectionDetails: dbConfig as ConnectionDetailsType,
+      // connectionString: form.getValues().connection_string,
       dbType: form.getValues().connection_type,
     });
     if (response.success) {
       toast.success("Connection successful!");
+      form.clearErrors("connection_string");
     } else {
       form.setError("connection_string", { message: response.error });
       toast.error(response.error);
@@ -140,7 +171,7 @@ const ConnectionForm = () => {
   }
 
   return (
-    <div className="h-full w-full overflow-auto flex items-center justify-center">
+    <div className="flex h-full w-full items-center justify-center overflow-auto">
       <Card
         className="min-w-[80%] border-t-8"
         style={{ borderColor: form.getValues().color || "transparent" }}
@@ -213,7 +244,7 @@ const ConnectionForm = () => {
                 <Button
                   type="submit"
                   disabled={appLoading || loading !== null}
-                  className="text-white h-7 text-xs"
+                  className="h-7 text-xs text-white"
                 >
                   {loading === "connecting" && (
                     <LoaderCircleIcon className="animate-spin" />
@@ -247,11 +278,11 @@ const ConnectionForm = () => {
                                   </FormControl>
                                   <FormLabel
                                     className={cn(
-                                      `font-normal w-4 h-4 rounded-sm bg-secondary border-2 border-transparent`,
+                                      `h-4 w-4 rounded-sm border-2 border-transparent bg-secondary font-normal`,
                                       {
                                         "border-white":
                                           !field.value || field.value === "",
-                                      }
+                                      },
                                     )}
                                   />
                                   {DbConnectionColors.map((color) => (
@@ -264,11 +295,11 @@ const ConnectionForm = () => {
                                       </FormControl>
                                       <FormLabel
                                         className={cn(
-                                          `font-normal w-4 h-4 rounded-sm border-2 border-transparent`,
+                                          `h-4 w-4 rounded-sm border-2 border-transparent font-normal`,
                                           {
                                             "border-white":
                                               field.value === color,
-                                          }
+                                          },
                                         )}
                                         style={{ backgroundColor: color }}
                                       />

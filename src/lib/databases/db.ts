@@ -1,3 +1,4 @@
+import { ConnectionDetailsType } from "@/types/db.type";
 import { PostgresClient } from "./postgres";
 import { SqliteClient } from "./sqlite";
 
@@ -5,14 +6,6 @@ declare global {
   let dbConnection: PostgresClient | null;
   let appDB: SqliteClient | null;
 }
-
-// const db =
-//   global.db ||
-//   new PostgresClient(
-//     "postgresql://project-planit_owner:YQUIuwtVO6Z3@ep-still-grass-a51vu090.us-east-2.aws.neon.tech/project-planit?sslmode=require"
-//   );
-// export { db };
-
 
 export const handlers = {
   pgSql: PostgresClient,
@@ -24,22 +17,23 @@ export type HandlersTypes = keyof typeof handlers;
 let dbConnection: PostgresClient | SqliteClient | null = null;
 let appDB: any | null = null;
 export const connectionHandler = async ({
-  connectionString,
+  connectionDetails,
   dbType,
 }: {
-  connectionString: string;
+  connectionDetails: ConnectionDetailsType;
   dbType: keyof typeof handlers | null;
 }) => {
-  // dbConnection = new PostgresClient(
-  //   "postgresql://project-planit_owner:YQUIuwtVO6Z3@ep-still-grass-a51vu090.us-east-2.aws.neon.tech/project-planit?sslmode=require"
-  // );
   if (!dbType) return { success: false, error: "Database type not found" };
   dbConnection = new handlers[dbType]();
-  return dbConnection.connectDb({ connectionString });
+  return await dbConnection.connectDb({ connectionDetails });
 };
 
-export const connectToAppDB = async ({ connectionString }: any) => {
+export const connectToAppDB = async ({
+  connectionDetails,
+}: {
+  connectionDetails: ConnectionDetailsType;
+}) => {
   appDB = new SqliteClient();
-  return appDB.connectDb({ connectionString });
+  return appDB.connectDb({ connectionDetails });
 };
 export { dbConnection, appDB };

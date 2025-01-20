@@ -43,11 +43,11 @@ const SelectCell = ({
       <SelectTrigger
         disabled={disabled}
         className={cn(
-          "focus:outline-none focus:ring-0 border-0 p-0",
+          "border-0 p-0 focus:outline-none focus:ring-0",
           {
             "[&_span]:text-muted-foreground": value === "" || !value,
           },
-          className
+          className,
         )}
       >
         <SelectValue placeholder={"(null)"} />
@@ -61,7 +61,7 @@ const SelectCell = ({
         /> */}
         {items
           .filter((item) =>
-            item.label.toLowerCase().includes(search.toLowerCase())
+            item.label.toLowerCase().includes(search.toLowerCase()),
           )
           .map((item, index) => (
             <SelectItem key={index} value={item.value?.toString() || " "}>

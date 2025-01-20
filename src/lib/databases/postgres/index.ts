@@ -1,22 +1,34 @@
+import { parseConnectionString } from "@/lib/helper/connection-details";
+import { ConnectionDetailsType } from "@/types/db.type";
+import { PaginationType } from "@/types/file.type";
 import { FilterType } from "@/types/table.type";
 import { Client, Pool, types } from "pg";
+import { SortColumn } from "react-data-grid";
 import { identify } from "sql-query-identifier";
 
 export class PostgresClient {
   conn: { pool: Pool | null };
-  connectionString: string | null;
+  connectionDetails: ConnectionDetailsType | null;
+  currentSchema: string;
 
   constructor() {
     this.conn = { pool: null };
-    this.connectionString = null;
+    this.connectionDetails = null;
+    this.currentSchema = "public";
   }
 
-  async connectDb({ connectionString }: { connectionString: string }) {
+  async connectDb({
+    connectionDetails,
+  }: {
+    connectionDetails: ConnectionDetailsType;
+  }) {
     try {
-      const response = await this.testConnection({ connectionString });
+      const response = await this.testConnection({ connectionDetails });
       if (!response.success) return response;
-      this.conn = { pool: new Pool({ connectionString }) };
-      this.connectionString = connectionString;
+
+      this.conn = { pool: new Pool(connectionDetails) };
+      this.connectionDetails = connectionDetails;
+
       if (this.conn.pool) {
         console.log("Connection to the database was successful!");
         return {
@@ -38,10 +50,18 @@ export class PostgresClient {
   isConnectedToDb() {
     return this.conn.pool;
   }
-  async getTablesWithFieldsFromDb() {
-    if (!this.conn.pool) return null;
+  async getTablesWithFieldsFromDb(
+    currentSchema: string,
+    isUpdateSchema = false,
+  ) {
+    if (!this.conn.pool)
+      return { tables: [], error: "No connection to the database" };
     try {
+      if (isUpdateSchema) {
+        this.currentSchema = currentSchema;
+      }
       // Query to retrieve table names, column names, and their data types from the 'public' schema
+
       const query = `
                   SELECT c.table_name, c.column_name, c.data_type, tc.constraint_type AS key_type,
                         kcu2.table_name AS foreign_table_name, kcu2.column_name AS foreign_column_name
@@ -54,7 +74,7 @@ export class PostgresClient {
                     ON rc.constraint_name = kcu.constraint_name 
                   LEFT JOIN information_schema.key_column_usage AS kcu2
                     ON rc.unique_constraint_name = kcu2.constraint_name
-                  WHERE c.table_schema = 'public'
+                  WHERE c.table_schema = '${currentSchema}'
                   ORDER BY c.table_name, c.ordinal_position;
               `;
 
@@ -90,41 +110,113 @@ export class PostgresClient {
         fields: tableFieldsMap[table_name],
       }));
 
-      return result;
-    } catch (error) {
+      return { tables: result, error: null };
+    } catch (error: any) {
       console.error("Error retrieving tables with fields and types:", error);
-      return null;
+      return { tables: [], error: error.message };
+    }
+  }
+
+  async getDatabases() {
+    if (!this.conn.pool) {
+      return { databases: [], error: "No connection to the database" };
+    }
+
+    try {
+      // Query to retrieve all databases
+      const query = `SELECT datname AS database_name
+                      FROM pg_database
+                      WHERE datistemplate = false
+                        AND datname NOT IN ('postgres');`;
+
+      // Execute the query
+      const columns = await this.conn.pool.query(query);
+
+      return { databases: columns.rows || [], error: null };
+    } catch (error: any) {
+      console.error("Error retrieving databases:", error);
+      return { databases: [], error: error.message };
+    }
+  }
+
+  async getSchemas() {
+    if (!this.conn.pool) {
+      return { schemas: [], error: "No connection to the database" };
+    }
+
+    try {
+      // Query to All schemas
+      const query = `SELECT nspname AS schema_name
+                FROM pg_namespace
+                WHERE nspname NOT LIKE 'pg_%'
+                AND nspname != 'information_schema';
+                `;
+
+      // Execute the query
+      const columns = await this.conn.pool.query(query);
+
+      return { schemas: columns.rows || [], error: null };
+    } catch (error: any) {
+      console.error("Error retrieving schemas:", error);
+      return { schemas: [], error: error.message };
     }
   }
 
   async getTablesData(
     tableName: string,
-    filters?: FilterType[]
-  ): Promise<{ data: any; error: string | null }> {
+    options?: {
+      filters?: FilterType[];
+      orderBy?: SortColumn[];
+      pagination?: PaginationType;
+    },
+  ): Promise<{ data: any; error: string | null; totalRecords: number }> {
     if (!this.conn.pool) {
-      return { data: null, error: "No connection to the database" };
+      return {
+        data: null,
+        error: "No connection to the database",
+        totalRecords: 0,
+      };
     }
 
     try {
       // Query to retrieve table names, column names, and their data types from the 'public' schema
       let whereQuery = "";
-      if (filters) {
-        whereQuery = this.generateWhereQuery(filters) || "";
+      if (options) {
+        const { filters, orderBy, pagination } = options;
+        if (filters) {
+          whereQuery = this.generateWhereQuery(filters) || "";
+        }
+        if (orderBy && orderBy?.length > 0) {
+          const { columnKey, direction } = orderBy[0];
+          whereQuery += ` ORDER BY ${columnKey} ${direction}`;
+        }
+        if (pagination) {
+          const { page, limit } = pagination;
+          whereQuery += ` LIMIT ${limit} OFFSET ${+(page - 1) * limit}`;
+        }
       }
 
       const query = `
                 SELECT *
-                FROM "${tableName}"
+                FROM ${this.currentSchema}."${tableName}"
                 ${whereQuery};
             `;
+
+      const totalRecordsQuery = `SELECT COUNT(*) FROM ${this.currentSchema}."${tableName}";`;
+
+      const totalRecords = await this.conn.pool.query(totalRecordsQuery);
 
       // Execute the query
       const columns = await this.conn.pool.query(query);
 
-      return { data: columns.rows, error: null };
+      return {
+        data: columns.rows,
+        error: null,
+        totalRecords: totalRecords?.rows?.[0]?.count || 0,
+      };
     } catch (error: any) {
       console.error("Error:", error);
-      return { data: null, error: error.message };
+      return { data: null, error: error.message, totalRecords: 0 };
     }
   }
 
@@ -151,7 +243,7 @@ export class PostgresClient {
         information_schema.referential_constraints AS rc
           ON rc.constraint_name = kcu.constraint_name 
         WHERE c.table_name = $1
-        AND c.table_schema = 'public'
+        AND c.table_schema = '${this.currentSchema}'
         ORDER BY c.ordinal_position;
       `;
 
@@ -229,7 +321,7 @@ export class PostgresClient {
     try {
       // Query to drop the table
       const query = `
-        DROP TABLE IF EXISTS "${table_name}";
+        DROP TABLE IF EXISTS ${this.currentSchema}."${table_name}";
       `;
 
       // Execute the query
@@ -273,7 +365,7 @@ export class PostgresClient {
       if (Array.isArray(result)) {
         const totalRowCount = result.reduce(
           (sum, res) => sum + res.rowCount,
-          0
+          0,
         );
         return {
           data: { rows: [], columns: [] },
@@ -318,9 +410,13 @@ export class PostgresClient {
     }
   }
 
-  async testConnection({ connectionString }: { connectionString: string }) {
+  async testConnection({
+    connectionDetails,
+  }: {
+    connectionDetails: ConnectionDetailsType;
+  }) {
     try {
-      const client = new Client(connectionString);
+      const client = new Client(connectionDetails);
       await client.connect();
       await client.end();
       return { success: true, error: null };
@@ -352,11 +448,11 @@ export class PostgresClient {
           (row) =>
             `(${Object.values(row)
               .map((value) => this.formatValue(value))
-              .join(", ")})`
+              .join(", ")})`,
         )
         .join(", ");
       const query = `
-        INSERT INTO "${tableName}" (${columnsList})
+        INSERT INTO ${this.currentSchema}."${tableName}" (${columnsList})
         VALUES ${valuesList}
         RETURNING *;
       `;
@@ -390,7 +486,7 @@ export class PostgresClient {
     data: Array<{
       oldValue: Record<string, any>;
       newValue: Record<string, any>;
-    }>
+    }>,
   ) {
     const query = await this.generateUpdateQuery(tableName, data);
     if (!this.conn.pool)
@@ -404,9 +500,8 @@ export class PostgresClient {
     // return query;
     if (query) {
       const originalQuery = query.toString();
-      const { effectedRows, error: updateError } = await this.executeQuery(
-        originalQuery
-      );
+      const { effectedRows, error: updateError } =
+        await this.executeQuery(originalQuery);
       const { data, error: fetchError } = await this.getTablesData(tableName);
 
       return { effectedRows, data, updateError, fetchError };
@@ -424,7 +519,7 @@ export class PostgresClient {
     data: Array<{
       oldValue: Record<string, any>;
       newValue: Record<string, any>;
-    }>
+    }>,
   ) {
     if (!tableName || !data || !data.length) {
       console.error("Invalid inputs");
@@ -447,7 +542,7 @@ export class PostgresClient {
         .map((key) => `"${key}" = ${this.formatValue(oldValue[key])}`)
         .join(" AND ");
 
-      return `UPDATE "${tableName}" SET ${setClauses} WHERE ${whereClauses};`;
+      return `UPDATE ${this.currentSchema}."${tableName}" SET ${setClauses} WHERE ${whereClauses};`;
     });
 
     return queries.join("\n");
@@ -467,9 +562,8 @@ export class PostgresClient {
     if (query) {
       console.log(query);
       const originalQuery = query.toString();
-      const { effectedRows, error: updateError } = await this.executeQuery(
-        originalQuery
-      );
+      const { effectedRows, error: updateError } =
+        await this.executeQuery(originalQuery);
       const { data, error: fetchError } = await this.getTablesData(tableName);
 
       return { effectedRows, data, updateError, fetchError };
@@ -493,7 +587,7 @@ export class PostgresClient {
         .map((key) => `"${key}" = ${this.formatValue(entry[key])}`)
         .join(" AND ");
 
-      return `DELETE FROM "${tableName}" WHERE ${whereClauses};`;
+      return `DELETE FROM ${this.currentSchema}."${tableName}" WHERE ${whereClauses};`;
     });
 
     return queries.join("\n");

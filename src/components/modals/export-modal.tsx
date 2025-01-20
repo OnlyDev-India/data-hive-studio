@@ -1,0 +1,302 @@
+"use client";
+import React, { useEffect, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../ui/dialog";
+import { Label } from "../ui/label";
+import { Input } from "../ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import { Button } from "../ui/button";
+import { DownloadIcon } from "lucide-react";
+import { Tooltip, TooltipContent } from "../ui/tooltip";
+import { TooltipTrigger } from "@radix-ui/react-tooltip";
+import { useSelector } from "react-redux";
+import { FileTableType } from "@/types/file.type";
+import { getTableColumns, getTablesData } from "@/lib/actions/fetch-data";
+import useBgProcess from "@/hooks/use-bgProcess";
+
+const exportToCSV = (columns: any, data: any) => {
+  const csvHeader = columns.map((column: any) => column.name).join(",");
+
+  const csvRows = data.map((row: any) => {
+    return columns
+      .map((column: any) => {
+        if (column.key) {
+          return row[column.key]?.toString();
+        } else {
+          return row[column.column_name]?.toString();
+        }
+      })
+      .join(",");
+  });
+
+  const csvContent = [csvHeader, ...csvRows].join("\n");
+  return csvContent;
+
+  //   TODO: add for browser also
+  //   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  //   const url = URL.createObjectURL(blob);
+  //   const link = document.createElement("a");
+  //   link.href = url;
+  //   link.download = "data.csv";
+  //   link.click();
+};
+
+const DownloadMenu = [
+  { label: "CSV", format: ".csv", value: "csv" },
+  { label: "JSON", format: ".json", value: "json", disabled: true },
+  { label: "Excel", format: ".xlsx", value: "xlsx", disabled: true },
+];
+
+const filteredMenu = [
+  {
+    label: "Whole Table",
+    description: "Whole tables data will be exported",
+    value: "table",
+  },
+  {
+    label: "Selected",
+    description: "Selected rows will be exported",
+    value: "selected",
+  },
+  {
+    label: "Filtered Data",
+    description: "Filtered data will be exported",
+    value: "filtered",
+  },
+];
+
+interface ExportModalProps {
+  data?: any;
+  columns?: any;
+  selectedData?: any;
+}
+
+const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
+  const [open, setOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    type: "filtered",
+    name: "test",
+    format: "csv",
+    outputDir: "",
+  });
+  const { currentFile }: { currentFile: FileTableType } = useSelector(
+    (state: any) => state.openFiles,
+  );
+  const { addBgProcess, updateBgProcess } = useBgProcess();
+
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    addBgProcess({
+      name: "Export",
+      id: "export",
+      status: "running",
+      subProcess: [{ name: currentFile.name, status: "running" }],
+    });
+    setTimeout(() => {
+      updateBgProcess({
+        id: "export",
+        status: "completed",
+        subProcess: [{ name: currentFile.name, status: "completed" }],
+      });
+    }, 3000);
+    setOpen(false);
+    let exportData = null;
+    let exportColumns = columns;
+    if (formData.type === "filtered" && data && columns) {
+      exportData = data;
+    }
+    if (formData.type === "selected" && selectedData && columns) {
+      exportData = data.filter((_: any, index: number) =>
+        selectedData.includes(index),
+      );
+    }
+    if (formData.type === "table" && data && columns) {
+      const { columns } = await getTableColumns(currentFile.tableName);
+      const { data, totalRecords } = await getTablesData(currentFile.tableName);
+      const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
+        const copiedItem = JSON.parse(JSON.stringify(item));
+        Object.keys(item).forEach((key) => {
+          if (typeof item[key] === "object")
+            copiedItem[key] = item[key]?.toString();
+        });
+        return copiedItem;
+      });
+      exportData = rows;
+      exportColumns = columns;
+    }
+    if (!exportData || !exportColumns) return;
+
+    if (formData.format === "csv") {
+      const csvContent = exportToCSV(exportColumns, exportData);
+      console.log(csvContent);
+    }
+  };
+
+  useEffect(() => {
+    const exportPath = localStorage.getItem("export-path") || "";
+    setFormData({ ...formData, outputDir: exportPath });
+  }, []);
+
+  const handleOpenDir = async () => {
+    try {
+      const exportPath = localStorage.getItem("export-path") || "";
+      const result = await window.electron?.openSelectDir(exportPath);
+      if (!result) return;
+      const { canceled, filePaths } = result;
+      if (canceled) return;
+      const newExportPath = filePaths[0];
+      localStorage.setItem("export-path", newExportPath);
+      setFormData({ ...formData, outputDir: newExportPath });
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button
+              variant={"outline"}
+              size={"icon"}
+              className="h-7 w-7 border-border [&_svg]:size-3"
+            >
+              <DownloadIcon />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Export Data</TooltipContent>
+      </Tooltip>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Export Data</DialogTitle>
+          <DialogDescription className="text-xs">
+            Export Data to CSV, JSON, or Excel File, If number of records are
+            greater, it will run in background
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleFormSubmit}>
+          <div className="space-y-2">
+            <div className="space-y-2">
+              <Label htmlFor="format" className="text-xs">
+                Export
+              </Label>
+              <Select
+                value={formData.type}
+                onValueChange={(value) => {
+                  setFormData({ ...formData, type: value });
+                }}
+              >
+                <SelectTrigger className="w-[180px] border-border bg-secondary">
+                  <SelectValue placeholder="Theme" />
+                </SelectTrigger>
+                <SelectContent className="bg-secondary">
+                  {filteredMenu.map((item, index) => (
+                    <SelectItem
+                      key={index}
+                      value={item.value}
+                      className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex w-full items-center gap-1.5">
+              <div className="w-full space-y-2">
+                <Label htmlFor="name" className="text-xs">
+                  File Name
+                </Label>
+                <Input
+                  id="name"
+                  placeholder="File Name"
+                  className="w-full border-border bg-secondary"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="format" className="text-xs">
+                  Format
+                </Label>
+                <Select
+                  value={formData.format}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, format: value });
+                  }}
+                >
+                  <SelectTrigger className="w-[180px] border-border bg-secondary">
+                    <SelectValue placeholder="Theme" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary">
+                    {DownloadMenu.map((item, index) => (
+                      <SelectItem
+                        key={index}
+                        value={item.value}
+                        className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
+                        disabled={item.disabled}
+                      >
+                        {item.label}{" "}
+                        <span className="text-xs text-muted-foreground">
+                          {`(${item.format})`}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {window.electron?.openSelectDir !== undefined && (
+              <div className="w-full space-y-2">
+                <Label htmlFor="name" className="text-xs">
+                  Output Directory
+                </Label>
+                <div className="flex items-center">
+                  <Input
+                    id="name"
+                    placeholder="File Name"
+                    className="w-full rounded-r-none border-r-0 border-border bg-secondary !text-xs"
+                    value={formData.outputDir}
+                    readOnly
+                    onClick={handleOpenDir}
+                  />
+                  <Button
+                    type="button"
+                    variant={"secondary"}
+                    className="rounded-l-none border border-l-0 border-border bg-popover hover:bg-background/40"
+                    onClick={handleOpenDir}
+                  >
+                    Choose
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="!mt-8 flex w-full items-center justify-end">
+              <Button type="submit" className="h-7 py-0 text-xs text-white">
+                Export
+              </Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+export default ExportModal;

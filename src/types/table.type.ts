@@ -18,7 +18,7 @@ export interface TableFormColumn {
 export interface CustomColumns extends Column<any> {
   customRenderCell?: (
     props: RenderCellProps<any>,
-    extraFiled: any
+    extraFiled: any,
   ) => React.ReactNode;
 }
 

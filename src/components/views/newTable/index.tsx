@@ -15,13 +15,16 @@ import { updateFile } from "@/redux/features/open-files";
 import { toast } from "sonner";
 import { executeQuery } from "@/lib/actions/fetch-data";
 import { fetchTables } from "@/redux/features/tables";
+import { FileNewTableType } from "@/types/file.type";
 
 const NewTableView = () => {
   const [formData, setFormData] = useState<TableForm | null>(null);
   const [invalidData, setInvalidData] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
-  const { currentFile } = useSelector((state: any) => state.openFiles);
-  const { tables } = useSelector((state: any) => state.tables);
+  const { currentFile }: { currentFile: FileNewTableType } = useSelector(
+    (state: any) => state.openFiles,
+  );
+  const { tables, currentSchema } = useSelector((state: any) => state.tables);
 
   const dispatch = useDispatch();
 
@@ -55,7 +58,7 @@ const NewTableView = () => {
       // return { error: "Invalid columns", invalidRows };
     }
 
-    const query = `CREATE TABLE ${formData.name} (
+    const query = `CREATE TABLE ${currentSchema}."${formData.name}" (
       ${formData.columns
         .map((column: any) => {
           const {
@@ -70,7 +73,7 @@ const NewTableView = () => {
 
           if (!name || !type) {
             throw new Error(
-              `Invalid column definition: ${JSON.stringify(column)}`
+              `Invalid column definition: ${JSON.stringify(column)}`,
             );
           }
 
@@ -82,8 +85,8 @@ const NewTableView = () => {
             keyType === "PRIMARY"
               ? "PRIMARY KEY"
               : keyType === "FOREIGN" && foreignTableColumn && foreignTable
-              ? `REFERENCES public."${foreignTable}"(${foreignTableColumn})`
-              : "";
+                ? `REFERENCES ${currentSchema}."${foreignTable}"(${foreignTableColumn})`
+                : "";
 
           return `${name} ${type} ${nullConstraint} ${defaultConstraint} ${keyConstraint}`.trim();
         })
@@ -99,27 +102,34 @@ const NewTableView = () => {
     return {
       ...column,
       renderCell: (props: RenderCellProps<any>) =>
-        customRenderCell(props, { deleteColumn, getForeignTableFields, tables }),
+        customRenderCell(props, {
+          deleteColumn,
+          getForeignTableFields,
+          tables,
+        }),
     };
   });
 
   const setInitialData = (newTable = false) => {
     if (!currentFile) return;
 
-    if (currentFile.tableData && !newTable) {
-      setFormData(currentFile.tableData);
+    if (currentFile.tableForm && !newTable) {
+      setFormData(currentFile.tableForm);
       return;
     }
-    const cookies = document.cookie.split("; ").reduce((acc, cookie) => {
-      const [name, value] = cookie.split("=");
-      acc[name] = decodeURIComponent(value);
-      return acc;
-    }, {} as Record<string, string>);
+    const cookies = document.cookie.split("; ").reduce(
+      (acc, cookie) => {
+        const [name, value] = cookie.split("=");
+        acc[name] = decodeURIComponent(value);
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
 
     const dbType = cookies["dbType"];
     const initialData = initialFormData[dbType as keyof typeof initialFormData];
     setFormData(initialData as TableForm);
-    dispatch(updateFile({ id: currentFile?.id, tableData: initialData }));
+    dispatch(updateFile({ id: currentFile?.id, tableForm: initialData }));
   };
 
   useEffect(() => {
@@ -160,7 +170,7 @@ const NewTableView = () => {
       ],
     };
     setFormData(updatedFormData as any);
-    dispatch(updateFile({ id: currentFile?.id, tableData: updatedFormData }));
+    dispatch(updateFile({ id: currentFile?.id, tableForm: updatedFormData }));
   };
 
   const deleteColumn = (index: number) => {
@@ -169,13 +179,13 @@ const NewTableView = () => {
       columns: formData?.columns?.filter((_, i) => i !== index),
     };
     setFormData(updatedFormData as any);
-    dispatch(updateFile({ id: currentFile?.id, tableData: updatedFormData }));
+    dispatch(updateFile({ id: currentFile?.id, tableForm: updatedFormData }));
   };
 
   const handleDataChange = (rows: any[]) => {
     const updatedFormData = { ...formData, columns: rows };
     setFormData(updatedFormData as any);
-    dispatch(updateFile({ id: currentFile?.id, tableData: updatedFormData }));
+    dispatch(updateFile({ id: currentFile?.id, tableForm: updatedFormData }));
   };
 
   const getForeignTableFields = (rowIdx: number) => {
@@ -184,7 +194,7 @@ const NewTableView = () => {
     let fields;
     if (foreignTable) {
       fields = tables.find(
-        (table: any) => table.table_name === foreignTable
+        (table: any) => table.table_name === foreignTable,
       )?.fields;
       const options = fields
         ?.filter((field: any) => field.key_type === "PRIMARY KEY")
@@ -201,7 +211,7 @@ const NewTableView = () => {
     <div className="px-4 py-6">
       {formData && (
         <div className="space-y-4">
-          <div className="flex gap-2 items-center h-7">
+          <div className="flex h-7 items-center gap-2">
             <Label htmlFor="name" className="whitespace-nowrap">
               Table Name
             </Label>
@@ -215,7 +225,7 @@ const NewTableView = () => {
             />
             <div className="flex gap-0.5">
               <Button
-                className="text-white h-7 rounded-r-none"
+                className="h-7 rounded-r-none text-white"
                 onClick={handleCreateTable}
                 disabled={loading}
               >
@@ -224,7 +234,7 @@ const NewTableView = () => {
               </Button>
               <Button
                 disabled={loading}
-                className="text-white h-7 rounded-l-none px-1"
+                className="h-7 rounded-l-none px-1 text-white"
               >
                 <ChevronDownIcon />
               </Button>
@@ -233,7 +243,7 @@ const NewTableView = () => {
           <div className="flex items-center justify-between">
             <h2>Columns</h2>
             <Button
-              className="text-white h-7 w-7 rounded-full px-1"
+              className="h-7 w-7 rounded-full px-1 text-white"
               onClick={addNewColumn}
               disabled={loading}
             >
@@ -254,7 +264,7 @@ const NewTableView = () => {
                 }
                 return outputClass;
               }}
-              className="h-full bg-background react-data-grid-new-table"
+              className="react-data-grid-new-table h-full bg-background"
             />
           </div>
         </div>

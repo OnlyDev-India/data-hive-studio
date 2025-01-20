@@ -8,5 +8,9 @@ export const compareFilter = [
     value: "greater than or equal",
     types: ["integer"],
   },
-  { key: "less than or equal", value: "less than or equal", types: ["integer"] },
+  {
+    key: "less than or equal",
+    value: "less than or equal",
+    types: ["integer"],
+  },
 ];

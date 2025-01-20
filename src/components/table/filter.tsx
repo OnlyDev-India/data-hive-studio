@@ -40,11 +40,10 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
   const handleFilterValueChange = (
     value: string,
     index: number,
-    type: keyof typeof initialFilter
+    type: keyof typeof initialFilter,
   ) => {
     const updatedFilter = JSON.parse(JSON.stringify(filterValues));
-    console.log(value);
-    
+
     updatedFilter[index][type] = value;
     setFilterValues(updatedFilter);
     dispatch(
@@ -58,7 +57,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           },
           applyFilter: false,
         },
-      })
+      }),
     );
   };
 
@@ -77,7 +76,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           },
           applyFilter: false,
         },
-      })
+      }),
     );
   };
 
@@ -96,7 +95,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           },
           applyFilter: false,
         },
-      })
+      }),
     );
   };
 
@@ -113,7 +112,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           },
           applyFilter: true,
         },
-      })
+      }),
     );
   };
 
@@ -129,13 +128,12 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           },
           applyFilter: true,
         },
-      })
+      }),
     );
     setFilterValues([initialFilter]);
   };
 
   useEffect(() => {
-    
     if (currentFile?.tableName) {
       if (currentFile?.tableFilter?.filter?.oldFilter?.length > 0) {
         setFilterValues(currentFile?.tableFilter?.filter?.oldFilter);
@@ -146,10 +144,10 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
   }, [currentFile?.tableName, currentFile?.tableFilter?.filter?.oldFilter]);
 
   return (
-    <div className="flex-1 flex gap-2">
-      <div className="flex-1 flex flex-col gap-2">
+    <div className="flex flex-1 gap-2">
+      <div className="flex flex-1 flex-col gap-2">
         {filterValues.map((filterValue: any, index: number) => (
-          <div key={index} className="flex gap-2 items-center">
+          <div key={index} className="flex items-center gap-2">
             <Select
               defaultValue={filterValue.separator}
               disabled={index === 0}
@@ -157,27 +155,27 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                 handleFilterValueChange(value, index, "separator")
               }
             >
-              <SelectTrigger className="h-8 text-xs w-[100px] bg-background">
+              <SelectTrigger className="h-8 w-[100px] bg-background text-xs">
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
               <SelectContent className="bg-background/70 backdrop-blur-md">
                 {index === 0 && (
                   <SelectItem
                     value={"WHERE"}
-                    className="text-xs focus:bg-primary/60 cursor-pointer"
+                    className="cursor-pointer text-xs focus:bg-primary/60"
                   >
                     <p className="flex items-center gap-2">WHERE</p>
                   </SelectItem>
                 )}
                 <SelectItem
                   value={"AND"}
-                  className="text-xs focus:bg-primary/60 cursor-pointer"
+                  className="cursor-pointer text-xs focus:bg-primary/60"
                 >
                   <p className="flex items-center gap-2">AND</p>
                 </SelectItem>
                 <SelectItem
                   value={"OR"}
-                  className="text-xs focus:bg-primary/60 cursor-pointer"
+                  className="cursor-pointer text-xs focus:bg-primary/60"
                 >
                   <p className="flex items-center gap-2">OR</p>
                 </SelectItem>
@@ -189,7 +187,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                 handleFilterValueChange(value, index, "column")
               }
             >
-              <SelectTrigger className="h-8 text-xs w-[140px] bg-background">
+              <SelectTrigger className="h-8 w-[140px] bg-background text-xs">
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
               <SelectContent className="bg-background/70 backdrop-blur-md">
@@ -200,7 +198,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                     <SelectItem
                       key={column.key}
                       value={column.key}
-                      className="focus:bg-primary/60 cursor-pointer text-xs"
+                      className="cursor-pointer text-xs focus:bg-primary/60"
                     >
                       <p className="flex items-center gap-2">
                         {Icon && <Icon size={14} className="text-yellow-400" />}
@@ -217,7 +215,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                 handleFilterValueChange(value, index, "compare")
               }
             >
-              <SelectTrigger className="h-8 text-xs w-[130px] bg-background">
+              <SelectTrigger className="h-8 w-[130px] bg-background text-xs">
                 <SelectValue placeholder="Filter" />
               </SelectTrigger>
               <SelectContent className="bg-secondary/70 backdrop-blur-md">
@@ -231,7 +229,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                     <SelectItem
                       key={column.key}
                       value={column.key}
-                      className="focus:bg-primary/60 text-xs cursor-pointer"
+                      className="cursor-pointer text-xs focus:bg-primary/60"
                     >
                       {column.value}
                     </SelectItem>
@@ -239,17 +237,25 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
                 })}
               </SelectContent>
             </Select>
-            <Input
-              className="flex-1 h-8 !text-xs bg-background"
-              value={filterValue.value}
-              onChange={(e) =>
-                handleFilterValueChange(e.target.value, index, "value")
-              }
-              placeholder="Enter Value"
-            />
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleApplyFilters();
+              }}
+              className="flex-1"
+            >
+              <Input
+                className="h-8 bg-background !text-xs"
+                value={filterValue.value}
+                onChange={(e) =>
+                  handleFilterValueChange(e.target.value, index, "value")
+                }
+                placeholder="Enter Value"
+              />
+            </form>
             <Button
               variant={"outline"}
-              className="h-7 w-7 px-2 border-border [&_svg]:size-3"
+              className="h-7 w-7 border-border px-2 [&_svg]:size-3"
               onClick={() => handleAddFilter(index)}
             >
               <PlusIcon />
@@ -257,7 +263,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
             {index > 0 && (
               <Button
                 variant={"outline"}
-                className="h-7 w-7 px-2 border-border [&_svg]:size-3"
+                className="h-7 w-7 border-border px-2 [&_svg]:size-3"
                 onClick={() => handleRemoveFilter(index)}
               >
                 <XIcon />
@@ -266,10 +272,10 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
           </div>
         ))}
       </div>
-      <div className="h-8 flex items-center gap-2">
+      <div className="flex h-8 items-center gap-2">
         <Button
           variant={"outline"}
-          className="h-7 px-2 bg-primary hover:bg-primary/70 border-border [&_svg]:size-3"
+          className="h-7 border-border bg-primary px-2 hover:bg-primary/70 [&_svg]:size-3"
           onClick={handleApplyFilters}
         >
           Apply
@@ -277,7 +283,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
         {currentFile?.tableFilter?.filter?.oldFilter?.length > 0 && (
           <Button
             variant={"outline"}
-            className="h-7 px-2 border-border [&_svg]:size-3"
+            className="h-7 border-border px-2 [&_svg]:size-3"
             onClick={handleRemoveFilters}
           >
             Clear

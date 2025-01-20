@@ -1,7 +1,14 @@
 import path from "path";
 import fs from "fs";
-import { app, BrowserWindow, ipcMain, protocol, shell } from "electron";
-import sqlite3 from "sqlite3";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  protocol,
+  shell,
+  nativeTheme,
+  dialog,
+} from "electron";
 // import { createHandler } from "./handler/index.js";
 import { seedDataIntoDB } from "./seed/seed-appDb.js";
 import { createHandler } from "next-electron-rsc";
@@ -57,7 +64,7 @@ const createWindow = async () => {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: true,
-      devTools: true,
+      devTools: isDev,
       preload: preloadPath,
     },
   });
@@ -73,7 +80,7 @@ const createWindow = async () => {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: true,
-      devTools: true,
+      devTools: isDev,
       preload: preloadPath,
     },
   });
@@ -82,7 +89,7 @@ const createWindow = async () => {
 
   if (!isDev) {
     console.log(
-      `[APP] Server Debugging Enabled, ${localhostUrl} will be intercepted to ${standaloneDir}`
+      `[APP] Server Debugging Enabled, ${localhostUrl} will be intercepted to ${standaloneDir}`,
     );
     stopIntercept = createInterceptor({
       session: mainWindow.webContents.session,
@@ -114,12 +121,36 @@ const createWindow = async () => {
   await app.whenReady();
 
   await mainWindow.loadURL(localhostUrl + "/");
+  // mainWindow.loadFile(splashScreenPath);
 
+  nativeTheme.on("updated", () => {
+    if (nativeTheme.themeSource?.includes("dark")) {
+      mainWindow?.setBackgroundColor("#24292e");
+    }
+  });
   // console.log("[APP] Loaded", localhostUrl);
 };
 
 ipcMain.handle("app-db-path", () => {
   return dbPath;
+});
+
+ipcMain.handle("update-theme", (_: any, theme: string) => {
+  if (theme?.includes("dark")) {
+    nativeTheme.themeSource = "dark";
+  } else if (theme?.includes("light")) {
+    nativeTheme.themeSource = "light";
+  } else {
+    nativeTheme.themeSource = "system";
+  }
+});
+
+ipcMain.handle("open-select-dir", async (_any: any, path: string) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"],
+    defaultPath: path || app.getPath("downloads"),
+  });
+  return result;
 });
 
 app.on("ready", createWindow);
@@ -129,5 +160,26 @@ app.on("window-all-closed", () => app.quit()); // if (process.platform !== 'darw
 app.on(
   "activate",
   () =>
-    BrowserWindow.getAllWindows().length === 0 && !mainWindow && createWindow()
+    BrowserWindow.getAllWindows().length === 0 && !mainWindow && createWindow(),
 );
+
+const exampleMenuTemplate = [
+  {
+    label: "Simple O&ptions",
+    submenu: [
+      {
+        label: "Quit",
+        click: () => app.quit(),
+      },
+      {
+        label: "Radio1",
+        type: "radio",
+        checked: true,
+      },
+      {
+        label: "Radio2",
+        type: "radio",
+      },
+    ],
+  },
+];

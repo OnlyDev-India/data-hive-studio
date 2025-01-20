@@ -10,6 +10,9 @@ import "react-data-grid/lib/styles.css";
 import Filter from "./filter";
 import { Button } from "../ui/button";
 import {
+  ArrowDownWideNarrowIcon,
+  ArrowUpNarrowWideIcon,
+  ChevronsUpDownIcon,
   ListFilterIcon,
   LoaderCircleIcon,
   PlusIcon,
@@ -26,7 +29,8 @@ import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import ExportTable from "./export-table";
 import { Row } from "@/types/table.type";
-import { FileType } from "@/types/file.type";
+import { FileTableType, RefetchType } from "@/types/file.type";
+import Pagination from "./pagination";
 
 // Define the structure of the data (you can update this based on your actual data)
 interface ColumnProps extends Column<any> {
@@ -38,7 +42,7 @@ interface TableProps {
   data: Row[];
   refetchData?: () => void;
   isSmall?: boolean;
-  isFetching?: boolean;
+  isFetching?: RefetchType;
 }
 
 const Table = ({
@@ -50,14 +54,12 @@ const Table = ({
 }: TableProps) => {
   // React Data Grid requires columns and rows
   const [gridRows, setGridRows] = useState<Row[]>([]);
-  const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
-  // const [selectedRows, setSelectedRows] = useState<number[]>([]);
-  // const [isNewRows, setIsNewRows] = useState<boolean>(false);
+  // const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
 
   const [filterDivHeight, setFilterDivHeight] = useState<number>(56);
 
-  const { currentFile }: { currentFile: FileType } = useSelector(
-    (state: any) => state.openFiles
+  const { currentFile }: { currentFile: FileTableType } = useSelector(
+    (state: any) => state.openFiles,
   );
   const { changedRows, insertedRows, selectedRows } =
     currentFile.tableOperations || {};
@@ -70,36 +72,13 @@ const Table = ({
     (changedRows && Object.keys(changedRows).length > 0) ||
     (insertedRows ? insertedRows > 0 : false);
 
-  const comparator = (a: Row, b: Row): number => {
-    for (const sort of sortColumns) {
-      const { columnKey, direction } = sort;
-      const aValue = a[columnKey];
-      const bValue = b[columnKey];
-
-      if (typeof aValue === "boolean" && typeof bValue === "boolean") {
-        return aValue === bValue ? 0 : aValue ? 1 : -1; // Sort booleans
-      }
-      if (typeof aValue === "number" && typeof bValue === "number") {
-        return direction === "ASC" ? aValue - bValue : bValue - aValue; // Sort numbers
-      }
-      if (typeof aValue === "string" && typeof bValue === "string") {
-        return direction === "ASC"
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue); // Sort strings
-      }
-      if (aValue instanceof Date && bValue instanceof Date) {
-        return direction === "ASC"
-          ? aValue.getTime() - bValue.getTime()
-          : bValue.getTime() - aValue.getTime(); // Sort dates
-      }
-    }
-    return 0; // Equal values
-  };
-
   const handleAddRecord = () => {
     const newRow: any = {};
-    Object.keys(data[0]).forEach((key) => {
-      newRow[key] = "";
+    Object.keys(columns).forEach((column) => {
+      const { key } = columns[parseInt(column)];
+      if (key) {
+        newRow[key] = "";
+      }
     });
     newRow["isNew"] = true;
     dispatch(
@@ -113,7 +92,7 @@ const Table = ({
           ...currentFile?.tableOperations,
           insertedRows: gridRows.filter((row) => row.isNew)?.length + 1,
         },
-      })
+      }),
     );
     // setIsNewRows(true);
   };
@@ -138,7 +117,7 @@ const Table = ({
           ...currentFile?.tableOperations,
           insertedRows: newRows.filter((row) => row.isNew)?.length,
         },
-      })
+      }),
     );
   };
 
@@ -150,7 +129,7 @@ const Table = ({
           ...currentFile?.tableOperations,
           selectedRows: selectRows,
         },
-      })
+      }),
     );
   };
 
@@ -170,24 +149,31 @@ const Table = ({
                 row.isNew
                   ? "aria-[selected='false']:text-yellow-800 aria-[selected='true']:bg-background"
                   : ""
-              }`
+              }`,
           );
         },
         headerCellClass:
           "bg-muted text-muted-foreground aria-[selected='true']:outline-primary aria-[selected='true']:rounded-md border !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
-          <div className="w-full h-full cursor-pointer flex items-center justify-between">
+          <div className="flex h-full w-full cursor-pointer items-center justify-between">
             <p className="flex gap-2">
               {column.key_type === "PRIMARY KEY" && <span>🔑</span>}
               {column.key_type === "FOREIGN KEY" && <span>🔗</span>}
               <span>{column.name}</span>
-              <span className="text-muted-foreground bg-background p-0.5 px-4 rounded-md text-xs max-w-[100px] truncate">
+              <span className="max-w-[100px] truncate rounded-md bg-background p-0.5 px-4 text-xs text-muted-foreground">
                 {data_type}
               </span>
             </p>
             <span>
-              {sortColumns[0]?.columnKey === column.key &&
-                (sortColumns[0]?.direction === "ASC" ? " 🔼" : " 🔽")}
+              {currentFile?.tableOrder?.[0]?.columnKey === column.key ? (
+                currentFile?.tableOrder?.[0]?.direction === "ASC" ? (
+                  <ArrowUpNarrowWideIcon size={14} />
+                ) : (
+                  <ArrowDownWideNarrowIcon size={14} />
+                )
+              ) : (
+                <ChevronsUpDownIcon size={14} />
+              )}
             </span>
           </div>
         ),
@@ -215,7 +201,7 @@ const Table = ({
             <InputCell
               name={column.key}
               {...props}
-              className="px-3 !border-0"
+              className="!border-0 px-3"
             />
           );
         },
@@ -244,11 +230,12 @@ const Table = ({
           }
         };
         return (
-          <div className="w-full group flex items-center justify-center">
+          <div className="group flex w-full items-center justify-center">
             <Checkbox
               checked={isChecked}
               className={cn("invisible group-hover:visible", {
                 visible: selectedRows && selectedRows.length > 0,
+                "!invisible": !currentFile?.tableName,
               })}
               onCheckedChange={handleCheckedChanges}
             />
@@ -267,13 +254,14 @@ const Table = ({
             setSelectedRows(selectedRowsArray);
           }
         };
+
         return (
-          <div className="w-full h-full group flex items-center justify-center">
+          <div className="group flex h-full w-full items-center justify-center">
             {row.isNew ? (
               <Button
                 variant="ghost"
                 size={"icon"}
-                className="p-0 h-full w-full [&_svg]:size-3"
+                className="h-full w-full p-0 [&_svg]:size-3"
                 onClick={() => handleRemoveNewRecord(rowIdx)}
               >
                 <XIcon />
@@ -285,11 +273,13 @@ const Table = ({
                   onCheckedChange={handleCheckedChanges}
                   className={cn("hidden group-hover:inline-block", {
                     "inline-block": selectedRowsArray.length > 0,
+                    "!hidden": !currentFile?.tableName,
                   })}
                 />
                 <p
-                  className={cn("group-hover:hidden inline-block", {
+                  className={cn("inline-block group-hover:hidden", {
                     hidden: selectedRowsArray.length > 0,
+                    "!inline-block": !currentFile?.tableName,
                   })}
                 >
                   {rowIdx + 1}
@@ -302,50 +292,17 @@ const Table = ({
     };
 
     return [checkBoxColumn, ...newColumns];
-  }, [columns, sortColumns, selectedRows, gridRows]);
+  }, [columns, currentFile?.tableOrder, selectedRows, gridRows]);
 
-  const sortedData = useMemo((): readonly Row[] => {
-    if (sortColumns.length === 0) return data;
-
-    return [...data].sort((a, b) => {
-      const compResult = comparator(a, b);
-      if (compResult !== 0) {
-        return compResult;
-      }
-      return 0;
-    });
-  }, [data, sortColumns]);
-
-  // const filterComparator = (a: any, b: any, compare: string): boolean => {
-  //   switch (compare) {
-  //     case "equals":
-  //       if (typeof a === "string" && typeof b === "string") {
-  //         return (
-  //           a.toLowerCase().includes(b.toLowerCase()) ||
-  //           b.toLowerCase().includes(a.toLowerCase())
-  //         ); // Return true if either includes the other
-  //       }
-  //       return a === b;
-  //     case "not equals":
-  //       if (typeof a === "string" && typeof b === "string") {
-  //         return !(
-  //           a.toLowerCase().includes(b.toLowerCase()) ||
-  //           b.toLowerCase().includes(a.toLowerCase())
-  //         ); // Return true if either includes the other
-  //       }
-  //       return a !== b;
-  //     case "greater than":
-  //       return a > b;
-  //     case "less than":
-  //       return a < b;
-  //     case "greater than or equal":
-  //       return a >= b;
-  //     case "less than or equal":
-  //       return a <= b;
-  //     default:
-  //       return true; // If no valid compare, return all
-  //   }
-  // };
+  const handleShortData = (cols: readonly SortColumn[]) => {
+    dispatch(
+      updateFile({
+        id: currentFile?.id,
+        tableOrder: cols,
+        tableRefetch: "sort:" + cols[0]?.direction.toString(),
+      }),
+    );
+  };
 
   const handleRowChange = (rows: Row[], changesRows: any) => {
     const rowIndexes = changesRows.indexes;
@@ -387,13 +344,15 @@ const Table = ({
           ...currentFile?.tableOperations,
           changedRows: changedData,
         },
-      })
+      }),
     );
     // setGridRows(rows);
   };
 
   const handleResetChanges = () => {
-    const restoredRows = JSON.parse(JSON.stringify(data)).filter((row:any)=>!row.isNew);
+    const restoredRows = JSON.parse(JSON.stringify(data)).filter(
+      (row: any) => !row.isNew,
+    );
 
     if (changedRows) {
       Object.entries(changedRows).forEach(([index, change]: [string, any]) => {
@@ -413,7 +372,7 @@ const Table = ({
           insertedRows: 0,
           selectedRows: [],
         },
-      })
+      }),
     );
   };
 
@@ -427,7 +386,7 @@ const Table = ({
               ...currentFile?.tableOperations,
               changedRows: {},
             },
-          })
+          }),
         );
         return;
       case "delete":
@@ -442,18 +401,18 @@ const Table = ({
 
   const updatedData = useMemo(() => {
     const changedRows = currentFile?.tableOperations?.changedRows;
-    if (!changedRows) return sortedData;
+    if (!changedRows) return data;
 
     if (Object.keys(changedRows).length > 0) {
       const keys = Object.keys(changedRows);
-      const newRows = [...sortedData];
+      const newRows = [...data];
       keys.forEach((key) => {
         newRows[+key] = changedRows[+key].new;
       });
       return newRows;
     }
-    return sortedData;
-  }, [sortedData, currentFile?.tableOperations?.changedRows]);
+    return data;
+  }, [data, currentFile?.tableOperations?.changedRows]);
 
   useEffect(() => {
     setGridRows(updatedData as any);
@@ -469,7 +428,8 @@ const Table = ({
   }, [
     currentFile?.tableName,
     currentFile?.tableFilter?.filterOpened,
-    isFetching,
+    currentFile?.tableFilter?.filter?.newFilter,
+    isFetching === null,
   ]);
 
   const handleIsFilter = () => {
@@ -480,7 +440,7 @@ const Table = ({
           ...currentFile?.tableFilter,
           filterOpened: !currentFile?.tableFilter?.filterOpened,
         },
-      })
+      }),
     );
   };
 
@@ -490,64 +450,69 @@ const Table = ({
         "h-[calc(100%-2.3rem)]": isSmall,
       })}
     >
-      {!isFetching && (!columns || columns?.length === 0) ? (
-        <div className="h-full flex items-center justify-center">
+      {isFetching === null && (!columns || columns?.length === 0) ? (
+        <div className="flex h-full items-center justify-center">
           <p className="text-muted-foreground">No data found</p>
         </div>
       ) : (
         <>
           <div className="py-2" ref={filterRef}>
-            <div className="h-10 flex items-center justify-between gap-2 px-4">
-              <div>
-                {isFetching ? (
-                  <LoaderCircleIcon
-                    className="animate-spin text-muted-foreground"
-                    size={12}
-                  />
-                ) : (
-                  <span className="text-muted-foreground text-xs">
-                    {gridRows.length} row{gridRows.length > 0 && "s"}
-                  </span>
-                )}
-              </div>
+            <div className="flex h-10 items-center justify-between gap-2 px-4">
+              <Pagination isFetching={isFetching} />
               <div className="flex items-center gap-2">
-                <Button
-                  variant={"outline"}
-                  onClick={handleAddRecord}
-                  className="h-7 px-2 border-border [&_svg]:size-3"
-                >
-                  <PlusIcon />
-                  Add Record
-                </Button>
-                <Button
-                  variant={"outline"}
-                  onClick={handleIsFilter}
-                  className="h-7 px-2 border-border [&_svg]:size-3"
-                >
-                  <ListFilterIcon />
-                  Filter
-                </Button>
+                {currentFile?.tableName && (
+                  <>
+                    <Button
+                      variant={"outline"}
+                      onClick={handleAddRecord}
+                      className="h-7 border-border px-2 [&_svg]:size-3"
+                      disabled={isFetching !== null}
+                    >
+                      <PlusIcon />
+                      Add Record
+                    </Button>
+                    <Button
+                      variant={"outline"}
+                      onClick={handleIsFilter}
+                      className="relative h-7 border-border px-2 [&_svg]:size-3"
+                    >
+                      <ListFilterIcon />
+                      Filter
+                      {currentFile?.tableFilter?.filter?.oldFilter?.length >
+                        0 && (
+                        <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border bg-popover text-xs">
+                          {currentFile?.tableFilter?.filter?.oldFilter?.length}
+                        </span>
+                      )}
+                    </Button>
+                  </>
+                )}
                 {refetchData && (
                   <Button
                     variant={"outline"}
                     size={"icon"}
                     onClick={refetchData}
+                    disabled={isFetching !== null}
                     className="h-7 w-7 border-border [&_svg]:size-3"
                   >
                     <RefreshCcwIcon />
                   </Button>
                 )}
-                <ExportTable />
+                <ExportTable
+                  columns={columns}
+                  data={gridRows}
+                  selectedData={selectedRows}
+                />
               </div>
             </div>
             {currentFile?.tableFilter?.filterOpened && (
-              <div className="overflow-auto max-h-40 bg-secondary p-4 scrollable-container-gutter">
+              <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary p-4">
                 <Filter columns={columns} />
               </div>
             )}
           </div>
-          {isFetching ? (
-            <div className="h-full w-full flex items-center justify-center gap-2">
+          {isFetching === "fetch" ? (
+            <div className="flex h-full w-full items-center justify-center gap-2">
               <LoaderCircleIcon className="animate-spin text-primary" />
               <p>Fetching...</p>
             </div>
@@ -556,10 +521,10 @@ const Table = ({
               style={{
                 height: isSmall
                   ? `calc(100% - ${
-                      filterDivHeight ? filterDivHeight + "px" : "2.3rem"
+                      filterDivHeight ? filterDivHeight - 4 + "px" : "2.3rem"
                     })`
                   : `calc(100vh - ${
-                      filterDivHeight ? filterDivHeight + 42 + "px" : "5.5rem"
+                      filterDivHeight ? filterDivHeight + 66 + "px" : "5.5rem"
                     })`,
               }}
             >
@@ -577,8 +542,8 @@ const Table = ({
                 rows={gridRows} // Dynamically set rows
                 rowHeight={30} // Row height
                 headerRowHeight={40} // Header row height
-                sortColumns={sortColumns}
-                onSortColumnsChange={setSortColumns}
+                sortColumns={currentFile?.tableOrder || []}
+                onSortColumnsChange={handleShortData}
                 onRowsChange={handleRowChange} // Handling row changes
                 rowClass={(row, rowIndex) => {
                   let classNames = "bg-background ";
@@ -593,7 +558,7 @@ const Table = ({
                   }
                   return classNames;
                 }}
-                className="fill-grid h-full bg-background react-data-grid"
+                className="fill-grid react-data-grid h-full bg-background"
               />
             </div>
           )}

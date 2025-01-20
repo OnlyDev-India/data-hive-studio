@@ -36,7 +36,7 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         headerCellClass:
           "bg-background text-muted-foreground aria-[selected='true']:outline-none !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
-          <div className="w-full h-full cursor-pointer flex items-center justify-between">
+          <div className="flex h-full w-full cursor-pointer items-center justify-between">
             <p className="flex gap-2">
               <span>{column.name}</span>
             </p>
@@ -45,7 +45,7 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         renderCell: ({ row }: any) => {
           return (
             <span
-              className={cn("w-full pl-2 truncate", {
+              className={cn("w-full truncate pl-2", {
                 "text-muted-foreground": !row[column.key],
               })}
             >
@@ -58,7 +58,7 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
   }, [columns]);
 
   return !columns || columns?.length === 0 ? (
-    <div className="h-full flex items-center justify-center">
+    <div className="flex h-full items-center justify-center">
       <p className="text-muted-foreground">No data found</p>
     </div>
   ) : (
@@ -70,10 +70,10 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         headerRowHeight={50} // Header row height
         rowClass={(_, rowIndex) => {
           let classNames = "bg-background ";
-          classNames += "";//for fixing the bug that classNames is not reassigned
+          classNames += ""; //for fixing the bug that classNames is not reassigned
           return classNames;
         }}
-        className="fill-grid h-full bg-background react-data-grid"
+        className="fill-grid react-data-grid h-full bg-background"
       />
     </div>
   );

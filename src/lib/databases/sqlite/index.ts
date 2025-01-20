@@ -1,6 +1,6 @@
-import { testConnection } from "@/lib/actions/fetch-data";
 import sqlite3 from "sqlite3";
 import { Database, open } from "sqlite";
+import { ConnectionDetailsType } from "@/types/db.type";
 
 export class SqliteClient {
   conn: { pool: Database | null };
@@ -11,8 +11,19 @@ export class SqliteClient {
     this.connectionString = null;
   }
 
-  async connectDb({ connectionString }: { connectionString: string }) {
+  async connectDb({
+    connectionDetails,
+  }: {
+    connectionDetails: ConnectionDetailsType;
+  }) {
     try {
+      const { connectionString } = connectionDetails;
+      if (!connectionString) {
+        return {
+          success: false,
+          error: "Connection string not found",
+        };
+      }
       if (!this.conn.pool) {
         this.conn.pool = await open({
           filename: connectionString,
@@ -83,8 +94,16 @@ export class SqliteClient {
     }
   }
 
-  async testConnection({ connectionString }: { connectionString: string }) {
+  async testConnection({
+    connectionDetails,
+  }: {
+    connectionDetails: ConnectionDetailsType;
+  }) {
     try {
+      const { connectionString } = connectionDetails;
+      if (!connectionString) {
+        return { success: false, error: "Connection string not found" };
+      }
       const client = new sqlite3.Database(connectionString);
       await client.run("SELECT 1");
       await client.close();
@@ -115,17 +134,14 @@ export class SqliteClient {
     data: Array<{
       oldValue: Record<string, any>;
       newValue: Record<string, any>;
-    }>
+    }>,
   ) {
     return false as any;
   }
   async deleteTableData(tableName: string, data: any[]) {
     return false as any;
   }
-  async insertRecord(data: {
-    tableName: string;
-    values: any[][];
-  }) {
+  async insertRecord(data: { tableName: string; values: any[][] }) {
     return false as any;
   }
 }

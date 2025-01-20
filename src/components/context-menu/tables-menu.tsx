@@ -14,6 +14,7 @@ import {
 } from "@/redux/features/open-files";
 import { dropTable } from "@/lib/actions/fetch-data";
 import { fetchTables } from "@/redux/features/tables";
+import { AppDispatch } from "@/redux/store";
 
 const TablesMenu = ({
   children,
@@ -22,7 +23,7 @@ const TablesMenu = ({
   children: React.ReactNode;
   table_name: string;
 }) => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const handleViewData = () => {
     dispatch(addTableFile({ table_name }));
   };
@@ -36,13 +37,13 @@ const TablesMenu = ({
 
   const handleDropTable = async () => {
     const result = await dropTable(table_name);
-    dispatch(fetchTables() as any);
+    dispatch(fetchTables());
   };
 
   return (
     <ContextMenu>
       <ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
-      <ContextMenuContent className="px-2 py-1 min-w-[150px]">
+      <ContextMenuContent className="min-w-[150px] px-2 py-1">
         <ContextMenuItem onSelect={handleViewData} className="text-xs">
           View Data
         </ContextMenuItem>

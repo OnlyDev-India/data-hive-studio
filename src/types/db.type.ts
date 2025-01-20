@@ -15,6 +15,16 @@ export interface ConnectionsType {
   color: string;
 }
 
+export interface ConnectionDetailsType {
+  user: string;
+  host: string;
+  database: string;
+  password: string;
+  port: number; // Default PostgreSQL port
+  ssl: any; // Handle SSL
+  connectionString?: string;
+}
+
 export const DbConnectionsTypes = ["pgSql", "sqlite"];
 
 export const DbConnectionColors = ["#15db95", "#ff5d59", "#fad83b", "#9858ff"];

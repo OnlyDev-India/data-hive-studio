@@ -43,9 +43,11 @@ body {
     /* custom */
     --sidebar-width: 50px;
     --tabs-height: 2.5rem;
+    --scrollbar-thumb: 210 12% 87%;
+    --bottom-nav-height: 1.6rem;
   }
 
-  .dark {
+  [data-theme="dark"] {
     --background: 210 12% 16%;
     --foreground: 0 0% 95%;
     --card: 210 13% 21%;
@@ -70,6 +72,8 @@ body {
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+
+    --scrollbar-thumb: 213 10% 23%;
   }
 }
 
@@ -78,7 +82,7 @@ body {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground select-none;
+    @apply select-none bg-background text-foreground;
   }
   /* For WebKit browsers (Chrome, Safari) */
   ::-webkit-scrollbar {
@@ -91,11 +95,11 @@ body {
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgb(52, 57, 63); /* Color of the scrollbar thumb */
+    background: hsl(var(--scrollbar-thumb)); /* Color of the scrollbar thumb */
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(52, 57, 63); /* Darker thumb on hover */
+    background: hsl(var(--scrollbar-thumb)); /* Darker thumb on hover */
   }
 
   .no-scrollbar::-webkit-scrollbar {

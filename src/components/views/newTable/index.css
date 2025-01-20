@@ -24,14 +24,14 @@
     @apply bg-secondary/80;
   }
   .react-data-grid-new-table .rdg-cell {
-    @apply text-xs md:text-sm flex items-center text-foreground;
+    @apply flex items-center text-xs text-foreground md:text-sm;
   }
   .react-data-grid-new-table .rdg-cell[aria-selected="true"] {
-    @apply border outline-none border-muted rounded-none;
+    @apply rounded-none border border-muted outline-none;
   }
 
   .react-data-grid-new-table .rdg-cell[role="columnheader"] {
-    @apply bg-muted text-muted-foreground !w-full !relative;
+    @apply !relative !w-full bg-muted text-muted-foreground;
   }
 
   .react-data-grid-new-table .rdg-header-cell {

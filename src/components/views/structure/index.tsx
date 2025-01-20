@@ -22,7 +22,12 @@ const StructureView = () => {
     const { data } = await getTableRelations(currentFile.tableName);
 
     if (columns && data) {
-      dispatch(updateFile({ id: currentFile?.id, tableData: { columns, relations: data } }));
+      dispatch(
+        updateFile({
+          id: currentFile?.id,
+          tableData: { columns, relations: data },
+        }),
+      );
     }
     setLoading(false);
   };
@@ -37,9 +42,9 @@ const StructureView = () => {
   return (
     <Tabs
       defaultValue="columns"
-      className="h-[calc(100vh-var(--tabs-height))] flex flex-col"
+      className="flex h-[calc(100vh-var(--tabs-height))] flex-col"
     >
-      <TabsList className="h-[var(--tabs-height)] bg-background border-b-2 p-0">
+      <TabsList className="h-[var(--tabs-height)] border-b-2 bg-background p-0">
         <CustomTabsTrigger value="columns">Columns</CustomTabsTrigger>
         <CustomTabsTrigger value="relations">Relations</CustomTabsTrigger>
       </TabsList>
@@ -47,7 +52,7 @@ const StructureView = () => {
         <div className="flex items-center justify-between py-2">
           <p className="flex items-baseline gap-2">
             <span className="text-lg font-bold">Column</span>
-            <span className="text-muted-foreground text-xs">{`(${currentFile?.tableName})`}</span>
+            <span className="text-xs text-muted-foreground">{`(${currentFile?.tableName})`}</span>
           </p>
           <Button
             variant={"ghost"}
@@ -64,7 +69,7 @@ const StructureView = () => {
         <div className="flex items-center justify-between py-2">
           <p className="flex items-baseline gap-2">
             <span className="text-lg font-bold">Relations</span>
-            <span className="text-muted-foreground text-xs">{`(${currentFile?.tableName})`}</span>
+            <span className="text-xs text-muted-foreground">{`(${currentFile?.tableName})`}</span>
           </p>
           <Button
             variant={"ghost"}
@@ -93,7 +98,7 @@ const CustomTabsTrigger = ({
 }) => {
   return (
     <TabsTrigger
-      className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full"
+      className="h-full rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary"
       value={value}
     >
       {children}
