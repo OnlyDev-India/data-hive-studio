@@ -165,12 +165,14 @@ const TableView = () => {
   return (
     columns &&
     data && (
-      <Table
-        data={data}
-        columns={columns}
-        refetchData={fetchData}
-        isFetching={loading}
-      />
+      <div className="h-[calc(100%-2.6rem)] bg-secondary rounded-b-lg overflow-hidden">
+        <Table
+          data={data}
+          columns={columns}
+          refetchData={fetchData}
+          isFetching={loading}
+        />
+      </div>
     )
   );
 };

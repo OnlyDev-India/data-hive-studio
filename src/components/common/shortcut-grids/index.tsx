@@ -2,7 +2,7 @@ import React from "react";
 
 const shortcuts = [
   {
-    keys: "Ctrl + Shift + K",
+    keys: "Ctrl + Shift + T",
     action: "Tables View",
   },
   {

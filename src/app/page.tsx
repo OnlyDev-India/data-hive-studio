@@ -35,9 +35,9 @@ const ConnectionsPage = () => {
       <ResizablePanel defaultSize={20} minSize={20} maxSize={70}>
         <ConnectionSidebar />
       </ResizablePanel>
-      <ResizableHandle className="!w-0.5 data-[resize-handle-state=drag]:bg-primary data-[resize-handle-state=hover]:bg-primary" />
-      <ResizablePanel defaultSize={80} minSize={30} maxSize={80}>
-        <div className="h-full w-full flex-1 bg-secondary">
+      <ResizableHandle className="!w-2 bg-background" />
+      <ResizablePanel defaultSize={80} minSize={30} maxSize={80} className="p-2 pl-0">
+        <div className="h-full w-full flex-1 bg-secondary rounded-lg">
           <ConnectionForm />
         </div>
       </ResizablePanel>

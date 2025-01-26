@@ -15,7 +15,7 @@
     "start:next": "next dev",
     "start:ts": "tsc-watch --noClear --onFirstSuccess \"yarn start:electron\" --project tsconfig-electron.json",
     "start:electron": "electron .",
-    "start": "cross-env NODE_ENV=development concurrently -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"yarn start:next -p 4080\" \"yarn start:ts\"",
+    "start:dev": "cross-env NODE_ENV=development concurrently -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"yarn start:next -p 4080\" \"yarn start:ts\"",
     "open": "./dist/mac-arm64/Next\\ Electron\\ RSC.app/Contents/MacOS/Next\\ Electron\\ RSC",
     "format": "prettier --write ."
   },
@@ -67,6 +67,7 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.0.3",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

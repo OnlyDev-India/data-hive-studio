@@ -20,15 +20,19 @@ export async function connectDb() {
   const cookie = cookies();
   const connectionUrl = cookie.get("currentConnection");
   if (!connectionUrl)
-    return { success: false, error: "No connection to the database" };
+    return {
+      response: { success: false, error: "No connection to the database" },
+      connectionDetails: null,
+    };
   const updatedConnectionDetails: ConnectionDetailsType = JSON.parse(
     connectionUrl?.value || "",
   );
   const dbType = (cookie.get("dbType")?.value as HandlersTypes) || null;
-  return await connectionHandler({
+  const response = await connectionHandler({
     connectionDetails: updatedConnectionDetails,
     dbType,
   });
+  return { response, connectionDetails: updatedConnectionDetails };
 }
 
 export async function changeDataBase({ newConnectionDetails }: any) {

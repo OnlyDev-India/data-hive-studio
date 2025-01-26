@@ -18,10 +18,9 @@ interface TableProps {
   columns: ColumnProps[];
   data: Row[];
   refetchData?: () => void;
-  isSmall?: boolean;
 }
 
-const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
+const Table = ({ columns, data, refetchData }: TableProps) => {
   // React Data Grid requires columns and rows
   // const [gridRows, setGridRows] = useState<Row[]>([]);
 
@@ -32,9 +31,9 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
         width: 200,
         resizable: true,
         cellClass:
-          "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-none bg-popover border-b-4 border-background",
+          "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-none border-b-4 border-secondary",
         headerCellClass:
-          "bg-background text-muted-foreground aria-[selected='true']:outline-none !w-full sticky -right-[100%]",
+          "bg-transparent text-muted-foreground aria-[selected='true']:outline-none !w-full sticky -right-[100%]",
         renderHeaderCell: ({ column }: any) => (
           <div className="flex h-full w-full cursor-pointer items-center justify-between">
             <p className="flex gap-2">
@@ -73,7 +72,7 @@ const Table = ({ columns, data, refetchData, isSmall }: TableProps) => {
           classNames += ""; //for fixing the bug that classNames is not reassigned
           return classNames;
         }}
-        className="fill-grid react-data-grid h-full bg-background"
+        className="fill-grid h-full bg-secondary"
       />
     </div>
   );

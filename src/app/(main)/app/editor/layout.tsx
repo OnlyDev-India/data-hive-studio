@@ -9,11 +9,11 @@ import SubSideBar from "@/components/navbar/sub-sidebar";
 const EditorLayout = ({ children }: { children: React.ReactNode }) => {
   return (
     <ResizablePanelGroup direction="horizontal">
-      <ResizablePanel defaultSize={20} minSize={20} maxSize={30}>
+      <ResizablePanel defaultSize={20} minSize={20} maxSize={30} className="py-2">
         <SubSideBar />
       </ResizablePanel>
-      <ResizableHandle className="!w-0.5 data-[resize-handle-state=drag]:bg-primary data-[resize-handle-state=hover]:bg-primary" />
-      <ResizablePanel defaultSize={80} minSize={50} maxSize={100}>
+      <ResizableHandle className="!w-2 bg-background" />
+      <ResizablePanel defaultSize={80} minSize={50} maxSize={100} className="p-2 pl-0">
         <div className="h-full w-full flex-1">{children}</div>
       </ResizablePanel>
     </ResizablePanelGroup>

@@ -25,6 +25,8 @@ import { useSelector } from "react-redux";
 import { FileTableType } from "@/types/file.type";
 import { getTableColumns, getTablesData } from "@/lib/actions/fetch-data";
 import useBgProcess from "@/hooks/use-bgProcess";
+import { toast } from "sonner";
+import * as xlsx from "xlsx";
 
 const exportToCSV = (columns: any, data: any) => {
   const csvHeader = columns.map((column: any) => column.name).join(",");
@@ -43,20 +45,31 @@ const exportToCSV = (columns: any, data: any) => {
 
   const csvContent = [csvHeader, ...csvRows].join("\n");
   return csvContent;
+};
 
-  //   TODO: add for browser also
-  //   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  //   const url = URL.createObjectURL(blob);
-  //   const link = document.createElement("a");
-  //   link.href = url;
-  //   link.download = "data.csv";
-  //   link.click();
+const exportToJSON = (data: any) => {
+  return JSON.stringify(data, null, 2);
+};
+
+const exportToExcel = (columns: any, data: any) => {
+  // Convert JSON data to a worksheet
+  // TODO: implement this
+  const wb = xlsx?.utils.book_new();
+  const ws = xlsx?.utils.json_to_sheet(data);
+  xlsx.utils.book_append_sheet(wb, ws, "Sheet1");
+  const excelBuffer = xlsx.write(wb, {
+    bookType: "xlsx",
+    type: "buffer",
+  });
+
+  // Return the buffer
+  return excelBuffer;
 };
 
 const DownloadMenu = [
   { label: "CSV", format: ".csv", value: "csv" },
-  { label: "JSON", format: ".json", value: "json", disabled: true },
-  { label: "Excel", format: ".xlsx", value: "xlsx", disabled: true },
+  { label: "JSON", format: ".json", value: "json" },
+  { label: "Excel", format: ".xlsx", value: "xlsx" },
 ];
 
 const filteredMenu = [
@@ -85,15 +98,15 @@ interface ExportModalProps {
 
 const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
   const [open, setOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    type: "filtered",
-    name: "test",
-    format: "csv",
-    outputDir: "",
-  });
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
   );
+  const [formData, setFormData] = useState({
+    type: "filtered",
+    name: currentFile.tableName || "Output",
+    format: "csv",
+    outputDir: "",
+  });
   const { addBgProcess, updateBgProcess } = useBgProcess();
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -102,15 +115,8 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
       name: "Export",
       id: "export",
       status: "running",
-      subProcess: [{ name: currentFile.name, status: "running" }],
+      subProcesses: [{ name: currentFile.name, status: "running" }],
     });
-    setTimeout(() => {
-      updateBgProcess({
-        id: "export",
-        status: "completed",
-        subProcess: [{ name: currentFile.name, status: "completed" }],
-      });
-    }, 3000);
     setOpen(false);
     let exportData = null;
     let exportColumns = columns;
@@ -138,16 +144,72 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
     }
     if (!exportData || !exportColumns) return;
 
+    let convertedData = null;
+
     if (formData.format === "csv") {
-      const csvContent = exportToCSV(exportColumns, exportData);
-      console.log(csvContent);
+      convertedData = exportToCSV(exportColumns, exportData);
     }
+
+    if (formData.format === "json") {
+      convertedData = exportToJSON(exportData);
+    }
+
+    if (formData.format === "xlsx") {
+      convertedData = exportToExcel(exportColumns, exportData);
+    }
+
+    if (convertedData) {
+      if (window.electron) {
+        const result = await window.electron.saveFile(
+          convertedData,
+          `${formData.outputDir}/${formData.name}.${formData.format}`,
+        );
+        if (result.success) {
+          toast.success("Exported Successfully");
+        } else {
+          toast.error("Export Failed");
+        }
+      } else {
+        const blob = new Blob([convertedData], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${formData.name}.${formData.format}`;
+        link.click();
+      }
+    }
+    updateBgProcess({
+      id: "export",
+      status: "completed",
+      subProcesses: [
+        {
+          name: currentFile.name,
+          status: "completed",
+          details: `${formData.name}.${formData.format} exported successfully`,
+        },
+      ],
+    });
   };
 
   useEffect(() => {
     const exportPath = localStorage.getItem("export-path") || "";
-    setFormData({ ...formData, outputDir: exportPath });
-  }, []);
+    // dateformat dd-mm-yyyy
+    const formattedDate = new Date()
+      .toLocaleDateString("en-GB")
+      .replaceAll("/", "-");
+    // time format hh-mm-ss
+    const time = new Date()
+      .toLocaleTimeString("en-US", { hour12: false })
+      .replaceAll(":", "-");
+    const filename = `${currentFile.tableName}-${formattedDate}-${time}`;
+    setFormData({
+      ...formData,
+      name: filename,
+      outputDir: exportPath,
+    });
+  }, [currentFile.tableName]);
 
   const handleOpenDir = async () => {
     try {
@@ -190,32 +252,34 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
         </DialogHeader>
         <form onSubmit={handleFormSubmit}>
           <div className="space-y-2">
-            <div className="space-y-2">
-              <Label htmlFor="format" className="text-xs">
-                Export
-              </Label>
-              <Select
-                value={formData.type}
-                onValueChange={(value) => {
-                  setFormData({ ...formData, type: value });
-                }}
-              >
-                <SelectTrigger className="w-[180px] border-border bg-secondary">
-                  <SelectValue placeholder="Theme" />
-                </SelectTrigger>
-                <SelectContent className="bg-secondary">
-                  {filteredMenu.map((item, index) => (
-                    <SelectItem
-                      key={index}
-                      value={item.value}
-                      className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
-                    >
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {currentFile.tableName && (
+              <div className="space-y-2">
+                <Label htmlFor="format" className="text-xs">
+                  Export
+                </Label>
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, type: value });
+                  }}
+                >
+                  <SelectTrigger className="w-[180px] border-border bg-secondary">
+                    <SelectValue placeholder="Theme" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-secondary">
+                    {filteredMenu.map((item, index) => (
+                      <SelectItem
+                        key={index}
+                        value={item.value}
+                        className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
+                      >
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="flex w-full items-center gap-1.5">
               <div className="w-full space-y-2">
                 <Label htmlFor="name" className="text-xs">
@@ -250,7 +314,7 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
                         key={index}
                         value={item.value}
                         className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
-                        disabled={item.disabled}
+                        // disabled={item.disabled}
                       >
                         {item.label}{" "}
                         <span className="text-xs text-muted-foreground">

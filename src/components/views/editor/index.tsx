@@ -20,7 +20,7 @@ import { useDebouncedCallback } from "@/hooks/debounce";
 import { updateFile } from "@/redux/features/open-files";
 import Lottie from "lottie-react";
 import LoadingAnimation from "@public/loading.json";
-import { FileType } from "@/types/file.type";
+import { FileFileType, FileType } from "@/types/file.type";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
 import ShortcutGrid from "@/components/common/shortcut-grids";
@@ -38,7 +38,7 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
   const { queryOutput, executingQuery } = useSelector(
     (state: any) => state.query,
   );
-  const { currentFile }: { currentFile: FileType | null } = useSelector(
+  const { currentFile }: { currentFile: FileFileType | null } = useSelector(
     (state: any) => state.openFiles,
   );
   const { theme } = useTheme();
@@ -104,7 +104,11 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
   return (
     <div className="h-full w-full">
       <ResizablePanelGroup direction="vertical">
-        <ResizablePanel defaultSize={50} minSize={10}>
+        <ResizablePanel
+          defaultSize={50}
+          minSize={10}
+          className="bg-background [&>section]:overflow-hidden [&>section]:rounded-b-lg"
+        >
           <Editor
             height={"100%"}
             language="pgsql"
@@ -120,10 +124,10 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
             }}
           />
         </ResizablePanel>
-        <ResizableHandle className="data-[resize-handle-state=drag]:!h-0.5 data-[resize-handle-state=hover]:!h-0.5 data-[resize-handle-state=drag]:bg-primary data-[resize-handle-state=hover]:bg-primary" />
-        <ResizablePanel defaultSize={50} minSize={10}>
-          <div className="h-[calc(100%-3.5rem)] w-full">
-            <div className="flex items-center justify-between bg-secondary px-4 py-1.5">
+        <ResizableHandle className="!h-2 bg-background" />
+        <ResizablePanel defaultSize={50} minSize={10} className="bg-background">
+          <div className="h-[calc(100%-2.5rem)] w-full rounded-lg bg-secondary">
+            <div className="mx-2 flex items-center justify-between border-b-2 border-border px-2 py-1">
               <p>output</p>
               <div>
                 <Tooltip>
@@ -150,7 +154,9 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
                 </div>
               </div>
             ) : columns.length > 0 ? (
-              <Table data={data} columns={columns} isSmall />
+              <div className="h-[calc(100%-2.7rem)]">
+                <Table data={data} columns={columns} />
+              </div>
             ) : queryOutput?.error ? (
               <div className="h-full overflow-auto p-4">
                 <Alert className="bg-secondary">
@@ -167,7 +173,7 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
                 </p>
               </div>
             ) : (
-              <div className="h-full overflow-auto p-4">
+              <div className="h-[calc(100%-2.7rem)] overflow-auto p-4">
                 <ShortcutGrid />
               </div>
             )}

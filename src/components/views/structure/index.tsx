@@ -42,9 +42,9 @@ const StructureView = () => {
   return (
     <Tabs
       defaultValue="columns"
-      className="flex h-[calc(100vh-var(--tabs-height))] flex-col"
+      className="flex h-[calc(100%-var(--tabs-height))] flex-col bg-secondary"
     >
-      <TabsList className="h-[var(--tabs-height)] border-b-2 bg-background p-0">
+      <TabsList className="mx-2 h-[var(--tabs-height)] rounded-none border-b-2 bg-secondary p-0">
         <CustomTabsTrigger value="columns">Columns</CustomTabsTrigger>
         <CustomTabsTrigger value="relations">Relations</CustomTabsTrigger>
       </TabsList>
@@ -63,7 +63,12 @@ const StructureView = () => {
             <RotateCwIcon className={cn({ "animate-spin": loading })} />
           </Button>
         </div>
-        <Table columns={columns} data={currentFile?.tableData?.columns || []} />
+        <div className="h-[calc(100%-var(--tabs-height)]">
+          <Table
+            columns={columns}
+            data={currentFile?.tableData?.columns || []}
+          />
+        </div>
       </CustomTabsContent>
       <CustomTabsContent value="relations">
         <div className="flex items-center justify-between py-2">
@@ -80,10 +85,12 @@ const StructureView = () => {
             <RotateCwIcon className={cn({ "animate-spin": loading })} />
           </Button>
         </div>
-        <Table
-          columns={relationColumns}
-          data={currentFile?.tableData?.relations || []}
-        />
+        <div className="h-[calc(100%-var(--tabs-height)]">
+          <Table
+            columns={relationColumns}
+            data={currentFile?.tableData?.relations || []}
+          />
+        </div>
       </CustomTabsContent>
     </Tabs>
   );
@@ -114,10 +121,7 @@ const CustomTabsContent = ({
   value: string;
 }) => {
   return (
-    <TabsContent
-      className="h-[calc(100vh-3.3*var(--tabs-height))] px-4"
-      value={value}
-    >
+    <TabsContent className="h-full overflow-auto px-4" value={value}>
       {children}
     </TabsContent>
   );

@@ -35,7 +35,7 @@ const Sidebar = () => {
     router.push("/");
   };
   return (
-    <div className="flex w-[var(--sidebar-width)] flex-col items-center border-r border-border pb-2">
+    <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">
       {pathname === "/" && <ConnectionPageSidebar />}
       {pathname.startsWith("/app") && (
         <ConnectedPageSidebar pathname={pathname} />

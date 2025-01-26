@@ -75,7 +75,7 @@ const ConnectionSidebar = () => {
   };
 
   return (
-    <div className="scrollable-container-gutter h-full overflow-auto py-4 pl-4">
+    <div className="scrollable-container-gutter h-[calc(100%-1rem)] overflow-auto py-4 pl-4 rounded-lg bg-secondary my-2">
       <div className="flex flex-col gap-2">
         <Button
           variant={"secondary"}

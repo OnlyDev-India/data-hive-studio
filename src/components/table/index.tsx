@@ -41,22 +41,14 @@ interface TableProps {
   columns: ColumnProps[];
   data: Row[];
   refetchData?: () => void;
-  isSmall?: boolean;
   isFetching?: RefetchType;
 }
 
-const Table = ({
-  columns,
-  data,
-  refetchData,
-  isSmall,
-  isFetching,
-}: TableProps) => {
+const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
   // React Data Grid requires columns and rows
   const [gridRows, setGridRows] = useState<Row[]>([]);
-  // const [sortColumns, setSortColumns] = useState<readonly SortColumn[]>([]);
 
-  const [filterDivHeight, setFilterDivHeight] = useState<number>(56);
+  const [filterDivHeight, setFilterDivHeight] = useState<number>(40);
 
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
@@ -214,7 +206,7 @@ const Table = ({
       width: 30,
       frozen: true,
       cellClass:
-        "!bg-background hover:!bg-background !rounded-none aria-[selected='true']:outline-none border",
+        "!bg-secondary hover:!bg-secondary !rounded-none aria-[selected='true']:outline-none border",
       headerCellClass:
         "bg-muted text-muted-foreground aria-[selected='true']:outline-none border",
       renderHeaderCell: () => {
@@ -426,6 +418,7 @@ const Table = ({
   useEffect(() => {
     updateDivHeight();
   }, [
+    filterRef.current,
     currentFile?.tableName,
     currentFile?.tableFilter?.filterOpened,
     currentFile?.tableFilter?.filter?.newFilter,
@@ -445,18 +438,14 @@ const Table = ({
   };
 
   return (
-    <div
-      className={cn("h-[calc(100vh-3rem)] px-0", {
-        "h-[calc(100%-2.3rem)]": isSmall,
-      })}
-    >
+    <div className={cn("h-full px-0")}>
       {isFetching === null && (!columns || columns?.length === 0) ? (
         <div className="flex h-full items-center justify-center">
           <p className="text-muted-foreground">No data found</p>
         </div>
       ) : (
         <>
-          <div className="py-2" ref={filterRef}>
+          <div ref={filterRef}>
             <div className="flex h-10 items-center justify-between gap-2 px-4">
               <Pagination isFetching={isFetching} />
               <div className="flex items-center gap-2">
@@ -519,13 +508,7 @@ const Table = ({
           ) : (
             <div
               style={{
-                height: isSmall
-                  ? `calc(100% - ${
-                      filterDivHeight ? filterDivHeight - 4 + "px" : "2.3rem"
-                    })`
-                  : `calc(100vh - ${
-                      filterDivHeight ? filterDivHeight + 66 + "px" : "5.5rem"
-                    })`,
+                height: `calc(100% - ${filterDivHeight + "px"})`,
               }}
             >
               {isFloatingActionsVisible && (
@@ -546,19 +529,19 @@ const Table = ({
                 onSortColumnsChange={handleShortData}
                 onRowsChange={handleRowChange} // Handling row changes
                 rowClass={(row, rowIndex) => {
-                  let classNames = "bg-background ";
+                  let classNames = "bg-secondary ";
                   if (changedRows?.[rowIndex]) {
                     classNames += "bg-primary/10 ";
                   }
                   if (selectedRows && selectedRows.includes(rowIndex)) {
-                    classNames += "bg-destructive/20 ";
+                    classNames += "!bg-destructive/20 ";
                   }
                   if (row.isNew) {
                     classNames += "bg-yellow-100 ";
                   }
                   return classNames;
                 }}
-                className="fill-grid react-data-grid h-full bg-background"
+                className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
               />
             </div>
           )}

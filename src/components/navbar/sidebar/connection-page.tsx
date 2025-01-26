@@ -1,3 +1,4 @@
+"use client";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -6,12 +7,18 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { LaptopMinimalIcon, PlusIcon } from "lucide-react";
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 const ConnectionPageSidebar = () => {
+  const [isWeb, setIsWeb] = useState(true);
+  useEffect(() => {
+    if (window?.electron) {
+      setIsWeb(false);
+    }
+  }, []);
   return (
     <div className="z-10 h-full w-full flex-col justify-center bg-background px-0 py-4">
-      {window?.electron && (
+      {!isWeb && (
         <div
           className={cn(
             "w-full rounded-none border-l-2 border-transparent px-2 data-[state=active]:border-primary",

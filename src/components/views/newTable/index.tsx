@@ -9,7 +9,6 @@ import React, { useEffect, useState } from "react";
 import ReactDataGrid, { Column, RenderCellProps } from "react-data-grid";
 import { columns } from "./column";
 import "react-data-grid/lib/styles.css";
-import "./index.css";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import { toast } from "sonner";
@@ -98,15 +97,22 @@ const NewTableView = () => {
 
   const updatedColumns: Column<any>[] = columns.map((column) => {
     const customRenderCell = column.customRenderCell;
-    if (!customRenderCell) return column;
+    const renderCell = column.renderCell;
     return {
+      cellClass:
+        "text-xs md:text-sm flex items-center text-foreground aria-[selected='true']:outline-none border-b-4 border-secondary",
+      headerCellClass:
+        "bg-secondary text-muted-foreground aria-[selected='true']:outline-none !w-full sticky -right-[100%]",
       ...column,
+
       renderCell: (props: RenderCellProps<any>) =>
-        customRenderCell(props, {
-          deleteColumn,
-          getForeignTableFields,
-          tables,
-        }),
+        customRenderCell
+          ? customRenderCell(props, {
+              deleteColumn,
+              getForeignTableFields,
+              tables,
+            })
+          : renderCell && renderCell(props),
     };
   });
 
@@ -208,9 +214,9 @@ const NewTableView = () => {
   };
 
   return (
-    <div className="px-4 py-6">
+    <div className="h-[calc(100%-var(--tabs-height))] bg-secondary px-4 py-6">
       {formData && (
-        <div className="space-y-4">
+        <div className="h-full space-y-4">
           <div className="flex h-7 items-center gap-2">
             <Label htmlFor="name" className="whitespace-nowrap">
               Table Name
@@ -250,7 +256,7 @@ const NewTableView = () => {
               <PlusIcon />
             </Button>
           </div>
-          <div>
+          <div className="h-[calc(100%-4rem)]">
             <ReactDataGrid
               columns={updatedColumns as any}
               rows={formData.columns}
@@ -258,13 +264,13 @@ const NewTableView = () => {
               headerRowHeight={50} // Header row height
               onRowsChange={(newRows) => handleDataChange(newRows)} // Handling row changes
               rowClass={(_, rowInd) => {
-                let outputClass = "";
+                let outputClass = "bg-background";
                 if (invalidData.includes(rowInd)) {
-                  outputClass += "rdg-row-invalid";
+                  outputClass += "!bg-destructive/10 ";
                 }
                 return outputClass;
               }}
-              className="react-data-grid-new-table h-full bg-background"
+              className="react-data-grid-new-table h-full bg-transparent"
             />
           </div>
         </div>

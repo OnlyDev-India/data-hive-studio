@@ -21,7 +21,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
   return (
     <div
       className={cn(
-        `z-10 h-full w-full flex-col justify-start bg-background px-0`,
+        `z-10 h-full w-full flex-col justify-start bg-background p-2`,
       )}
     >
       {sideBadMenu.map((item, index) => {
@@ -29,32 +29,29 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
           return <item.btn key={index} />;
         }
         return (
-          <div
-            key={index}
-            className={cn(
-              "w-full rounded-none border-l-2 border-transparent p-2 text-muted-foreground hover:text-foreground data-[state=active]:border-primary",
-              {
-                "border-primary text-foreground": pathname.includes(item.link),
-              },
-            )}
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {item.link && (
-                  <Link
-                    href={item.link}
-                    className="flex items-center justify-center"
-                  >
-                    <item.icon size={20} />
-                  </Link>
-                )}
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={10}>
-                {item.title}
-                <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          item.link && (
+            <Link
+              key={index}
+              href={item.link}
+              className={cn(
+                "flex items-center justify-center",
+                "w-full rounded-md p-2 text-muted-foreground hover:bg-popover/40 hover:text-foreground",
+                {
+                  "bg-popover text-foreground": pathname.includes(item.link),
+                },
+              )}
+            >
+              <Tooltip>
+                <TooltipTrigger>
+                  <item.icon size={20} />
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={10}>
+                  {item.title}
+                  <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span>
+                </TooltipContent>
+              </Tooltip>
+            </Link>
+          )
         );
       })}
     </div>

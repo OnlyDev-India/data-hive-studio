@@ -5,6 +5,7 @@ import { Poppins } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import Sidebar from "@/components/navbar/sidebar";
 import BottomBar from "@/components/navbar/bottom-bar";
+import MenuNavbar from "@/components/navbar/menu-bar";
 const poppins = Poppins({
   weight: ["300", "400", "500", "600", "700"],
   subsets: ["latin"],
@@ -24,14 +25,15 @@ export default function RootLayout({
       <body className={poppins.className}>
         <Providers>
           <Toaster />
-          <div className="h-screen w-screen">
-            <div className="h-[calc(100%-var(--bottom-nav-height))] w-full">
+          <div className="h-screen w-screen bg-background">
+            <MenuNavbar />
+            <div className="h-[calc(100vh-var(--bottom-nav-height)-var(--menu-navbar-height))] w-full">
               <div className="flex h-full w-full">
                 <Sidebar />
                 {children}
               </div>
-              <BottomBar />
             </div>
+            <BottomBar />
           </div>
         </Providers>
       </body>

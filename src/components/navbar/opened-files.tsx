@@ -182,22 +182,22 @@ const OpenedFiles = () => {
       defaultValue="0"
       value={activeFileTab}
       onValueChange={handleOpenedFile}
-      className="relative h-full w-full"
+      className="relative h-full w-full bg-secondary rounded-lg"
     >
-      <div className="no-scrollbar flex w-full items-center justify-between overflow-auto">
-        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-0">
+      <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg">
+        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2">
           {openFiles?.map((item: any, index: number) => {
             const Icon = tabIcons[item.type as "table" | "file" | "structure"];
             return (
               <div
                 key={index}
                 className={cn(
-                  "group flex h-full items-center justify-between border-x border-t-2 border-t-transparent active:cursor-grabbing",
+                  "group flex h-full items-center justify-between rounded-md border border-transparent hover:bg-background active:cursor-grabbing",
                   {
-                    "border-t-primary bg-background":
+                    "border-primary bg-primary/20 hover:bg-primary/40":
                       item.id.toString() === activeFileTab,
                   },
-                  { "border-l-2 border-l-red-500": index === dragOverIndex },
+                  { "border-l-2 border-l-red-500 rounded-l-none": index === dragOverIndex },
                 )}
                 draggable
                 onDragStart={() => {
@@ -212,7 +212,7 @@ const OpenedFiles = () => {
               >
                 <TabsTrigger
                   value={item.id.toString()}
-                  className="h-full rounded-none pr-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="h-full rounded-md bg-transparent pr-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent"
                 >
                   <span className="flex items-center gap-1 text-xs">
                     {Icon && <Icon size={14} className="text-primary" />}
