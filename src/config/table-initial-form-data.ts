@@ -1,6 +1,6 @@
 import { NewTableInitialStateType } from "@/types/file.type";
 
-export const initialFormData: Record<string, NewTableInitialStateType> = {
+export const initialFormData: Record<"pgSql" | "mongodb", NewTableInitialStateType> = {
   pgSql: {
     name: "untitled",
     columns: [
@@ -15,4 +15,9 @@ export const initialFormData: Record<string, NewTableInitialStateType> = {
       },
     ],
   },
+  mongodb:{
+    name: "untitled",
+  }
 };
+
+export type InitialFormDataTypes = keyof typeof initialFormData;

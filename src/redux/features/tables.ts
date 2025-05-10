@@ -1,9 +1,7 @@
 import { getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
 import {
-  AsyncThunkOptions,
-  AsyncThunkPayloadCreator,
   createAsyncThunk,
-  createSlice,
+  createSlice
 } from "@reduxjs/toolkit";
 
 export const fetchAllTables = createAsyncThunk(
@@ -21,7 +19,7 @@ export const fetchAllTables = createAsyncThunk(
 
 export const fetchTables =
   (isUpdateSchema = false) =>
-  async (dispatch: any, payloadCreator: any, options?: any | undefined) => {
+  async (dispatch: any, payloadCreator: any, options?: any | undefined) => {    
     fetchAllTables(isUpdateSchema)(dispatch, payloadCreator, options);
   };
 

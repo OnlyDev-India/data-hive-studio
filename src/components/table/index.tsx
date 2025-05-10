@@ -31,6 +31,9 @@ import ExportTable from "./export-table";
 import { Row } from "@/types/table.type";
 import { FileTableType, RefetchType } from "@/types/file.type";
 import Pagination from "./pagination";
+import { isNoSql } from "@/lib/helper/checkDbType";
+import NoSqlTable from "./no-sql-table";
+import { getCurrentDatabaseType } from "@/lib/actions/fetch-data";
 
 // Define the structure of the data (you can update this based on your actual data)
 interface ColumnProps extends Column<any> {
@@ -42,9 +45,16 @@ interface TableProps {
   data: Row[];
   refetchData?: () => void;
   isFetching?: RefetchType;
+  dbType: string;
 }
 
-const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
+const Table = ({
+  columns,
+  data,
+  refetchData,
+  isFetching,
+  dbType,
+}: TableProps) => {
   // React Data Grid requires columns and rows
   const [gridRows, setGridRows] = useState<Row[]>([]);
 
@@ -64,14 +74,21 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
     (changedRows && Object.keys(changedRows).length > 0) ||
     (insertedRows ? insertedRows > 0 : false);
 
-  const handleAddRecord = () => {
+  const isNosql = isNoSql(dbType);
+
+  const handleAddRecord = async () => {
     const newRow: any = {};
-    Object.keys(columns).forEach((column) => {
-      const { key } = columns[parseInt(column)];
-      if (key) {
-        newRow[key] = "";
-      }
-    });
+    const dbType = await getCurrentDatabaseType();
+    if (dbType === "mongodb" && columns.length === 0) {
+      newRow["_id"] = "";
+    } else {
+      Object.keys(columns).forEach((column) => {
+        const { key } = columns[parseInt(column)];
+        if (key) {
+          newRow[key] = "";
+        }
+      });
+    }
     newRow["isNew"] = true;
     dispatch(
       updateFile({
@@ -79,6 +96,7 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
         tableData: {
           columns: currentFile?.tableData?.columns,
           rows: [newRow, ...gridRows],
+          totalRecords: currentFile?.tableData?.totalRecords,
         },
         tableOperations: {
           ...currentFile?.tableOperations,
@@ -104,6 +122,7 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
         tableData: {
           columns: currentFile?.tableData?.columns,
           rows: newRows,
+          totalRecords: currentFile?.tableData?.totalRecords,
         },
         tableOperations: {
           ...currentFile?.tableOperations,
@@ -187,8 +206,6 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
               />
             );
           }
-          // console.log(isValidDate(props.row.createdAt));
-
           return (
             <InputCell
               name={column.key}
@@ -331,6 +348,7 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
         tableData: {
           columns: currentFile?.tableData?.columns,
           rows: rows,
+          totalRecords: currentFile?.tableData?.totalRecords,
         },
         tableOperations: {
           ...currentFile?.tableOperations,
@@ -358,6 +376,7 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
         tableData: {
           columns: currentFile?.tableData?.columns,
           rows: restoredRows,
+          totalRecords: currentFile?.tableData?.totalRecords,
         },
         tableOperations: {
           changedRows: {},
@@ -439,87 +458,100 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
 
   return (
     <div className={cn("h-full px-0")}>
-      {isFetching === null && (!columns || columns?.length === 0) ? (
-        <div className="flex h-full items-center justify-center">
-          <p className="text-muted-foreground">No data found</p>
-        </div>
-      ) : (
-        <>
-          <div ref={filterRef}>
-            <div className="flex h-10 items-center justify-between gap-2 px-4">
-              <Pagination isFetching={isFetching} />
-              <div className="flex items-center gap-2">
-                {currentFile?.tableName && (
-                  <>
-                    <Button
-                      variant={"outline"}
-                      onClick={handleAddRecord}
-                      className="h-7 border-border px-2 [&_svg]:size-3"
-                      disabled={isFetching !== null}
-                    >
-                      <PlusIcon />
-                      Add Record
-                    </Button>
-                    <Button
-                      variant={"outline"}
-                      onClick={handleIsFilter}
-                      className="relative h-7 border-border px-2 [&_svg]:size-3"
-                    >
-                      <ListFilterIcon />
-                      Filter
-                      {currentFile?.tableFilter?.filter?.oldFilter?.length >
-                        0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border bg-popover text-xs">
-                          {currentFile?.tableFilter?.filter?.oldFilter?.length}
-                        </span>
-                      )}
-                    </Button>
-                  </>
-                )}
-                {refetchData && (
+      <>
+        <div ref={filterRef}>
+          <div className="flex h-10 items-center justify-between gap-2 px-4">
+            <Pagination isFetching={isFetching} />
+            <div className="flex items-center gap-2">
+              {currentFile?.tableName && (
+                <>
                   <Button
                     variant={"outline"}
-                    size={"icon"}
-                    onClick={refetchData}
-                    disabled={isFetching !== null}
-                    className="h-7 w-7 border-border [&_svg]:size-3"
+                    onClick={handleAddRecord}
+                    className="h-7 border-border px-2 [&_svg]:size-3"
+                    disabled={!columns || isFetching !== null}
                   >
-                    <RefreshCcwIcon />
+                    <PlusIcon />
+                    Add Record
                   </Button>
-                )}
-                <ExportTable
-                  columns={columns}
-                  data={gridRows}
-                  selectedData={selectedRows}
-                />
-              </div>
-            </div>
-            {currentFile?.tableFilter?.filterOpened && (
-              <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary p-4">
-                <Filter columns={columns} />
-              </div>
-            )}
-          </div>
-          {isFetching === "fetch" ? (
-            <div className="flex h-full w-full items-center justify-center gap-2">
-              <LoaderCircleIcon className="animate-spin text-primary" />
-              <p>Fetching...</p>
-            </div>
-          ) : (
-            <div
-              style={{
-                height: `calc(100% - ${filterDivHeight + "px"})`,
-              }}
-            >
-              {isFloatingActionsVisible && (
-                <FloatingActions
-                  selectedRows={selectedRows}
-                  changedRows={changedRows}
-                  tableName={currentFile?.tableName || ""}
-                  updatedRows={gridRows}
-                  handleUpdateTableChanges={handleUpdateChanges}
-                />
+                  <Button
+                    variant={"outline"}
+                    onClick={handleIsFilter}
+                    className="relative h-7 border-border px-2 [&_svg]:size-3"
+                    disabled={
+                      !columns || columns?.length === 0 || isFetching !== null
+                    }
+                  >
+                    <ListFilterIcon />
+                    Filter
+                    {currentFile?.tableFilter?.filter?.oldFilter?.length >
+                      0 && (
+                      <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border bg-popover text-xs">
+                        {currentFile?.tableFilter?.filter?.oldFilter?.length}
+                      </span>
+                    )}
+                  </Button>
+                </>
               )}
+              {refetchData && (
+                <Button
+                  variant={"outline"}
+                  size={"icon"}
+                  onClick={refetchData}
+                  disabled={isFetching !== null}
+                  className="h-7 w-7 border-border [&_svg]:size-3"
+                >
+                  <RefreshCcwIcon
+                    className={cn({ "animate-spin": isFetching })}
+                  />
+                </Button>
+              )}
+              <ExportTable
+                columns={columns}
+                data={gridRows}
+                selectedData={selectedRows}
+              />
+            </div>
+          </div>
+          {currentFile?.tableFilter?.filterOpened && (
+            <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary p-4">
+              <Filter columns={columns} />
+            </div>
+          )}
+        </div>
+        {isFetching === null &&
+        (!updatedColumns || updatedColumns?.length === 0) ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-muted-foreground">No data found</p>
+          </div>
+        ) : isFetching === "fetch" ? (
+          <div className="flex h-full w-full items-center justify-center gap-2">
+            <LoaderCircleIcon className="animate-spin text-primary" />
+            <p>Fetching...</p>
+          </div>
+        ) : (
+          <div
+            style={{
+              height: `calc(100% - ${filterDivHeight + "px"})`,
+            }}
+          >
+            {isFloatingActionsVisible && (
+              <FloatingActions
+                selectedRows={selectedRows}
+                changedRows={changedRows}
+                tableName={currentFile?.tableName || ""}
+                updatedRows={gridRows}
+                handleUpdateTableChanges={handleUpdateChanges}
+              />
+            )}
+            {isNosql ? (
+              <NoSqlTable
+                rows={gridRows}
+                handleRemoveNewRecord={handleRemoveNewRecord}
+                selectedRows={selectedRows}
+                setSelectedRows={setSelectedRows}
+              />
+            ) : (
               <ReactDataGrid
                 columns={updatedColumns} // Dynamically set columns
                 rows={gridRows} // Dynamically set rows
@@ -543,10 +575,10 @@ const Table = ({ columns, data, refetchData, isFetching }: TableProps) => {
                 }}
                 className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
               />
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </div>
+        )}
+      </>
     </div>
   );
 };

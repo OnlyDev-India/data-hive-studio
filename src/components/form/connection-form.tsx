@@ -91,6 +91,7 @@ const ConnectionForm = () => {
       password: config.password,
       port: config.port, // Default PostgreSQL port
       ssl: config.ssl ? { rejectUnauthorized: false } : false, // Handle SSL
+      connectionString: values.connection_string,
     };
     setLoading("connecting");
     const response = await testConnection({
@@ -102,6 +103,7 @@ const ConnectionForm = () => {
     if (response.success) {
       router.push("/app/editor");
     } else {
+      toast.error(response.error || "Failed to connect");
       setLoading(null);
     }
   }
@@ -154,12 +156,14 @@ const ConnectionForm = () => {
       password: config.password,
       port: config.port, // Default PostgreSQL port
       ssl: config.ssl ? { rejectUnauthorized: false } : false, // Handle SSL
+      connectionString: form.getValues().connection_string,
     };
     const response = await testConnection({
       connectionDetails: dbConfig as ConnectionDetailsType,
       // connectionString: form.getValues().connection_string,
       dbType: form.getValues().connection_type,
     });
+
     if (response.success) {
       toast.success("Connection successful!");
       form.clearErrors("connection_string");
@@ -197,12 +201,12 @@ const ConnectionForm = () => {
                       <SelectContent className="bg-secondary">
                         {DbConnectionsTypes.map((connection_type) => (
                           <SelectItem
-                            key={connection_type}
-                            value={connection_type}
+                            key={connection_type.value}
+                            value={connection_type.value}
                             className="focus:bg-background"
-                            disabled={connection_type === "sqlite"}
+                            disabled={connection_type.disabled}
                           >
-                            {connection_type}
+                            {connection_type.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -246,7 +250,7 @@ const ConnectionForm = () => {
                   disabled={appLoading || loading !== null}
                   className="h-7 text-xs text-white"
                 >
-                  {loading === "connecting" && (
+                  {(appLoading || loading === "connecting") && (
                     <LoaderCircleIcon className="animate-spin" />
                   )}
                   Connect

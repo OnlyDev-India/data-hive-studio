@@ -182,7 +182,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
               </SelectContent>
             </Select>
             <Select
-              defaultValue="id"
+              defaultValue={columns?.[0]?.key || "id"}
               onValueChange={(value) =>
                 handleFilterValueChange(value, index, "column")
               }

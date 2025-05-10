@@ -109,4 +109,11 @@ body {
   .scrollable-container-gutter {
     scrollbar-gutter: stable; /* Prevent layout shift */
   }
+
+  .draggable-bar {
+    -webkit-app-region: drag;
+  }
+  .no-draggable-bar {
+    -webkit-app-region: no-drag;
+  }
 }

@@ -15,6 +15,7 @@ import {
 import { dropTable } from "@/lib/actions/fetch-data";
 import { fetchTables } from "@/redux/features/tables";
 import { AppDispatch } from "@/redux/store";
+import ExportModal from "../modals/export-modal";
 
 const TablesMenu = ({
   children,
@@ -43,22 +44,34 @@ const TablesMenu = ({
   return (
     <ContextMenu>
       <ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
-      <ContextMenuContent className="min-w-[150px] px-2 py-1">
-        <ContextMenuItem onSelect={handleViewData} className="text-xs">
+      <ContextMenuContent className="min-w-[150px] border bg-background/70 px-2 py-1 backdrop-blur-md">
+        <ContextMenuItem
+          onSelect={handleViewData}
+          className="cursor-pointer text-xs focus:bg-primary"
+        >
           View Data
         </ContextMenuItem>
-        <ContextMenuItem onSelect={handleOpenStructure} className="text-xs">
+        <ContextMenuItem
+          onSelect={handleOpenStructure}
+          className="cursor-pointer text-xs focus:bg-primary"
+        >
           View Structure
         </ContextMenuItem>
-        <ContextMenuItem disabled className="text-xs">
-          Export to file
-        </ContextMenuItem>
+        {/* <ContextMenuItem className="cursor-pointer text-xs focus:bg-primary">
+          <ExportModal tableName={table_name} />
+        </ContextMenuItem> */}
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={handleCopyName} className="text-xs">
+        <ContextMenuItem
+          onSelect={handleCopyName}
+          className="cursor-pointer text-xs focus:bg-primary"
+        >
           Copy Name
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={handleDropTable} className="text-xs">
+        <ContextMenuItem
+          onSelect={handleDropTable}
+          className="cursor-pointer text-xs focus:bg-primary"
+        >
           Drop Table
         </ContextMenuItem>
       </ContextMenuContent>

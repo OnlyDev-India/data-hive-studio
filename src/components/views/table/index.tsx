@@ -6,7 +6,7 @@ import { updateFile } from "@/redux/features/open-files";
 import { FileTableType, RefetchType } from "@/types/file.type";
 import { toast } from "sonner";
 
-const TableView = () => {
+const TableView = ({ dbType }: { dbType: string }) => {
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [loading, setLoading] = useState<RefetchType>(null);
@@ -50,15 +50,17 @@ const TableView = () => {
         pagination,
       });
 
-      if (columns && data) {
-        const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
-          const copiedItem = JSON.parse(JSON.stringify(item));
-          Object.keys(item).forEach((key) => {
-            if (typeof item[key] === "object")
-              copiedItem[key] = item[key]?.toString();
-          });
-          return copiedItem;
-        });
+      if (columns) {
+        const rows = (data ? await JSON.parse(data || "") : []).map(
+          (item: any) => {
+            const copiedItem = JSON.parse(JSON.stringify(item));
+            Object.keys(item).forEach((key) => {
+              if (typeof item[key] === "object")
+                copiedItem[key] = item[key]?.toString();
+            });
+            return copiedItem;
+          },
+        );
 
         dispatch(
           updateFile({
@@ -99,28 +101,30 @@ const TableView = () => {
         pagination,
       });
 
-      if (columns && data) {
-        const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
-          const copiedItem = JSON.parse(JSON.stringify(item));
-          Object.keys(item).forEach((key) => {
-            if (typeof item[key] === "object")
-              copiedItem[key] = item[key]?.toString();
-          });
-          return copiedItem;
-        });
+      if (columns) {
+        const rows = (data ? await JSON.parse(data || "") : []).map(
+          (item: any) => {
+            const copiedItem = JSON.parse(JSON.stringify(item));
+            Object.keys(item).forEach((key) => {
+              if (!Array.isArray(item[key]) && typeof item[key] === "object")
+                copiedItem[key] = item[key]?.toString();
+            });
+            return copiedItem;
+          },
+        );
+
+        const updatedColumns = columns.map((col: any) => ({
+          key: col.column_name,
+          name: col.column_name,
+          data_type: col.data_type,
+          key_type: col.key_type,
+        }));
         dispatch(
           updateFile({
             id: currentFile.id,
             tableRefetch: null,
             tableData: {
-              columns: columns?.map(
-                (col: { column_name: any; data_type: any; key_type: any }) => ({
-                  key: col.column_name,
-                  name: col.column_name,
-                  data_type: col.data_type,
-                  key_type: col.key_type,
-                }),
-              ),
+              columns: updatedColumns,
               rows,
               totalRecords,
             },
@@ -165,12 +169,13 @@ const TableView = () => {
   return (
     columns &&
     data && (
-      <div className="h-[calc(100%-2.6rem)] bg-secondary rounded-b-lg overflow-hidden">
+      <div className="h-[calc(100%-2.6rem)] overflow-hidden rounded-b-lg bg-secondary">
         <Table
           data={data}
           columns={columns}
           refetchData={fetchData}
           isFetching={loading}
+          dbType={dbType}
         />
       </div>
     )

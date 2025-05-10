@@ -8,6 +8,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { menus } from "@/config/menu-bar.config";
+import { cn } from "@/lib/utils";
+import { ipcRenderer } from "electron";
 import Image from "next/image";
 import React, { use, useEffect } from "react";
 
@@ -37,17 +39,31 @@ const MenuNavbar = () => {
   const [title, setTitle] = React.useState<string>("");
   useEffect(() => {
     setTitle(document.title);
-  })
+  });
   const onClicks: { [key: string]: () => void } = {
     reloadWindow: reloadWindow,
     toggleDevTools: toggleDevTools,
     closeWindow: closeWindow,
   };
+
+  const isDev = process.env.NODE_ENV === "development";
+
   return (
     <div className="h-[var(--menu-navbar-height)] bg-secondary px-4">
-      <div className="flex h-full items-center justify-between">
-        <div className="flex h-full items-center gap-2">
-          <Image src="/favicon.ico" width={16} height={16} alt="logo" />
+      <div
+        className={cn(
+          "flex h-full items-center justify-between",
+          { "draggable-bar": !isDev },
+        )}
+      >
+        <div className="no-draggable-bar z-10 flex h-full items-center gap-2">
+          <Image
+            src="/favicon.ico"
+            width={16}
+            height={16}
+            alt="logo"
+            className="draggable-bar"
+          />
           <div className="flex h-full items-center">
             {menus.map((menu) => (
               <DropdownMenu key={menu.label}>
@@ -55,6 +71,10 @@ const MenuNavbar = () => {
                   <Button
                     variant="ghost"
                     className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                   >
                     {menu.label}
                   </Button>
@@ -77,12 +97,12 @@ const MenuNavbar = () => {
             ))}
           </div>
         </div>
-        <div className="flex h-full items-center">
+        <div className="no-draggable-bar flex h-full items-center">
           <p className="rounded-md border bg-border/40 px-24 py-1 text-xs">
             {title}
           </p>
         </div>
-        <div></div>
+        <div className="w-2"></div>
       </div>
     </div>
   );

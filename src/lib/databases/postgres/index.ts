@@ -1,7 +1,7 @@
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { ConnectionDetailsType } from "@/types/db.type";
 import { PaginationType } from "@/types/file.type";
-import { FilterType } from "@/types/table.type";
+import { FilterType, TableForm } from "@/types/table.type";
 import { Client, Pool, types } from "pg";
 import { SortColumn } from "react-data-grid";
 import { identify } from "sql-query-identifier";
@@ -553,26 +553,24 @@ export class PostgresClient {
     if (!this.conn.pool)
       return {
         data: null,
-        message: null,
-        isTableEffected: false,
-        error: "Invalid inputs",
+        effectedRows: 0,
+        deleteError: "Invalid inputs",
       };
 
     // return query;
     if (query) {
       console.log(query);
       const originalQuery = query.toString();
-      const { effectedRows, error: updateError } =
+      const { effectedRows, error: deleteError } =
         await this.executeQuery(originalQuery);
       const { data, error: fetchError } = await this.getTablesData(tableName);
 
-      return { effectedRows, data, updateError, fetchError };
+      return { effectedRows, data, deleteError, fetchError };
     }
     return {
       data: null,
-      message: null,
-      isTableEffected: false,
-      error: "failed to generate query",
+      effectedRows: 0,
+      deleteError: "failed to generate query",
     };
   }
 
@@ -591,6 +589,60 @@ export class PostgresClient {
     });
 
     return queries.join("\n");
+  }
+
+  async createTable(formData: TableForm) {
+    if (!this.conn.pool)
+      return {
+        data: null,
+        error: "Invalid inputs",
+      };
+    try {
+      if (
+        !formData.columns ||
+        (formData.columns && formData.columns.length === 0)
+      )
+        return { data: null, error: "No columns" };
+      const currentSchema = this.currentSchema;
+      const query = `CREATE TABLE ${currentSchema}."${formData.name}" (
+        ${formData.columns
+          .map((column: any) => {
+            const {
+              name,
+              type,
+              isNull,
+              defaultValue,
+              keyType,
+              foreignTable,
+              foreignTableColumn,
+            } = column;
+
+            if (!name || !type) {
+              throw new Error(
+                `Invalid column definition: ${JSON.stringify(column)}`,
+              );
+            }
+
+            const nullConstraint = isNull ? "NULL" : "";
+            const defaultConstraint = defaultValue
+              ? `DEFAULT ${defaultValue}`
+              : "";
+            const keyConstraint =
+              keyType === "PRIMARY"
+                ? "PRIMARY KEY"
+                : keyType === "FOREIGN" && foreignTableColumn && foreignTable
+                  ? `REFERENCES ${currentSchema}."${foreignTable}"(${foreignTableColumn})`
+                  : "";
+
+            return `${name} ${type} ${nullConstraint} ${defaultConstraint} ${keyConstraint}`.trim();
+          })
+          .join(",\n    ")}
+            )`;
+      this.executeQuery(query);
+      return { data: [], error: null };
+    } catch (e) {
+      return { data: null, error: "Failed to create the table" };
+    }
   }
 
   formatValue(value: any): string {

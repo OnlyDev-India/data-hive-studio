@@ -14,6 +14,10 @@ files:
   - from: "public/"
     to: "public/"
 
+extraResources:
+  - from: "public/"
+    to: "public/"
+
 mac:
   target:
     target: dmg

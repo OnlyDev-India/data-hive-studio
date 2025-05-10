@@ -9,23 +9,36 @@ import { Button } from "@/components/ui/button";
 import { RotateCwIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileStructureType } from "@/types/file.type";
+import { handlers } from "@/lib/databases/db";
 
-const StructureView = () => {
+interface StructureViewProps {
+  dbType: keyof typeof handlers;
+}
+
+const StructureView = ({ dbType }: StructureViewProps) => {
   const [loading, setLoading] = useState(false);
-  const { currentFile } = useSelector((state: any) => state.openFiles);
+  const { currentFile }: { currentFile: FileStructureType } = useSelector(
+    (state: any) => state.openFiles,
+  );
   const dispatch = useDispatch();
 
   const handleGetTableStructure = async () => {
     if (!currentFile) return;
     setLoading(true);
-    const { columns } = await getTableColumns(currentFile.tableName);
+    const { columns, error } = await getTableColumns(currentFile.tableName);
     const { data } = await getTableRelations(currentFile.tableName);
 
-    if (columns && data) {
+    let updatedData;
+
+    if (columns) updatedData = { columns };
+    if (data) updatedData = { ...updatedData, data };
+
+    if (updatedData) {
       dispatch(
         updateFile({
           id: currentFile?.id,
-          tableData: { columns, relations: data },
+          tableData: updatedData,
         }),
       );
     }
@@ -46,7 +59,9 @@ const StructureView = () => {
     >
       <TabsList className="mx-2 h-[var(--tabs-height)] rounded-none border-b-2 bg-secondary p-0">
         <CustomTabsTrigger value="columns">Columns</CustomTabsTrigger>
-        <CustomTabsTrigger value="relations">Relations</CustomTabsTrigger>
+        {dbType !== "mongodb" && (
+          <CustomTabsTrigger value="relations">Relations</CustomTabsTrigger>
+        )}
       </TabsList>
       <CustomTabsContent value="columns">
         <div className="flex items-center justify-between py-2">

@@ -2,7 +2,10 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { initialFormData } from "@/config/table-initial-form-data";
+import {
+  initialFormData,
+  InitialFormDataTypes,
+} from "@/config/table-initial-form-data";
 import { TableForm } from "@/types/table.type";
 import { ChevronDownIcon, LoaderCircleIcon, PlusIcon } from "lucide-react";
 import React, { useEffect, useState } from "react";
@@ -12,41 +15,54 @@ import "react-data-grid/lib/styles.css";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import { toast } from "sonner";
-import { executeQuery } from "@/lib/actions/fetch-data";
+import { createTable, executeQuery } from "@/lib/actions/fetch-data";
 import { fetchTables } from "@/redux/features/tables";
 import { FileNewTableType } from "@/types/file.type";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const NewTableView = () => {
   const [formData, setFormData] = useState<TableForm | null>(null);
   const [invalidData, setInvalidData] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dbType, setDbType] = useState<InitialFormDataTypes>();
   const { currentFile }: { currentFile: FileNewTableType } = useSelector(
     (state: any) => state.openFiles,
   );
-  const { tables, currentSchema } = useSelector((state: any) => state.tables);
+  const { tables } = useSelector((state: any) => state.tables);
 
   const dispatch = useDispatch();
 
-  const createQueryToCreateTable = () => {
-    if (!formData || !formData.name || !formData.columns?.length) return;
+  const createQueryToCreateTable = async () => {
+    if (!formData || !formData.name)
+      return {
+        error: "Invalid columns",
+        data: null,
+      };
 
     const invalidRows: number[] = [];
 
-    formData.columns.forEach((column: any, index: number) => {
-      const { name, type, keyType, foreignTable } = column;
+    if (formData.columns && formData.columns.length > 0) {
+      formData.columns.forEach((column: any, index: number) => {
+        const { name, type, keyType, foreignTable } = column;
 
-      if (!name || !type || name === "" || type?.trim() === "") {
-        invalidRows.push(index);
-      }
+        if (!name || !type || name === "" || type?.trim() === "") {
+          invalidRows.push(index);
+        }
 
-      if (
-        keyType === "FOREIGN" &&
-        (!foreignTable || foreignTable?.trim() === "")
-      ) {
-        invalidRows.push(index);
-      }
-    });
-
+        if (
+          keyType === "FOREIGN" &&
+          (!foreignTable || foreignTable?.trim() === "")
+        ) {
+          invalidRows.push(index);
+        }
+      });
+    }
     // If there are invalid rows, return them for error handling
     if (invalidRows.length > 0) {
       setInvalidData(invalidRows);
@@ -56,43 +72,7 @@ const NewTableView = () => {
       toast.error("In completed columns");
       // return { error: "Invalid columns", invalidRows };
     }
-
-    const query = `CREATE TABLE ${currentSchema}."${formData.name}" (
-      ${formData.columns
-        .map((column: any) => {
-          const {
-            name,
-            type,
-            isNull,
-            defaultValue,
-            keyType,
-            foreignTable,
-            foreignTableColumn,
-          } = column;
-
-          if (!name || !type) {
-            throw new Error(
-              `Invalid column definition: ${JSON.stringify(column)}`,
-            );
-          }
-
-          const nullConstraint = isNull ? "NULL" : "";
-          const defaultConstraint = defaultValue
-            ? `DEFAULT ${defaultValue}`
-            : "";
-          const keyConstraint =
-            keyType === "PRIMARY"
-              ? "PRIMARY KEY"
-              : keyType === "FOREIGN" && foreignTableColumn && foreignTable
-                ? `REFERENCES ${currentSchema}."${foreignTable}"(${foreignTableColumn})`
-                : "";
-
-          return `${name} ${type} ${nullConstraint} ${defaultConstraint} ${keyConstraint}`.trim();
-        })
-        .join(",\n    ")}
-    )`;
-
-    return query;
+    return await createTable(formData);
   };
 
   const updatedColumns: Column<any>[] = columns.map((column) => {
@@ -133,6 +113,7 @@ const NewTableView = () => {
     );
 
     const dbType = cookies["dbType"];
+    setDbType(dbType as any);
     const initialData = initialFormData[dbType as keyof typeof initialFormData];
     setFormData(initialData as TableForm);
     dispatch(updateFile({ id: currentFile?.id, tableForm: initialData }));
@@ -142,13 +123,25 @@ const NewTableView = () => {
     // get dbType from cookies
 
     setInitialData();
-  }, [currentFile?.tableName]);
+  }, [currentFile]);
+
+  useEffect(() => {
+    const cookies = document.cookie.split("; ").reduce(
+      (acc, cookie) => {
+        const [name, value] = cookie.split("=");
+        acc[name] = decodeURIComponent(value);
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
+
+    const dbType = cookies["dbType"];
+    setDbType(dbType as any);
+  }, []);
 
   const handleCreateTable = async () => {
-    const query = createQueryToCreateTable();
-    if (!query) return;
     setLoading(true);
-    const { data, error } = await executeQuery(query);
+    const { data, error } = await createQueryToCreateTable();
     if (data) {
       setInitialData(true);
       toast.success("Table created successfully");
@@ -215,66 +208,105 @@ const NewTableView = () => {
 
   return (
     <div className="h-[calc(100%-var(--tabs-height))] bg-secondary px-4 py-6">
-      {formData && (
-        <div className="h-full space-y-4">
-          <div className="flex h-7 items-center gap-2">
-            <Label htmlFor="name" className="whitespace-nowrap">
-              Table Name
-            </Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) => {
-                setFormData({ ...formData, name: e.target.value });
-              }}
-              className="bg-popover py-0 text-xs"
-            />
-            <div className="flex gap-0.5">
+      {formData &&
+        (dbType && ["pgSql"].includes(dbType) ? (
+          <div className="h-full space-y-4">
+            <div className="flex h-7 items-center gap-2">
+              <Label htmlFor="name" className="whitespace-nowrap">
+                Table Name
+              </Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                }}
+                className="bg-popover py-0 text-xs"
+              />
+              <div className="flex gap-0.5">
+                <Button
+                  className="h-7 rounded-r-none text-white"
+                  onClick={handleCreateTable}
+                  disabled={loading}
+                >
+                  {loading && <LoaderCircleIcon className="animate-spin" />}
+                  Create Table
+                </Button>
+                <Button
+                  disabled={loading}
+                  className="h-7 rounded-l-none px-1 text-white"
+                >
+                  <ChevronDownIcon />
+                </Button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <h2>Columns</h2>
               <Button
-                className="h-7 rounded-r-none text-white"
-                onClick={handleCreateTable}
+                className="h-7 w-7 rounded-full px-1 text-white"
+                onClick={addNewColumn}
                 disabled={loading}
               >
-                {loading && <LoaderCircleIcon className="animate-spin" />}
-                Create Table
-              </Button>
-              <Button
-                disabled={loading}
-                className="h-7 rounded-l-none px-1 text-white"
-              >
-                <ChevronDownIcon />
+                <PlusIcon />
               </Button>
             </div>
+            <div className="h-[calc(100%-4rem)]">
+              <ReactDataGrid
+                columns={updatedColumns as any}
+                rows={formData.columns!}
+                rowHeight={40} // Row height
+                headerRowHeight={50} // Header row height
+                onRowsChange={(newRows) => handleDataChange(newRows)} // Handling row changes
+                rowClass={(_, rowInd) => {
+                  let outputClass = "bg-background";
+                  if (invalidData.includes(rowInd)) {
+                    outputClass += "!bg-destructive/10 ";
+                  }
+                  return outputClass;
+                }}
+                className="react-data-grid-new-table h-full bg-transparent"
+              />
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <h2>Columns</h2>
-            <Button
-              className="h-7 w-7 rounded-full px-1 text-white"
-              onClick={addNewColumn}
-              disabled={loading}
-            >
-              <PlusIcon />
-            </Button>
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Card className="bg-background">
+              <CardHeader>
+                <CardTitle>Create Collection</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-7 items-center space-y-2">
+                  <Label htmlFor="name" className="whitespace-nowrap">
+                    Collection Name
+                  </Label>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => {
+                        setFormData({ ...formData, name: e.target.value });
+                      }}
+                      className="bg-popover py-0 text-xs"
+                    />
+                    <div>
+                      <Button
+                        className="h-7 text-white"
+                        onClick={handleCreateTable}
+                        disabled={loading}
+                      >
+                        {loading && (
+                          <LoaderCircleIcon className="animate-spin" />
+                        )}
+                        Create Table
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter></CardFooter>
+            </Card>
           </div>
-          <div className="h-[calc(100%-4rem)]">
-            <ReactDataGrid
-              columns={updatedColumns as any}
-              rows={formData.columns}
-              rowHeight={40} // Row height
-              headerRowHeight={50} // Header row height
-              onRowsChange={(newRows) => handleDataChange(newRows)} // Handling row changes
-              rowClass={(_, rowInd) => {
-                let outputClass = "bg-background";
-                if (invalidData.includes(rowInd)) {
-                  outputClass += "!bg-destructive/10 ";
-                }
-                return outputClass;
-              }}
-              className="react-data-grid-new-table h-full bg-transparent"
-            />
-          </div>
-        </div>
-      )}
+        ))}
     </div>
   );
 };

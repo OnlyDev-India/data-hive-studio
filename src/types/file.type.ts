@@ -1,31 +1,6 @@
 import { SortColumn } from "react-data-grid";
 import { Row, TableFormColumn } from "./table.type";
 
-// export interface FileType {
-//   id: string;
-//   name: string;
-//   type: "file" | "table" | "structure" | "newTable";
-//   code?: string;
-//   tableName?: string;
-//   tableData?: { columns: any; rows: any; totalRecords: number };
-//   tableFilter?: {
-//     filter: {
-//       oldFilter: any;
-//       newFilter: any;
-//     };
-//     applyFilter: boolean;
-//     filterOpened: boolean;
-//   };
-//   tableOrder?: SortColumn[];
-//   tablePagination?: PaginationType;
-//   tableRefetch?: RefetchType;
-//   tableOperations?: {
-//     selectedRows: number[];
-//     changedRows: { [key: number]: { old: Row; new: Row } };
-//     insertedRows: number;
-//   };
-// }
-
 export type FileType =
   | FileFileType
   | FileTableType
@@ -68,6 +43,10 @@ export interface FileStructureType {
   name: string;
   type: "structure";
   tableName: string;
+  tableData?: {
+    columns: any;
+    relations: any;
+  };
 }
 
 export interface FileNewTableType {
@@ -80,7 +59,7 @@ export interface FileNewTableType {
 
 export interface NewTableInitialStateType {
   name: string;
-  columns: TableFormColumn[];
+  columns?: TableFormColumn[];
 }
 
 export interface PaginationType {

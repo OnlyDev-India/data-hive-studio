@@ -20,7 +20,7 @@ import { useDebouncedCallback } from "@/hooks/debounce";
 import { updateFile } from "@/redux/features/open-files";
 import Lottie from "lottie-react";
 import LoadingAnimation from "@public/loading.json";
-import { FileFileType, FileType } from "@/types/file.type";
+import { FileFileType } from "@/types/file.type";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
 import ShortcutGrid from "@/components/common/shortcut-grids";
@@ -28,9 +28,10 @@ import ShortcutGrid from "@/components/common/shortcut-grids";
 interface CodeEditorProps {
   handleRunQuery: (editor: any) => Promise<void>;
   setEditor: (editor: any) => void;
+  dbType: string;
 }
 
-const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
+const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
   // const [data, setData] = useState("");
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
@@ -111,7 +112,7 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
         >
           <Editor
             height={"100%"}
-            language="pgsql"
+            language={dbType}
             value={currentFile?.code || ""}
             onMount={handleEditor}
             onChange={updateCode}
@@ -155,7 +156,8 @@ const CodeEditor = ({ handleRunQuery, setEditor }: CodeEditorProps) => {
               </div>
             ) : columns.length > 0 ? (
               <div className="h-[calc(100%-2.7rem)]">
-                <Table data={data} columns={columns} />
+                {/* TODO: */}
+                <Table data={data} columns={columns} dbType={dbType} />
               </div>
             ) : queryOutput?.error ? (
               <div className="h-full overflow-auto p-4">

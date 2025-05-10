@@ -46,6 +46,7 @@ import ShortcutGrid from "../common/shortcut-grids";
 import { useMonaco } from "@monaco-editor/react";
 import { pgSqlLanguageServer } from "../views/editor/pgsql";
 import { AppDispatch } from "@/redux/store";
+import { mongodbLanguageServer } from "../views/editor/mongodb";
 
 const tabIcons = {
   table: TableIcon,
@@ -54,7 +55,7 @@ const tabIcons = {
   newTable: Grid2X2PlusIcon,
 };
 
-const OpenedFiles = () => {
+const OpenedFiles = ({ dbType }: { dbType: string }) => {
   const [activeFileTab, setActiveFileTab] = useState("0");
   const [editor, setEditor] = useState<any>(null);
   const { openFiles, currentFile } = useSelector(
@@ -135,20 +136,28 @@ const OpenedFiles = () => {
   };
 
   const initializeLanguageServer = async () => {
-    let schemas: any = [];
-    const schemasWithTables: { [key: string]: any } = {};
-    const response = await getSchemas();
-    if (response?.schemas) {
-      schemas = response?.schemas;
-      schemas.forEach(async (schema: any) => {
-        const { tables } = await getTablesWithFieldsFromDb(schema.schema_name);
-        schemasWithTables[schema.schema_name] = tables;
-      });
+    if (dbType === "pgSql") {
+      let schemas: any = [];
+      const schemasWithTables: { [key: string]: any } = {};
+      const response = await getSchemas();
+      if (response?.schemas) {
+        schemas = response?.schemas;
+        schemas.forEach(async (schema: any) => {
+          const { tables } = await getTablesWithFieldsFromDb(
+            schema.schema_name,
+          );
+          schemasWithTables[schema.schema_name] = tables;
+        });
+      }
+
+      // console.log("schemasWithTables", schemasWithTables);
+
+      pgSqlLanguageServer(monaco, { schemasWithTables });
     }
-
-    // console.log("schemasWithTables", schemasWithTables);
-
-    pgSqlLanguageServer(monaco, { schemasWithTables });
+    if (dbType === "mongodb") {
+      const { tables } = await getTablesWithFieldsFromDb("");
+      mongodbLanguageServer(monaco, { collections: tables });
+    }
   };
 
   useEffect(() => {
@@ -182,7 +191,7 @@ const OpenedFiles = () => {
       defaultValue="0"
       value={activeFileTab}
       onValueChange={handleOpenedFile}
-      className="relative h-full w-full bg-secondary rounded-lg"
+      className="relative h-full w-full rounded-lg bg-secondary"
     >
       <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg">
         <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2">
@@ -197,7 +206,10 @@ const OpenedFiles = () => {
                     "border-primary bg-primary/20 hover:bg-primary/40":
                       item.id.toString() === activeFileTab,
                   },
-                  { "border-l-2 border-l-red-500 rounded-l-none": index === dragOverIndex },
+                  {
+                    "rounded-l-none border-l-2 border-l-red-500":
+                      index === dragOverIndex,
+                  },
                 )}
                 draggable
                 onDragStart={() => {
@@ -288,10 +300,16 @@ const OpenedFiles = () => {
       </div>
       {!currentFile?.type && <ShortcutGrid />}
       {currentFile?.type === "file" && (
-        <CodeEditor handleRunQuery={handleRunQuery} setEditor={setEditor} />
+        <CodeEditor
+          handleRunQuery={handleRunQuery}
+          setEditor={setEditor}
+          dbType={dbType}
+        />
       )}
-      {currentFile?.type === "table" && <TableView />}
-      {currentFile?.type === "structure" && <StructureView />}
+      {currentFile?.type === "table" && <TableView dbType={dbType} />}
+      {currentFile?.type === "structure" && (
+        <StructureView dbType={dbType as any} />
+      )}
       {currentFile?.type === "newTable" && <NewTableView />}
     </Tabs>
   );

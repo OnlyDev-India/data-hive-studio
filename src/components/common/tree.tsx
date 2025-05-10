@@ -57,12 +57,14 @@ const Branch = ({
           },
         )}
       >
-        <CollapsibleTrigger asChild>
-          <ChevronRight
-            className="min-w-4 text-muted-foreground transition-transform hover:text-foreground"
-            size={16}
-          />
-        </CollapsibleTrigger>
+        {subItem.fields.length > 0 && (
+          <CollapsibleTrigger asChild>
+            <ChevronRight
+              className="min-w-4 text-muted-foreground transition-transform hover:text-foreground"
+              size={16}
+            />
+          </CollapsibleTrigger>
+        )}
         <TablesMenu table_name={subItem.table_name}>
           <Button
             variant={"ghost"}

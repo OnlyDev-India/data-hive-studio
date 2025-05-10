@@ -6,11 +6,12 @@ import {
   handlers,
   HandlersTypes,
 } from "@/lib/databases/db";
-import { FilterType } from "@/types/table.type";
+import { FilterType, TableForm } from "@/types/table.type";
 import { cookies } from "next/headers";
 import { PostgresClient } from "../databases/postgres";
 import { SortColumn } from "react-data-grid";
 import { PaginationType } from "@/types/file.type";
+import { SqliteClient } from "../databases/sqlite";
 
 // console.log(cookies().get("currentConnection")?.value);
 
@@ -27,6 +28,7 @@ export async function connectDb() {
   const updatedConnectionDetails: ConnectionDetailsType = JSON.parse(
     connectionUrl?.value || "",
   );
+
   const dbType = (cookie.get("dbType")?.value as HandlersTypes) || null;
   const response = await connectionHandler({
     connectionDetails: updatedConnectionDetails,
@@ -63,6 +65,12 @@ export async function currentConnectionDetails() {
   return connectionDetails;
 }
 
+export async function getCurrentDatabaseType() {
+  const cookie = cookies();
+  const dbType = cookie.get("dbType")?.value;
+  return dbType;
+}
+
 export async function isConnectedToDb() {
   if (!dbConnection) return false;
   return true;
@@ -82,7 +90,11 @@ export async function getTablesWithFieldsFromDb(
 
 export async function getDatabases() {
   if (!dbConnection) return null;
-  const databases = await (dbConnection as PostgresClient).getDatabases?.();
+
+  if (dbConnection instanceof SqliteClient)
+    return { databases: [], error: null };
+
+  const databases = await dbConnection.getDatabases();
   return databases;
 }
 
@@ -94,8 +106,7 @@ export async function getSchemas() {
 
 export async function getTableColumns(table_name: string) {
   if (!dbConnection) return { columns: null };
-  const { columns } = await dbConnection.getTableColumns(table_name);
-  return { columns };
+  return await dbConnection.getTableColumns(table_name);
 }
 export async function getTablesData(
   table_name: string,
@@ -148,6 +159,9 @@ export async function testConnection({
 }) {
   if (!dbType) return { success: false, error: "Database type not found" };
 
+  if (!(dbType in handlers))
+    return { success: false, error: "Database type not found" };
+
   const handler = new handlers[dbType]();
   const { success, error } = await handler.testConnection({
     connectionDetails,
@@ -190,5 +204,13 @@ export async function insertTableData(data: {
 }) {
   if (!dbConnection) return false;
   const response = await dbConnection.insertRecord(data);
+  return { ...response, data: JSON.stringify(response.data) };
+}
+
+export async function createTable(data: TableForm) {
+  if (!dbConnection) return { data: null, error: "Not connected to Database" };
+  if (dbConnection instanceof SqliteClient)
+    return { data: null, error: "Not connected to Database" };
+  const response = await dbConnection.createTable(data);
   return { ...response, data: JSON.stringify(response.data) };
 }

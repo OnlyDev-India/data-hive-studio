@@ -58,6 +58,8 @@ const FloatingActions = ({
       handleUpdateTableChanges?.("update");
     } else if (response.updateError) {
       toast.error(response.updateError);
+    } else {
+      toast.error("Something went wrong");
     }
 
     setLoading(null);
@@ -71,21 +73,29 @@ const FloatingActions = ({
     );
     if (!deletingRows) return;
     const response = await deleteTableData(tableName, deletingRows);
-    toast.success(
-      `${response.effectedRows} row${
-        response.effectedRows > 1 ? "s" : ""
-      } Deleted`,
-    );
-    handleUpdateTableChanges?.("delete");
-    dispatch(
-      updateFile({
-        id: currentFile.id,
-        tableData: {
-          columns: currentFile.tableData?.columns,
-          rows: JSON.parse(response.data),
-        },
-      }),
-    );
+    if (response.effectedRows > 0) {
+      toast.success(
+        `${response.effectedRows} row${
+          response.effectedRows > 1 ? "s" : ""
+        } Deleted`,
+      );
+      handleUpdateTableChanges?.("delete");
+      dispatch(
+        updateFile({
+          id: currentFile.id,
+          tableData: {
+            columns: currentFile.tableData?.columns,
+            rows: JSON.parse(response.data),
+            totalRecords:
+              currentFile.tableData?.totalRecords - response.effectedRows,
+          },
+        }),
+      );
+    } else if (response.deleteError) {
+      toast.error(response.deleteError);
+    } else {
+      toast.error("Something went wrong");
+    }
     setLoading(null);
   };
 
@@ -111,10 +121,11 @@ const FloatingActions = ({
       tableName: currentFile.tableName,
       values: insertingRows,
     });
-    if (response.data && response.data !== "null") {
+    if (response.effectedRows > 0 && response.data) {
       const newRows = JSON.parse(response.data);
-      toast.success(`${newRows?.length} records inserted`);
+      toast.success(`${response.effectedRows} records inserted`);
       handleUpdateTableChanges?.("discard");
+      
       dispatch(
         updateFile({
           id: currentFile.id,
@@ -124,13 +135,14 @@ const FloatingActions = ({
               ...newRows,
               ...currentFile.tableData?.rows.filter((row: any) => !row.isNew),
             ],
+            totalRecords: currentFile.tableData?.totalRecords + response.effectedRows,
           },
         }),
       );
     } else if (response.error) {
       toast.error(response.error);
     }
-
+    
     setLoading(null);
   };
 

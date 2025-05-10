@@ -2,7 +2,7 @@ import { Column, RenderCellProps } from "react-data-grid";
 
 export interface TableForm {
   name: string;
-  columns: TableFormColumn[];
+  columns?: TableFormColumn[];
 }
 
 export interface TableFormColumn {

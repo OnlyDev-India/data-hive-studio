@@ -1,3 +1,4 @@
+import { BSONType } from "mongodb";
 import sqlite3 from "sqlite3";
 
 export interface DBType extends sqlite3.Database {}
@@ -25,7 +26,11 @@ export interface ConnectionDetailsType {
   connectionString?: string;
 }
 
-export const DbConnectionsTypes = ["pgSql", "sqlite"];
+export const DbConnectionsTypes = [
+  { value: "pgSql", label: "Postgres" },
+  { value: "mongodb", label: "Mongo Db" },
+  { value: "sqlite", label: "sqlite", disabled: true },
+];
 
 export const DbConnectionColors = ["#15db95", "#ff5d59", "#fad83b", "#9858ff"];
 
@@ -91,3 +96,25 @@ export enum pgSqlTypes {
   REGNAMESPACE = 4089,
   REGROLE = 4096,
 }
+
+export const MongoDbTypes: string[] = [
+  "array",
+  "binary",
+  "boolean",
+  "code",
+  "date",
+  "decimal128",
+  "double",
+  "int32",
+  "int64",
+  "maxKey",
+  "minKey",
+  "null",
+  "object",
+  "objectId",
+  "BSONRegExp",
+  "string",
+  "BSONSymbol",
+  "Timestamp",
+  "undefined",
+];

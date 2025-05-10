@@ -94,16 +94,22 @@ interface ExportModalProps {
   data?: any;
   columns?: any;
   selectedData?: any;
+  tableName?: string;
 }
 
-const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
+const ExportModal = ({
+  data,
+  columns,
+  selectedData,
+  tableName,
+}: ExportModalProps) => {
   const [open, setOpen] = useState(false);
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
   );
   const [formData, setFormData] = useState({
     type: "filtered",
-    name: currentFile.tableName || "Output",
+    name: tableName || currentFile?.tableName || "Output",
     format: "csv",
     outputDir: "",
   });
@@ -115,7 +121,9 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
       name: "Export",
       id: "export",
       status: "running",
-      subProcesses: [{ name: currentFile.name, status: "running" }],
+      subProcesses: [
+        { name: tableName || currentFile?.name, status: "running" },
+      ],
     });
     setOpen(false);
     let exportData = null;
@@ -129,8 +137,12 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
       );
     }
     if (formData.type === "table" && data && columns) {
-      const { columns } = await getTableColumns(currentFile.tableName);
-      const { data, totalRecords } = await getTablesData(currentFile.tableName);
+      const { columns } = await getTableColumns(
+        tableName || currentFile?.tableName,
+      );
+      const { data, totalRecords } = await getTablesData(
+        tableName || currentFile?.tableName,
+      );
       const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
         const copiedItem = JSON.parse(JSON.stringify(item));
         Object.keys(item).forEach((key) => {
@@ -203,13 +215,13 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
     const time = new Date()
       .toLocaleTimeString("en-US", { hour12: false })
       .replaceAll(":", "-");
-    const filename = `${currentFile.tableName}-${formattedDate}-${time}`;
+    const filename = `${tableName || currentFile?.tableName}-${formattedDate}-${time}`;
     setFormData({
       ...formData,
       name: filename,
       outputDir: exportPath,
     });
-  }, [currentFile.tableName]);
+  }, [tableName, currentFile?.tableName]);
 
   const handleOpenDir = async () => {
     try {
@@ -230,7 +242,10 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
     <Dialog open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <DialogTrigger asChild>
+          <DialogTrigger
+            disabled={tableName ? false : !columns || columns?.length === 0}
+            asChild
+          >
             <Button
               variant={"outline"}
               size={"icon"}
@@ -252,7 +267,7 @@ const ExportModal = ({ data, columns, selectedData }: ExportModalProps) => {
         </DialogHeader>
         <form onSubmit={handleFormSubmit}>
           <div className="space-y-2">
-            {currentFile.tableName && (
+            {(tableName || currentFile?.tableName) && (
               <div className="space-y-2">
                 <Label htmlFor="format" className="text-xs">
                   Export

@@ -17,9 +17,11 @@ import {
 import {
   changeDataBase,
   currentConnectionDetails,
+  getCurrentDatabaseType,
   getDatabases,
   getSchemas,
 } from "@/lib/actions/fetch-data";
+import { handlers } from "@/lib/databases/db";
 import { cn } from "@/lib/utils";
 import { addNewTableFile, resetOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
@@ -53,6 +55,7 @@ const SideBarTables = () => {
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [databaseOpen, setDatabaseOpen] = useState(false);
   const [loading, setLoading] = useState<LoadingTypes>(null);
+  const [dbType, setDbType] = useState<keyof typeof handlers | null>(null);
 
   const dispatch = useDispatch<AppDispatch>();
 
@@ -78,7 +81,7 @@ const SideBarTables = () => {
   const fetchSchemasAndDatabases = async () => {
     const result = await getSchemas();
     const result2 = await getDatabases();
-    if (result?.schemas) {
+    if (dbType === "pgSql" && result?.schemas) {
       setSchemas(result.schemas as any);
     }
     if (result2?.databases) {
@@ -100,23 +103,31 @@ const SideBarTables = () => {
     });
     if (response?.success) {
       handleFetchCurrentDatabase();
+      setDatabaseOpen(false);
       // wait for 2 seconds to update the connection details then fetch the table details;
       setTimeout(async () => {
         fetchSchemasAndDatabases();
-        handleSchemaChange("public");
-        setDatabaseOpen(false);
+        if (dbType && dbType === "pgSql") {
+          handleSchemaChange("public");
+        } else {
+          handleFetchTables(true);
+        }
         dispatch(resetOpenFiles());
         dispatch(resetQuery());
-      }, 2000);
+      }, 3800);
     }
   };
 
   useEffect(() => {
     handleFetchCurrentDatabase();
-  }, []);
-
-  useEffect(() => {
     fetchSchemasAndDatabases();
+    const fetchDbType = async () => {
+      const dbType: string | undefined = await getCurrentDatabaseType();
+      if (dbType) {
+        setDbType(dbType as keyof typeof handlers);
+      }
+    };
+    fetchDbType();
   }, []);
 
   useEffect(() => {
@@ -128,7 +139,7 @@ const SideBarTables = () => {
     <div className="group/collapsible">
       <div className="group sticky top-0 z-10 flex w-full flex-col items-center justify-between gap-2 bg-secondary pl-2 pt-2 text-sm font-semibold uppercase shadow-md">
         <Popover open={databaseOpen} onOpenChange={setDatabaseOpen}>
-          <PopoverTrigger asChild>
+          <PopoverTrigger disabled={loading !== null} asChild>
             <Button
               variant="outline"
               role="combobox"
@@ -146,9 +157,9 @@ const SideBarTables = () => {
             align="start"
           >
             <Command className="bg-transparent">
-              <CommandInput placeholder="Search schema..." />
+              <CommandInput placeholder="Search database..." />
               <CommandList>
-                <CommandEmpty>No schema found.</CommandEmpty>
+                <CommandEmpty>No Database found.</CommandEmpty>
                 <CommandGroup>
                   {databases.map((database: any) => {
                     return (
@@ -198,67 +209,69 @@ const SideBarTables = () => {
             </Button>
           </PopoverContent>
         </Popover>
-        <Popover open={schemaOpen} onOpenChange={setSchemaOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              className="w-full justify-between border-border"
+        {dbType === "pgSql" && (
+          <Popover open={schemaOpen} onOpenChange={setSchemaOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-full justify-between border-border"
+              >
+                <span className="flex items-center gap-2 text-xs">
+                  <AtomIcon size={14} />
+                  {currentSchema || "Select schema..."}
+                </span>
+                <ChevronsUpDownIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-[200px] bg-popover/60 p-0 backdrop-blur-md"
+              align="start"
             >
-              <span className="flex items-center gap-2 text-xs">
-                <AtomIcon size={14} />
-                {currentSchema || "Select schema..."}
-              </span>
-              <ChevronsUpDownIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-[200px] bg-popover/60 p-0 backdrop-blur-md"
-            align="start"
-          >
-            <Command className="bg-transparent">
-              <CommandInput placeholder="Search schema..." />
-              <CommandList>
-                <CommandEmpty>No schema found.</CommandEmpty>
-                <CommandGroup>
-                  {schemas.map((schema: any) => (
-                    <CommandItem
-                      key={schema.schema_name}
-                      value={schema.schema_name}
-                      onSelect={(currentValue) => {
-                        handleSchemaChange(currentValue);
-                        setSchemaOpen(false);
-                      }}
-                      className="justify-between text-xs"
-                    >
-                      {schema.schema_name}
-                      <CheckIcon
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          currentSchema === schema.schema_name
-                            ? "opacity-100"
-                            : "opacity-0",
-                        )}
-                      />
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-              <CommandSeparator className="border-t border-border" />
-            </Command>
-            <Button
-              variant={"ghost"}
-              className="w-full justify-start truncate text-xs"
-              disabled
-            >
-              <LayersIcon />{" "}
-              <span>
-                Create Schema <br />
-                (coming soon)
-              </span>
-            </Button>
-          </PopoverContent>
-        </Popover>
+              <Command className="bg-transparent">
+                <CommandInput placeholder="Search schema..." />
+                <CommandList>
+                  <CommandEmpty>No schema found.</CommandEmpty>
+                  <CommandGroup>
+                    {schemas.map((schema: any) => (
+                      <CommandItem
+                        key={schema.schema_name}
+                        value={schema.schema_name}
+                        onSelect={(currentValue) => {
+                          handleSchemaChange(currentValue);
+                          setSchemaOpen(false);
+                        }}
+                        className="justify-between text-xs"
+                      >
+                        {schema.schema_name}
+                        <CheckIcon
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            currentSchema === schema.schema_name
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
+                        />
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+                <CommandSeparator className="border-t border-border" />
+              </Command>
+              <Button
+                variant={"ghost"}
+                className="w-full justify-start truncate text-xs"
+                disabled
+              >
+                <LayersIcon />{" "}
+                <span>
+                  Create Schema <br />
+                  (coming soon)
+                </span>
+              </Button>
+            </PopoverContent>
+          </Popover>
+        )}
         <div className="flex w-full items-center justify-between">
           <div className="flex items-center gap-1">
             <p className="flex items-center gap-2 py-2">
@@ -301,7 +314,11 @@ const SideBarTables = () => {
         <Tree item={tables} />
       ) : (
         <div className="mx-2 mt-8 rounded-md border bg-background p-2 text-center text-xs">
-          <p>No tables found in {currentSchema} schema</p>
+          <p>
+            No tables found
+            {["pgSql"].includes(dbType || "") &&
+              " in " + currentSchema + " schema"}
+          </p>
         </div>
       )}
     </div>

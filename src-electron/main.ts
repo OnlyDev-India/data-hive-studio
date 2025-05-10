@@ -90,6 +90,7 @@ const createWindow = async () => {
     icon: path.join(appPath, "public/icon.png"),
     title: "Data Hive Studio",
     show: false,
+    frame: false,
     titleBarStyle: "hidden",
     ...(process.platform !== "darwin" ? { titleBarOverlay: true } : {}),
     webPreferences: {

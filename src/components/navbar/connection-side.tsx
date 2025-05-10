@@ -52,6 +52,7 @@ const ConnectionSidebar = () => {
       password: config.password,
       database: config.database,
       ssl: config.ssl ? { rejectUnauthorized: false } : false,
+      connectionString: connection.connection_string,
     };
     const response = await testConnection({
       connectionDetails: dbConfig as ConnectionDetailsType,
@@ -61,7 +62,7 @@ const ConnectionSidebar = () => {
     if (response.success) {
       router.push("/app/editor");
     } else {
-      toast.error("Failed to connect");
+      toast.error(response.error || "Failed to connect");
       dispatch(setConnectionLoading(false));
     }
   };
@@ -75,7 +76,7 @@ const ConnectionSidebar = () => {
   };
 
   return (
-    <div className="scrollable-container-gutter h-[calc(100%-1rem)] overflow-auto py-4 pl-4 rounded-lg bg-secondary my-2">
+    <div className="scrollable-container-gutter my-2 h-[calc(100%-1rem)] overflow-auto rounded-lg bg-secondary py-4 pl-4">
       <div className="flex flex-col gap-2">
         <Button
           variant={"secondary"}
