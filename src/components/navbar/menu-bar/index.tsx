@@ -9,9 +9,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { menus } from "@/config/menu-bar.config";
 import { cn } from "@/lib/utils";
-import { ipcRenderer } from "electron";
 import Image from "next/image";
-import React, { use, useEffect } from "react";
+import React, { useEffect } from "react";
 
 const reloadWindow = () => {
   if (window.electron) {
@@ -36,10 +35,12 @@ const closeWindow = () => {
 };
 
 const MenuNavbar = () => {
-  const [title, setTitle] = React.useState<string>("");
+  const [title, setTitle] = React.useState<string>("Data Hive Studio");
+  const [isDesktop, setIsDesktop] = React.useState<boolean>(false);
   useEffect(() => {
     setTitle(document.title);
-  });
+    setIsDesktop(!!window.electron);
+  }, []);
   const onClicks: { [key: string]: () => void } = {
     reloadWindow: reloadWindow,
     toggleDevTools: toggleDevTools,
@@ -65,7 +66,7 @@ const MenuNavbar = () => {
             className="draggable-bar"
           />
           <div className="flex h-full items-center">
-            {menus.map((menu) => (
+            {isDesktop && menus.map((menu) => (
               <DropdownMenu key={menu.label}>
                 <DropdownMenuTrigger asChild>
                   <Button

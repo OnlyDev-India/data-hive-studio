@@ -36,12 +36,17 @@ import NoSqlTable from "./no-sql-table";
 import { getCurrentDatabaseType } from "@/lib/actions/fetch-data";
 
 // Define the structure of the data (you can update this based on your actual data)
-interface ColumnProps extends Column<any> {
+export interface ColumnProps extends Column<any> {
   data_type?: string;
+  key_type?: string;
+  is_enum?: boolean;
+  enum_values?: string[];
+  foreignTable?: string;
+  foreignColumn?: string;
 }
 
 interface TableProps {
-  columns: ColumnProps[];
+  columns: ColumnProps[] ;
   data: Row[];
   refetchData?: () => void;
   isFetching?: RefetchType;
@@ -189,10 +194,24 @@ const Table = ({
           </div>
         ),
         renderCell: (props: any) => {
-          const { row, column } = props;
+          // const { row, column } = props;
           if (column.key_type === "FOREIGN KEY") {
             return <ForeignKeyCells {...props} disabled={false} />;
           }
+          if (column.is_enum) {
+            return (
+              <SelectCell
+                name={column.key}
+                className="px-3"
+                {...props}
+                items={column.enum_values?.map((value: string) => ({
+                  label: value,
+                  value: value,
+                }))}
+              />
+            );
+          }
+
           if (column.data_type === "boolean") {
             return (
               <SelectCell
@@ -535,15 +554,16 @@ const Table = ({
               height: `calc(100% - ${filterDivHeight + "px"})`,
             }}
           >
-            {isFloatingActionsVisible && (
+            {/* {isFloatingActionsVisible && ( */}
               <FloatingActions
                 selectedRows={selectedRows}
                 changedRows={changedRows}
                 tableName={currentFile?.tableName || ""}
                 updatedRows={gridRows}
                 handleUpdateTableChanges={handleUpdateChanges}
+                isFloatingActionsVisible={isFloatingActionsVisible}
               />
-            )}
+            {/* )} */}
             {isNosql ? (
               <NoSqlTable
                 rows={gridRows}
@@ -563,7 +583,7 @@ const Table = ({
                 rowClass={(row, rowIndex) => {
                   let classNames = "bg-secondary ";
                   if (changedRows?.[rowIndex]) {
-                    classNames += "bg-primary/10 ";
+                    classNames += "!bg-primary/10 ";
                   }
                   if (selectedRows && selectedRows.includes(rowIndex)) {
                     classNames += "!bg-destructive/20 ";

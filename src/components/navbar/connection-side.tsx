@@ -46,16 +46,21 @@ const ConnectionSidebar = () => {
       return;
     }
     const dbConfig = {
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
+      id: connection.id,
+      name: connection.name,
+      connection_type: connection.connection_type,
+      host: config.host || '',
+      port: config.port || 5432,
+      username: config.user || '',
+      password: config.password || '',
+      database: config.database || '',
+      connection_string: connection.connection_string,
+      save_password: connection.save_password,
+      color: connection.color,
       ssl: config.ssl ? { rejectUnauthorized: false } : false,
-      connectionString: connection.connection_string,
     };
     const response = await testConnection({
-      connectionDetails: dbConfig as ConnectionDetailsType,
+      connectionDetails: dbConfig,
       isConnect: true,
       dbType: connection.connection_type as any,
     });
@@ -80,7 +85,7 @@ const ConnectionSidebar = () => {
       <div className="flex flex-col gap-2">
         <Button
           variant={"secondary"}
-          className="h-7 w-full bg-popover text-xs font-bold"
+          className="h-7 w-full bg-popover/40 backdrop-blur-md text-sm font-medium transition-all hover:bg-popover/60"
           onClick={handleNewConnection}
         >
           + New Connection
@@ -121,7 +126,7 @@ const ConnectionSidebar = () => {
                 <ConnectionMenu connection={connection} key={index}>
                   <Button
                     variant={"ghost"}
-                    className="flex h-12 w-full justify-between rounded-md border-l-4 bg-popover px-4 py-2"
+                    className="flex h-14 w-full justify-between rounded-lg border-l-4 bg-popover/40 backdrop-blur-md px-4 py-2 transition-all hover:bg-popover/60"
                     style={{ borderLeftColor: connection.color }}
                     disabled={loading}
                     onClick={() => handleCurrentConnection(connection)}
@@ -129,16 +134,16 @@ const ConnectionSidebar = () => {
                       handleCurrentConnectionConnect(connection)
                     }
                   >
-                    <div className="flex w-[70%] flex-col items-start text-start">
-                      <span className="w-full truncate text-xs">
+                    <div className="flex w-[70%] flex-col items-start gap-1 text-start">
+                      <span className="w-full truncate text-sm font-medium">
                         {connection.name}
                       </span>
-                      <span className="w-full flex-1 truncate text-[10px] text-muted-foreground">
+                      <span className="w-full flex-1 truncate text-[11px] text-muted-foreground/80">
                         {connection.connection_string}
                       </span>
                     </div>
                     <div>
-                      <span className="rounded-full bg-background p-1 px-1.5 text-[10px] text-muted-foreground">
+                      <span className="rounded-full bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur-sm">
                         {connection.connection_type || "sqlite"}
                       </span>
                     </div>

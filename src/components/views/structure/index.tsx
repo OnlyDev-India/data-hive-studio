@@ -28,11 +28,12 @@ const StructureView = ({ dbType }: StructureViewProps) => {
     setLoading(true);
     const { columns, error } = await getTableColumns(currentFile.tableName);
     const { data } = await getTableRelations(currentFile.tableName);
+    
 
     let updatedData;
 
     if (columns) updatedData = { columns };
-    if (data) updatedData = { ...updatedData, data };
+    if (data) updatedData = { ...updatedData, relations: data };
 
     if (updatedData) {
       dispatch(

@@ -28,11 +28,13 @@ const Sidebar = () => {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const handleDisconnect = async () => {
-    disconnectDb();
-    dispatch(resetOpenFiles());
-    dispatch(resetQuery());
-    dispatch(resetTables());
-    router.push("/");
+    const response = await disconnectDb();
+    if (response) {
+      dispatch(resetOpenFiles());
+      dispatch(resetQuery());
+      dispatch(resetTables());
+      router.push("/");
+    }
   };
   return (
     <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">

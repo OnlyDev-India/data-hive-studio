@@ -1,12 +1,13 @@
 import { NextResponse, NextRequest } from "next/server";
-import { testConnection } from "./lib/actions/fetch-data";
+
+const protectedRoutes = ["/app/editor", "/app/visualizer"];
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(request: NextRequest) {
   try {
     const connectionDetails = request.cookies.get("currentConnection")?.value;
     const pathname = request.nextUrl.pathname;
-    if (connectionDetails && pathname !== "/app/editor") {
+    if (connectionDetails && !protectedRoutes.includes(pathname)) {
       return NextResponse.redirect(new URL("/app/editor", request.url));
     }
     if (pathname !== "/") {

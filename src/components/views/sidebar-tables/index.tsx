@@ -92,7 +92,7 @@ const SideBarTables = () => {
   const handleFetchCurrentDatabase = async () => {
     const connectionDetails: ConnectionDetailsType =
       await currentConnectionDetails();
-    setCurrentDatabase(connectionDetails.database);
+    setCurrentDatabase(connectionDetails.database || null);
   };
 
   const handleDatabaseChange = async (database: string) => {

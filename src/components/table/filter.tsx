@@ -10,7 +10,6 @@ import {
 import { compareFilter } from "@/config/filter";
 import { Input } from "../ui/input";
 import { TypeIcons, TypeIconsType } from "@/config/types-icon";
-import { useDebouncedCallback } from "@/hooks/debounce";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import { Button } from "../ui/button";

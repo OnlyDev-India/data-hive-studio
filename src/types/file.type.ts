@@ -66,7 +66,6 @@ export interface PaginationType {
   page: number;
   limit: number;
 }
-
 export type RefetchType =
   | "fetch"
   | "filter"
@@ -78,3 +77,4 @@ export type RefetchType =
   | "pagination:limit"
   | "pagination:page"
   | null;
+

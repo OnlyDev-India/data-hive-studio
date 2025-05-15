@@ -19,7 +19,7 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
   const { currentFile }: { currentFile: FileType } = useSelector(
     (state: any) => state.openFiles,
   );
-  const handleAction = (action: string) => {
+  const handleAction = async(action: string) => {
     switch (action) {
       case "tablesView":
         router.push("/app/editor");
@@ -28,7 +28,7 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
         router.push("/app/visualizer");
         break;
       case "disconnectDb":
-        disconnectDb();
+        await disconnectDb();
         dispatch(resetOpenFiles());
         dispatch(resetQuery());
         dispatch(resetTables());

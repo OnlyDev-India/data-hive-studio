@@ -1,71 +1,43 @@
-import { ConnectionDetailsType } from "@/types/db.type";
+import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";
 import { Collection, CollectionInfo, Db, MongoClient, ObjectId } from "mongodb";
 import { cookies } from "next/headers";
 import { SortColumn } from "react-data-grid";
 
-export class MongoDbClient {
-  conn: { pool: Db | null; client: MongoClient | null };
-  connectionString: string | null;
+export class MongoDbClient implements DatabaseClient {
+  private client: MongoClient | null = null;
+  private db: any = null;
 
-  constructor() {
-    this.conn = { pool: null, client: null };
-    this.connectionString = null;
-  }
-
-  async connectDb({
-    connectionDetails,
-  }: {
-    connectionDetails: ConnectionDetailsType;
-  }) {
+  async connectDb({ connectionDetails }: { connectionDetails: ConnectionDetailsType }) {
     try {
-      const { connectionString } = connectionDetails;
-      if (!connectionString) {
-        return {
-          success: false,
-          error: "Connection string not found",
-        };
-      }
-      if (!this.conn.pool) {
-        const client = new MongoClient(connectionString);
-        await client.close();
-        await client.connect();
-        this.conn.client = client;
-        const admin = client.db("admin");
-        const databases = (await admin.command({ listDatabases: 1 })).databases
-          .filter((db: any) => db.name !== "admin" && db.name !== "local")
-          .map((db: any) => db.name);
-        if (
-          connectionDetails.database &&
-          databases.includes(connectionDetails.database)
-        ) {
-          this.conn.pool = client.db(connectionDetails.database);
-        } else if (databases.length > 0) {
-          this.conn.pool = client.db(databases[0]);
-        } else {
-          return {
-            success: false,
-            error: "No database found",
-          };
-        }
-
-        return {
-          success: true,
-          error: null,
-        };
-      }
-    } catch (error: any) {
-      return { success: false, error: error.message };
+      const uri = connectionDetails.connection_string;
+      this.client = new MongoClient(uri);
+      await this.client.connect();
+      this.db = this.client.db();
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to connect to MongoDB",
+      };
     }
   }
+
+  async disconnect() {
+    if (this.client) {
+      await this.client.close();
+      this.client = null;
+      this.db = null;
+    }
+  }
+
   isConnectedToDb() {
-    return this.conn.pool;
+    return this.db;
   }
 
   async executeQuery(query: string) {
-    const db = this.conn.pool;
-    if (!db) {
+    if (!this.db) {
       return {
         data: null,
         message: null,
@@ -81,7 +53,7 @@ export class MongoDbClient {
           throw new Error("Invalid command format");
         }
 
-        const collection: any = db.collection(collectionName);
+        const collection: any = this.db.collection(collectionName);
         const operationMatch = operation.match(/(\w+)\((.*)\)/);
 
         if (!operationMatch) {
@@ -118,45 +90,6 @@ export class MongoDbClient {
         error: error.message,
       };
     }
-    // try {
-    //   const queries = query
-    //     .split(";")
-    //     .map((q) => q.trim())
-    //     .filter((q) => q);
-    //   const results = [];
-
-    //   for (const query of queries) {
-    //     if (query.toLowerCase().startsWith("select")) {
-    //       // Use `all` for SELECT queries
-    //       const result = await this.conn.pool.all(query);
-    //       results.push(result);
-    //     } else {
-    //       // Use `run` for other queries
-    //       const result = await this.conn.pool.run(query);
-    //       results.push({ affectedRows: result.changes });
-    //     }
-    //   }
-
-    //   if (results.length > 1) {
-    //     return {
-    //       data: { rows: results },
-    //       message: results.length + " Query executed successfully",
-    //       error: null,
-    //     };
-    //   }
-
-    //   return {
-    //     data: { rows: results[0] },
-    //     message: "Query executed successfully",
-    //     error: null,
-    //   };
-    // } catch (error: any) {
-    //   return {
-    //     data: null,
-    //     message: null,
-    //     error: error.message,
-    //   };
-    // }
   }
 
   async testConnection({
@@ -165,10 +98,8 @@ export class MongoDbClient {
     connectionDetails: ConnectionDetailsType;
   }) {
     try {
-      const { connectionString } = connectionDetails;
-      if (!connectionString)
-        return { success: false, error: "Connection string not found" };
-      const client = new MongoClient(connectionString);
+      const uri = connectionDetails.connection_string;
+      const client = new MongoClient(uri);
 
       await client.connect();
       await client.close();
@@ -180,10 +111,9 @@ export class MongoDbClient {
   }
 
   async getTablesWithFieldsFromDb() {
-    const db = this.conn.pool;
-    if (!db) return { tables: [], error: "No connection to the database" };
+    if (!this.db) return { tables: [], error: "No connection to the database" };
     try {
-      const result: CollectionInfo[] = await db.listCollections().toArray();
+      const result: CollectionInfo[] = await this.db.listCollections().toArray();
       const collections = result.map((collection) => ({
         table_name: collection.name,
         fields: [],
@@ -197,12 +127,12 @@ export class MongoDbClient {
   }
 
   async getDatabases() {
-    if (!this.conn.client) {
+    if (!this.client) {
       return { databases: [], error: "No connection to the database" };
     }
     try {
       // Query to retrieve all databases
-      const result = await this.conn.client.db().admin().listDatabases();
+      const result = await this.client.db().admin().listDatabases();
 
       const databases = result.databases
         .filter((db: any) => db.name !== "admin" && db.name !== "local")
@@ -214,16 +144,23 @@ export class MongoDbClient {
       return { databases: [], error: error.message };
     }
   }
-  async getTableRelations(table_name: string) {
-    return false as any;
+
+  async getSchemas() {
+    // MongoDB doesn't have schemas in the same way as SQL databases
+    return { schemas: [], error: null };
   }
+
+  async getTableRelations(tableName: string) {
+    // MongoDB doesn't have foreign key relationships like SQL databases
+    return { data: [], error: null };
+  }
+
   async getTableColumns(table_name: string) {
-    const db = this.conn.pool;
-    if (!db) return { columns: null, error: "No connection to the database" };
+    if (!this.db) return { columns: null, error: "No connection to the database" };
 
     try {
       // Use aggregation to get unique fields and their types
-      const result = await db
+      const result = await this.db
         .collection(table_name)
         .aggregate([
           { $limit: 100 }, // Limit documents to sample schema from a subset of records
@@ -248,7 +185,7 @@ export class MongoDbClient {
       if (!result.length)
         return { columns: null, error: "Table not found or empty" };
 
-      const columns = result.map((field) => ({
+      const columns = result.map((field:any) => ({
         column_name: field._id,
         data_type: field.data_types?.[0], // Array of possible types due to MongoDB's flexible schema
       }));
@@ -268,8 +205,7 @@ export class MongoDbClient {
       pagination?: PaginationType;
     },
   ) {
-    const db = this.conn.pool;
-    if (!db)
+    if (!this.db)
       return {
         data: null,
         error: "No connection to the database",
@@ -279,7 +215,7 @@ export class MongoDbClient {
       const { filters, orderBy, pagination } = options || {};
       const { page, limit } = pagination || { page: 1, limit: 10 };
       const skip = (page - 1) * limit;
-      const result = await db
+      const result = await this.db
         .collection(tableName)
         .find({})
         .skip(skip)
@@ -292,22 +228,22 @@ export class MongoDbClient {
             : {},
         )
         .toArray();
-      const totalRecords = await db.collection(tableName).countDocuments();
+      const totalRecords = await this.db.collection(tableName).countDocuments();
       return { data: result, error: null, totalRecords };
     } catch (error: any) {
       console.error("Error:", error);
       return { data: null, error: error.message, totalRecords: 0 };
     }
   }
+
   async dropTable(tableName: string) {
-    const db = this.conn.pool;
-    if (!db) {
+    if (!this.db) {
       return { data: null, error: "No connection to the database" };
     }
 
     try {
       // Query to drop the table
-      await db.collection(tableName).drop();
+      await this.db.collection(tableName).drop();
 
       return { data: null, error: null };
     } catch (error: any) {
@@ -315,6 +251,7 @@ export class MongoDbClient {
       return { data: null, error: error.message };
     }
   }
+
   async updateTable(
     tableName: string,
     data: Array<{
@@ -322,53 +259,46 @@ export class MongoDbClient {
       newValue: Record<string, any>;
     }>,
   ) {
-    const db = this.conn.pool; // Assuming this.conn.pool is a valid MongoDB connection object
-    if (!db)
+    if (!this.db) {
       return {
         data: null,
-        effectedRows: null,
-        updatedError: "Invalid inputs",
-        fetchError: "Invalid inputs",
+        effectedRows: 0,
+        updatedError: "No connection to the database",
+        fetchError: null,
       };
+    }
 
     try {
-      // Use bulkWrite for multiple updates
-      const bulkOps = data.map((item) => {
-        const copiedItem = JSON.parse(JSON.stringify(item.newValue));
-        const copiedOldValue = JSON.parse(JSON.stringify(item.oldValue));
-        delete copiedItem._id;
-        return {
-          updateOne: {
-            filter: { _id: ObjectId.createFromHexString(copiedOldValue._id) }, // Match the old document by _id
-            update: { $set: copiedItem }, // Set new values
-          },
-        };
-      });
+      let totalUpdated = 0;
+      for (const { oldValue, newValue } of data) {
+        const result = await this.db
+          .collection(tableName)
+          .updateMany(oldValue, { $set: newValue });
+        totalUpdated += result.modifiedCount;
+      }
 
-      // Perform bulkWrite to execute all updates at once
-      const result = await db.collection(tableName).bulkWrite(bulkOps);
-      const { data: updatedData, error: fetchError } =
-        await this.getTablesData(tableName);
+      const { data: updatedData, error: fetchError } = await this.getTablesData(tableName);
 
       return {
         data: updatedData,
-        fetchError,
+        effectedRows: totalUpdated,
         updatedError: null,
-        effectedRows: result.modifiedCount,
+        fetchError,
       };
     } catch (error: any) {
-      console.error("Error:", error);
+      console.error("Error updating records:", error);
       return {
         data: null,
-        updatedError:
-          error.message || "An error occurred while updating the table",
+        effectedRows: 0,
+        updatedError: error.message,
+        fetchError: null,
       };
     }
   }
+
   async deleteTableData(tableName: string, data: any[]) {
     // Check if the database connection exists
-    const db = this.conn.pool; // Assuming `this.conn.pool` is your MongoDB connection object
-    if (!db) {
+    if (!this.db) {
       return { data: null, deleteError: "No connection to the database" };
     }
 
@@ -380,7 +310,7 @@ export class MongoDbClient {
     try {
       // Build the deletion filter
       const ids = data.map((item) => ObjectId.createFromHexString(item._id)); // Assuming `_id` is used for deletion
-      const result = await db
+      const result = await this.db
         .collection(tableName)
         .deleteMany({ _id: { $in: ids } });
 
@@ -402,12 +332,12 @@ export class MongoDbClient {
       };
     }
   }
+
   async insertRecord(data: { tableName: string; values: any }) {
     const { tableName, values } = data;
 
     // Check if the database connection exists
-    const db = this.conn.pool; // Assuming `this.conn.pool` is your MongoDB connection object
-    if (!db) {
+    if (!this.db) {
       return {
         data: null,
         effectedRows: 0,
@@ -422,9 +352,9 @@ export class MongoDbClient {
 
     try {
       // Insert multiple records into the specified collection
-      const result = await db.collection(tableName).insertMany(values);
+      const result = await this.db.collection(tableName).insertMany(values);
 
-      const newData = await db
+      const newData = await this.db
         .collection(tableName)
         .find({
           _id: { $in: Object.values(result.insertedIds).map((key) => key) },
@@ -445,19 +375,33 @@ export class MongoDbClient {
       };
     }
   }
-  async createTable(formData: TableForm) {
-    console.log(formData);
 
-    const db = this.conn.pool;
-
-    if (!db) return { data: null, error: "Not connected to database" };
+  async createTable(data: TableForm) {
+    if (!this.db) {
+      return { data: null, error: "No connection to the database" };
+    }
 
     try {
-      // Create a new collection with the provided table name
-      await db.createCollection(formData.name);
-      return { data: null, error: null };
-    } catch {
-      return { data: null, error: "An error occurred" };
+      // In MongoDB, we don't need to explicitly create collections
+      // They are created automatically when first document is inserted
+      // However, we can create an empty collection to ensure it exists
+      await this.db.createCollection(data.name);
+
+      // If there are any indexes defined in the columns, create them
+      if (data.columns && data.columns.length > 0) {
+        const indexes = data.columns
+          .filter(col => col.keyType === "PRIMARY")
+          .map(col => ({ key: { [col.name]: 1 }, unique: true }));
+
+        if (indexes.length > 0) {
+          await this.db.collection(data.name).createIndexes(indexes);
+        }
+      }
+
+      return { data: [], error: null };
+    } catch (error: any) {
+      console.error("Error creating collection:", error);
+      return { data: null, error: error.message };
     }
   }
 }

@@ -17,12 +17,12 @@ interface Row {
 interface TableProps {
   columns: ColumnProps[];
   data: Row[];
-  refetchData?: () => void;
 }
 
-const Table = ({ columns, data, refetchData }: TableProps) => {
+const Table = ({ columns, data }: TableProps) => {
   // React Data Grid requires columns and rows
   // const [gridRows, setGridRows] = useState<Row[]>([]);
+  console.log(columns, data);
 
   const updatedColumns: Column<any>[] = useMemo(() => {
     return columns.map((column) => {

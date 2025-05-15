@@ -18,10 +18,19 @@ const ConnectionsPage = () => {
   // console.log(loading);
   const connectDb = async () => {
     const dbPath = await window.electron?.getAppDbPath?.();
-    const connectionDetails = parseConnectionString(
-      "",
-    ) as ConnectionDetailsType;
-    connectionDetails.connectionString = dbPath;
+    const parsedDetails = parseConnectionString("");
+    const connectionDetails: ConnectionDetailsType = {
+      id: "",
+      name: "App Database",
+      connection_type: "sqlite",
+      host: parsedDetails.host || "",
+      port: parsedDetails.port || 0,
+      username: parsedDetails.user || "",
+      password: parsedDetails.password || "",
+      connection_string: dbPath || "",
+      save_password: 1,
+      color: "#15db95"
+    };
 
     await connectAppDB({ connectionDetails });
     dispatch(initAppData() as any);

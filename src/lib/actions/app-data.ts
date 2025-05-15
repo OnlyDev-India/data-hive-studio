@@ -1,8 +1,7 @@
 "use server";
 
 import { ConnectionDetailsType, ConnectionsType } from "@/types/db.type";
-import { connectToAppDB } from "../databases/db";
-import { appDB } from "../databases/db";
+import { connectToAppDB, AppDBManager } from "../databases/db";
 import { SqliteClient } from "../databases/sqlite";
 
 export const connectAppDB = async ({
@@ -10,10 +9,11 @@ export const connectAppDB = async ({
 }: {
   connectionDetails: ConnectionDetailsType;
 }) => {
-  const { connectionString } = connectionDetails;
-  if (!connectionString) return false;
+  const { connection_string } = connectionDetails;
+  if (!connection_string) return false;
   return connectToAppDB({ connectionDetails });
 };
+
 export const testConnection = async ({
   connectionDetails,
 }: {
@@ -23,11 +23,15 @@ export const testConnection = async ({
 };
 
 export const getConnections = async () => {
+  const appDBManager = AppDBManager.getInstance();
+  const appDB = appDBManager.getConnection();
   if (!appDB) return false;
   return appDB.executeQuery("SELECT * FROM connections;");
 };
 
 export const deleteConnection = async (connectionId: string) => {
+  const appDBManager = AppDBManager.getInstance();
+  const appDB = appDBManager.getConnection();
   if (!appDB) return false;
   return appDB.executeQuery(
     `DELETE FROM connections where id='${connectionId}'`,
@@ -35,15 +39,19 @@ export const deleteConnection = async (connectionId: string) => {
 };
 
 export const createConnection = async (connection: ConnectionsType) => {
+  const appDBManager = AppDBManager.getInstance();
+  const appDB = appDBManager.getConnection();
   if (!appDB) return false;
   console.log(connection);
 
   return appDB.executeQuery(
-    `INSERT INTO connections (name, connection_type, connection_string, color) VALUES ('${connection.name}', '${connection.connection_type}', '${connection.connection_string}', '${connection.color}')`, // Removed the extra comma
+    `INSERT INTO connections (name, connection_type, connection_string, color) VALUES ('${connection.name}', '${connection.connection_type}', '${connection.connection_string}', '${connection.color}')`,
   );
 };
 
 export const updateConnection = async (connection: ConnectionsType) => {
+  const appDBManager = AppDBManager.getInstance();
+  const appDB = appDBManager.getConnection();
   if (!appDB) return false;
   const updateFields = `
     name = '${connection.name}',

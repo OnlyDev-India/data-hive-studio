@@ -43,11 +43,17 @@ const ConnectionMenu = ({
       return;
     }
     const dbConfig = {
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
+      id: connection.id,
+      name: connection.name,
+      connection_type: connection.connection_type,
+      host: config.host || '',
+      port: config.port || 5432,
+      username: config.user || '',
+      password: config.password || '',
+      database: config.database || '',
+      connection_string: connection.connection_string,
+      save_password: connection.save_password,
+      color: connection.color,
       ssl: config.ssl ? { rejectUnauthorized: false } : false,
     };
     const response = await testConnection({
@@ -69,11 +75,8 @@ const ConnectionMenu = ({
   };
 
   const handleRemove = async () => {
-    const {
-      data: { rows },
-    } = await deleteConnection(connection.id);
-
-    if (rows.affectedRows) {
+    const response = await deleteConnection(connection.id);
+    if (response && 'data' in response && response.data?.rows && 'affectedRows' in response.data.rows) {
       toast.success("Connection removed Successfully");
       dispatch(removeConnection(connection));
     } else {

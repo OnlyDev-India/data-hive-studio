@@ -18,6 +18,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import { FileTableType } from "@/types/file.type";
 import DeleteModal from "../modals/delete-modal";
+import { motion, AnimatePresence } from "framer-motion";
 interface Row {
   [key: string]: any; // Dynamic data rows
 }
@@ -27,6 +28,7 @@ interface FloatingActionsProps {
   tableName: string;
   updatedRows?: Row[];
   handleUpdateTableChanges?: (type: string) => void;
+  isFloatingActionsVisible?: boolean;
 }
 
 const FloatingActions = ({
@@ -35,6 +37,7 @@ const FloatingActions = ({
   updatedRows,
   tableName,
   handleUpdateTableChanges,
+  isFloatingActionsVisible = false,
 }: FloatingActionsProps) => {
   const [loading, setLoading] = React.useState<
     "updating" | "adding" | "deleting" | null
@@ -125,7 +128,7 @@ const FloatingActions = ({
       const newRows = JSON.parse(response.data);
       toast.success(`${response.effectedRows} records inserted`);
       handleUpdateTableChanges?.("discard");
-      
+
       dispatch(
         updateFile({
           id: currentFile.id,
@@ -135,14 +138,15 @@ const FloatingActions = ({
               ...newRows,
               ...currentFile.tableData?.rows.filter((row: any) => !row.isNew),
             ],
-            totalRecords: currentFile.tableData?.totalRecords + response.effectedRows,
+            totalRecords:
+              currentFile.tableData?.totalRecords + response.effectedRows,
           },
         }),
       );
     } else if (response.error) {
       toast.error(response.error);
     }
-    
+
     setLoading(null);
   };
 
@@ -151,83 +155,93 @@ const FloatingActions = ({
   };
 
   return (
-    <div className="absolute bottom-5 left-1/2 z-10 -translate-x-1/2">
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-6 py-2 shadow-md">
-        {selectedRows && selectedRows.length > 0 && (
-          <>
-            <p className="whitespace-nowrap text-sm text-muted-foreground">
-              {selectedRows.length} Selected:
-            </p>
-            <DeleteModal
-              description={`${selectedRows.length} rows will be deleted and can't be undone`}
-              onConfirm={handleDeleteRows}
-            >
-              <Button
-                variant={"ghost"}
-                className="h-7 px-2 text-foreground hover:bg-red-500/30 hover:text-red-500"
-                disabled={loading ? true : false}
-              >
-                {loading === "deleting" ? (
-                  <LoaderIcon className="animate-spin" />
-                ) : (
-                  <Trash2Icon />
-                )}{" "}
-                Delete
-              </Button>
-            </DeleteModal>
-          </>
-        )}
-        {changedRows && Object.keys(changedRows).length > 0 && (
-          <>
-            <p className="whitespace-nowrap text-sm text-muted-foreground">
-              {Object.keys(changedRows).length} Changed:
-            </p>
-            <Button
-              variant={"ghost"}
-              className="h-7 px-2 text-foreground"
-              onClick={handleUpdateChanges}
-              disabled={loading ? true : false}
-            >
-              {loading === "updating" ? (
-                <LoaderIcon className="animate-spin" />
-              ) : (
-                <HardDriveUploadIcon />
-              )}{" "}
-              Apply
-            </Button>
-          </>
-        )}
-        {newRows !== null && newRows !== undefined && newRows > 0 && (
-          <>
-            <p className="whitespace-nowrap text-sm text-muted-foreground">
-              {newRows} Added:
-            </p>
-            <Button
-              variant={"ghost"}
-              className="h-7 px-2 text-foreground"
-              onClick={handleInsertRows}
-              disabled={loading ? true : false}
-            >
-              {loading === "adding" ? (
-                <LoaderIcon className="animate-spin" />
-              ) : (
-                <BetweenHorizontalStartIcon />
-              )}{" "}
-              Insert
-            </Button>
-          </>
-        )}
-        <Button
-          variant={"ghost"}
-          className="h-7 px-2 text-foreground hover:bg-popover"
-          onClick={handleDiscardChanges}
-          disabled={loading ? true : false}
+    <AnimatePresence>
+      {isFloatingActionsVisible && (
+        <motion.div
+          className="absolute bottom-5 left-1/2 z-10 transform"
+          initial={{ y: 100, x: "-50%" }}
+          animate={{ y: 0, x: "-50%" }}
+          exit={{ y: 100, x: "-50%" }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
         >
-          <ClipboardXIcon />
-          Discard All Changes
-        </Button>
-      </div>
-    </div>
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-background/20 bg-[radial-gradient(ellipse_at_center,#21b45910_0%,transparent_70%)] px-6 py-2 shadow-lg backdrop-blur-xl">
+            {selectedRows && selectedRows.length > 0 && (
+              <>
+                <p className="whitespace-nowrap text-sm text-muted-foreground">
+                  {selectedRows.length} Selected:
+                </p>
+                <DeleteModal
+                  description={`${selectedRows.length} rows will be deleted and can't be undone`}
+                  onConfirm={handleDeleteRows}
+                >
+                  <Button
+                    variant={"ghost"}
+                    className="h-7 px-2 text-foreground hover:bg-red-500/30 hover:text-red-500"
+                    disabled={loading ? true : false}
+                  >
+                    {loading === "deleting" ? (
+                      <LoaderIcon className="animate-spin" />
+                    ) : (
+                      <Trash2Icon />
+                    )}{" "}
+                    Delete
+                  </Button>
+                </DeleteModal>
+              </>
+            )}
+            {changedRows && Object.keys(changedRows).length > 0 && (
+              <>
+                <p className="whitespace-nowrap text-sm text-muted-foreground">
+                  {Object.keys(changedRows).length} Changed:
+                </p>
+                <Button
+                  variant={"ghost"}
+                  className="h-7 px-2 text-foreground"
+                  onClick={handleUpdateChanges}
+                  disabled={loading ? true : false}
+                >
+                  {loading === "updating" ? (
+                    <LoaderIcon className="animate-spin" />
+                  ) : (
+                    <HardDriveUploadIcon />
+                  )}{" "}
+                  Apply
+                </Button>
+              </>
+            )}
+            {newRows !== null && newRows !== undefined && newRows > 0 && (
+              <>
+                <p className="whitespace-nowrap text-sm text-muted-foreground">
+                  {newRows} Added:
+                </p>
+                <Button
+                  variant={"ghost"}
+                  className="h-7 px-2 text-foreground"
+                  onClick={handleInsertRows}
+                  disabled={loading ? true : false}
+                >
+                  {loading === "adding" ? (
+                    <LoaderIcon className="animate-spin" />
+                  ) : (
+                    <BetweenHorizontalStartIcon />
+                  )}{" "}
+                  Insert
+                </Button>
+              </>
+            )}
+            <Button
+              variant={"ghost"}
+              className="h-7 px-2 text-foreground hover:bg-popover"
+              onClick={handleDiscardChanges}
+              disabled={loading ? true : false}
+            >
+              <ClipboardXIcon />
+              Discard All Changes
+            </Button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 

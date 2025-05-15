@@ -90,7 +90,27 @@ export const openFileSlice = createSlice({
           file.tableName === action.payload.table_name && file.type === "table",
       );
       if (file) {
-        state.currentFile = file;
+        state.currentFile = {
+          ...file,
+          type: "table",
+          tableName: action.payload.table_name,
+          tableData: { columns: [], rows: [], totalRecords: 0 },
+          tableFilter: action.payload.tableFilter || {
+            filter: {
+              oldFilter: [],
+              newFilter: [],
+            },
+            applyFilter: false,
+            filterOpened: false,
+          },
+          tableOrder: [],
+          tablePagination: { page: 1, limit: 50 },
+          tableOperations: {
+            selectedRows: [],
+            changedRows: {},
+            insertedRows: 0,
+          },
+        };
         return;
       }
       const newFile: FileType = {
@@ -99,7 +119,7 @@ export const openFileSlice = createSlice({
         type: "table",
         tableData: { columns: [], rows: [], totalRecords: 0 },
         tableName: action.payload.table_name,
-        tableFilter: {
+        tableFilter: action.payload.tableFilter || {
           filter: {
             oldFilter: [],
             newFilter: [],

@@ -2,10 +2,12 @@ import React from "react";
 import { RenderCellProps } from "react-data-grid";
 import { Input } from "../ui/input";
 import { cn } from "@/lib/utils";
+import { ColumnProps } from "../table";
 
-interface InputCellProps extends RenderCellProps<any> {
+interface InputCellProps extends Omit<RenderCellProps<any>, "column"> {
   name: string;
   className?: string;
+  column: ColumnProps;
 }
 
 const InputCell = ({ row, onRowChange, name, className }: InputCellProps) => {

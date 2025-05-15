@@ -52,13 +52,7 @@ const SelectCell = ({
       >
         <SelectValue placeholder={"(null)"} />
       </SelectTrigger>
-      <SelectContent>
-        {/* <Input
-          className="bg-secondary sticky top-0"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          autoFocus
-        /> */}
+      <SelectContent className="bg-secondary/70 backdrop-blur-md">
         {items
           .filter((item) =>
             item.label.toLowerCase().includes(search.toLowerCase()),

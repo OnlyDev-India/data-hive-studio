@@ -7,10 +7,10 @@ export const initAppData = createAsyncThunk(
   async () => {
     // const tables = await getTablesWithFieldsFromDb();
 
-    const {
-      data: { rows: connections },
-    } = await getConnections();
-    if (connections) return { connections };
+    const response = await getConnections();
+    if (response && 'data' in response && Array.isArray(response.data?.rows)) {
+      return { connections: response.data.rows as ConnectionsType[] };
+    }
     return { connections: null };
   },
 );

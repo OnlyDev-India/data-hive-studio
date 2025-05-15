@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Button } from "../ui/button";
-import { DownloadIcon } from "lucide-react";
+import { DownloadIcon, FileDownIcon, FileUpIcon, MoreVerticalIcon } from "lucide-react";
 import { Tooltip, TooltipContent } from "../ui/tooltip";
 import { TooltipTrigger } from "@radix-ui/react-tooltip";
 import { useSelector } from "react-redux";
@@ -27,6 +27,12 @@ import { getTableColumns, getTablesData } from "@/lib/actions/fetch-data";
 import useBgProcess from "@/hooks/use-bgProcess";
 import { toast } from "sonner";
 import * as xlsx from "xlsx";
+import {
+  DropdownMenuItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { DropdownMenu } from "../ui/dropdown-menu";
 
 const exportToCSV = (columns: any, data: any) => {
   const csvHeader = columns.map((column: any) => column.name).join(",");
@@ -104,6 +110,7 @@ const ExportModal = ({
   tableName,
 }: ExportModalProps) => {
   const [open, setOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
   );
@@ -239,142 +246,160 @@ const ExportModal = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger
-            disabled={tableName ? false : !columns || columns?.length === 0}
-            asChild
+    <>
+      <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+        <DropdownMenuTrigger
+          disabled={tableName ? false : !columns || columns?.length === 0}
+          asChild
+        >
+          <Button
+            variant={"outline"}
+            size={"icon"}
+            className="h-7 w-7 border-border [&_svg]:size-3"
           >
-            <Button
-              variant={"outline"}
-              size={"icon"}
-              className="h-7 w-7 border-border [&_svg]:size-3"
-            >
-              <DownloadIcon />
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Export Data</TooltipContent>
-      </Tooltip>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Export Data</DialogTitle>
-          <DialogDescription className="text-xs">
-            Export Data to CSV, JSON, or Excel File, If number of records are
-            greater, it will run in background
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleFormSubmit}>
-          <div className="space-y-2">
-            {(tableName || currentFile?.tableName) && (
-              <div className="space-y-2">
-                <Label htmlFor="format" className="text-xs">
-                  Export
-                </Label>
-                <Select
-                  value={formData.type}
-                  onValueChange={(value) => {
-                    setFormData({ ...formData, type: value });
-                  }}
-                >
-                  <SelectTrigger className="w-[180px] border-border bg-secondary">
-                    <SelectValue placeholder="Theme" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary">
-                    {filteredMenu.map((item, index) => (
-                      <SelectItem
-                        key={index}
-                        value={item.value}
-                        className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
-                      >
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div className="flex w-full items-center gap-1.5">
-              <div className="w-full space-y-2">
-                <Label htmlFor="name" className="text-xs">
-                  File Name
-                </Label>
-                <Input
-                  id="name"
-                  placeholder="File Name"
-                  className="w-full border-border bg-secondary"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="format" className="text-xs">
-                  Format
-                </Label>
-                <Select
-                  value={formData.format}
-                  onValueChange={(value) => {
-                    setFormData({ ...formData, format: value });
-                  }}
-                >
-                  <SelectTrigger className="w-[180px] border-border bg-secondary">
-                    <SelectValue placeholder="Theme" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-secondary">
-                    {DownloadMenu.map((item, index) => (
-                      <SelectItem
-                        key={index}
-                        value={item.value}
-                        className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
-                        // disabled={item.disabled}
-                      >
-                        {item.label}{" "}
-                        <span className="text-xs text-muted-foreground">
-                          {`(${item.format})`}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {window.electron?.openSelectDir !== undefined && (
-              <div className="w-full space-y-2">
-                <Label htmlFor="name" className="text-xs">
-                  Output Directory
-                </Label>
-                <div className="flex items-center">
+            <MoreVerticalIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="bottom" align="end">
+          <DropdownMenuItem
+            className="text-xs"
+            onClick={() => {
+              setOpen(true);
+              setDropdownOpen(false);
+            }}
+          >
+            <FileDownIcon size={12} />
+            Export Data
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-xs"
+            disabled
+          >
+            <FileUpIcon size={12} />
+            Import Data
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export Data</DialogTitle>
+            <DialogDescription className="text-xs">
+              Export Data to CSV, JSON, or Excel File, If number of records are
+              greater, it will run in background
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleFormSubmit}>
+            <div className="space-y-2">
+              {(tableName || currentFile?.tableName) && (
+                <div className="space-y-2">
+                  <Label htmlFor="format" className="text-xs">
+                    Export
+                  </Label>
+                  <Select
+                    value={formData.type}
+                    onValueChange={(value) => {
+                      setFormData({ ...formData, type: value });
+                    }}
+                  >
+                    <SelectTrigger className="w-[180px] border-border bg-secondary">
+                      <SelectValue placeholder="Theme" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-secondary">
+                      {filteredMenu.map((item, index) => (
+                        <SelectItem
+                          key={index}
+                          value={item.value}
+                          className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
+                        >
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="flex w-full items-center gap-1.5">
+                <div className="w-full space-y-2">
+                  <Label htmlFor="name" className="text-xs">
+                    File Name
+                  </Label>
                   <Input
                     id="name"
                     placeholder="File Name"
-                    className="w-full rounded-r-none border-r-0 border-border bg-secondary !text-xs"
-                    value={formData.outputDir}
-                    readOnly
-                    onClick={handleOpenDir}
+                    className="w-full border-border bg-secondary"
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
                   />
-                  <Button
-                    type="button"
-                    variant={"secondary"}
-                    className="rounded-l-none border border-l-0 border-border bg-popover hover:bg-background/40"
-                    onClick={handleOpenDir}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="format" className="text-xs">
+                    Format
+                  </Label>
+                  <Select
+                    value={formData.format}
+                    onValueChange={(value) => {
+                      setFormData({ ...formData, format: value });
+                    }}
                   >
-                    Choose
-                  </Button>
+                    <SelectTrigger className="w-[180px] border-border bg-secondary">
+                      <SelectValue placeholder="Theme" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-secondary">
+                      {DownloadMenu.map((item, index) => (
+                        <SelectItem
+                          key={index}
+                          value={item.value}
+                          className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
+                          // disabled={item.disabled}
+                        >
+                          {item.label}{" "}
+                          <span className="text-xs text-muted-foreground">
+                            {`(${item.format})`}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            )}
-            <div className="!mt-8 flex w-full items-center justify-end">
-              <Button type="submit" className="h-7 py-0 text-xs text-white">
-                Export
-              </Button>
+              {window.electron?.openSelectDir !== undefined && (
+                <div className="w-full space-y-2">
+                  <Label htmlFor="name" className="text-xs">
+                    Output Directory
+                  </Label>
+                  <div className="flex items-center">
+                    <Input
+                      id="name"
+                      placeholder="File Name"
+                      className="w-full rounded-r-none border-r-0 border-border bg-secondary !text-xs"
+                      value={formData.outputDir}
+                      readOnly
+                      onClick={handleOpenDir}
+                    />
+                    <Button
+                      type="button"
+                      variant={"secondary"}
+                      className="rounded-l-none border border-l-0 border-border bg-popover hover:bg-background/40"
+                      onClick={handleOpenDir}
+                    >
+                      Choose
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="!mt-8 flex w-full items-center justify-end">
+                <Button type="submit" className="h-7 py-0 text-xs text-white">
+                  Export
+                </Button>
+              </div>
             </div>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 

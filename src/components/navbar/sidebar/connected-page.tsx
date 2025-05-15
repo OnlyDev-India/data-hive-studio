@@ -37,7 +37,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
                 "flex items-center justify-center",
                 "w-full rounded-md p-2 text-muted-foreground hover:bg-popover/40 hover:text-foreground",
                 {
-                  "bg-popover text-foreground": pathname.includes(item.link),
+                  "bg-popover text-primary": pathname.includes(item.link),
                 },
               )}
             >

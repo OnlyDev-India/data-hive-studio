@@ -84,19 +84,23 @@ const ConnectionForm = () => {
       toast.error(config.error);
       return;
     }
-    const dbConfig = {
-      user: config.user,
-      host: config.host,
-      database: config.database,
-      password: config.password,
-      port: config.port, // Default PostgreSQL port
-      ssl: config.ssl ? { rejectUnauthorized: false } : false, // Handle SSL
-      connectionString: values.connection_string,
+    const dbConfig: ConnectionDetailsType = {
+      id: currentConnection?.id || "",
+      name: values.name || "",
+      connection_type: values.connection_type,
+      host: config.host || "",
+      port: config.port || 0,
+      username: config.user || "",
+      password: config.password || "",
+      database: config.database || "",
+      connection_string: values.connection_string,
+      save_password: 1,
+      color: values.color || "",
+      ssl: config.ssl ? { rejectUnauthorized: false } : false,
     };
     setLoading("connecting");
     const response = await testConnection({
-      connectionDetails: dbConfig as ConnectionDetailsType,
-      // connectionString: values.connection_string,
+      connectionDetails: dbConfig,
       isConnect: true,
       dbType: values.connection_type as any,
     });
@@ -126,17 +130,15 @@ const ConnectionForm = () => {
     if (currentConnection) {
       const updatedConnection = { ...currentConnection, ...form.getValues() };
       response = await updateConnection(updatedConnection);
-      if (response && response.data.rows) {
+      if (typeof response === "object" && response?.data?.rows) {
         dispatch(setCurrentConnection(updatedConnection));
       }
     } else {
       response = await createConnection(form.getValues() as any);
     }
-    if (response) {
-      if (response.data.rows) {
-        form.reset();
-        dispatch(initAppData() as any);
-      }
+    if (typeof response === "object" && response?.data?.rows) {
+      form.reset();
+      dispatch(initAppData() as any);
     }
 
     setLoading(null);
@@ -149,18 +151,22 @@ const ConnectionForm = () => {
       return;
     }
     setLoading("testing");
-    const dbConfig = {
-      user: config.user,
-      host: config.host,
-      database: config.database,
-      password: config.password,
-      port: config.port, // Default PostgreSQL port
-      ssl: config.ssl ? { rejectUnauthorized: false } : false, // Handle SSL
-      connectionString: form.getValues().connection_string,
+    const dbConfig: ConnectionDetailsType = {
+      id: currentConnection?.id || "",
+      name: form.getValues().name || "",
+      connection_type: form.getValues().connection_type,
+      host: config.host || "",
+      port: config.port || 0,
+      username: config.user || "",
+      password: config.password || "",
+      database: config.database || "",
+      connection_string: form.getValues().connection_string,
+      save_password: 1,
+      color: form.getValues().color || "",
+      ssl: config.ssl ? { rejectUnauthorized: false } : false,
     };
     const response = await testConnection({
-      connectionDetails: dbConfig as ConnectionDetailsType,
-      // connectionString: form.getValues().connection_string,
+      connectionDetails: dbConfig,
       dbType: form.getValues().connection_type,
     });
 
@@ -177,8 +183,13 @@ const ConnectionForm = () => {
   return (
     <div className="flex h-full w-full items-center justify-center overflow-auto">
       <Card
-        className="min-w-[80%] border-t-8"
-        style={{ borderColor: form.getValues().color || "transparent" }}
+        className="min-w-[80%] border-border/50 bg-background/20 shadow-lg backdrop-blur-xl"
+        style={{
+          borderColor: form.watch("color") || "transparent",
+          background: form.watch("color")
+            ? `radial-gradient(circle at top left, ${form.watch("color")}10 0%, transparent 50%), radial-gradient(circle at bottom right, ${form.watch("color")}10 0%, transparent 50%)`
+            : "radial-gradient(circle at top left, hsl(var(--primary)/0.1) 0%, transparent 50%), radial-gradient(circle at bottom right, hsl(var(--primary)/0.1) 0%, transparent 50%)",
+        }}
       >
         <CardHeader>
           <CardTitle>{form.getValues().name || "New Connection"}</CardTitle>
