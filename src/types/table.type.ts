@@ -2,7 +2,7 @@ import { Column, RenderCellProps } from "react-data-grid";
 
 export interface TableForm {
   name: string;
-  columns: TableFormColumn[];
+  columns?: TableFormColumn[];
 }
 
 export interface TableFormColumn {
@@ -18,7 +18,7 @@ export interface TableFormColumn {
 export interface CustomColumns extends Column<any> {
   customRenderCell?: (
     props: RenderCellProps<any>,
-    extraFiled: any
+    extraFiled: any,
   ) => React.ReactNode;
 }
 

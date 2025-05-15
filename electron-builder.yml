@@ -5,22 +5,22 @@ directories:
   output: dist
   buildResources: assets
 
-
 includeSubNodeModules: true
 
 files:
   - build
-  - from: '.next/standalone/'
-    to: '.next/standalone/'
-  - from: 'public/'
-    to: 'public/'
-# mac:
-#   category: public.app-category.developer-tools
-#   target:
-#     target: dir
-#     arch:
-#       - arm64
-#      - x64
+  - from: ".next/standalone/"
+    to: ".next/standalone/"
+  - from: "public/"
+    to: "public/"
+
+extraResources:
+  - from: "public/"
+    to: "public/"
+
+mac:
+  target:
+    target: dmg
 
 win:
   icon: public/icon.ico
@@ -28,3 +28,11 @@ win:
     target: nsis
     arch:
       - x64
+
+nsis:
+  oneClick: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: public/icon.ico
+  installerHeaderIcon: public/icon.ico
+  uninstallerIcon: public/icon.ico

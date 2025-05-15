@@ -6,6 +6,7 @@ import TableView from "../views/table";
 import { useDispatch, useSelector } from "react-redux";
 import { Button } from "../ui/button";
 import {
+  ChevronDownIcon,
   CodeIcon,
   Grid2X2PlusIcon,
   PencilRulerIcon,
@@ -16,17 +17,36 @@ import {
 } from "lucide-react";
 import {
   addOpenFiles,
+  rearrangeOpenFiles,
   removeFile,
   setCurrentFile,
-  updateFile,
 } from "@/redux/features/open-files";
 import { cn } from "@/lib/utils";
 import { setExecutingQuery, setQueryOutput } from "@/redux/features/query";
-import { executeQuery } from "@/lib/actions/fetch-data";
+import {
+  executeQuery,
+  getSchemas,
+  getTablesWithFieldsFromDb,
+} from "@/lib/actions/fetch-data";
 import StructureView from "../views/structure";
 import { fetchTables } from "@/redux/features/tables";
 import NewTableView from "../views/newTable";
 import { FileType } from "@/types/file.type";
+import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { Tooltip, TooltipContent } from "../ui/tooltip";
+import { TooltipTrigger } from "@radix-ui/react-tooltip";
+import ShortcutGrid from "../common/shortcut-grids";
+import { useMonaco } from "@monaco-editor/react";
+import { pgSqlLanguageServer } from "../views/editor/pgsql";
+import { AppDispatch } from "@/redux/store";
+import { mongodbLanguageServer } from "../views/editor/mongodb";
 
 const tabIcons = {
   table: TableIcon,
@@ -35,44 +55,47 @@ const tabIcons = {
   newTable: Grid2X2PlusIcon,
 };
 
-const OpenedFiles = () => {
+const OpenedFiles = ({ dbType }: { dbType: string }) => {
   const [activeFileTab, setActiveFileTab] = useState("0");
-  const { editor } = useSelector((state: any) => state.editor);
-  const {
-    openFiles,
-    currentFile,
-  }: { openFiles: FileType[]; currentFile: FileType | null } = useSelector(
-    (state: any) => state.openFiles
+  const [editor, setEditor] = useState<any>(null);
+  const { openFiles, currentFile } = useSelector(
+    (state: any) => state.openFiles,
   );
-  const dispatch = useDispatch();
+  const { currentSchema } = useSelector((state: any) => state.tables);
 
-  // useEffect(() => {
-  //   if (openFiles.length > 0) {
-  //     setActiveFileTab((openFiles.length - 1).toString());
-  //     dispatch(setCurrentFile(openFiles[openFiles.length - 1]));
-  //   }
-  // }, [openFiles.length]);
+  const [dragOverIndex, setDragOverIndex] = useState(-1);
+  const [dragIndex, setDragIndex] = useState(-1);
+  const dispatch = useDispatch<AppDispatch>();
+
+  const monaco = useMonaco();
 
   useEffect(() => {
     if (currentFile) {
       setActiveFileTab(
-        openFiles.findIndex((file) => file.id === currentFile.id).toString()
+        openFiles
+          .find((file: FileType) => file.id === currentFile.id)
+          ?.id.toString() || "0",
       );
     }
   }, [currentFile]);
 
-  const handleOpenedFile = (index: string) => {
-    setActiveFileTab(index);
-    dispatch(setCurrentFile(openFiles[parseInt(index)]));
+  const handleOpenedFile = (fileId: string) => {
+    setActiveFileTab(fileId);
+    const file = openFiles.find((file: any) => file.id === fileId);
+    dispatch(setCurrentFile(file));
   };
 
   const handleCloseFile = (
     e: React.MouseEvent<HTMLParagraphElement>,
-    index: number
+    index: number,
   ) => {
     e.stopPropagation();
     // check if file is open
     if (openFiles[index]) {
+      const currentModal = monaco.editor.getModel(
+        `file:///${openFiles[index].id}`,
+      );
+      if (currentModal) currentModal.dispose();
       dispatch(removeFile({ id: openFiles[index].id }));
     }
   };
@@ -81,60 +104,127 @@ const OpenedFiles = () => {
     dispatch(addOpenFiles());
   };
 
-  const handleRunQuery = async () => {
-    // const editor = editorInstance;
-    if (editor) {
-      dispatch(setExecutingQuery(true));
-      const selection = editor.getSelection(); // Get the selection range
-      const selectedText = editor.getModel().getValueInRange(selection); // Get the text within the selected range
-      if (selectedText.trim() === "") return;
-      const data = await executeQuery(selectedText);
-      dispatch(setQueryOutput(JSON.stringify(data)));
-      dispatch(setExecutingQuery(false));
+  const handleRunQuery = async (edit?: any) => {
+    // TODO: add logic to handle multiple query output
+    try {
+      const editor1 = monaco.editor;
 
-      if (data && "isTableEffected" in data) {
-        // Type guard to check if isTableEffected exists
-        if (data.isTableEffected) {
-          dispatch(fetchTables() as any);
+      const currentModal = editor1.getModel(`file:///${currentFile?.id}`);
+      const currentEditor = edit || editor;
+      if (currentModal && currentEditor) {
+        dispatch(setExecutingQuery(true));
+        const selection = currentEditor.getSelection();
+        const selectedText = currentModal.getValueInRange(selection);
+        if (selectedText.trim() === "") return;
+        const data = await executeQuery(selectedText);
+        dispatch(setQueryOutput(JSON.stringify(data)));
+        if (data && "isTableEffected" in data) {
+          // Type guard to check if isTableEffected exists
+          if (data.isTableEffected) {
+            if (data && "effectedRows" in data) {
+              toast.success(`Updated ${data.effectedRows} rows`);
+            }
+            dispatch(fetchTables());
+          }
         }
       }
+    } catch (error) {
+      console.log(error);
+    } finally {
+      dispatch(setExecutingQuery(false));
     }
   };
 
-  const handleSaveFile = () => {
-    if (editor) {
-      // get the whole code from the editor
-      const code = editor.getValue();
+  const initializeLanguageServer = async () => {
+    if (dbType === "pgSql") {
+      let schemas: any = [];
+      const schemasWithTables: { [key: string]: any } = {};
+      const response = await getSchemas();
+      if (response?.schemas) {
+        schemas = response?.schemas;
+        schemas.forEach(async (schema: any) => {
+          const { tables } = await getTablesWithFieldsFromDb(
+            schema.schema_name,
+          );
+          schemasWithTables[schema.schema_name] = tables;
+        });
+      }
 
-      dispatch(updateFile({ id: currentFile?.id, code }));
+      // console.log("schemasWithTables", schemasWithTables);
+
+      pgSqlLanguageServer(monaco, { schemasWithTables });
+    }
+    if (dbType === "mongodb") {
+      const { tables } = await getTablesWithFieldsFromDb("");
+      mongodbLanguageServer(monaco, { collections: tables });
     }
   };
 
+  useEffect(() => {
+    if (!monaco || !currentSchema) return;
+    initializeLanguageServer();
+  }, [monaco, currentSchema]);
+
+  const handleDragStart = (index: number) => {
+    setDragIndex(index);
+  };
+
+  const handleDrop = (
+    e: React.DragEvent<HTMLDivElement>,
+    dropIndex: number,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragIndex !== dropIndex) {
+      dispatch(rearrangeOpenFiles({ dragIndex, dropIndex }));
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverIndex(-1);
+    setDragIndex(-1);
+  };
   return (
     <Tabs
       defaultValue="0"
       value={activeFileTab}
       onValueChange={handleOpenedFile}
-      className="w-full h-full relative"
+      className="relative h-full w-full rounded-lg bg-secondary"
     >
-      <div className="flex items-center justify-between w-full overflow-auto no-scrollbar">
-        <TabsList className="justify-start w-full overflow-auto no-scrollbar bg-secondary py-0 pr-0 h-[var(--tabs-height)] rounded-none">
+      <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg">
+        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2">
           {openFiles?.map((item: any, index: number) => {
             const Icon = tabIcons[item.type as "table" | "file" | "structure"];
             return (
               <div
                 key={index}
                 className={cn(
-                  "h-full flex items-center justify-between group border-t-2 border-x border-t-transparent",
+                  "group flex h-full items-center justify-between rounded-md border border-transparent hover:bg-background active:cursor-grabbing",
                   {
-                    "border-t-primary bg-background":
-                      index.toString() === activeFileTab,
-                  }
+                    "border-primary bg-primary/20 hover:bg-primary/40":
+                      item.id.toString() === activeFileTab,
+                  },
+                  {
+                    "rounded-l-none border-l-2 border-l-red-500":
+                      index === dragOverIndex,
+                  },
                 )}
+                draggable
+                onDragStart={() => {
+                  handleDragStart(index);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverIndex(index);
+                }}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
               >
                 <TabsTrigger
-                  value={index.toString()}
-                  className="h-full rounded-none pr-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  value={item.id.toString()}
+                  className="h-full rounded-md bg-transparent pr-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent"
                 >
                   <span className="flex items-center gap-1 text-xs">
                     {Icon && <Icon size={14} className="text-primary" />}
@@ -142,7 +232,7 @@ const OpenedFiles = () => {
                   </span>
                 </TabsTrigger>
                 <p
-                  className="h-6 w-6 invisible group-hover:visible flex items-center justify-center text-muted-foreground cursor-pointer hover:text-foreground"
+                  className="invisible flex h-6 w-6 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground group-hover:visible"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCloseFile(e, index);
@@ -153,7 +243,7 @@ const OpenedFiles = () => {
               </div>
             );
           })}
-          <div className="h-full px-2 sticky right-0 flex items-center bg-secondary">
+          <div className="sticky right-0 flex h-full items-center bg-secondary px-2">
             <Button
               size="icon"
               className="h-6 w-6 min-w-6"
@@ -163,29 +253,63 @@ const OpenedFiles = () => {
             </Button>
           </div>
         </TabsList>
-        <div className="h-10 px-2 flex items-center bg-secondary gap-2">
+        <div className="flex h-10 items-center gap-2 bg-secondary px-2">
           {currentFile?.type === "file" && (
-            <Button
-              variant={"ghost"}
-              size="icon"
-              className="h-6 w-6 min-w-6"
-              onClick={handleRunQuery}
-            >
-              <PlayIcon size={14} />
-            </Button>
+            <div className="flex h-7 items-center rounded-md border border-border">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={"ghost"}
+                    size="icon"
+                    className="h-6 w-6 min-w-6 rounded-r-none hover:bg-popover"
+                    onClick={() => handleRunQuery()}
+                  >
+                    <PlayIcon size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="space-y-1">
+                  Run
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={"ghost"}
+                    size="icon"
+                    className="h-6 w-6 min-w-6 rounded-l-none hover:bg-popover"
+                    onClick={() => handleRunQuery()}
+                  >
+                    <ChevronDownIcon size={14} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={() => handleRunQuery()}
+                  >
+                    Run query
+                    <DropdownMenuShortcut className="text-[10px]">
+                      ctrl + enter
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           )}
-          {/* <Button
-            disabled
-            className="h-6 text-foreground"
-            onClick={handleSaveFile}
-          >
-            Save
-          </Button> */}
         </div>
       </div>
-      {currentFile?.type === "file" && <CodeEditor />}
-      {currentFile?.type === "table" && <TableView />}
-      {currentFile?.type === "structure" && <StructureView />}
+      {!currentFile?.type && <ShortcutGrid />}
+      {currentFile?.type === "file" && (
+        <CodeEditor
+          handleRunQuery={handleRunQuery}
+          setEditor={setEditor}
+          dbType={dbType}
+        />
+      )}
+      {currentFile?.type === "table" && <TableView dbType={dbType} />}
+      {currentFile?.type === "structure" && (
+        <StructureView dbType={dbType as any} />
+      )}
       {currentFile?.type === "newTable" && <NewTableView />}
     </Tabs>
   );

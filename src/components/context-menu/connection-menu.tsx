@@ -7,7 +7,7 @@ import {
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import { useDispatch } from "react-redux";
-import { ConnectionsType } from "@/types/db.type";
+import { ConnectionDetailsType, ConnectionsType } from "@/types/db.type";
 import { toast } from "sonner";
 import {
   removeConnection,
@@ -18,6 +18,7 @@ import DeleteModal from "../modals/delete-modal";
 import { deleteConnection } from "@/lib/actions/app-data";
 import { useRouter } from "next/navigation";
 import { testConnection } from "@/lib/actions/fetch-data";
+import { parseConnectionString } from "@/lib/helper/connection-details";
 
 const ConnectionMenu = ({
   children,
@@ -35,8 +36,28 @@ const ConnectionMenu = ({
 
   const handleConnect = async () => {
     dispatch(setConnectionLoading(true));
+    const config = parseConnectionString(connection.connection_string);
+    if (config.error) {
+      toast.error(config.error);
+      dispatch(setConnectionLoading(false));
+      return;
+    }
+    const dbConfig = {
+      id: connection.id,
+      name: connection.name,
+      connection_type: connection.connection_type,
+      host: config.host || '',
+      port: config.port || 5432,
+      username: config.user || '',
+      password: config.password || '',
+      database: config.database || '',
+      connection_string: connection.connection_string,
+      save_password: connection.save_password,
+      color: connection.color,
+      ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    };
     const response = await testConnection({
-      connectionString: connection.connection_string,
+      connectionDetails: dbConfig as ConnectionDetailsType,
       isConnect: true,
       dbType: connection.connection_type as any,
     });
@@ -54,11 +75,8 @@ const ConnectionMenu = ({
   };
 
   const handleRemove = async () => {
-    const {
-      data: { rows },
-    } = await deleteConnection(connection.id);
-
-    if (rows.affectedRows) {
+    const response = await deleteConnection(connection.id);
+    if (response && 'data' in response && response.data?.rows && 'affectedRows' in response.data.rows) {
       toast.success("Connection removed Successfully");
       dispatch(removeConnection(connection));
     } else {
@@ -69,7 +87,7 @@ const ConnectionMenu = ({
   return (
     <ContextMenu>
       <ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
-      <ContextMenuContent className="px-2 py-1 min-w-[150px]">
+      <ContextMenuContent className="min-w-[150px] px-2 py-1">
         <ContextMenuItem onSelect={handleViewData}>View</ContextMenuItem>
         <ContextMenuItem onSelect={handleConnect}>connect</ContextMenuItem>
         <ContextMenuItem onSelect={handleCopyName}>

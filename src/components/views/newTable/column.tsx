@@ -89,7 +89,7 @@ export const columns: CustomColumns[] = [
     name: "Foreign Table Column",
     customRenderCell: (
       props: RenderCellProps<any>,
-      { getForeignTableFields }
+      { getForeignTableFields },
     ) => {
       const options = getForeignTableFields(props.rowIdx);
 
@@ -110,11 +110,11 @@ export const columns: CustomColumns[] = [
       const deleteColumn = extraFields.deleteColumn;
       const handleDeleteColumn = () => deleteColumn(rowIdx);
       return (
-        <div className="w-full h-full flex items-center justify-center no-bg">
+        <div className="no-bg flex h-full w-full items-center justify-center">
           <Button
             variant={"ghost"}
             size={"icon"}
-            className="text-muted-foreground hover:bg-transparent hover:text-white h-7 w-7 rounded-full px-1"
+            className="h-7 w-7 rounded-full px-1 text-muted-foreground hover:bg-transparent hover:text-white"
             onClick={handleDeleteColumn}
           >
             <XIcon />

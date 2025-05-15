@@ -10,13 +10,29 @@ import { useDispatch } from "react-redux";
 import { connectAppDB } from "@/lib/actions/app-data";
 import { initAppData } from "@/redux/features/appdb";
 import { useEffect } from "react";
+import { parseConnectionString } from "@/lib/helper/connection-details";
+import { ConnectionDetailsType } from "@/types/db.type";
 
 const ConnectionsPage = () => {
   const dispatch = useDispatch();
   // console.log(loading);
   const connectDb = async () => {
-    const dbPath = await window.electron.getAppDbPath();
-    await connectAppDB({ connectionString: dbPath });
+    const dbPath = await window.electron?.getAppDbPath?.();
+    const parsedDetails = parseConnectionString("");
+    const connectionDetails: ConnectionDetailsType = {
+      id: "",
+      name: "App Database",
+      connection_type: "sqlite",
+      host: parsedDetails.host || "",
+      port: parsedDetails.port || 0,
+      username: parsedDetails.user || "",
+      password: parsedDetails.password || "",
+      connection_string: dbPath || "",
+      save_password: 1,
+      color: "#15db95"
+    };
+
+    await connectAppDB({ connectionDetails });
     dispatch(initAppData() as any);
   };
   useEffect(() => {
@@ -24,19 +40,17 @@ const ConnectionsPage = () => {
   }, []);
 
   return (
-    <div className="h-screen w-screen">
-      <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={20} minSize={20} maxSize={70}>
-          <ConnectionSidebar />
-        </ResizablePanel>
-        <ResizableHandle className="data-[resize-handle-state=hover]:bg-primary data-[resize-handle-state=drag]:bg-primary !w-0.5" />
-        <ResizablePanel defaultSize={80} minSize={30} maxSize={80}>
-          <div className="flex-1 h-full w-full bg-secondary">
-            <ConnectionForm />
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+    <ResizablePanelGroup direction="horizontal">
+      <ResizablePanel defaultSize={20} minSize={20} maxSize={70}>
+        <ConnectionSidebar />
+      </ResizablePanel>
+      <ResizableHandle className="!w-2 bg-background" />
+      <ResizablePanel defaultSize={80} minSize={30} maxSize={80} className="p-2 pl-0">
+        <div className="h-full w-full flex-1 bg-secondary rounded-lg">
+          <ConnectionForm />
+        </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 };
 

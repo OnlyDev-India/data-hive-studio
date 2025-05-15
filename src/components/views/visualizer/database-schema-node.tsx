@@ -24,7 +24,7 @@ export function DatabaseSchemaNode({
         <TableBody>
           {data.schema.map((entry) => (
             <TableRow key={entry.title} className="relative text-xs">
-              <TableCell className="pl-0 pr-6 font-light bg-background">
+              <TableCell className="bg-background pl-0 pr-6 font-light">
                 <LabeledHandle
                   id={entry.title}
                   title={entry.title}
@@ -32,7 +32,7 @@ export function DatabaseSchemaNode({
                   position={Position.Left}
                 />
               </TableCell>
-              <TableCell className="pr-0 text-right font-thin bg-background">
+              <TableCell className="bg-background pr-0 text-right font-thin">
                 <LabeledHandle
                   id={entry.title}
                   title={entry.type}

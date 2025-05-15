@@ -14,6 +14,7 @@ import {
 } from "@/redux/features/open-files";
 import { dropTable } from "@/lib/actions/fetch-data";
 import { fetchTables } from "@/redux/features/tables";
+import { AppDispatch } from "@/redux/store";
 
 const TablesMenu = ({
   children,
@@ -22,7 +23,7 @@ const TablesMenu = ({
   children: React.ReactNode;
   table_name: string;
 }) => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const handleViewData = () => {
     dispatch(addTableFile({ table_name }));
   };
@@ -35,29 +36,29 @@ const TablesMenu = ({
   };
 
   const handleDropTable = async () => {
-    const result = await dropTable(table_name);
-    dispatch(fetchTables() as any);
+    await dropTable(table_name);
+    dispatch(fetchTables());
   };
 
   return (
     <ContextMenu>
       <ContextMenuTrigger className="w-full">{children}</ContextMenuTrigger>
-      <ContextMenuContent className="px-2 py-1 min-w-[150px]">
-        <ContextMenuItem onSelect={handleViewData} className="text-xs">
+      <ContextMenuContent className="min-w-[150px] border bg-background/70 px-2 py-1 backdrop-blur-md">
+        <ContextMenuItem onSelect={handleViewData} className="cursor-pointer">
           View Data
         </ContextMenuItem>
-        <ContextMenuItem onSelect={handleOpenStructure} className="text-xs">
+        <ContextMenuItem
+          onSelect={handleOpenStructure}
+          className="cursor-pointer"
+        >
           View Structure
         </ContextMenuItem>
-        <ContextMenuItem disabled className="text-xs">
-          Export to file
-        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={handleCopyName} className="text-xs">
+        <ContextMenuItem onSelect={handleCopyName} className="cursor-pointer">
           Copy Name
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={handleDropTable} className="text-xs">
+        <ContextMenuItem onSelect={handleDropTable} className="cursor-pointer">
           Drop Table
         </ContextMenuItem>
       </ContextMenuContent>

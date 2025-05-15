@@ -2,14 +2,14 @@ import { useEffect, useRef } from "react";
 
 export function useDebouncedCallback<A extends any[]>(
   callback: (...args: A) => void,
-  wait: number
+  wait: number,
 ) {
   // track args & timeout handle between calls
   const argsRef = useRef<A>();
   const timeout = useRef<ReturnType<typeof setTimeout>>();
 
   function cleanup() {
-    if(timeout.current) {
+    if (timeout.current) {
       clearTimeout(timeout.current);
     }
   }
@@ -18,9 +18,7 @@ export function useDebouncedCallback<A extends any[]>(
   // our consuming component gets unmounted
   useEffect(() => cleanup, []);
 
-  return function debouncedCallback(
-    ...args: A
-  ) {
+  return function debouncedCallback(...args: A) {
     // capture latest args
     argsRef.current = args;
 
@@ -29,7 +27,7 @@ export function useDebouncedCallback<A extends any[]>(
 
     // start waiting again
     timeout.current = setTimeout(() => {
-      if(argsRef.current) {
+      if (argsRef.current) {
         callback(...argsRef.current);
       }
     }, wait);

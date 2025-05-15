@@ -14,7 +14,7 @@ const CheckBoxCell = ({
   disabled = false,
 }: CheckBoxCellProps) => {
   return (
-    <div className="w-full h-full flex items-center justify-center">
+    <div className="flex h-full w-full items-center justify-center">
       <Checkbox
         id="terms"
         checked={row[name]}

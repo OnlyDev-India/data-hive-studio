@@ -43,25 +43,19 @@ const SelectCell = ({
       <SelectTrigger
         disabled={disabled}
         className={cn(
-          "focus:outline-none focus:ring-0 border-0 p-0",
+          "border-0 p-0 focus:outline-none focus:ring-0",
           {
             "[&_span]:text-muted-foreground": value === "" || !value,
           },
-          className
+          className,
         )}
       >
         <SelectValue placeholder={"(null)"} />
       </SelectTrigger>
-      <SelectContent>
-        {/* <Input
-          className="bg-secondary sticky top-0"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          autoFocus
-        /> */}
+      <SelectContent className="bg-secondary/70 backdrop-blur-md">
         {items
           .filter((item) =>
-            item.label.toLowerCase().includes(search.toLowerCase())
+            item.label.toLowerCase().includes(search.toLowerCase()),
           )
           .map((item, index) => (
             <SelectItem key={index} value={item.value?.toString() || " "}>

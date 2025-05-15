@@ -1,4 +1,6 @@
+import { BSONType } from "mongodb";
 import sqlite3 from "sqlite3";
+import { TableForm } from "./table.type";
 
 export interface DBType extends sqlite3.Database {}
 
@@ -11,11 +13,40 @@ export interface ConnectionsType {
   username: string;
   password: string;
   connection_string: string;
+  database?: string;
   save_password: number;
   color: string;
+  ssl?: boolean | { rejectUnauthorized: boolean };
 }
 
-export const DbConnectionsTypes = ["pgSql", "sqlite"];
+export interface ConnectionDetailsType extends ConnectionsType {
+  id: string;
+}
+
+export interface DatabaseClient {
+  connectDb: (params: { connectionDetails: ConnectionDetailsType }) => Promise<{ success: boolean; error?: string }>;
+  disconnect: () => Promise<void>;
+  isConnectedToDb: () => boolean;
+  executeQuery: (query: string) => Promise<any>;
+  testConnection: (params: { connectionDetails: ConnectionDetailsType }) => Promise<{ success: boolean; error?: string }>;
+  getTablesWithFieldsFromDb: (currentSchema: string, isUpdateSchema?: boolean) => Promise<any>;
+  getDatabases: () => Promise<any>;
+  getSchemas: () => Promise<any>;
+  getTableColumns: (tableName: string) => Promise<any>;
+  getTablesData: (tableName: string, options?: any) => Promise<any>;
+  getTableRelations: (tableName: string) => Promise<any>;
+  dropTable: (tableName: string) => Promise<any>;
+  updateTable: (tableName: string, data: Array<{ oldValue: Record<string, any>; newValue: Record<string, any> }>) => Promise<any>;
+  deleteTableData: (tableName: string, data: any[]) => Promise<any>;
+  insertRecord: (data: { tableName: string; values: any[][] }) => Promise<any>;
+  createTable: (data: TableForm) => Promise<any>;
+}
+
+export const DbConnectionsTypes = [
+  { value: "pgSql", label: "Postgres" },
+  { value: "mongodb", label: "Mongo Db" },
+  { value: "sqlite", label: "sqlite", disabled: true },
+];
 
 export const DbConnectionColors = ["#15db95", "#ff5d59", "#fad83b", "#9858ff"];
 
@@ -81,3 +112,25 @@ export enum pgSqlTypes {
   REGNAMESPACE = 4089,
   REGROLE = 4096,
 }
+
+export const MongoDbTypes: string[] = [
+  "array",
+  "binary",
+  "boolean",
+  "code",
+  "date",
+  "decimal128",
+  "double",
+  "int32",
+  "int64",
+  "maxKey",
+  "minKey",
+  "null",
+  "object",
+  "objectId",
+  "BSONRegExp",
+  "string",
+  "BSONSymbol",
+  "Timestamp",
+  "undefined",
+];

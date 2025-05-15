@@ -43,7 +43,7 @@ const getLayoutedElements = (nodes: any, edges: any, options: any) => {
       ...node,
       width: node.measured?.width ?? 0,
       height: node.measured?.height ?? 0,
-    })
+    }),
   );
 
   Dagre.layout(g);
@@ -80,7 +80,7 @@ const SchemaVisualizer = () => {
       //   fitView();
       // });
     },
-    [nodes, edges]
+    [nodes, edges],
   );
 
   const createNodesAndEdges = (tables: any[]) => {
@@ -131,10 +131,10 @@ const SchemaVisualizer = () => {
     <div className="relative h-full w-full">
       {loading && (
         <>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-popover/40 backdrop-blur-md z-[1000] rounded-lg shadow-lg">
+          <div className="absolute left-1/2 top-1/2 z-[1000] h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 transform rounded-lg bg-popover/40 shadow-lg backdrop-blur-md">
             <Lottie animationData={BuildingBlocks} className="h-full" />
           </div>
-          <div className="absolute top-0 left-0 w-full h-full bg-transparent z-[999] rounded-md" />
+          <div className="absolute left-0 top-0 z-[999] h-full w-full rounded-md bg-transparent" />
         </>
       )}
       <ReactFlow
@@ -147,14 +147,14 @@ const SchemaVisualizer = () => {
         <Background variant={BackgroundVariant.Dots} />
         <Panel
           position="top-left"
-          className="flex gap-2 bg-popover px-4 py-1 rounded-md"
+          className="flex gap-2 rounded-md bg-popover px-4 py-1"
         >
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
               <Button
                 variant={"secondary"}
                 size={"icon"}
-                className="bg-popover h-7 w-7"
+                className="h-7 w-7 bg-popover"
                 onClick={() => onLayout("TB")}
               >
                 <LayoutPanelTopIcon />
@@ -167,7 +167,7 @@ const SchemaVisualizer = () => {
               <Button
                 variant={"secondary"}
                 size={"icon"}
-                className="bg-popover h-7 w-7"
+                className="h-7 w-7 bg-popover"
                 onClick={() => onLayout("LR")}
               >
                 <LayoutPanelLeftIcon />
@@ -176,7 +176,7 @@ const SchemaVisualizer = () => {
             <TooltipContent>Horizontal Layout</TooltipContent>
           </Tooltip>
         </Panel>
-        <Controls showInteractive={false}/>
+        <Controls showInteractive={false} />
       </ReactFlow>
     </div>
   );

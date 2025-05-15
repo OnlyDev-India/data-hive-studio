@@ -51,23 +51,25 @@ const Branch = ({
     >
       <div
         className={cn(
-          "flex items-center hover:bg-background rounded-md ml-2 pl-2",
+          "ml-2 flex items-center rounded-md pl-2 hover:bg-background",
           {
             "bg-background": open,
-          }
+          },
         )}
       >
-        <CollapsibleTrigger asChild>
-          <ChevronRight
-            className="transition-transform text-muted-foreground hover:text-foreground"
-            size={16}
-          />
-        </CollapsibleTrigger>
+        {subItem.fields.length > 0 && (
+          <CollapsibleTrigger asChild>
+            <ChevronRight
+              className="min-w-4 text-muted-foreground transition-transform hover:text-foreground"
+              size={16}
+            />
+          </CollapsibleTrigger>
+        )}
         <TablesMenu table_name={subItem.table_name}>
           <Button
             variant={"ghost"}
             className={cn(
-              "w-full justify-start bg-transparent hover:bg-transparent pl-2 text-xs"
+              "w-full justify-start bg-transparent pl-2 text-xs hover:bg-transparent",
             )}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -83,26 +85,28 @@ const Branch = ({
         </TablesMenu>
       </div>
       <CollapsibleContent className="ml-6 border-l-2 border-background pl-4">
-        <div className="space-y-0.5 cursor-default">
+        <div className="cursor-default space-y-0.5">
           {subItem.fields.map((field, index) => {
             const Icon = TypeIcons[field.type.toLowerCase() as TypeIconsType];
             return (
               <div
                 key={index}
-                className="flex justify-between pr-4 gap-2 text-xs"
+                className="flex justify-between gap-2 pr-4 text-xs"
               >
                 <p className="flex items-center gap-2 truncate">
-                  {Icon && <Icon size={14} className="text-yellow-400" />}
+                  {Icon && (
+                    <Icon size={14} className="min-w-[14px] text-yellow-400" />
+                  )}
                   <span className="truncate">{field.name}</span>
                 </p>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="max-w-[100px] truncate bg-background p-0.5 px-2 rounded-md ">
-                        {field.type}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{field.type}</TooltipContent>
-                  </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="max-w-[100px] truncate rounded-md bg-background p-0.5 px-2">
+                      {field.type}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{field.type}</TooltipContent>
+                </Tooltip>
               </div>
             );
           })}
