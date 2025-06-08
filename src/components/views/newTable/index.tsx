@@ -7,7 +7,7 @@ import {
   InitialFormDataTypes,
 } from "@/config/table-initial-form-data";
 import { TableForm } from "@/types/table.type";
-import { ChevronDownIcon, LoaderCircleIcon, PlusIcon } from "lucide-react";
+import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, CopyIcon, CheckIcon } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactDataGrid, { Column, RenderCellProps } from "react-data-grid";
 import { columns } from "./column";
@@ -25,6 +25,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const NewTableView = () => {
   const [formData, setFormData] = useState<TableForm | null>(null);
@@ -35,6 +41,7 @@ const NewTableView = () => {
     (state: any) => state.openFiles,
   );
   const { tables } = useSelector((state: any) => state.tables);
+  const [copied, setCopied] = useState(false);
 
   const dispatch = useDispatch();
 
@@ -143,7 +150,7 @@ const NewTableView = () => {
     setLoading(true);
     const { data, error } = await createQueryToCreateTable();
     if (data) {
-      setInitialData(true);
+      // setInitialData(true);
       toast.success("Table created successfully");
       dispatch(fetchTables() as any);
     } else if (error) {
@@ -206,6 +213,34 @@ const NewTableView = () => {
     return false;
   };
 
+  const handleCopyQuery = async () => {
+    const { data, error } = await createQueryToCreateTable();
+    if (error) return;
+    
+    if (!formData?.columns) {
+      toast.error("No columns defined");
+      return;
+    }
+    
+    const query = `CREATE TABLE "${formData.name}" (\n  ${formData.columns
+      .map((column) => {
+        let columnDef = `"${column.name}" ${column.type}`;
+        if (!column.isNull) columnDef += " NOT NULL";
+        if (column.defaultValue) columnDef += ` DEFAULT ${column.defaultValue}`;
+        if (column.keyType === "PRIMARY") columnDef += " PRIMARY KEY";
+        if (column.keyType === "FOREIGN KEY" && column.foreignTable && column.foreignTableColumn) {
+          columnDef += ` REFERENCES "${column.foreignTable}"("${column.foreignTableColumn}")`;
+        }
+        return columnDef;
+      })
+      .join(",\n  ")}\n);`;
+
+    await navigator.clipboard.writeText(query);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast.success("Query copied to clipboard");
+  };
+
   return (
     <div className="h-[calc(100%-var(--tabs-height))] bg-secondary px-4 py-6">
       {formData &&
@@ -232,12 +267,24 @@ const NewTableView = () => {
                   {loading && <LoaderCircleIcon className="animate-spin" />}
                   Create Table
                 </Button>
-                <Button
-                  disabled={loading}
-                  className="h-7 rounded-l-none px-1 text-white"
-                >
-                  <ChevronDownIcon />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      disabled={loading}
+                      className="h-7 rounded-l-none px-1 text-white"
+                    >
+                      <ChevronDownIcon />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[200px]">
+                    <DropdownMenuItem onClick={handleCopyQuery}>
+                      <div className="flex items-center gap-2">
+                        {copied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+                        <span>Copy Create Query</span>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             <div className="flex items-center justify-between">

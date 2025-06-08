@@ -34,22 +34,51 @@ const TableView = ({ dbType }: { dbType: string }) => {
   const dispatch = useDispatch();
 
   const processColumnData = (columns: any[]) => {
-    return columns.map((col) => ({
-      key: col.column_name,
-      name: col.column_name,
-      data_type: col.data_type,
-      key_type: col.key_type,
-      nullable: col.is_nullable === 'YES',
-      default: col.column_default,
-      maxLength: col.character_maximum_length,
-      precision: col.numeric_precision,
-      scale: col.numeric_scale,
-      foreignTable: col.foreign_table_name,
-      foreignColumn: col.foreign_column_name,
-      enum_values: col.enum_values,
-      is_enum: col.is_enum,
-      tooltip: `${col.column_name} (${col.data_type})${col.is_nullable === 'YES' ? ' - Nullable' : ''}${col.column_default ? ` - Default: ${col.column_default}` : ''}${col.foreign_table_name ? ` - References: ${col.foreign_table_name}.${col.foreign_column_name}` : ''}`,
-    }));
+    // Keep track of key occurrences
+    const keys: string[] = [];
+    const result: any[] = [];
+    columns.forEach((col) => {
+      if (!keys.includes(col.column_name)) {
+        keys.push(col.column_name);
+        result.push({
+          key: col.column_name,
+          name: col.column_name,
+          data_type: col.data_type,
+          key_type: col.key_type,
+          nullable: col.is_nullable === "YES",
+          default: col.column_default,
+          maxLength: col.character_maximum_length,
+          precision: col.numeric_precision,
+          scale: col.numeric_scale,
+          foreignTable: col.foreign_table_name,
+          foreignColumn: col.foreign_column_name,
+          enum_values: col.enum_values,
+          is_enum: col.is_enum,
+          tooltip: `${col.column_name} (${col.data_type})${col.is_nullable === "YES" ? " - Nullable" : ""}${col.column_default ? ` - Default: ${col.column_default}` : ""}${col.foreign_table_name ? ` - References: ${col.foreign_table_name}.${col.foreign_column_name}` : ""}`,
+        });
+      }
+    });
+    return result;
+    // return columns
+    //   .filter((col) => !keys.includes(col.column_name))
+    //   .map((col) => {
+    //     return {
+    //     //   key: col.column_name,
+    //     //   name: col.column_name,
+    //     //   data_type: col.data_type,
+    //     //   key_type: col.key_type,
+    //     //   nullable: col.is_nullable === "YES",
+    //     //   default: col.column_default,
+    //     //   maxLength: col.character_maximum_length,
+    //     //   precision: col.numeric_precision,
+    //     //   scale: col.numeric_scale,
+    //     //   foreignTable: col.foreign_table_name,
+    //     //   foreignColumn: col.foreign_column_name,
+    //     //   enum_values: col.enum_values,
+    //     //   is_enum: col.is_enum,
+    //     //   tooltip: `${col.column_name} (${col.data_type})${col.is_nullable === "YES" ? " - Nullable" : ""}${col.column_default ? ` - Default: ${col.column_default}` : ""}${col.foreign_table_name ? ` - References: ${col.foreign_table_name}.${col.foreign_column_name}` : ""}`,
+    //     // };
+    //   });
   };
 
   const processRowData = (rows: any[]) => {

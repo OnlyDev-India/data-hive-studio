@@ -12,6 +12,15 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import React, { useEffect } from "react";
 
+const getOperatingSystem = () => {
+  if (typeof window === 'undefined') return 'unknown';
+  const platform = navigator.platform.toLowerCase();
+  if (platform.includes("win")) return "win32";
+  if (platform.includes("mac")) return "darwin";
+  if (platform.includes("linux")) return "linux";
+  return "unknown";
+};
+
 const reloadWindow = () => {
   if (window.electron) {
     window.electron.reloadWindow();
@@ -37,10 +46,17 @@ const closeWindow = () => {
 const MenuNavbar = () => {
   const [title, setTitle] = React.useState<string>("Data Hive Studio");
   const [isDesktop, setIsDesktop] = React.useState<boolean>(false);
+  const [os, setOs] = React.useState<string>("unknown");
+
   useEffect(() => {
-    setTitle(document.title);
-    setIsDesktop(!!window.electron);
+    // Only run client-side code inside useEffect
+    if (typeof window !== 'undefined') {
+      setTitle(document.title);
+      setIsDesktop(!!window.electron);
+      setOs(getOperatingSystem());
+    }
   }, []);
+
   const onClicks: { [key: string]: () => void } = {
     reloadWindow: reloadWindow,
     toggleDevTools: toggleDevTools,
@@ -52,53 +68,57 @@ const MenuNavbar = () => {
   return (
     <div className="h-[var(--menu-navbar-height)] bg-secondary px-4">
       <div
-        className={cn(
-          "flex h-full items-center justify-between",
-          { "draggable-bar": !isDev },
-        )}
+        className={cn("flex h-full items-center justify-between", {
+          "draggable-bar": !isDev,
+        })}
       >
         <div className="no-draggable-bar z-10 flex h-full items-center gap-2">
-          <Image
-            src="/favicon.ico"
-            width={16}
-            height={16}
-            alt="logo"
-            className="draggable-bar"
-          />
-          <div className="flex h-full items-center">
-            {isDesktop && menus.map((menu) => (
-              <DropdownMenu key={menu.label}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                  >
-                    {menu.label}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {menu.submenu.map((submenu) => (
-                    <DropdownMenuItem
-                      key={submenu.label}
-                      onClick={onClicks[submenu.onClick]}
-                      className="text-xs"
-                    >
-                      {submenu.label}
-                      <DropdownMenuShortcut>
-                        {submenu.shortcut}
-                      </DropdownMenuShortcut>
-                    </DropdownMenuItem>
+          {os === "win32" && (
+            <>
+              <Image
+                src="/favicon.ico"
+                width={16}
+                height={16}
+                alt="logo"
+                className="draggable-bar"
+              />
+              <div className="flex h-full items-center">
+                {isDesktop &&
+                  menus.map((menu) => (
+                    <DropdownMenu key={menu.label}>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                        >
+                          {menu.label}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {menu.submenu.map((submenu) => (
+                          <DropdownMenuItem
+                            key={submenu.label}
+                            onClick={onClicks[submenu.onClick]}
+                            className="text-xs"
+                          >
+                            {submenu.label}
+                            <DropdownMenuShortcut>
+                              {submenu.shortcut}
+                            </DropdownMenuShortcut>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ))}
-          </div>
+              </div>
+            </>
+          )}
         </div>
-        <div className="no-draggable-bar flex h-full items-center">
+        <div className="no-draggable-bar flex h-full items-center gap-2">
           <p className="rounded-md border bg-border/40 px-24 py-1 text-xs">
             {title}
           </p>

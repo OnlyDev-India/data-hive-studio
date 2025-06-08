@@ -63,6 +63,7 @@ export class PostgresClient implements DatabaseClient {
       if (isUpdateSchema) {
         this.currentSchema = currentSchema;
       }
+
       // Query to retrieve table names, column names, and their data types from the 'public' schema
 
       const query = `
@@ -520,6 +521,28 @@ export class PostgresClient implements DatabaseClient {
     }
   }
 
+  private formatValue(value: any): string {
+    if (value === null) {
+      return 'NULL';
+    }
+    
+    // Handle function calls like gen_random_uuid()
+    if (typeof value === 'string' && value.includes('(') && value.includes(')')) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      // Escape single quotes in strings
+      return `'${value.replace(/'/g, "''")}'`;
+    }
+    
+    if (typeof value === 'boolean') {
+      return value ? 'TRUE' : 'FALSE';
+    }
+    
+    return value.toString();
+  }
+
   async insertRecord(data: {
     tableName: string;
     values: { [key: string]: any }[];
@@ -545,11 +568,22 @@ export class PostgresClient implements DatabaseClient {
       const processedValues = values.map(row => {
         const processedRow = { ...row };
         columns.forEach((col: any) => {
-          // If column has a default value and the field is empty/null/undefined
-          if (col.column_default && (processedRow[col.column_name] === null || 
-              processedRow[col.column_name] === undefined || 
-              processedRow[col.column_name] === '')) {
-            // Remove quotes from default value if it's a string
+          // Skip if the column has a function default value
+          if (col.column_default && 
+              col.column_default.includes('(') && 
+              col.column_default.includes(')') && 
+              (processedRow[col.column_name] === null || 
+               processedRow[col.column_name] === undefined || 
+               processedRow[col.column_name] === '' ||
+               processedRow[col.column_name] === col.column_default)) {
+            // Remove this field so it uses the default value
+            delete processedRow[col.column_name];
+          }
+          // Handle other default values
+          else if (col.column_default && 
+                   (processedRow[col.column_name] === null || 
+                    processedRow[col.column_name] === undefined || 
+                    processedRow[col.column_name] === '')) {
             const defaultValue = col.column_default.replace(/^'|'$/g, '');
             processedRow[col.column_name] = defaultValue;
           }
@@ -571,13 +605,11 @@ export class PostgresClient implements DatabaseClient {
         .map(row => {
           // Use the same ordered columns to ensure values match column order
           const values = orderedColumns.map(col => 
-            this.formatValue(row[col] ?? null)
+            row[col] === undefined ? 'DEFAULT' : this.formatValue(row[col] ?? null)
           );
           return `(${values.join(", ")})`;
         })
         .join(", ");
-
-      console.log(columnsList, valuesList);
 
       const query = `
         INSERT INTO ${this.currentSchema}."${tableName}" (${columnsList})
@@ -752,12 +784,60 @@ export class PostgresClient implements DatabaseClient {
         error: "Invalid inputs",
       };
     try {
-      if (
-        !formData.columns ||
-        (formData.columns && formData.columns.length === 0)
-      )
+      if (!formData.columns || (formData.columns && formData.columns.length === 0))
         return { data: null, error: "No columns" };
+      
       const currentSchema = this.currentSchema;
+
+      // Validate foreign key references before creating the table
+      for (const column of formData.columns) {
+        if (column.keyType === "FOREIGN KEY" && column.foreignTable && column.foreignTableColumn) {
+          // Check if the referenced table exists
+          const tableCheckQuery = `
+            SELECT column_name, data_type, udt_name
+            FROM information_schema.columns 
+            WHERE table_schema = $1 
+            AND table_name = $2 
+            AND column_name = $3
+          `;
+          
+          const result = await this.pool.query(tableCheckQuery, [
+            currentSchema,
+            column.foreignTable,
+            column.foreignTableColumn
+          ]);
+
+          if (result.rows.length === 0) {
+            return {
+              data: null,
+              error: `Foreign key reference error: Table "${column.foreignTable}" or column "${column.foreignTableColumn}" does not exist`
+            };
+          }
+
+          // Check if the data types are compatible
+          const referencedColumn = result.rows[0];
+          const referencedType = referencedColumn.data_type.toUpperCase();
+          const currentType = column.type.toUpperCase();
+
+          // Map of compatible types
+          const compatibleTypes: { [key: string]: string[] } = {
+            'UUID': ['UUID'],
+            'TEXT': ['TEXT', 'VARCHAR', 'CHAR', 'CHARACTER VARYING'],
+            'INTEGER': ['INTEGER', 'BIGINT', 'SMALLINT'],
+            'BIGINT': ['BIGINT', 'INTEGER'],
+            'CHARACTER VARYING': ['CHARACTER VARYING', 'TEXT', 'VARCHAR', 'CHAR'],
+            'VARCHAR': ['VARCHAR', 'TEXT', 'CHARACTER VARYING', 'CHAR']
+          };
+
+          if (!compatibleTypes[currentType]?.includes(referencedType)) {
+            return {
+              data: null,
+              error: `Foreign key reference error: Column type "${column.type}" is not compatible with referenced column type "${referencedType}" in table "${column.foreignTable}"`
+            };
+          }
+        }
+      }
+
       const query = `CREATE TABLE ${currentSchema}."${formData.name}" (
         ${formData.columns
           .map((column: any) => {
@@ -777,69 +857,37 @@ export class PostgresClient implements DatabaseClient {
               );
             }
 
-            const nullConstraint = isNull ? "NULL" : "";
-            const defaultConstraint = defaultValue
-              ? `DEFAULT ${defaultValue}`
-              : "";
+            const nullConstraint = isNull ? "NULL" : "NOT NULL";
+            let defaultConstraint = "";
+            
+            if (defaultValue) {
+              if (type.toUpperCase() === "UUID" && defaultValue.includes("gen_random_uuid")) {
+                defaultConstraint = "DEFAULT gen_random_uuid()";
+              } else {
+                defaultConstraint = `DEFAULT ${defaultValue}`;
+              }
+            }
+
             const keyConstraint =
               keyType === "PRIMARY"
                 ? "PRIMARY KEY"
                 : keyType === "FOREIGN" && foreignTableColumn && foreignTable
-                  ? `REFERENCES ${currentSchema}."${foreignTable}"(${foreignTableColumn})`
+                  ? `REFERENCES ${currentSchema}."${foreignTable}"("${foreignTableColumn}")`
                   : "";
 
-            return `${name} ${type} ${nullConstraint} ${defaultConstraint} ${keyConstraint}`.trim();
+            return `"${name}" ${type} ${nullConstraint} ${defaultConstraint} ${keyConstraint}`.trim();
           })
           .join(",\n    ")}
-            )`;
-      this.executeQuery(query);
+      )`;
+
+      console.log(query);
+      
+      await this.executeQuery(query);
       return { data: [], error: null };
     } catch (e) {
-      return { data: null, error: "Failed to create the table" };
+      console.error("Error creating table:", e);
+      return { data: null, error: e instanceof Error ? e.message : "Failed to create the table" };
     }
-  }
-
-  formatValue(value: any): string {
-    if (value === null) return "NULL";
-    if (typeof value === "string") {
-      // Handle CURRENT_TIMESTAMP
-      if (value.toUpperCase() === "CURRENT_TIMESTAMP") {
-        return "CURRENT_TIMESTAMP";
-      }
-      // Check if the string can be converted to a number
-      const numberValue = Number(value);
-      if (!isNaN(numberValue)) {
-        return `'${numberValue.toString()}'`; // Return as integer
-      }
-      // Check if the string can be parsed as a date
-      const parsedDate = Date.parse(value);
-      if (!isNaN(parsedDate)) {
-        const date = new Date(parsedDate);
-        const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1)
-          .toString()
-          .padStart(2, "0")}-${date
-          .getDate()
-          .toString()
-          .padStart(2, "0")} ${date
-          .getHours()
-          .toString()
-          .padStart(2, "0")}:${date
-          .getMinutes()
-          .toString()
-          .padStart(2, "0")}:${date
-          .getSeconds()
-          .toString()
-          .padStart(2, "0")}.${date
-          .getMilliseconds()
-          .toString()
-          .padStart(3, "0")}`;
-        return `'${formattedDate}'`; // Return formatted date
-      }
-      return `'${value.replace(/'/g, "''")}'`; // Escape single quotes
-    }
-    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-    // check for date
-    return value.toString();
   }
 
   generateWhereQuery(query: FilterType[]) {

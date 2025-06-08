@@ -192,7 +192,7 @@ const ConnectionForm = () => {
         }}
       >
         <CardHeader>
-          <CardTitle>{form.getValues().name || "New Connection"}</CardTitle>
+          <CardTitle>{form.watch("name") || "New Connection"}</CardTitle>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -203,7 +203,7 @@ const ConnectionForm = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">Connection Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={form.watch("connection_type")}>
                       <FormControl>
                         <SelectTrigger className="bg-secondary">
                           <SelectValue placeholder="Select connection type..." />

@@ -3,6 +3,7 @@ import { open } from "sqlite";
 
 const seedData = `CREATE TABLE IF NOT EXISTS connections(
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    name TEXT,
     connection_type TEXT,
     host TEXT,
     port INTEGER,

@@ -1,4 +1,4 @@
-appId: org.onlydev.datahivestudio
+appId: com.datahivestudio.app
 productName: Data Hive Studio
 
 directories:
@@ -19,15 +19,23 @@ extraResources:
     to: "public/"
 
 mac:
+  icon: public/icon.icns
   target:
     target: dmg
+  category: public.app-category.developer-tools
 
 win:
   icon: public/icon.ico
   target:
-    target: nsis
-    arch:
-      - x64
+    - target: nsis
+    - target: portable
+
+linux:
+  icon: build/icon.png
+  target:
+    - target: AppImage
+    - target: deb
+    - target: rpm
 
 nsis:
   oneClick: false

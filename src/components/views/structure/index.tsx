@@ -28,7 +28,6 @@ const StructureView = ({ dbType }: StructureViewProps) => {
     setLoading(true);
     const { columns, error } = await getTableColumns(currentFile.tableName);
     const { data } = await getTableRelations(currentFile.tableName);
-    
 
     let updatedData;
 

@@ -42,10 +42,10 @@ export const createConnection = async (connection: ConnectionsType) => {
   const appDBManager = AppDBManager.getInstance();
   const appDB = appDBManager.getConnection();
   if (!appDB) return false;
-  console.log(connection);
 
   return appDB.executeQuery(
-    `INSERT INTO connections (name, connection_type, connection_string, color) VALUES ('${connection.name}', '${connection.connection_type}', '${connection.connection_string}', '${connection.color}')`,
+    `INSERT INTO connections (name, connection_type, connection_string, color) VALUES (?, ?, ?, ?)`,
+    [connection.name, connection.connection_type, connection.connection_string, connection.color]
   );
 };
 

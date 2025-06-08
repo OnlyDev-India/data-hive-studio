@@ -72,7 +72,14 @@ const exportToExcel = (columns: any, data: any) => {
   return excelBuffer;
 };
 
-const DownloadMenu = [
+interface DownloadMenuType {
+  label: string;
+  format: string;
+  value: string;
+  disabled?: boolean;
+}
+
+const DownloadMenu: DownloadMenuType[] = [
   { label: "CSV", format: ".csv", value: "csv" },
   { label: "JSON", format: ".json", value: "json" },
   { label: "Excel", format: ".xlsx", value: "xlsx" },
@@ -305,12 +312,12 @@ const ExportModal = ({
                     <SelectTrigger className="w-[180px] border-border bg-secondary">
                       <SelectValue placeholder="Theme" />
                     </SelectTrigger>
-                    <SelectContent className="bg-secondary">
+                    <SelectContent>
                       {filteredMenu.map((item, index) => (
                         <SelectItem
                           key={index}
                           value={item.value}
-                          className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
+                          className="flex cursor-pointer justify-between text-xs"
                         >
                           {item.label}
                         </SelectItem>
@@ -347,13 +354,13 @@ const ExportModal = ({
                     <SelectTrigger className="w-[180px] border-border bg-secondary">
                       <SelectValue placeholder="Theme" />
                     </SelectTrigger>
-                    <SelectContent className="bg-secondary">
+                    <SelectContent>
                       {DownloadMenu.map((item, index) => (
                         <SelectItem
                           key={index}
                           value={item.value}
-                          className="flex cursor-pointer justify-between text-xs hover:bg-primary/60"
-                          // disabled={item.disabled}
+                          className="flex cursor-pointer justify-between text-xs"
+                          disabled={item.disabled || false}
                         >
                           {item.label}{" "}
                           <span className="text-xs text-muted-foreground">

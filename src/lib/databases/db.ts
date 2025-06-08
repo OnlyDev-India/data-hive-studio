@@ -34,7 +34,8 @@ export class AppDBManager {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -54,7 +55,7 @@ export class AppDBManager {
 export class ConnectionManager {
   private static instance: ConnectionManager;
   private connections: Map<string, DatabaseClient>;
-  private currentConnection: string | null;
+  private currentConnection: DatabaseClient | null;
   private connectionTimeouts: Map<string, NodeJS.Timeout>;
 
   private constructor() {
@@ -96,7 +97,7 @@ export class ConnectionManager {
       }
 
       const connectionId = connectionDetails.id;
-      
+
       // Cleanup existing connection if any
       if (this.connections.has(connectionId)) {
         await this.cleanupConnection(connectionId);
@@ -107,13 +108,16 @@ export class ConnectionManager {
 
       if (result?.success) {
         this.connections.set(connectionId, connection);
-        this.currentConnection = connectionId;
+        this.currentConnection = connection;
 
         // Set connection timeout (e.g., 30 minutes)
-        const timeout = setTimeout(() => {
-          this.cleanupConnection(connectionId);
-        }, 30 * 60 * 1000);
-        
+        const timeout = setTimeout(
+          () => {
+            this.cleanupConnection(connectionId);
+          },
+          30 * 60 * 1000,
+        );
+
         this.connectionTimeouts.set(connectionId, timeout);
       }
 
@@ -121,7 +125,8 @@ export class ConnectionManager {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -131,14 +136,12 @@ export class ConnectionManager {
   }
 
   public getCurrentConnection(): DatabaseClient | null {
-    return this.currentConnection ? this.connections.get(this.currentConnection) || null : null;
+    return this.currentConnection;
   }
 
   public async disconnect(connectionId: string) {
     await this.cleanupConnection(connectionId);
-    if (this.currentConnection === connectionId) {
-      this.currentConnection = null;
-    }
+    this.currentConnection = null;
   }
 }
 

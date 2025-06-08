@@ -1,7 +1,7 @@
 "use client";
+import dynamic from 'next/dynamic';
 import React, { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
-import CodeEditor from "../views/editor";
 import TableView from "../views/table";
 import { useDispatch, useSelector } from "react-redux";
 import { Button } from "../ui/button";
@@ -48,6 +48,9 @@ import { pgSqlLanguageServer } from "../views/editor/pgsql";
 import { AppDispatch } from "@/redux/store";
 import { mongodbLanguageServer } from "../views/editor/mongodb";
 
+// Dynamically import the CodeEditor component
+const CodeEditor = dynamic(() => import('../views/editor'), { ssr: false });
+
 const tabIcons = {
   table: TableIcon,
   file: CodeIcon,
@@ -91,7 +94,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
   ) => {
     e.stopPropagation();
     // check if file is open
-    if (openFiles[index]) {
+    if (openFiles[index] && monaco?.editor) {
       const currentModal = monaco.editor.getModel(
         `file:///${openFiles[index].id}`,
       );
@@ -107,6 +110,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
   const handleRunQuery = async (edit?: any) => {
     // TODO: add logic to handle multiple query output
     try {
+      if (!monaco?.editor) return;
       const editor1 = monaco.editor;
 
       const currentModal = editor1.getModel(`file:///${currentFile?.id}`);
@@ -136,6 +140,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
   };
 
   const initializeLanguageServer = async () => {
+    if (!monaco?.editor) return;
     if (dbType === "pgSql") {
       let schemas: any = [];
       const schemasWithTables: { [key: string]: any } = {};
@@ -149,8 +154,6 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
           schemasWithTables[schema.schema_name] = tables;
         });
       }
-
-      // console.log("schemasWithTables", schemasWithTables);
 
       pgSqlLanguageServer(monaco, { schemasWithTables });
     }
@@ -186,6 +189,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
     setDragOverIndex(-1);
     setDragIndex(-1);
   };
+
   return (
     <Tabs
       defaultValue="0"

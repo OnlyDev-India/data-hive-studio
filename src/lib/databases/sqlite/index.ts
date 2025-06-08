@@ -32,7 +32,7 @@ export class SqliteClient implements DatabaseClient {
     return this.db !== null;
   }
 
-  async executeQuery(query: string) {
+  async executeQuery(query: string, params?: any[]) {
     if (!this.db) {
       return {
         data: null,
@@ -49,12 +49,12 @@ export class SqliteClient implements DatabaseClient {
 
       for (const query of queries) {
         if (query.toLowerCase().startsWith("select")) {
-          // Use `all` for SELECT queries
-          const result = await this.db.all(query);
+          // Use `all` for SELECT queries with params if provided
+          const result = params ? await this.db.all(query, params) : await this.db.all(query);
           results.push(result);
         } else {
-          // Use `run` for other queries
-          const result = await this.db.run(query);
+          // Use `run` for other queries with params if provided
+          const result = params ? await this.db.run(query, params) : await this.db.run(query);
           results.push({ affectedRows: result.changes });
         }
       }

@@ -24,6 +24,8 @@ let stopIntercept: any;
 let createInterceptor: any;
 
 const appDataPath = app.getPath("appData");
+
+// TODO: add a check to see if the appDataPath is a valid path
 const dbPath = path.join(appDataPath, "data-hive-studio/app.db");
 
 // create app.db file if it doesn't exists
@@ -71,7 +73,7 @@ const createWindow = async () => {
   const splashScreen = new BrowserWindow({
     width: 800,
     height: 600,
-    icon: path.join(appPath, "public/icon.png"),
+    icon: process.platform === "darwin" ? path.join(appPath, "public/icon.icns") : path.join(appPath, "public/icon.png"),
     title: "Data Hive Studio",
     frame: false,
     webPreferences: {
@@ -87,7 +89,7 @@ const createWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 800,
-    icon: path.join(appPath, "public/icon.png"),
+    icon: process.platform === "darwin" ? path.join(appPath, "public/icon.icns") : path.join(appPath, "public/icon.png"),
     title: "Data Hive Studio",
     show: false,
     frame: false,
@@ -148,6 +150,7 @@ const createWindow = async () => {
 };
 
 const changeTheme = () => {
+  if(process.platform === "darwin")return;
   if (!mainWindow) return;
   if (nativeTheme.themeSource?.includes("dark")) {
     mainWindow.setTitleBarOverlay(themes.dark);

@@ -1,5 +1,4 @@
 "use client";
-import { Editor, Monaco } from "@monaco-editor/react";
 import { useEffect, useState } from "react";
 import GithubDark from "./github-dark.json";
 import GithubLight from "./github-light.json";
@@ -12,8 +11,7 @@ import Table from "../../table";
 import { useDispatch, useSelector } from "react-redux";
 // import { setEditor } from "@/redux/features/editor";
 import { Button } from "../../ui/button";
-import { TooltipContent, TooltipTrigger } from "../../ui/tooltip";
-import { Tooltip } from "@radix-ui/react-tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { ListXIcon, TriangleAlertIcon } from "lucide-react";
 import { setQueryOutput } from "@/redux/features/query";
 import { useDebouncedCallback } from "@/hooks/debounce";
@@ -24,6 +22,7 @@ import { FileFileType } from "@/types/file.type";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
 import ShortcutGrid from "@/components/common/shortcut-grids";
+import { Editor } from "@monaco-editor/react";
 
 interface CodeEditorProps {
   handleRunQuery: (editor: any) => Promise<void>;
@@ -84,7 +83,8 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
     debounce(value || "");
   };
 
-  const handleEditor = async (editor: any, monaco: Monaco) => {
+  const handleEditor = async (editor: any, monaco: any) => { 
+    // TODO: handle the system theme 
     monaco.editor.defineTheme("github-dark", GithubDark);
     monaco.editor.defineTheme("github-light", GithubLight);
     monaco.editor.setTheme(
