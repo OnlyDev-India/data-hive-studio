@@ -46,7 +46,7 @@ export interface ColumnProps extends Column<any> {
 }
 
 interface TableProps {
-  columns: ColumnProps[] ;
+  columns: ColumnProps[];
   data: Row[];
   refetchData?: () => void;
   isFetching?: RefetchType;
@@ -552,17 +552,18 @@ const Table = ({
           <div
             style={{
               height: `calc(100% - ${filterDivHeight + "px"})`,
+              userSelect: "text",
             }}
           >
             {/* {isFloatingActionsVisible && ( */}
-              <FloatingActions
-                selectedRows={selectedRows}
-                changedRows={changedRows}
-                tableName={currentFile?.tableName || ""}
-                updatedRows={gridRows}
-                handleUpdateTableChanges={handleUpdateChanges}
-                isFloatingActionsVisible={isFloatingActionsVisible}
-              />
+            <FloatingActions
+              selectedRows={selectedRows}
+              changedRows={changedRows}
+              tableName={currentFile?.tableName || ""}
+              updatedRows={gridRows}
+              handleUpdateTableChanges={handleUpdateChanges}
+              isFloatingActionsVisible={isFloatingActionsVisible}
+            />
             {/* )} */}
             {isNosql ? (
               <NoSqlTable

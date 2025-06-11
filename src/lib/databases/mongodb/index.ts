@@ -9,7 +9,11 @@ export class MongoDbClient implements DatabaseClient {
   private client: MongoClient | null = null;
   private db: any = null;
 
-  async connectDb({ connectionDetails }: { connectionDetails: ConnectionDetailsType }) {
+  async connectDb({
+    connectionDetails,
+  }: {
+    connectionDetails: ConnectionDetailsType;
+  }) {
     try {
       const uri = connectionDetails.connection_string;
       this.client = new MongoClient(uri);
@@ -19,7 +23,10 @@ export class MongoDbClient implements DatabaseClient {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to connect to MongoDB",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to connect to MongoDB",
       };
     }
   }
@@ -113,7 +120,9 @@ export class MongoDbClient implements DatabaseClient {
   async getTablesWithFieldsFromDb() {
     if (!this.db) return { tables: [], error: "No connection to the database" };
     try {
-      const result: CollectionInfo[] = await this.db.listCollections().toArray();
+      const result: CollectionInfo[] = await this.db
+        .listCollections()
+        .toArray();
       const collections = result.map((collection) => ({
         table_name: collection.name,
         fields: [],
@@ -156,7 +165,8 @@ export class MongoDbClient implements DatabaseClient {
   }
 
   async getTableColumns(table_name: string) {
-    if (!this.db) return { columns: null, error: "No connection to the database" };
+    if (!this.db)
+      return { columns: null, error: "No connection to the database" };
 
     try {
       // Use aggregation to get unique fields and their types
@@ -185,7 +195,7 @@ export class MongoDbClient implements DatabaseClient {
       if (!result.length)
         return { columns: null, error: "Table not found or empty" };
 
-      const columns = result.map((field:any) => ({
+      const columns = result.map((field: any) => ({
         column_name: field._id,
         data_type: field.data_types?.[0], // Array of possible types due to MongoDB's flexible schema
       }));
@@ -215,9 +225,42 @@ export class MongoDbClient implements DatabaseClient {
       const { filters, orderBy, pagination } = options || {};
       const { page, limit } = pagination || { page: 1, limit: 10 };
       const skip = (page - 1) * limit;
+
+      let filterQuery = {};
+      if (filters && filters.length > 0) {
+        filterQuery = {
+          $and: filters.map((filter) => {
+            const value = filter.value;
+            if (filter.column === "_id") {
+              return { _id: ObjectId.createFromHexString(value) };
+            }
+            switch (filter.compare) {
+              case "contains":
+                return { [filter.column]: { $regex: value, $options: "i" } };
+              case "equals":
+                return { [filter.column]: value };
+              case "startsWith":
+                return { [filter.column]: { $regex: `^${value}`, $options: "i" } };
+              case "endsWith":
+                return { [filter.column]: { $regex: `${value}$`, $options: "i" } };
+              case "greaterThan":
+                return { [filter.column]: { $gt: value } };
+              case "lessThan":
+                return { [filter.column]: { $lt: value } };
+              case "greaterThanOrEqual":
+                return { [filter.column]: { $gte: value } };
+              case "lessThanOrEqual":
+                return { [filter.column]: { $lte: value } };
+              default:
+                return {};
+            }
+          }),
+        };
+      }
+      
       const result = await this.db
         .collection(tableName)
-        .find({})
+        .find(filterQuery)
         .skip(skip)
         .limit(limit)
         .sort(
@@ -270,14 +313,28 @@ export class MongoDbClient implements DatabaseClient {
 
     try {
       let totalUpdated = 0;
+      console.log(data);
       for (const { oldValue, newValue } of data) {
+        // Convert _id to ObjectId in both oldValue and newValue if present
+        const processedOldValue = { ...oldValue };
+        const processedNewValue = { ...newValue };
+
+        if (processedOldValue._id && typeof processedOldValue._id === 'string') {
+          processedOldValue._id = ObjectId.createFromHexString(processedOldValue._id);
+        }
+
+        if (processedNewValue._id && typeof processedNewValue._id === 'string') {
+          processedNewValue._id = ObjectId.createFromHexString(processedNewValue._id);
+        }
+
         const result = await this.db
           .collection(tableName)
-          .updateMany(oldValue, { $set: newValue });
+          .updateMany(processedOldValue, { $set: processedNewValue });
         totalUpdated += result.modifiedCount;
       }
 
-      const { data: updatedData, error: fetchError } = await this.getTablesData(tableName);
+      const { data: updatedData, error: fetchError } =
+        await this.getTablesData(tableName);
 
       return {
         data: updatedData,
@@ -390,8 +447,8 @@ export class MongoDbClient implements DatabaseClient {
       // If there are any indexes defined in the columns, create them
       if (data.columns && data.columns.length > 0) {
         const indexes = data.columns
-          .filter(col => col.keyType === "PRIMARY")
-          .map(col => ({ key: { [col.name]: 1 }, unique: true }));
+          .filter((col) => col.keyType === "PRIMARY")
+          .map((col) => ({ key: { [col.name]: 1 }, unique: true }));
 
         if (indexes.length > 0) {
           await this.db.collection(data.name).createIndexes(indexes);

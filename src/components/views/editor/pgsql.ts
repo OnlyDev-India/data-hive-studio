@@ -1,5 +1,5 @@
 export const pgSqlLanguageServer = (monaco: any, databaseMetadata: any) => {
-  monaco.languages.register({ id: "pgSql" });
+  monaco.languages.register({ id: "pgsql" });
 
   const keywords = [
     "SELECT",

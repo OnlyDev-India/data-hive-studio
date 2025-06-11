@@ -16,12 +16,17 @@ export class PostgresClient implements DatabaseClient {
     this.currentSchema = "public";
   }
 
-  async connectDb({ connectionDetails }: { connectionDetails: ConnectionDetailsType }) {
+  async connectDb({
+    connectionDetails,
+  }: {
+    connectionDetails: ConnectionDetailsType;
+  }) {
     try {
       this.pool = new Pool({
         user: connectionDetails.username,
         host: connectionDetails.host,
-        database: connectionDetails.database || connectionDetails.connection_string,
+        database:
+          connectionDetails.database || connectionDetails.connection_string,
         password: connectionDetails.password,
         port: connectionDetails.port,
         ssl: connectionDetails.ssl || false,
@@ -30,14 +35,17 @@ export class PostgresClient implements DatabaseClient {
       // Test the connection
       const client = await this.pool.connect();
       client.release();
-      
+
       this.connectionDetails = connectionDetails;
-      
+
       return { success: true };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to connect to PostgreSQL",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to connect to PostgreSQL",
       };
     }
   }
@@ -65,20 +73,30 @@ export class PostgresClient implements DatabaseClient {
       }
 
       // Query to retrieve table names, column names, and their data types from the 'public' schema
-
+      // Modified to avoid duplicates by aggregating constraints
       const query = `
-                  SELECT c.table_name, c.column_name, c.data_type, tc.constraint_type AS key_type,
-                        kcu2.table_name AS foreign_table_name, kcu2.column_name AS foreign_column_name
+                  SELECT 
+                    c.table_name, 
+                    c.column_name, 
+                    c.data_type, 
+                    STRING_AGG(DISTINCT tc.constraint_type, ', ') AS key_type,
+                    STRING_AGG(DISTINCT kcu2.table_name, ', ') AS foreign_table_name, 
+                    STRING_AGG(DISTINCT kcu2.column_name, ', ') AS foreign_column_name
                   FROM information_schema.columns AS c
                   LEFT JOIN information_schema.key_column_usage AS kcu
                     ON c.table_name = kcu.table_name AND c.column_name = kcu.column_name
+                    AND c.table_schema = kcu.table_schema
                   LEFT JOIN information_schema.table_constraints AS tc
                     ON kcu.constraint_name = tc.constraint_name
+                    AND tc.table_schema = c.table_schema
                   LEFT JOIN information_schema.referential_constraints AS rc
                     ON rc.constraint_name = kcu.constraint_name 
+                    AND rc.constraint_schema = c.table_schema
                   LEFT JOIN information_schema.key_column_usage AS kcu2
                     ON rc.unique_constraint_name = kcu2.constraint_name
+                    AND rc.unique_constraint_schema = kcu2.table_schema
                   WHERE c.table_schema = '${currentSchema}'
+                  GROUP BY c.table_name, c.column_name, c.data_type, c.ordinal_position
                   ORDER BY c.table_name, c.ordinal_position;
               `;
 
@@ -173,7 +191,12 @@ export class PostgresClient implements DatabaseClient {
       orderBy?: SortColumn[];
       pagination?: PaginationType;
     },
-  ): Promise<{ data: any; error: string | null; totalRecords: number; columns: any[] }> {
+  ): Promise<{
+    data: any;
+    error: string | null;
+    totalRecords: number;
+    columns: any[];
+  }> {
     if (!this.pool) {
       return {
         data: null,
@@ -217,13 +240,13 @@ export class PostgresClient implements DatabaseClient {
         name: col.column_name,
         type: col.data_type,
         default: col.column_default,
-        nullable: col.is_nullable === 'YES',
+        nullable: col.is_nullable === "YES",
         maxLength: col.character_maximum_length,
         precision: col.numeric_precision,
         scale: col.numeric_scale,
         constraint: col.constraint_type,
         foreignTable: col.foreign_table_name,
-        foreignColumn: col.foreign_column_name
+        foreignColumn: col.foreign_column_name,
       }));
 
       // Then get the data with filters, ordering, and pagination
@@ -253,22 +276,22 @@ export class PostgresClient implements DatabaseClient {
 
       const [totalRecords, data] = await Promise.all([
         this.pool.query(totalRecordsQuery),
-        this.pool.query(query)
+        this.pool.query(query),
       ]);
 
       return {
         data: data.rows,
         error: null,
         totalRecords: totalRecords?.rows?.[0]?.count || 0,
-        columns
+        columns,
       };
     } catch (error: any) {
       console.error("Error:", error);
-      return { 
-        data: null, 
-        error: error.message, 
+      return {
+        data: null,
+        error: error.message,
         totalRecords: 0,
-        columns: []
+        columns: [],
       };
     }
   }
@@ -280,6 +303,7 @@ export class PostgresClient implements DatabaseClient {
 
     try {
       // Query to retrieve column names from the 'public' schema
+      // Modified to aggregate constraints and avoid duplicates
       const query = `
         SELECT 
           c.column_name,
@@ -295,9 +319,9 @@ export class PostgresClient implements DatabaseClient {
           c.character_maximum_length,
           c.numeric_precision,
           c.numeric_scale,
-          tc.constraint_type AS key_type,
-          kcu2.table_name AS foreign_table_name,
-          kcu2.column_name AS foreign_column_name,
+          STRING_AGG(DISTINCT tc.constraint_type, ', ') AS key_type,
+          STRING_AGG(DISTINCT kcu2.table_name, ', ') AS foreign_table_name,
+          STRING_AGG(DISTINCT kcu2.column_name, ', ') AS foreign_column_name,
           CASE 
             WHEN c.data_type = 'USER-DEFINED' THEN 
               (SELECT string_agg(enumlabel, ',')
@@ -322,6 +346,9 @@ export class PostgresClient implements DatabaseClient {
           AND rc.unique_constraint_schema = kcu2.table_schema
         WHERE c.table_name = $1
         AND c.table_schema = '${this.currentSchema}'
+        GROUP BY c.column_name, c.data_type, c.column_default, c.is_nullable, 
+                 c.character_maximum_length, c.numeric_precision, c.numeric_scale, 
+                 c.ordinal_position, c.udt_name
         ORDER BY c.ordinal_position;
       `;
 
@@ -340,7 +367,7 @@ export class PostgresClient implements DatabaseClient {
           numeric_scale: row.numeric_scale,
           foreign_table_name: row.foreign_table_name || null,
           foreign_column_name: row.foreign_column_name || null,
-          enum_values: row.enum_values ? row.enum_values.split(',') : null,
+          enum_values: row.enum_values ? row.enum_values.split(",") : null,
           is_enum: row.enum_values !== null,
         })),
       };
@@ -480,6 +507,7 @@ export class PostgresClient implements DatabaseClient {
               ?.toLowerCase() || "USER-DEFINED",
         };
       });
+
       return {
         data: { rows: result.rows, columns: columns || [] },
         message: null,
@@ -504,7 +532,9 @@ export class PostgresClient implements DatabaseClient {
       const client = new Client({
         user: params.connectionDetails.username,
         host: params.connectionDetails.host,
-        database: params.connectionDetails.database || params.connectionDetails.connection_string,
+        database:
+          params.connectionDetails.database ||
+          params.connectionDetails.connection_string,
         password: params.connectionDetails.password,
         port: params.connectionDetails.port,
         ssl: params.connectionDetails.ssl || false,
@@ -514,32 +544,39 @@ export class PostgresClient implements DatabaseClient {
       return { success: true };
     } catch (error) {
       console.error("Error:", error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : "Failed to connect to PostgreSQL" 
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to connect to PostgreSQL",
       };
     }
   }
 
   private formatValue(value: any): string {
     if (value === null) {
-      return 'NULL';
+      return "NULL";
     }
-    
+
     // Handle function calls like gen_random_uuid()
-    if (typeof value === 'string' && value.includes('(') && value.includes(')')) {
+    if (
+      typeof value === "string" &&
+      value.includes("(") &&
+      value.includes(")")
+    ) {
       return value;
     }
 
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       // Escape single quotes in strings
       return `'${value.replace(/'/g, "''")}'`;
     }
-    
-    if (typeof value === 'boolean') {
-      return value ? 'TRUE' : 'FALSE';
+
+    if (typeof value === "boolean") {
+      return value ? "TRUE" : "FALSE";
     }
-    
+
     return value.toString();
   }
 
@@ -565,26 +602,30 @@ export class PostgresClient implements DatabaseClient {
       const { tableName, values } = data;
 
       // Process values with default values
-      const processedValues = values.map(row => {
+      const processedValues = values.map((row) => {
         const processedRow = { ...row };
         columns.forEach((col: any) => {
           // Skip if the column has a function default value
-          if (col.column_default && 
-              col.column_default.includes('(') && 
-              col.column_default.includes(')') && 
-              (processedRow[col.column_name] === null || 
-               processedRow[col.column_name] === undefined || 
-               processedRow[col.column_name] === '' ||
-               processedRow[col.column_name] === col.column_default)) {
+          if (
+            col.column_default &&
+            col.column_default.includes("(") &&
+            col.column_default.includes(")") &&
+            (processedRow[col.column_name] === null ||
+              processedRow[col.column_name] === undefined ||
+              processedRow[col.column_name] === "" ||
+              processedRow[col.column_name] === col.column_default)
+          ) {
             // Remove this field so it uses the default value
             delete processedRow[col.column_name];
           }
           // Handle other default values
-          else if (col.column_default && 
-                   (processedRow[col.column_name] === null || 
-                    processedRow[col.column_name] === undefined || 
-                    processedRow[col.column_name] === '')) {
-            const defaultValue = col.column_default.replace(/^'|'$/g, '');
+          else if (
+            col.column_default &&
+            (processedRow[col.column_name] === null ||
+              processedRow[col.column_name] === undefined ||
+              processedRow[col.column_name] === "")
+          ) {
+            const defaultValue = col.column_default.replace(/^'|'$/g, "");
             processedRow[col.column_name] = defaultValue;
           }
         });
@@ -593,19 +634,21 @@ export class PostgresClient implements DatabaseClient {
 
       // Get all unique columns from all rows and sort them
       const allColumns = new Set<string>();
-      processedValues.forEach(row => {
-        Object.keys(row).forEach(key => allColumns.add(key));
+      processedValues.forEach((row) => {
+        Object.keys(row).forEach((key) => allColumns.add(key));
       });
 
       // Convert Set to array and sort to maintain consistent order
       const orderedColumns = Array.from(allColumns).sort();
-      const columnsList = orderedColumns.map(col => `"${col}"`).join(", ");
+      const columnsList = orderedColumns.map((col) => `"${col}"`).join(", ");
 
       const valuesList = processedValues
-        .map(row => {
+        .map((row) => {
           // Use the same ordered columns to ensure values match column order
-          const values = orderedColumns.map(col => 
-            row[col] === undefined ? 'DEFAULT' : this.formatValue(row[col] ?? null)
+          const values = orderedColumns.map((col) =>
+            row[col] === undefined
+              ? "DEFAULT"
+              : this.formatValue(row[col] ?? null),
           );
           return `(${values.join(", ")})`;
         })
@@ -618,7 +661,7 @@ export class PostgresClient implements DatabaseClient {
       `;
 
       const result = await this.executeQuery(query);
-      
+
       if (result.error) {
         throw new Error(result.error);
       }
@@ -626,13 +669,14 @@ export class PostgresClient implements DatabaseClient {
       return {
         data: result.data?.rows || null,
         effectedRows: result.effectedRows,
-        error: null
+        error: null,
       };
     } catch (error) {
       return {
         data: null,
         effectedRows: 0,
-        error: error instanceof Error ? error.message : "Unknown error occurred"
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -655,30 +699,34 @@ export class PostgresClient implements DatabaseClient {
       }
 
       const originalQuery = query.toString();
-      const { effectedRows, error: updateError } = await this.executeQuery(originalQuery);
-      
+      const { effectedRows, error: updateError } =
+        await this.executeQuery(originalQuery);
+
+      console.log(effectedRows, updateError, originalQuery);
       if (updateError) {
         throw new Error(updateError);
       }
 
       const { data, error: fetchError } = await this.getTablesData(tableName);
-      
+
       if (fetchError) {
         throw new Error(fetchError);
       }
 
-      return { 
-        data, 
-        effectedRows, 
-        updateError: null, 
-        fetchError: null 
+      return {
+        data,
+        effectedRows,
+        updateError: null,
+        fetchError: null,
       };
     } catch (error) {
       return {
         data: null,
         effectedRows: null,
-        updateError: error instanceof Error ? error.message : "Unknown error occurred",
-        fetchError: error instanceof Error ? error.message : "Unknown error occurred"
+        updateError:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        fetchError:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -695,6 +743,15 @@ export class PostgresClient implements DatabaseClient {
       return null;
     }
 
+    // Get column information to determine data types
+    const { columns } = await this.getTableColumns(tableName);
+    const columnTypes = new Map();
+    if (columns) {
+      columns.forEach((col: any) => {
+        columnTypes.set(col.column_name, col.data_type);
+      });
+    }
+
     const queries = data.map(({ oldValue, newValue }) => {
       if (!oldValue || !newValue) {
         console.error("Each entry must have both oldValue and newValue");
@@ -703,12 +760,21 @@ export class PostgresClient implements DatabaseClient {
 
       // Generate SET clause
       const setClauses = Object.keys(newValue)
-        .map((key) => `"${key}" = ${this.formatValue(newValue[key])}`)
+        .map((key) => {
+          return `"${key}" = ${this.formatValue(newValue[key])}`;
+        })
         .join(", ");
 
       // Generate WHERE clause
       const whereClauses = Object.keys(oldValue)
-        .map((key) => `"${key}" = ${this.formatValue(oldValue[key])}`)
+        .map((key) => {
+          const columnType = columnTypes.get(key);
+          const value = this.formatValue(oldValue[key]);
+          const keyFormat = columnType && (columnType.includes('timestamp') || columnType.includes('date')) 
+            ? `Date("${key}")` 
+            : `"${key}"`;
+          return `${keyFormat} = ${value}`;
+        })
         .join(" AND ");
 
       return `UPDATE ${this.currentSchema}."${tableName}" SET ${setClauses} WHERE ${whereClauses};`;
@@ -731,31 +797,35 @@ export class PostgresClient implements DatabaseClient {
       if (!query) {
         throw new Error("Failed to generate delete query");
       }
-      
-      const { effectedRows, error: deleteError } = await this.executeQuery(query);
-      
+
+      const { effectedRows, error: deleteError } =
+        await this.executeQuery(query);
+
       if (deleteError) {
         throw new Error(deleteError);
       }
 
-      const { data: tableData, error: fetchError } = await this.getTablesData(tableName);
-      
+      const { data: tableData, error: fetchError } =
+        await this.getTablesData(tableName);
+
       if (fetchError) {
         throw new Error(fetchError);
       }
 
-      return { 
-        data: tableData, 
-        effectedRows, 
-        deleteError: null, 
-        fetchError: null 
+      return {
+        data: tableData,
+        effectedRows,
+        deleteError: null,
+        fetchError: null,
       };
     } catch (error) {
       return {
         data: null,
         effectedRows: 0,
-        deleteError: error instanceof Error ? error.message : "Unknown error occurred",
-        fetchError: error instanceof Error ? error.message : "Unknown error occurred"
+        deleteError:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        fetchError:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -765,10 +835,26 @@ export class PostgresClient implements DatabaseClient {
       return null;
     }
 
+    // Get column information to determine data types
+    const { columns } = await this.getTableColumns(tableName);
+    const columnTypes = new Map();
+    if (columns) {
+      columns.forEach((col: any) => {
+        columnTypes.set(col.column_name, col.data_type);
+      });
+    }
+
     const queries = data.map((entry) => {
       // Generate WHERE clause
       const whereClauses = Object.keys(entry)
-        .map((key) => `"${key}" = ${this.formatValue(entry[key])}`)
+        .map((key) => {
+          const columnType = columnTypes.get(key);
+          const value = this.formatValue(entry[key]);
+          const keyFormat = columnType && (columnType.includes('timestamp') || columnType.includes('date')) 
+            ? `Date("${key}")` 
+            : `"${key}"`;
+          return `${keyFormat} = ${value}`;
+        })
         .join(" AND ");
 
       return `DELETE FROM ${this.currentSchema}."${tableName}" WHERE ${whereClauses};`;
@@ -784,14 +870,21 @@ export class PostgresClient implements DatabaseClient {
         error: "Invalid inputs",
       };
     try {
-      if (!formData.columns || (formData.columns && formData.columns.length === 0))
+      if (
+        !formData.columns ||
+        (formData.columns && formData.columns.length === 0)
+      )
         return { data: null, error: "No columns" };
-      
+
       const currentSchema = this.currentSchema;
 
       // Validate foreign key references before creating the table
       for (const column of formData.columns) {
-        if (column.keyType === "FOREIGN KEY" && column.foreignTable && column.foreignTableColumn) {
+        if (
+          column.keyType === "FOREIGN KEY" &&
+          column.foreignTable &&
+          column.foreignTableColumn
+        ) {
           // Check if the referenced table exists
           const tableCheckQuery = `
             SELECT column_name, data_type, udt_name
@@ -800,17 +893,17 @@ export class PostgresClient implements DatabaseClient {
             AND table_name = $2 
             AND column_name = $3
           `;
-          
+
           const result = await this.pool.query(tableCheckQuery, [
             currentSchema,
             column.foreignTable,
-            column.foreignTableColumn
+            column.foreignTableColumn,
           ]);
 
           if (result.rows.length === 0) {
             return {
               data: null,
-              error: `Foreign key reference error: Table "${column.foreignTable}" or column "${column.foreignTableColumn}" does not exist`
+              error: `Foreign key reference error: Table "${column.foreignTable}" or column "${column.foreignTableColumn}" does not exist`,
             };
           }
 
@@ -821,18 +914,23 @@ export class PostgresClient implements DatabaseClient {
 
           // Map of compatible types
           const compatibleTypes: { [key: string]: string[] } = {
-            'UUID': ['UUID'],
-            'TEXT': ['TEXT', 'VARCHAR', 'CHAR', 'CHARACTER VARYING'],
-            'INTEGER': ['INTEGER', 'BIGINT', 'SMALLINT'],
-            'BIGINT': ['BIGINT', 'INTEGER'],
-            'CHARACTER VARYING': ['CHARACTER VARYING', 'TEXT', 'VARCHAR', 'CHAR'],
-            'VARCHAR': ['VARCHAR', 'TEXT', 'CHARACTER VARYING', 'CHAR']
+            UUID: ["UUID"],
+            TEXT: ["TEXT", "VARCHAR", "CHAR", "CHARACTER VARYING"],
+            INTEGER: ["INTEGER", "BIGINT", "SMALLINT"],
+            BIGINT: ["BIGINT", "INTEGER"],
+            "CHARACTER VARYING": [
+              "CHARACTER VARYING",
+              "TEXT",
+              "VARCHAR",
+              "CHAR",
+            ],
+            VARCHAR: ["VARCHAR", "TEXT", "CHARACTER VARYING", "CHAR"],
           };
 
           if (!compatibleTypes[currentType]?.includes(referencedType)) {
             return {
               data: null,
-              error: `Foreign key reference error: Column type "${column.type}" is not compatible with referenced column type "${referencedType}" in table "${column.foreignTable}"`
+              error: `Foreign key reference error: Column type "${column.type}" is not compatible with referenced column type "${referencedType}" in table "${column.foreignTable}"`,
             };
           }
         }
@@ -859,9 +957,12 @@ export class PostgresClient implements DatabaseClient {
 
             const nullConstraint = isNull ? "NULL" : "NOT NULL";
             let defaultConstraint = "";
-            
+
             if (defaultValue) {
-              if (type.toUpperCase() === "UUID" && defaultValue.includes("gen_random_uuid")) {
+              if (
+                type.toUpperCase() === "UUID" &&
+                defaultValue.includes("gen_random_uuid")
+              ) {
                 defaultConstraint = "DEFAULT gen_random_uuid()";
               } else {
                 defaultConstraint = `DEFAULT ${defaultValue}`;
@@ -881,12 +982,15 @@ export class PostgresClient implements DatabaseClient {
       )`;
 
       console.log(query);
-      
+
       await this.executeQuery(query);
       return { data: [], error: null };
     } catch (e) {
       console.error("Error creating table:", e);
-      return { data: null, error: e instanceof Error ? e.message : "Failed to create the table" };
+      return {
+        data: null,
+        error: e instanceof Error ? e.message : "Failed to create the table",
+      };
     }
   }
 

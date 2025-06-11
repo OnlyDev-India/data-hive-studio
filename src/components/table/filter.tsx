@@ -142,13 +142,15 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
     }
   }, [currentFile?.tableName, currentFile?.tableFilter?.filter?.oldFilter]);
 
+  console.log(filterValues);
+
   return (
     <div className="flex flex-1 gap-2">
       <div className="flex flex-1 flex-col gap-2">
         {filterValues.map((filterValue: any, index: number) => (
           <div key={index} className="flex items-center gap-2">
             <Select
-              defaultValue={filterValue.separator}
+              value={filterValue.separator}
               disabled={index === 0}
               onValueChange={(value) =>
                 handleFilterValueChange(value, index, "separator")
@@ -182,6 +184,7 @@ const Filter = ({ columns }: { columns: ColumnProps[] }) => {
             </Select>
             <Select
               defaultValue={columns?.[0]?.key || "id"}
+              value={filterValue.column}
               onValueChange={(value) =>
                 handleFilterValueChange(value, index, "column")
               }

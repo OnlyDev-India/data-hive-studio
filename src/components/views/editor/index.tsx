@@ -16,8 +16,7 @@ import { ListXIcon, TriangleAlertIcon } from "lucide-react";
 import { setQueryOutput } from "@/redux/features/query";
 import { useDebouncedCallback } from "@/hooks/debounce";
 import { updateFile } from "@/redux/features/open-files";
-import Lottie from "lottie-react";
-import LoadingAnimation from "@public/loading.json";
+import QueryExecutingAnimation from "@/components/ui/query-executing-animation";
 import { FileFileType } from "@/types/file.type";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
@@ -112,7 +111,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
         >
           <Editor
             height={"100%"}
-            language={dbType}
+            language={dbType.toLowerCase()}
             value={currentFile?.code || ""}
             onMount={handleEditor}
             onChange={updateCode}
@@ -147,12 +146,10 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
             </div>
             {executingQuery ? (
               <div className="flex h-full items-center justify-center overflow-auto p-4">
-                <div className="h-48 w-48 rounded-lg border-2 bg-secondary/70">
-                  <Lottie
-                    animationData={LoadingAnimation}
-                    className="h-full [&_path]:!stroke-foreground"
-                  />
-                </div>
+                <QueryExecutingAnimation 
+                  className="h-full"
+                  size={64}
+                />
               </div>
             ) : columns.length > 0 ? (
               <div className="h-[calc(100%-2.7rem)]">

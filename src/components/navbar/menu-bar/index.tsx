@@ -51,8 +51,8 @@ const MenuNavbar = () => {
   useEffect(() => {
     // Only run client-side code inside useEffect
     if (typeof window !== 'undefined') {
-      setTitle(document.title);
-      setIsDesktop(!!window.electron);
+    setTitle(document.title);
+    setIsDesktop(!!window.electron);
       setOs(getOperatingSystem());
     }
   }, []);
@@ -75,46 +75,46 @@ const MenuNavbar = () => {
         <div className="no-draggable-bar z-10 flex h-full items-center gap-2">
           {os === "win32" && (
             <>
-              <Image
-                src="/favicon.ico"
-                width={16}
-                height={16}
-                alt="logo"
-                className="draggable-bar"
-              />
-              <div className="flex h-full items-center">
+          <Image
+            src="/favicon.ico"
+            width={16}
+            height={16}
+            alt="logo"
+            className="draggable-bar"
+          />
+          <div className="flex h-full items-center">
                 {isDesktop &&
                   menus.map((menu) => (
-                    <DropdownMenu key={menu.label}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                        >
-                          {menu.label}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        {menu.submenu.map((submenu) => (
-                          <DropdownMenuItem
-                            key={submenu.label}
-                            onClick={onClicks[submenu.onClick]}
-                            className="text-xs"
-                          >
-                            {submenu.label}
-                            <DropdownMenuShortcut>
-                              {submenu.shortcut}
-                            </DropdownMenuShortcut>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+              <DropdownMenu key={menu.label}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    {menu.label}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {menu.submenu.map((submenu) => (
+                    <DropdownMenuItem
+                      key={submenu.label}
+                      onClick={onClicks[submenu.onClick]}
+                      className="text-xs"
+                    >
+                      {submenu.label}
+                      <DropdownMenuShortcut>
+                        {submenu.shortcut}
+                      </DropdownMenuShortcut>
+                    </DropdownMenuItem>
                   ))}
-              </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ))}
+          </div>
             </>
           )}
         </div>
