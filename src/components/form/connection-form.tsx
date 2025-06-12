@@ -128,16 +128,23 @@ const ConnectionForm = () => {
       });
     }
     if (currentConnection) {
+      if (typeof window.electron !== "undefined") {
       const updatedConnection = { ...currentConnection, ...form.getValues() };
       response = await updateConnection(updatedConnection);
-      if (typeof response === "object" && response?.data?.rows) {
-        dispatch(setCurrentConnection(updatedConnection));
+        if (typeof response === "object" && response?.data?.rows) {
+          dispatch(setCurrentConnection(updatedConnection));
+        }
+      } else {
+        toast.error("Please use the desktop app to update connection");
       }
     } else {
-      response = await createConnection(form.getValues() as any);
+      if (typeof window.electron !== "undefined") {
+        response = await createConnection(form.getValues() as any);
+      } else {
+        toast.error("Please use the desktop app to save connection");
+      }
     }
     if (typeof response === "object" && response?.data?.rows) {
-      form.reset();
       dispatch(initAppData() as any);
     }
 
@@ -203,7 +210,10 @@ const ConnectionForm = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">Connection Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={form.watch("connection_type")}>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={form.watch("connection_type")}
+                    >
                       <FormControl>
                         <SelectTrigger className="bg-secondary">
                           <SelectValue placeholder="Select connection type..." />
