@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { DbConnectionsTypes } from "../db.type";
-const dbConnectionTypesArray = DbConnectionsTypes as string[]; // Cast to string array if necessary
+const dbConnectionTypesArray = DbConnectionsTypes.map(
+  (item) => item.value,
+) as string[]; // Cast to string array if necessary
 
 export const connectionFormSchema = z.object({
   name: z.string().optional(),

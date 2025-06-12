@@ -1,17 +1,17 @@
 import { Action, configureStore, ThunkAction } from "@reduxjs/toolkit";
 import openFileSlice from "./features/open-files";
 import querySlice from "./features/query";
-import editorSlice from "./features/editor";
 import tablesSlice from "./features/tables";
 import appDBSlice from "./features/appdb";
+import backgroundProcessesSlice from "./features/background-processes";
 
 const store = configureStore({
   reducer: {
     openFiles: openFileSlice,
     query: querySlice,
     tables: tablesSlice,
-    editor: editorSlice,
     appDB: appDBSlice,
+    bgProcesses: backgroundProcessesSlice,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

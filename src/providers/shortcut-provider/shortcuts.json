@@ -1,0 +1,20 @@
+{
+  "shortcuts": [
+    {
+      "keys": ["Ctrl+Shift+T"],
+      "action": "tablesView"
+    },
+    {
+      "keys": ["Ctrl+Shift+V"],
+      "action": "visualizerView"
+    },
+    {
+      "keys": ["Ctrl+q"],
+      "action": "disconnectDb"
+    },
+    {
+      "keys": ["Ctrl+w"],
+      "action": "closeTab"
+    }
+  ]
+}

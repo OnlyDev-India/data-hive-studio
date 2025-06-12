@@ -1,6 +1,6 @@
-import { pgSqlTypes } from "@/types/db.type";
+import { NewTableInitialStateType } from "@/types/file.type";
 
-export const initialFormData = {
+export const initialFormData: Record<"pgSql" | "mongodb", NewTableInitialStateType> = {
   pgSql: {
     name: "untitled",
     columns: [
@@ -8,11 +8,16 @@ export const initialFormData = {
         name: "id",
         type: "UUID",
         isNull: false,
-        defaultValue: "",
+        defaultValue: "gen_random_uuid()",
         keyType: "PRIMARY",
         foreignTable: "",
         foreignTableColumn: "",
       },
     ],
   },
+  mongodb:{
+    name: "untitled",
+  }
 };
+
+export type InitialFormDataTypes = keyof typeof initialFormData;

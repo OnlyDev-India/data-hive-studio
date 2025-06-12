@@ -3,6 +3,7 @@ import { open } from "sqlite";
 
 const seedData = `CREATE TABLE IF NOT EXISTS connections(
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    name TEXT,
     connection_type TEXT,
     host TEXT,
     port INTEGER,
@@ -11,7 +12,7 @@ const seedData = `CREATE TABLE IF NOT EXISTS connections(
     save_password INTEGER,
     color TEXT
 );
-`
+`;
 
 const testData = `
 CREATE TABLE connections(
@@ -30,12 +31,12 @@ CREATE TABLE connections(
     INSERT INTO connections(name,connection_type, connection_string, color) VALUES('test3','pgSql', 'tes3','#fad83b');
     INSERT INTO connections(name,connection_type, connection_string, color) VALUES('test4','sqlite', 'test4','#15db95');
 
-    `
-export const seedDataIntoDB = async (filePath:string) => {
-    const db = await open({
-        filename: filePath,
-        driver: sqlite3.Database,
-    });
-    await db.exec(seedData);
-    // await db.exec(testData);
-}
+    `;
+export const seedDataIntoDB = async (filePath: string) => {
+  const db = await open({
+    filename: filePath,
+    driver: sqlite3.Database,
+  });
+  await db.exec(seedData);
+  // await db.exec(testData);
+};

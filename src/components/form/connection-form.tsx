@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import {
+  ConnectionDetailsType,
   ConnectionsType,
   DbConnectionColors,
   DbConnectionsTypes,
@@ -36,6 +37,7 @@ import { createConnection, updateConnection } from "@/lib/actions/app-data";
 import { initAppData, setCurrentConnection } from "@/redux/features/appdb";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { cn } from "@/lib/utils";
+import { parseConnectionString } from "@/lib/helper/connection-details";
 
 const ConnectionForm = () => {
   const [loading, setLoading] = React.useState<
@@ -45,7 +47,7 @@ const ConnectionForm = () => {
     currentConnection,
     loading: appLoading,
   }: { currentConnection: ConnectionsType; loading: boolean } = useSelector(
-    (state: any) => state.appDB
+    (state: any) => state.appDB,
   );
 
   const dispatch = useDispatch();
@@ -77,15 +79,35 @@ const ConnectionForm = () => {
 
   // 2. Define a submit handler.
   async function onSubmit(values: z.infer<typeof connectionFormSchema>) {
+    const config = parseConnectionString(values.connection_string);
+    if (config.error) {
+      toast.error(config.error);
+      return;
+    }
+    const dbConfig: ConnectionDetailsType = {
+      id: currentConnection?.id || "",
+      name: values.name || "",
+      connection_type: values.connection_type,
+      host: config.host || "",
+      port: config.port || 0,
+      username: config.user || "",
+      password: config.password || "",
+      database: config.database || "",
+      connection_string: values.connection_string,
+      save_password: 1,
+      color: values.color || "",
+      ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    };
     setLoading("connecting");
     const response = await testConnection({
-      connectionString: values.connection_string,
+      connectionDetails: dbConfig,
       isConnect: true,
       dbType: values.connection_type as any,
     });
     if (response.success) {
       router.push("/app/editor");
     } else {
+      toast.error(response.error || "Failed to connect");
       setLoading(null);
     }
   }
@@ -106,32 +128,58 @@ const ConnectionForm = () => {
       });
     }
     if (currentConnection) {
+      if (typeof window.electron !== "undefined") {
       const updatedConnection = { ...currentConnection, ...form.getValues() };
       response = await updateConnection(updatedConnection);
-      if (response && response.data.rows) {
-        dispatch(setCurrentConnection(updatedConnection));
+        if (typeof response === "object" && response?.data?.rows) {
+          dispatch(setCurrentConnection(updatedConnection));
+        }
+      } else {
+        toast.error("Please use the desktop app to update connection");
       }
     } else {
-      response = await createConnection(form.getValues() as any);
-    }
-    if (response) {
-      if (response.data.rows) {
-        form.reset();
-        dispatch(initAppData() as any);
+      if (typeof window.electron !== "undefined") {
+        response = await createConnection(form.getValues() as any);
+      } else {
+        toast.error("Please use the desktop app to save connection");
       }
+    }
+    if (typeof response === "object" && response?.data?.rows) {
+      dispatch(initAppData() as any);
     }
 
     setLoading(null);
   }
 
   async function onTest() {
+    const config = parseConnectionString(form.getValues().connection_string);
+    if (config.error) {
+      toast.error(config.error);
+      return;
+    }
     setLoading("testing");
+    const dbConfig: ConnectionDetailsType = {
+      id: currentConnection?.id || "",
+      name: form.getValues().name || "",
+      connection_type: form.getValues().connection_type,
+      host: config.host || "",
+      port: config.port || 0,
+      username: config.user || "",
+      password: config.password || "",
+      database: config.database || "",
+      connection_string: form.getValues().connection_string,
+      save_password: 1,
+      color: form.getValues().color || "",
+      ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    };
     const response = await testConnection({
-      connectionString: form.getValues().connection_string,
+      connectionDetails: dbConfig,
       dbType: form.getValues().connection_type,
     });
+
     if (response.success) {
       toast.success("Connection successful!");
+      form.clearErrors("connection_string");
     } else {
       form.setError("connection_string", { message: response.error });
       toast.error(response.error);
@@ -140,13 +188,18 @@ const ConnectionForm = () => {
   }
 
   return (
-    <div className="h-full w-full overflow-auto flex items-center justify-center">
+    <div className="flex h-full w-full items-center justify-center overflow-auto">
       <Card
-        className="min-w-[80%] border-t-8"
-        style={{ borderColor: form.getValues().color || "transparent" }}
+        className="min-w-[80%] border-border/50 bg-background/20 shadow-lg backdrop-blur-xl"
+        style={{
+          borderColor: form.watch("color") || "transparent",
+          background: form.watch("color")
+            ? `radial-gradient(circle at top left, ${form.watch("color")}10 0%, transparent 50%), radial-gradient(circle at bottom right, ${form.watch("color")}10 0%, transparent 50%)`
+            : "radial-gradient(circle at top left, hsl(var(--primary)/0.1) 0%, transparent 50%), radial-gradient(circle at bottom right, hsl(var(--primary)/0.1) 0%, transparent 50%)",
+        }}
       >
         <CardHeader>
-          <CardTitle>{form.getValues().name || "New Connection"}</CardTitle>
+          <CardTitle>{form.watch("name") || "New Connection"}</CardTitle>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -157,7 +210,10 @@ const ConnectionForm = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">Connection Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={form.watch("connection_type")}
+                    >
                       <FormControl>
                         <SelectTrigger className="bg-secondary">
                           <SelectValue placeholder="Select connection type..." />
@@ -166,12 +222,12 @@ const ConnectionForm = () => {
                       <SelectContent className="bg-secondary">
                         {DbConnectionsTypes.map((connection_type) => (
                           <SelectItem
-                            key={connection_type}
-                            value={connection_type}
+                            key={connection_type.value}
+                            value={connection_type.value}
                             className="focus:bg-background"
-                            disabled={connection_type === "sqlite"}
+                            disabled={connection_type.disabled}
                           >
-                            {connection_type}
+                            {connection_type.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -213,9 +269,9 @@ const ConnectionForm = () => {
                 <Button
                   type="submit"
                   disabled={appLoading || loading !== null}
-                  className="text-white h-7 text-xs"
+                  className="h-7 text-xs text-white"
                 >
-                  {loading === "connecting" && (
+                  {(appLoading || loading === "connecting") && (
                     <LoaderCircleIcon className="animate-spin" />
                   )}
                   Connect
@@ -247,11 +303,11 @@ const ConnectionForm = () => {
                                   </FormControl>
                                   <FormLabel
                                     className={cn(
-                                      `font-normal w-4 h-4 rounded-sm bg-secondary border-2 border-transparent`,
+                                      `h-4 w-4 rounded-sm border-2 border-transparent bg-secondary font-normal`,
                                       {
                                         "border-white":
                                           !field.value || field.value === "",
-                                      }
+                                      },
                                     )}
                                   />
                                   {DbConnectionColors.map((color) => (
@@ -264,11 +320,11 @@ const ConnectionForm = () => {
                                       </FormControl>
                                       <FormLabel
                                         className={cn(
-                                          `font-normal w-4 h-4 rounded-sm border-2 border-transparent`,
+                                          `h-4 w-4 rounded-sm border-2 border-transparent font-normal`,
                                           {
                                             "border-white":
                                               field.value === color,
-                                          }
+                                          },
                                         )}
                                         style={{ backgroundColor: color }}
                                       />

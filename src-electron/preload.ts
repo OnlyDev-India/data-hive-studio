@@ -13,8 +13,32 @@ const handler = {
       ipcRenderer.removeListener(channel, subscription);
     };
   },
+  saveFile(data: any, path: string) {
+    return ipcRenderer.invoke("save-file", data, path);
+  },
   getAppDbPath() {
     return ipcRenderer.invoke("app-db-path");
+  },
+  updateTheme(theme: string) {
+    ipcRenderer.invoke("update-theme", theme);
+  },
+  openSelectDir(path: string) {
+    return ipcRenderer.invoke("open-select-dir", path);
+  },
+  reloadWindow() {
+    ipcRenderer.invoke("reload-window");
+  },
+  setFullScreen() {
+    ipcRenderer.invoke("fullscreen-window");
+  },
+  toggleDevTools() {
+    ipcRenderer.invoke("toggle-devtools");
+  },
+  minimizeWindow() {
+    ipcRenderer.invoke("minimize-window");
+  },
+  closeWindow() {
+    ipcRenderer.invoke("close-window");
   },
 };
 

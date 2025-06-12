@@ -1,30 +1,46 @@
-appId: org.onlydev.datahivestudio
+appId: com.datahivestudio.app
 productName: Data Hive Studio
 
 directories:
   output: dist
   buildResources: assets
 
-
 includeSubNodeModules: true
 
 files:
   - build
-  - from: '.next/standalone/'
-    to: '.next/standalone/'
-  - from: 'public/'
-    to: 'public/'
-# mac:
-#   category: public.app-category.developer-tools
-#   target:
-#     target: dir
-#     arch:
-#       - arm64
-#      - x64
+  - from: ".next/standalone/"
+    to: ".next/standalone/"
+  - from: "public/"
+    to: "public/"
+
+extraResources:
+  - from: "public/"
+    to: "public/"
+
+mac:
+  icon: public/icon.icns
+  target:
+    target: dmg
+  category: public.app-category.developer-tools
 
 win:
   icon: public/icon.ico
   target:
-    target: nsis
-    arch:
-      - x64
+    - target: nsis
+    - target: portable
+
+linux:
+  icon: build/icon.png
+  target:
+    - target: AppImage
+    - target: deb
+    - target: rpm
+
+nsis:
+  oneClick: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: public/icon.ico
+  installerHeaderIcon: public/icon.ico
+  uninstallerIcon: public/icon.ico

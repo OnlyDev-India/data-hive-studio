@@ -9,26 +9,17 @@ import {
   CommandList,
 } from "../ui/command";
 import { SearchIcon, TableIcon } from "lucide-react";
-import { getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { addTableFile } from "@/redux/features/open-files";
 import { useRouter } from "next/navigation";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 export function CommandMenu() {
   const [open, setOpen] = React.useState(false);
-  const [tables, setTables] = React.useState<any[]>([]);
+  // const [tables, setTables] = React.useState<any[]>([]);
+  const { tables } = useSelector((state: any) => state.tables);
   const dispatch = useDispatch();
-  let router = useRouter();
-
-  React.useEffect(() => {
-    const fetchTables = async () => {
-      if (open) {
-        const fetchedTables = await getTablesWithFieldsFromDb();
-        setTables(fetchedTables || []);
-      }
-    };
-    fetchTables();
-  }, [open]);
+  const router = useRouter();
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -51,18 +42,30 @@ export function CommandMenu() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full h-10 flex items-center justify-center hover:text-foreground"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setOpen(true)}
+            className="flex h-10 w-full items-center justify-center text-muted-foreground hover:text-foreground"
+          >
+            <SearchIcon size={20} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          search
+          <span className="text-xs text-muted-foreground">{` (ctrl+k)`}</span>
+        </TooltipContent>
+      </Tooltip>
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
+        className="top-[5%] translate-y-0"
       >
-        <SearchIcon size={20} />
-      </button>
-      <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandInput placeholder="Search Tables" className="bg-background" />
         <CommandList className="bg-background">
           <CommandEmpty>No results found.</CommandEmpty>
           <CommandGroup heading={`Tables ${tables ? tables.length : 0}`}>
-            {tables?.map((table: any, index) => (
+            {tables?.map((table: any, index: number) => (
               <CommandItem
                 key={index}
                 className="data-[selected=true]:bg-secondary"
