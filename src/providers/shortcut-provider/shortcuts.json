@@ -15,6 +15,18 @@
     {
       "keys": ["Ctrl+w"],
       "action": "closeTab"
+    },
+    {
+      "keys": ["Ctrl+n"],
+      "action": "newFile"
+    },
+    {
+      "keys": ["ctrl+shift+p", "cmd+shift+p"],
+      "action": "commandPalette"
+    },
+    {
+      "keys": ["ctrl+shift+f", "cmd+shift+f"],
+      "action": "commandPaletteFile"
     }
   ]
 }

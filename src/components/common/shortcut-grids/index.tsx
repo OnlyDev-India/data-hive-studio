@@ -2,6 +2,10 @@ import React from "react";
 
 const shortcuts = [
   {
+    keys: "Ctrl + Shift + P",
+    action: "Command Palette",
+  },
+  {
     keys: "Ctrl + Shift + T",
     action: "Tables View",
   },
@@ -10,20 +14,20 @@ const shortcuts = [
     action: "Schema Visualizer",
   },
   {
-    keys: "Ctrl + q",
-    action: "Disconnect Data Base",
-  },
-  {
-    keys: "Ctrl + k",
-    action: "Quick Search",
+    keys: "Ctrl + N",
+    action: "New Query File",
   },
   {
     keys: "Ctrl + Enter",
-    action: "Run",
+    action: "Run Query",
   },
   {
-    keys: "Ctrl + w",
+    keys: "Ctrl + W",
     action: "Close Tab",
+  },
+  {
+    keys: "Ctrl + Q",
+    action: "Disconnect Database",
   },
 ];
 

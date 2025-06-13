@@ -11,9 +11,11 @@ import { menus } from "@/config/menu-bar.config";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import React, { useEffect } from "react";
+import { ConnectionStatus } from "@/components/common/connection-status";
+import { usePathname } from "next/navigation";
 
 const getOperatingSystem = () => {
-  if (typeof window === 'undefined') return 'unknown';
+  if (typeof window === "undefined") return "unknown";
   const platform = navigator.platform.toLowerCase();
   if (platform.includes("win")) return "win32";
   if (platform.includes("mac")) return "darwin";
@@ -47,12 +49,14 @@ const MenuNavbar = () => {
   const [title, setTitle] = React.useState<string>("Data Hive Studio");
   const [isDesktop, setIsDesktop] = React.useState<boolean>(false);
   const [os, setOs] = React.useState<string>("unknown");
+  const pathname = usePathname();
+  const isConnectedPage = pathname.startsWith("/app");
 
   useEffect(() => {
     // Only run client-side code inside useEffect
-    if (typeof window !== 'undefined') {
-    setTitle(document.title);
-    setIsDesktop(!!window.electron);
+    if (typeof window !== "undefined") {
+      setTitle(document.title);
+      setIsDesktop(!!window.electron);
       setOs(getOperatingSystem());
     }
   }, []);
@@ -75,46 +79,46 @@ const MenuNavbar = () => {
         <div className="no-draggable-bar z-10 flex h-full items-center gap-2">
           {os === "win32" && (
             <>
-          <Image
-            src="/favicon.ico"
-            width={16}
-            height={16}
-            alt="logo"
-            className="draggable-bar"
-          />
-          <div className="flex h-full items-center">
+              <Image
+                src="/favicon.ico"
+                width={16}
+                height={16}
+                alt="logo"
+                className="draggable-bar"
+              />
+              <div className="flex h-full items-center">
                 {isDesktop &&
                   menus.map((menu) => (
-              <DropdownMenu key={menu.label}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                  >
-                    {menu.label}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {menu.submenu.map((submenu) => (
-                    <DropdownMenuItem
-                      key={submenu.label}
-                      onClick={onClicks[submenu.onClick]}
-                      className="text-xs"
-                    >
-                      {submenu.label}
-                      <DropdownMenuShortcut>
-                        {submenu.shortcut}
-                      </DropdownMenuShortcut>
-                    </DropdownMenuItem>
+                    <DropdownMenu key={menu.label}>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="h-5 px-2 py-0 text-xs focus-visible:outline-none focus-visible:ring-0"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                        >
+                          {menu.label}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {menu.submenu.map((submenu) => (
+                          <DropdownMenuItem
+                            key={submenu.label}
+                            onClick={onClicks[submenu.onClick]}
+                            className="text-xs"
+                          >
+                            {submenu.label}
+                            <DropdownMenuShortcut>
+                              {submenu.shortcut}
+                            </DropdownMenuShortcut>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ))}
-          </div>
+              </div>
             </>
           )}
         </div>
@@ -123,7 +127,12 @@ const MenuNavbar = () => {
             {title}
           </p>
         </div>
-        <div className="w-2"></div>
+        <div className="flex h-full items-center gap-2">
+          <div className="no-draggable-bar flex h-full items-center gap-2">
+            {isConnectedPage && <ConnectionStatus />}
+          </div>
+          {os === "win32" && <div className="w-2"></div>}
+        </div>
       </div>
     </div>
   );
