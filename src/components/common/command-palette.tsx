@@ -72,7 +72,6 @@ export function CommandPalette({
 
   // Clear search when dialog opens/closes
   React.useEffect(() => {
-    console.log(startSearchValue);
     setSearchValue(startSearchValue);
   }, [startSearchValue]);
 
@@ -307,7 +306,7 @@ export function CommandPalette({
       onOpenChange={onOpenChange}
       filter={(value, search) => {
         if (search.startsWith(">")) {
-          let searchValue = search.slice(1).trim();
+          const searchValue = search.slice(1).trim();
           return value.toLowerCase().includes(searchValue.toLowerCase())
             ? 1
             : 0;
