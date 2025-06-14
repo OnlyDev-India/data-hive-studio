@@ -359,7 +359,6 @@ export class EnhancedConnectionManager {
   }
 
   public async forceReconnect(connectionId: string): Promise<boolean> {
-    console.log("connectionId", this.connectionStates);
     const state = this.connectionStates.get(connectionId);
     console.log("state", state);
     if (state) {
