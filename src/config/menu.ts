@@ -8,7 +8,7 @@ export const sideBadMenu = [
     link: "/app/editor",
     shortcut: "Ctrl+Shift+T",
   },
-  { icon: SearchIcon, btn: CommandMenu, title: "Search" },
+  { icon: SearchIcon, btn: CommandMenu, title: "Command Palette", shortcut: "Ctrl+Shift+P" },
   {
     icon: WaypointsIcon,
     title: "Schema Visualizer",
