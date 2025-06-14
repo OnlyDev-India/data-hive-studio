@@ -12,18 +12,20 @@ export const useKeyboardShortcuts = (shortcuts: ShortcutConfig[]) => {
     const handleKeyDown = (event: KeyboardEvent) => {
       shortcuts.forEach(({ keys, action }) => {
         const metaKey = event.metaKey || event.ctrlKey;
+        // Safely handle event.key
+        const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
         const pressedKeyCombo = `${metaKey ? "Ctrl+" : ""}${
           event.altKey ? "Alt+" : ""
-        }${event.shiftKey ? "Shift+" : ""}${event.key.toLowerCase()}`;
+        }${event.shiftKey ? "Shift+" : ""}${key}`;
 
         // Also check cmd variations for Mac compatibility
         const cmdKeyCombo = `${event.metaKey ? "cmd+" : ""}${event.ctrlKey ? "ctrl+" : ""}${
           event.altKey ? "alt+" : ""
-        }${event.shiftKey ? "shift+" : ""}${event.key.toLowerCase()}`;
+        }${event.shiftKey ? "shift+" : ""}${key}`;
 
-        if (keys.some(key => 
-          key.toLowerCase() === pressedKeyCombo || 
-          key.toLowerCase() === cmdKeyCombo
+        if (keys.some(keyCombo => 
+          keyCombo.toLowerCase() === pressedKeyCombo || 
+          keyCombo.toLowerCase() === cmdKeyCombo
         )) {
           event.preventDefault();
           action(event);

@@ -260,3 +260,98 @@ export async function createTable(data: TableForm) {
   const response = await connection.createTable(data);
   return { ...response, data: JSON.stringify(response.data) };
 }
+
+export async function getConnectionStatus() {
+  try {
+    const cookie = cookies();
+    const connectionUrl = cookie.get("currentConnection");
+    if (!connectionUrl?.value) {
+      return {
+        success: false,
+        error: "No active connection found"
+      };
+    }
+    const connectionDetails: ConnectionDetailsType = JSON.parse(connectionUrl.value);
+    const connectionId = connectionDetails.id;
+    const connectionManager = EnhancedConnectionManager.getInstance();
+    const connectionState = connectionManager.getConnectionState(connectionId);
+    const isHealthy = connectionManager.isConnectionHealthy(connectionId);
+    const lastError = connectionManager.getLastError(connectionId);
+    if (!connectionState) {
+      return {
+        success: false,
+        error: "Connection state not found"
+      };
+    }
+    return {
+      success: true,
+      connectionId,
+      state: {
+        isConnected: connectionState.isConnected,
+        lastHealthCheck: connectionState.lastHealthCheck,
+        connectionAttempts: connectionState.connectionAttempts,
+        lastError: connectionState.lastError,
+        isReconnecting: connectionState.isReconnecting,
+        isHealthy,
+      }
+    };
+  } catch (error) {
+    console.error("Error getting connection status:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+
+export async function forceReconnect(connectionId?: string) {
+  try {
+    const cookie = cookies();
+    let id = connectionId;
+    if (!id) {
+      const connectionUrl = cookie.get("currentConnection");
+      if (!connectionUrl?.value) {
+        return { success: false, error: "No active connection found" };
+      }
+      const connectionDetails: ConnectionDetailsType = JSON.parse(connectionUrl.value);
+      id = connectionDetails.id;
+    }
+    const connectionManager = EnhancedConnectionManager.getInstance();
+    const success = await connectionManager.forceReconnect(id!);
+    return {
+      success,
+      message: success ? "Reconnection initiated" : "Reconnection failed"
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+
+export async function getConnectionState(connectionId?: string) {
+  try {
+    const cookie = cookies();
+    let id = connectionId;
+    if (!id) {
+      const connectionUrl = cookie.get("currentConnection");
+      if (!connectionUrl?.value) {
+        return { success: false, error: "No active connection found" };
+      }
+      const connectionDetails: ConnectionDetailsType = JSON.parse(connectionUrl.value);
+      id = connectionDetails.id;
+    }
+    const connectionManager = EnhancedConnectionManager.getInstance();
+    const state = connectionManager.getConnectionState(id!);
+    return {
+      success: true,
+      state
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}

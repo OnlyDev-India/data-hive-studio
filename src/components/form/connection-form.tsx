@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,7 +64,12 @@ const ConnectionForm = () => {
     defaultValues,
   });
 
+  // Persist a generated id for new connections
+  const generatedIdRef = useRef<string>("");
   useEffect(() => {
+    if (!currentConnection?.id && !generatedIdRef.current) {
+      generatedIdRef.current = crypto.randomUUID();
+    }
     if (currentConnection?.connection_type) {
       form.reset({
         connection_type: currentConnection?.connection_type || "",
@@ -85,7 +90,7 @@ const ConnectionForm = () => {
       return;
     }
     const dbConfig: ConnectionDetailsType = {
-      id: currentConnection?.id || "",
+      id: currentConnection?.id || generatedIdRef.current || crypto.randomUUID(),
       name: values.name || "",
       connection_type: values.connection_type,
       host: config.host || "",
@@ -159,7 +164,7 @@ const ConnectionForm = () => {
     }
     setLoading("testing");
     const dbConfig: ConnectionDetailsType = {
-      id: currentConnection?.id || "",
+      id: currentConnection?.id || generatedIdRef.current || crypto.randomUUID(),
       name: form.getValues().name || "",
       connection_type: form.getValues().connection_type,
       host: config.host || "",

@@ -88,7 +88,7 @@ export function CommandPalette({
     );
     return label.split(regex).map((part, i) =>
       regex.test(part) ? (
-        <mark key={i} className="rounded bg-transparent p-0 text-blue-500">
+        <mark key={i} className="rounded bg-transparent p-0 text-[#40C9A2]">
           {part}
         </mark>
       ) : (

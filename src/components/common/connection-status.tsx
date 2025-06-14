@@ -11,12 +11,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -34,6 +28,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getConnectionStatus, forceReconnect, getConnectionState } from "@/lib/actions/fetch-data";
 
 interface ConnectionState {
   isConnected: boolean;
@@ -114,10 +109,8 @@ export function ConnectionStatus({
 
   const fetchConnectionState = async () => {
     try {
-      const response = await fetch("/api/connection/status");
-      const data = await response.json();
-
-      if (data.success) {
+      const data = await getConnectionStatus();
+      if (data.success && data.state) {
         setConnectionState({
           isConnected: data.state.isConnected,
           lastHealthCheck: new Date(data.state.lastHealthCheck),
@@ -153,20 +146,7 @@ export function ConnectionStatus({
       toast.info("Attempting to reconnect...", {
         description: "Forcing database reconnection",
       });
-
-      const response = await fetch("/api/connection/status", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "forceReconnect",
-          connectionId: connectionId || "current",
-        }),
-      });
-
-      const data = await response.json();
-
+      const data = await forceReconnect(connectionId);
       if (data.success) {
         toast.success("Reconnection successful!");
       } else {
@@ -174,7 +154,6 @@ export function ConnectionStatus({
           description: data.error || "Unknown error",
         });
       }
-
       await fetchConnectionState();
     } catch (error) {
       toast.error("Reconnection failed", {
