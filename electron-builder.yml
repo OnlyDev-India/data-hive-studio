@@ -1,4 +1,8 @@
-appId: com.datahivestudio.app
+publish:
+  provider: github
+  owner: abhishek-dagar
+  repo: data-hive-studio
+appId: com.electron.data-hive-studio
 productName: Data Hive Studio
 
 directories:

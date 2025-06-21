@@ -14,6 +14,9 @@ import {
 import { seedDataIntoDB } from "./seed/seed-appDb.js";
 import { createHandler } from "next-electron-rsc";
 import { registerIPCHandlers } from "./customization/menu.js";
+import updatePkg from "electron-updater";
+
+const { autoUpdater } = updatePkg;
 
 const isDev = process.env.NODE_ENV === "development";
 const appPath = app.getAppPath();
@@ -24,9 +27,14 @@ let stopIntercept: any;
 let createInterceptor: any;
 
 const appDataPath = app.getPath("appData");
+const dbDirectory = path.join(appDataPath, "data-hive-studio");
 
-// TODO: add a check to see if the appDataPath is a valid path
-const dbPath = path.join(appDataPath, "data-hive-studio/app.db");
+// Ensure the database directory exists
+if (!fs.existsSync(dbDirectory)) {
+  fs.mkdirSync(dbDirectory, { recursive: true });
+}
+
+const dbPath = path.join(dbDirectory, "app.db");
 
 // create app.db file if it doesn't exists
 if (!fs.existsSync(dbPath)) {
@@ -142,6 +150,9 @@ const createWindow = async () => {
   await app.whenReady();
 
   await mainWindow.loadURL(localhostUrl + "/");
+
+  // Check for updates
+  autoUpdater.checkForUpdatesAndNotify();
 
   registerIPCHandlers();
 
