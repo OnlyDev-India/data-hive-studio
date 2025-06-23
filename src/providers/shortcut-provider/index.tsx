@@ -11,6 +11,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { FileType } from "@/types/file.type";
 import { useMonaco } from "@monaco-editor/react";
 import { CommandPalette } from "@/components/common/command-palette";
+import { useAppData } from "@/hooks/useAppData";
 
 const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
@@ -20,6 +21,7 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
   const { currentFile }: { currentFile: FileType } = useSelector(
     (state: any) => state.openFiles,
   );
+  const { connectionPath } = useAppData();
   
   // Command palette state
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
@@ -33,7 +35,7 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
         router.push("/app/visualizer");
         break;
       case "disconnectDb":
-        await disconnectDb();
+        await disconnectDb(connectionPath);
         dispatch(resetOpenFiles());
         dispatch(resetQuery());
         dispatch(resetTables());

@@ -1,3 +1,4 @@
+//@depreciated
 import sqlite3 from "sqlite3";
 import { open } from "sqlite";
 
@@ -10,7 +11,8 @@ const seedData = `CREATE TABLE IF NOT EXISTS connections(
     password TEXT,
     connection_string TEXT,
     save_password INTEGER,
-    color TEXT
+    color TEXT,
+    last_used INTEGER
 );
 `;
 

@@ -41,6 +41,7 @@ import {
   CodeIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppData } from "@/hooks/useAppData";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -62,6 +63,7 @@ export function CommandPalette({
   const { openFiles, currentFile } = useSelector(
     (state: any) => state.openFiles,
   );
+  const { connectionPath } = useAppData();
 
   const [searchValue, setSearchValue] = React.useState(startSearchValue);
 
@@ -269,7 +271,7 @@ export function CommandPalette({
       icon: PowerIcon,
       shortcut: "Ctrl+Q",
       action: async () => {
-        const response = await disconnectDb();
+        const response = await disconnectDb(connectionPath);
         if (response) {
           dispatch(resetOpenFiles());
           dispatch(resetQuery());

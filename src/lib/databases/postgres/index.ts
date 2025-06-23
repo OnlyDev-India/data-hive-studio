@@ -1,4 +1,3 @@
-import { parseConnectionString } from "@/lib/helper/connection-details";
 import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";

@@ -6,6 +6,7 @@ import { FilterType, TableForm } from "@/types/table.type";
 import { cookies } from "next/headers";
 import { SortColumn } from "react-data-grid";
 import { PaginationType } from "@/types/file.type";
+import { updateConnection } from "./app-data";
 
 // console.log(cookies().get("currentConnection")?.value);
 
@@ -202,7 +203,7 @@ export async function testConnection({
   return { success, error };
 }
 
-export async function disconnectDb() {
+export async function disconnectDb(connectionPath: string|null) {
   const cookie = cookies();
   const connectionUrl = cookie.get("currentConnection");
   if (!connectionUrl) return false;
@@ -211,6 +212,12 @@ export async function disconnectDb() {
   const connectionManager = EnhancedConnectionManager.getInstance();
   await connectionManager.disconnect(connectionDetails.id);
   
+  if (connectionPath) {
+    await updateConnection(connectionPath, {
+      ...connectionDetails,
+      is_current: false,
+    });
+  }
   cookie.delete("currentConnection");
   cookie.delete("dbType");
   return true;

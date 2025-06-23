@@ -9,11 +9,12 @@ import {
   nativeTheme,
   dialog,
   TitleBarOverlayOptions,
+  session,
 } from "electron";
 // import { createHandler } from "./handler/index.js";
-import { seedDataIntoDB } from "./seed/seed-appDb.js";
 import { createHandler } from "next-electron-rsc";
 import { registerIPCHandlers } from "./customization/menu.js";
+import { parseConnectionString } from "./helpher/connection-details.js";
 
 const isDev = process.env.NODE_ENV === "development";
 const appPath = app.getAppPath();
@@ -24,14 +25,18 @@ let stopIntercept: any;
 let createInterceptor: any;
 
 const appDataPath = app.getPath("appData");
+const configDirectory = path.join(appDataPath, "data-hive-studio");
 
-// TODO: add a check to see if the appDataPath is a valid path
-const dbPath = path.join(appDataPath, "data-hive-studio/app.db");
+// Ensure the config directory exists
+if (!fs.existsSync(configDirectory)) {
+  fs.mkdirSync(configDirectory, { recursive: true });
+}
 
-// create app.db file if it doesn't exists
-if (!fs.existsSync(dbPath)) {
-  fs.writeFileSync(dbPath, "", { flag: "wx" });
-  seedDataIntoDB(dbPath);
+const connectionsJsonPath = path.join(configDirectory, "connections.json");
+
+// create connections.json file if it doesn't exist
+if (!fs.existsSync(connectionsJsonPath)) {
+  fs.writeFileSync(connectionsJsonPath, JSON.stringify([]));
 }
 
 process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
@@ -66,6 +71,47 @@ if (!isDev) {
 }
 
 const createWindow = async () => {
+  const ses = session.defaultSession;
+
+  try {
+    const connectionsData = fs.readFileSync(connectionsJsonPath, "utf-8");
+    const connections = JSON.parse(connectionsData);
+    const currentConnection = connections.find((c: any) => c.is_current);
+
+    if (currentConnection) {
+      // Set cookies that will be accessible by the renderer process
+      const connectionDetails = parseConnectionString(currentConnection.connection_string);
+      const dbConfig = {
+        id: currentConnection.id,
+        name: currentConnection.name || "",
+        connection_type: currentConnection.connection_type,
+        host: connectionDetails.host || "",
+        port: connectionDetails.port || 0,
+        username: connectionDetails.user || "",
+        password: connectionDetails.password || "",
+        database: connectionDetails.database || "",
+        connection_string: currentConnection.connection_string,
+        color: currentConnection.color || "",
+        ssl: connectionDetails.ssl ? { rejectUnauthorized: false } : false,
+      };
+      await ses.cookies.set({
+        url: localhostUrl,
+        name: "dbType",
+        value: currentConnection.connection_type,
+        httpOnly: false,
+      });
+      await ses.cookies.set({
+        url: localhostUrl,
+        name: "currentConnection",
+        value: JSON.stringify(dbConfig),
+        httpOnly: false,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to read connections or set cookies:", error);
+    // It's okay if the file doesn't exist on first launch
+  }
+
   const preloadPath = path.join(app.getAppPath(), "build", "preload.mjs");
   const splashScreenPath = isDev
     ? path.join(appPath, "public/splash-screen.html")
@@ -163,8 +209,13 @@ const changeTheme = () => {
   }
 };
 
+// @deprecated
 ipcMain.handle("app-db-path", () => {
-  return dbPath;
+  return connectionsJsonPath;
+});
+
+ipcMain.handle("get-connections-json-path", () => {
+  return connectionsJsonPath;
 });
 
 ipcMain.handle("update-theme", (_: any, theme: string) => {

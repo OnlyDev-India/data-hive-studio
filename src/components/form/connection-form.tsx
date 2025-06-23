@@ -33,13 +33,14 @@ import {
   DbConnectionsTypes,
 } from "@/types/db.type";
 import { useDispatch, useSelector } from "react-redux";
-import { createConnection, updateConnection } from "@/lib/actions/app-data";
 import { initAppData, setCurrentConnection } from "@/redux/features/appdb";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { cn } from "@/lib/utils";
 import { parseConnectionString } from "@/lib/helper/connection-details";
+import { useAppData } from "@/hooks/useAppData";
 
 const ConnectionForm = () => {
+  const { createConnection, updateConnection } = useAppData();
   const [loading, setLoading] = React.useState<
     "connecting" | "testing" | "saving" | null
   >(null);
@@ -90,7 +91,8 @@ const ConnectionForm = () => {
       return;
     }
     const dbConfig: ConnectionDetailsType = {
-      id: currentConnection?.id || generatedIdRef.current || crypto.randomUUID(),
+      id:
+        currentConnection?.id || generatedIdRef.current || crypto.randomUUID(),
       name: values.name || "",
       connection_type: values.connection_type,
       host: config.host || "",
@@ -119,7 +121,6 @@ const ConnectionForm = () => {
 
   async function saveConnection() {
     setLoading("saving");
-    let response;
     if (!form.getValues().connection_type) {
       setLoading(null);
       return form.setError("connection_type", {
@@ -132,28 +133,60 @@ const ConnectionForm = () => {
         message: "Connection string is required",
       });
     }
-    if (currentConnection) {
-      if (typeof window.electron !== "undefined") {
-      const updatedConnection = { ...currentConnection, ...form.getValues() };
-      response = await updateConnection(updatedConnection);
-        if (typeof response === "object" && response?.data?.rows) {
+
+    try {
+      let response;
+      if (currentConnection) {
+        const updatedConnection = { ...currentConnection, ...form.getValues() };
+        response = await updateConnection(updatedConnection);
+        if (response?.success) {
           dispatch(setCurrentConnection(updatedConnection));
+          toast.success("Connection updated successfully!");
+        } else {
+          toast.error("Failed to update connection", {
+            description: response?.error,
+          });
         }
       } else {
-        toast.error("Please use the desktop app to update connection");
+        const values = form.getValues();
+        const config = parseConnectionString(values.connection_string);
+        if (config.error) {
+          toast.error(config.error);
+          return;
+        }
+        const dbConfig: Omit<ConnectionDetailsType, "id"> = {
+          name: values.name || "",
+          connection_type: values.connection_type,
+          host: config.host || "",
+          port: config.port || 0,
+          username: config.user || "",
+          password: config.password || "",
+          database: config.database || "",
+          connection_string: values.connection_string,
+          save_password: 1,
+          color: values.color || "",
+          ssl: config.ssl ? { rejectUnauthorized: false } : false,
+        };
+        response = await createConnection(dbConfig);
+        if (response?.success) {
+          toast.success("Connection saved successfully!");
+        } else {
+          toast.error("Failed to save connection", {
+            description: response?.error,
+          });
+        }
       }
-    } else {
-      if (typeof window.electron !== "undefined") {
-        response = await createConnection(form.getValues() as any);
-      } else {
-        toast.error("Please use the desktop app to save connection");
-      }
-    }
-    if (typeof response === "object" && response?.data?.rows) {
-      dispatch(initAppData() as any);
-    }
 
-    setLoading(null);
+      if (response?.success) {
+        dispatch(initAppData() as any);
+      }
+    } catch (error: any) {
+      toast.error("An unexpected error occurred", {
+        description: error.message,
+      });
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function onTest() {
@@ -164,7 +197,8 @@ const ConnectionForm = () => {
     }
     setLoading("testing");
     const dbConfig: ConnectionDetailsType = {
-      id: currentConnection?.id || generatedIdRef.current || crypto.randomUUID(),
+      id:
+        currentConnection?.id || generatedIdRef.current || crypto.randomUUID(),
       name: form.getValues().name || "",
       connection_type: form.getValues().connection_type,
       host: config.host || "",

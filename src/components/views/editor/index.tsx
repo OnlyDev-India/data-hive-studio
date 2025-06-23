@@ -40,7 +40,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
   const { currentFile }: { currentFile: FileFileType | null } = useSelector(
     (state: any) => state.openFiles,
   );
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
   useEffect(() => {
     if (queryOutput) {
@@ -82,12 +82,11 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
     debounce(value || "");
   };
 
-  const handleEditor = async (editor: any, monaco: any) => { 
-    // TODO: handle the system theme 
+  const handleEditor = async (editor: any, monaco: any) => {
     monaco.editor.defineTheme("github-dark", GithubDark);
     monaco.editor.defineTheme("github-light", GithubLight);
     monaco.editor.setTheme(
-      theme?.includes("dark") ? "github-dark" : "github-light",
+      resolvedTheme === "dark" ? "github-dark" : "github-light",
     );
     editor.addAction({
       id: "my-action-runQuery",
@@ -116,7 +115,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
             onMount={handleEditor}
             onChange={updateCode}
             path={currentFile?.id}
-            theme={theme?.includes("dark") ? "github-dark" : "github-light"}
+            theme={resolvedTheme === "dark" ? "github-dark" : "github-light"}
             options={{
               minimap: {
                 enabled: false,
