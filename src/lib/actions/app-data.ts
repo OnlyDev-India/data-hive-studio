@@ -3,8 +3,7 @@
 import { ConnectionDetailsType, ConnectionsType } from "@/types/db.type";
 import { connectToAppDB, AppDBManager } from "../databases/db";
 import { SqliteClient } from "../databases/sqlite";
-
-const fs = require("fs").promises;
+import { promises as fs } from "fs";
 
 async function getConnectionsPath() {
   if (typeof window !== "undefined" && window.electron) {
@@ -53,7 +52,7 @@ export const getConnections = async (connectionPath: string) => {
 
 export const deleteConnection = async (connectionPath: string, connectionId: string) => {
   try {
-    let connections = await readConnections(connectionPath);
+    const connections = await readConnections(connectionPath);
     const filteredConnections = connections.filter((c) => c.id !== connectionId);
     const deleteConnections = connections.filter((c) => c.id === connectionId);
     if (deleteConnections.length<1) {
@@ -81,7 +80,7 @@ export const createConnection = async (connectionPath: string, connection: Omit<
 
 export const updateConnection = async (connectionPath: string, connection: ConnectionsType) => {
   try {
-    let connections = await readConnections(connectionPath);
+    const connections = await readConnections(connectionPath);
     const index = connections.findIndex((c) => c.id === connection.id);
     if (index === -1) throw new Error("Connection not found.");
     connections[index] = { ...connections[index], ...connection };
@@ -94,7 +93,7 @@ export const updateConnection = async (connectionPath: string, connection: Conne
 
 export const updateConnectionLastUsed = async (connectionPath: string, connectionId: string) => {
   try {
-    let connections = await readConnections(connectionPath);
+    const connections = await readConnections(connectionPath);
     const connection = connections.find((c) => c.id === connectionId);
     if (!connection) throw new Error("Connection not found.");
     // The `last_used` property will be dynamically added or updated.
