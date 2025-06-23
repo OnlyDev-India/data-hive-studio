@@ -15,10 +15,10 @@ import {
   setCurrentConnection,
 } from "@/redux/features/appdb";
 import DeleteModal from "../modals/delete-modal";
-import { deleteConnection } from "@/lib/actions/app-data";
 import { useRouter } from "next/navigation";
 import { testConnection } from "@/lib/actions/fetch-data";
 import { parseConnectionString } from "@/lib/helper/connection-details";
+import { useAppData } from "@/hooks/useAppData";
 
 const ConnectionMenu = ({
   children,
@@ -29,6 +29,7 @@ const ConnectionMenu = ({
 }) => {
   const dispatch = useDispatch();
   const router = useRouter();
+  const { deleteConnection } = useAppData();
 
   const handleViewData = () => {
     dispatch(setCurrentConnection(connection));
@@ -76,7 +77,7 @@ const ConnectionMenu = ({
 
   const handleRemove = async () => {
     const response = await deleteConnection(connection.id);
-    if (response && 'data' in response && response.data?.rows && 'affectedRows' in response.data.rows) {
+    if (response?.success) {
       toast.success("Connection removed Successfully");
       dispatch(removeConnection(connection));
     } else {

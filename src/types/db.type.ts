@@ -17,6 +17,7 @@ export interface ConnectionsType {
   save_password: number;
   color: string;
   ssl?: boolean | { rejectUnauthorized: boolean };
+  is_current?: boolean;
 }
 
 export interface ConnectionDetailsType extends ConnectionsType {

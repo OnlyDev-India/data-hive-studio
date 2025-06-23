@@ -2,7 +2,7 @@
 import { Button } from "../../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import { disconnectDb } from "@/lib/actions/fetch-data";
-import { CirclePowerIcon, MoonIcon, SettingsIcon, SunIcon } from "lucide-react";
+import { CirclePowerIcon, MonitorIcon, MoonIcon, SettingsIcon, SunIcon } from "lucide-react";
 import { useDispatch } from "react-redux";
 import { resetOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
@@ -21,14 +21,16 @@ import {
 import { useTheme } from "next-themes";
 import ConnectedPageSidebar from "./connected-page";
 import ConnectionPageSidebar from "./connection-page";
+import { useAppData } from "@/hooks/useAppData";
 
 const Sidebar = () => {
   const router = useRouter();
   const dispatch = useDispatch();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const { connectionPath } = useAppData();
   const handleDisconnect = async () => {
-    const response = await disconnectDb();
+    const response = await disconnectDb(connectionPath);
     if (response) {
       dispatch(resetOpenFiles());
       dispatch(resetQuery());
@@ -77,6 +79,13 @@ const Sidebar = () => {
                 >
                   <MoonIcon size={12} />
                   <span>Dark</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setTheme("system")}
+                  className="text-xs"
+                >
+                  <MonitorIcon size={12} />
+                  <span>System</span>
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuPortal>

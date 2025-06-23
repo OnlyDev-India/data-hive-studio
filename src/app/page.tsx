@@ -7,32 +7,13 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useDispatch } from "react-redux";
-import { connectAppDB } from "@/lib/actions/app-data";
 import { initAppData } from "@/redux/features/appdb";
 import { useEffect } from "react";
-import { parseConnectionString } from "@/lib/helper/connection-details";
-import { ConnectionDetailsType } from "@/types/db.type";
 
 const ConnectionsPage = () => {
   const dispatch = useDispatch();
   // console.log(loading);
   const connectDb = async () => {
-    const dbPath = await window.electron?.getAppDbPath?.();
-    const parsedDetails = parseConnectionString("");
-    const connectionDetails: ConnectionDetailsType = {
-      id: "",
-      name: "App Database",
-      connection_type: "sqlite",
-      host: parsedDetails.host || "",
-      port: parsedDetails.port || 0,
-      username: parsedDetails.user || "",
-      password: parsedDetails.password || "",
-      connection_string: dbPath || "",
-      save_password: 1,
-      color: "#15db95"
-    };
-
-    await connectAppDB({ connectionDetails });
     dispatch(initAppData() as any);
   };
   useEffect(() => {

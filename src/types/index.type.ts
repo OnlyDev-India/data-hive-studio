@@ -1,7 +1,7 @@
 declare global {
   interface Window {
     electron: {
-      getAppDbPath: () => string;
+      getConnectionsJsonPath: () => string;
       updateTheme: (theme: string) => void;
       openSelectDir: (path: any) => Promise<any>;
       reloadWindow: () => void;
