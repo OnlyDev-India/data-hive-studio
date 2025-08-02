@@ -4,6 +4,7 @@ import querySlice from "./features/query";
 import tablesSlice from "./features/tables";
 import appDBSlice from "./features/appdb";
 import backgroundProcessesSlice from "./features/background-processes";
+import tasksSlice from "./features/tasks";
 
 const store = configureStore({
   reducer: {
@@ -12,6 +13,7 @@ const store = configureStore({
     tables: tablesSlice,
     appDB: appDBSlice,
     bgProcesses: backgroundProcessesSlice,
+    tasks: tasksSlice,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
