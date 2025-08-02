@@ -24,7 +24,6 @@ import { TooltipTrigger } from "@radix-ui/react-tooltip";
 import { useSelector } from "react-redux";
 import { FileTableType } from "@/types/file.type";
 import { getTableColumns, getTablesData } from "@/lib/actions/fetch-data";
-import useBgProcess from "@/hooks/use-bgProcess";
 import { toast } from "sonner";
 import * as xlsx from "xlsx";
 import {
@@ -33,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { DropdownMenu } from "../ui/dropdown-menu";
+import { taskManager } from "@/lib/task-manager";
 
 const exportToCSV = (columns: any, data: any) => {
   const csvHeader = columns.map((column: any) => column.name).join(",");
@@ -127,95 +127,21 @@ const ExportModal = ({
     format: "csv",
     outputDir: "",
   });
-  const { addBgProcess, updateBgProcess } = useBgProcess();
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    addBgProcess({
-      name: "Export",
-      id: "export",
-      status: "running",
-      subProcesses: [
-        { name: tableName || currentFile?.name, status: "running" },
-      ],
-    });
     setOpen(false);
-    let exportData = null;
-    let exportColumns = columns;
-    if (formData.type === "filtered" && data && columns) {
-      exportData = data;
-    }
-    if (formData.type === "selected" && selectedData && columns) {
-      exportData = data.filter((_: any, index: number) =>
-        selectedData.includes(index),
-      );
-    }
-    if (formData.type === "table" && data && columns) {
-      const { columns } = await getTableColumns(
-        tableName || currentFile?.tableName,
-      );
-      const { data, totalRecords } = await getTablesData(
-        tableName || currentFile?.tableName,
-      );
-      const rows = ((await JSON.parse(data || "")) || []).map((item: any) => {
-        const copiedItem = JSON.parse(JSON.stringify(item));
-        Object.keys(item).forEach((key) => {
-          if (typeof item[key] === "object")
-            copiedItem[key] = item[key]?.toString();
-        });
-        return copiedItem;
-      });
-      exportData = rows;
-      exportColumns = columns;
-    }
-    if (!exportData || !exportColumns) return;
-
-    let convertedData = null;
-
-    if (formData.format === "csv") {
-      convertedData = exportToCSV(exportColumns, exportData);
-    }
-
-    if (formData.format === "json") {
-      convertedData = exportToJSON(exportData);
-    }
-
-    if (formData.format === "xlsx") {
-      convertedData = exportToExcel(exportColumns, exportData);
-    }
-
-    if (convertedData) {
-      if (window.electron) {
-        const result = await window.electron.saveFile(
-          convertedData,
-          `${formData.outputDir}/${formData.name}.${formData.format}`,
-        );
-        if (result.success) {
-          toast.success("Exported Successfully");
-        } else {
-          toast.error("Export Failed");
-        }
-      } else {
-        const blob = new Blob([convertedData], {
-          type: "text/csv;charset=utf-8;",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `${formData.name}.${formData.format}`;
-        link.click();
-      }
-    }
-    updateBgProcess({
-      id: "export",
-      status: "completed",
-      subProcesses: [
-        {
-          name: currentFile.name,
-          status: "completed",
-          details: `${formData.name}.${formData.format} exported successfully`,
-        },
-      ],
+    
+    // Add task to background queue
+    taskManager.addTask("Exporting data", {
+      tableName: tableName || currentFile?.tableName,
+      type: formData.type,
+      format: formData.format,
+      selectedData: formData.type === "selected" ? selectedData : undefined,
+      outputDir: formData.outputDir,
+      fileName: formData.name,
+      data: data,
+      columns: columns,
     });
   };
 

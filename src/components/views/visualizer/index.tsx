@@ -66,7 +66,6 @@ const SchemaVisualizer = () => {
   const { tables } = useSelector((state: any) => state.tables);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges] = useEdgesState<Edge>([]);
-  const [loading, setLoading] = useState(true);
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
@@ -122,21 +121,12 @@ const SchemaVisualizer = () => {
       createNodesAndEdges(tables);
       setTimeout(() => {
         onLayout("LR");
-        setLoading(false);
       }, 4000);
     }
   }, [tables]);
 
   return (
     <div className="relative h-full w-full">
-      {loading && (
-        <>
-          <div className="absolute left-1/2 top-1/2 z-[1000] h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 transform rounded-lg bg-popover/40 shadow-lg backdrop-blur-md">
-            <Lottie animationData={BuildingBlocks} className="h-full" />
-          </div>
-          <div className="absolute left-0 top-0 z-[999] h-full w-full rounded-md bg-transparent" />
-        </>
-      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}

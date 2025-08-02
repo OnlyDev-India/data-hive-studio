@@ -1,6 +1,8 @@
 "use client";
-import useBgProcess from "@/hooks/use-bgProcess";
 import React, { useEffect } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { RootState } from "@/redux/store";
+import { Task, removeTask, clearCompletedTasks } from "@/redux/features/tasks";
 import { Button } from "../ui/button";
 import {
   AlertTriangleIcon,
@@ -15,47 +17,53 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const statusIcons: any = {
-  running: <LoaderCircleIcon className="size-3 animate-spin" />,
-  completed: <CheckCheckIcon className="size-3" />,
-  failed: <AlertTriangleIcon className="size-3 animate-spin" />,
+  pending: <LoaderCircleIcon className="size-3 animate-pulse text-muted-foreground" />,
+  running: <LoaderCircleIcon className="size-3 animate-spin text-primary" />,
+  completed: <CheckCheckIcon className="size-3 text-green-500" />,
+  failed: <AlertTriangleIcon className="size-3 text-red-500" />,
 };
 
 const BottomBar = () => {
-  const {
-    processes,
-    completedProcesses,
-    moveToCompleted,
-    removeCompletedProcess,
-    clearCompletedProcesses,
-  } = useBgProcess();
+  const tasks = useSelector((state: RootState) => state.tasks.tasks);
+  const dispatch = useDispatch();
+
+  const activeTasks = tasks.filter(
+    (task: Task) => task.status === "pending" || task.status === "running",
+  );
+
+  const completedTasks = tasks.filter(
+    (task: Task) => task.status === "completed" || task.status === "failed",
+  );
 
   useEffect(() => {
-    if (!processes) return;
-
-    processes.forEach((process: any) => {
-      if (process.status === "completed") {
-        // TODO: show notification and remove timeout
-        setTimeout(() => {
-          moveToCompleted({ ...process });
-        }, 3000);
-      }
+    // Show notifications for newly completed tasks
+    completedTasks.forEach((task: Task) => {
+      // Removed toast notifications - only show in bottom bar notifications
     });
-  }, [processes]);
+  }, [completedTasks]);
 
   return (
     <div className="flex h-[var(--bottom-nav-height)] items-center justify-between bg-secondary px-4 text-xs">
       <div />
       <div className="h-full">
-        {processes?.map((process: any) => (
+        {activeTasks.map((task: Task) => (
           <Button
-            key={process.id}
+            key={task.id}
             variant="ghost"
             className="h-full gap-1 rounded-none p-0 px-2 text-xs font-light hover:bg-popover"
           >
-            {statusIcons[process.status]}
-            {process.name}
+            {statusIcons[task.status]}
+            {task.name}
+            {task.status === "running" && task.progress > 0 && (
+              <span className="text-muted-foreground">({task.progress}%)</span>
+            )}
+            {task.status === "pending" && (
+              <span className="text-muted-foreground">(queued)</span>
+            )}
           </Button>
         ))}
         <DropdownMenu>
@@ -64,7 +72,7 @@ const BottomBar = () => {
               variant="ghost"
               className="h-full gap-1 rounded-none p-0 px-2 text-xs font-light hover:bg-popover"
             >
-              <BellIcon className="size-3" />
+              <BellIcon className={cn("size-3", completedTasks.length > 0 && "fill-primary stroke-primary")} />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -73,41 +81,41 @@ const BottomBar = () => {
             className="min-w-[300px] p-0 text-sm"
           >
             <div className="flex items-center justify-between bg-secondary p-2">
-              <span className="text-muted-foreground">Notification</span>
+              <span className="text-muted-foreground">Notifications</span>
               <Button
                 variant={"ghost"}
                 size={"icon"}
                 className="size-6 p-0 [&>svg]:size-2"
-                onClick={clearCompletedProcesses}
+                onClick={() => dispatch(clearCompletedTasks())}
               >
                 <ListXIcon />
               </Button>
             </div>
             <div className="flex flex-col gap-2">
-              {completedProcesses?.map((process: any, index: number) => (
+              {completedTasks.map((task: Task) => (
                 <div
-                  key={index}
+                  key={task.id}
                   className="flex w-full items-start justify-between p-2"
                 >
                   <div className="flex flex-col gap-2">
                     <p className="flex items-center gap-2">
-                      {statusIcons.completed}
-                      {process.name}
+                      {statusIcons[task.status]}
+                      {task.name}
                     </p>
-                    {process.subProcesses.length > 0 &&
-                      process.subProcesses.map(
-                        (subProcess: any, index: number) => (
-                          <span key={index} className="text-muted-foreground">
-                            {subProcess.details}
-                          </span>
-                        ),
-                      )}
+                    {task.result && (
+                      <span className="text-muted-foreground">
+                        {task.result}
+                      </span>
+                    )}
+                    {task.error && (
+                      <span className="text-destructive">{task.error}</span>
+                    )}
                   </div>
                   <Button
                     variant={"ghost"}
                     size={"icon"}
                     className="size-6 p-0 [&>svg]:size-2"
-                    onClick={() => removeCompletedProcess(process)}
+                    onClick={() => dispatch(removeTask(task.id))}
                   >
                     <XIcon />
                   </Button>
