@@ -12,12 +12,15 @@ import { useDispatch } from "react-redux";
 
 const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
   const dispatch = useDispatch();
-  const handleFetchTables = async () => {
-    dispatch(fetchTables() as any);
-  };
+  
+  // Only fetch tables once when component mounts, not on every route change
   useEffect(() => {
+    const handleFetchTables = async () => {
+      dispatch(fetchTables() as any);
+    };
     handleFetchTables();
-  }, [dispatch]);
+  }, []); // Remove dispatch from dependency array
+
   return (
     <div
       className={cn(
@@ -35,7 +38,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
               href={item.link}
               className={cn(
                 "flex items-center justify-center",
-                "w-full rounded-md p-2 text-muted-foreground hover:bg-popover/40 hover:text-foreground",
+                "w-full rounded-md p-2 text-muted-foreground hover:bg-popover/40 hover:text-foreground transition-colors duration-150",
                 {
                   "bg-popover text-primary": pathname.includes(item.link),
                 },
