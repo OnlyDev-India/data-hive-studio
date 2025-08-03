@@ -25,12 +25,12 @@ export function DatabaseSchemaNode({
         "bg-card dark:bg-card",
         "border border-border",
         "rounded-xl shadow-lg hover:shadow-xl",
-        "overflow-hidden",
+        // Remove overflow-hidden to allow handles to be visible
         selected && "ring-2 ring-ring ring-offset-2"
       )}
     >
       {/* Clean Header */}
-      <div className="bg-primary px-4 py-3">
+      <div className="bg-primary px-4 py-3 rounded-t-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-primary-foreground/20 rounded-lg">
@@ -122,27 +122,50 @@ export function DatabaseSchemaNode({
       </div>
       
       {/* Connection Handles */}
-      {data.schema.map((entry, index) => (
-        <Handle
-          key={entry.title}
-          id={entry.title}
-          type={entry.isForeign ? "source" : "target"}
-          position={entry.isForeign ? Position.Right : Position.Left}
-          className={cn(
-            "w-4 h-4 border-2 transition-all duration-200",
-            "bg-card",
-            "border-border",
-            "hover:border-primary hover:scale-110",
-            entry.isForeign && "border-primary hover:border-primary/80",
-            entry.isPrimary && "border-yellow-500 hover:border-yellow-600"
-          )}
-          style={{
-            top: `${72 + (index * 48)}px`,
-            left: entry.isForeign ? 'auto' : '-8px',
-            right: entry.isForeign ? '-8px' : 'auto',
-          }}
-        />
-      ))}
+      {data.schema.map((entry, index) => {
+        // Calculate position based on actual field layout
+        // Header: ~60px, each field: ~52px (as adjusted), spacing: ~4px
+        const headerHeight = 60;
+        const fieldHeight = 52;
+        const fieldSpacing = 4;
+        
+        // Adjust for foreign key fields that have additional content (reference text)
+        let adjustedFieldHeight = fieldHeight;
+        if (entry.isForeign && entry.foreignTable) {
+          adjustedFieldHeight = 65; // Foreign keys with references are taller
+        }
+        
+        // Calculate cumulative height up to this field
+        let cumulativeHeight = headerHeight;
+        for (let i = 0; i < index; i++) {
+          const prevEntry = data.schema[i];
+          const prevFieldHeight = (prevEntry.isForeign && prevEntry.foreignTable) ? 65 : fieldHeight;
+          cumulativeHeight += prevFieldHeight + fieldSpacing;
+        }
+        
+        // Position handle at the center of the current field
+        const fieldTop = cumulativeHeight + (adjustedFieldHeight / 2);
+        
+        return (
+          <Handle
+            key={entry.title}
+            id={entry.title}
+            type={entry.isForeign ? "source" : "target"}
+            position={entry.isForeign ? Position.Right : Position.Left}
+            className={cn(
+              "w-4 h-4 border-2 transition-all duration-200",
+              "bg-background",
+              "border-2",
+              entry.isForeign && "border-primary bg-primary/20",
+              entry.isPrimary && "border-yellow-500 bg-yellow-500/20"
+            )}
+            style={{
+              top: `${fieldTop}px`,
+              zIndex: 50,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

@@ -105,7 +105,8 @@ export async function getTablesWithFieldsFromDb(
   const connection = connectionManager.getCurrentConnection();
   if (!connection) return null;
   
-  return await connection.getTablesWithFieldsFromDb(currentSchema, isUpdateSchema);
+  const result = await connection.getTablesWithFieldsFromDb(currentSchema, isUpdateSchema);
+  return result;
 }
 
 export async function getDatabases() {
@@ -325,6 +326,15 @@ export async function forceReconnect(connectionId?: string) {
     }
     const connectionManager = EnhancedConnectionManager.getInstance();
     const success = await connectionManager.forceReconnect(id!);
+    if(success) {
+      const { response } = await connectDb();
+      if(response.success) {
+        return {
+          success: true,
+          message: "Reconnection successful"
+        };
+      }
+    }
     return {
       success,
       message: success ? "Reconnection initiated" : "Reconnection failed"
