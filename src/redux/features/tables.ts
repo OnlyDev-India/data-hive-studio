@@ -8,12 +8,21 @@ export const fetchAllTables = createAsyncThunk(
   "tables/fetchAllTables",
   async (args: boolean, { getState }) => {
     // Access the current schema from the state
-    const state: any = getState();
+    try {
+      const state: any = getState();
 
-    const currentSchema = state.tables.currentSchema;
-    const { tables } = await getTablesWithFieldsFromDb(currentSchema, args);
+      const currentSchema = state.tables.currentSchema;
+      const result = await getTablesWithFieldsFromDb(currentSchema, args);
+      if (result?.error) {
+        throw new Error(result?.error);
+      }
 
-    return tables;
+      return result.tables;
+    } catch (error) {
+      console.log("error", error);
+      return [];
+    }
+    
   },
 );
 
