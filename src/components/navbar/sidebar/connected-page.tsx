@@ -5,21 +5,9 @@ import {
 } from "@/components/ui/tooltip";
 import { sideBadMenu } from "@/config/menu";
 import { cn } from "@/lib/utils";
-import { fetchTables } from "@/redux/features/tables";
 import Link from "next/link";
-import { useEffect } from "react";
-import { useDispatch } from "react-redux";
 
 const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
-  const dispatch = useDispatch();
-  
-  // Only fetch tables once when component mounts, not on every route change
-  useEffect(() => {
-    const handleFetchTables = async () => {
-      dispatch(fetchTables() as any);
-    };
-    handleFetchTables();
-  }, []); // Remove dispatch from dependency array
 
   return (
     <div
@@ -38,7 +26,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
               href={item.link}
               className={cn(
                 "flex items-center justify-center",
-                "w-full rounded-md p-2 text-muted-foreground hover:bg-popover/40 hover:text-foreground transition-colors duration-150",
+                "w-full rounded-md p-2 text-muted-foreground transition-colors duration-150 hover:bg-popover/40 hover:text-foreground",
                 {
                   "bg-popover text-primary": pathname.includes(item.link),
                 },
@@ -50,7 +38,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={10}>
                   {item.title}
-                  <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span>
+                  {/* <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span> */}
                 </TooltipContent>
               </Tooltip>
             </Link>
