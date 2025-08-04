@@ -2,7 +2,14 @@
 import { Button } from "../../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import { disconnectDb } from "@/lib/actions/fetch-data";
-import { CirclePowerIcon, MonitorIcon, MoonIcon, SettingsIcon, SunIcon } from "lucide-react";
+import {
+  CirclePowerIcon,
+  Database,
+  MonitorIcon,
+  MoonIcon,
+  SettingsIcon,
+  SunIcon,
+} from "lucide-react";
 import { useDispatch } from "react-redux";
 import { resetOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
@@ -22,6 +29,9 @@ import { useTheme } from "next-themes";
 import ConnectedPageSidebar from "./connected-page";
 import ConnectionPageSidebar from "./connection-page";
 import { useAppData } from "@/hooks/useAppData";
+import { DatabaseBackupModal } from "@/components/modals/database-backup-modal";
+import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
+import { TooltipTrigger } from "@/components/ui/tooltip";
 
 const Sidebar = () => {
   const router = useRouter();
@@ -44,6 +54,24 @@ const Sidebar = () => {
       {pathname.startsWith("/app") && (
         <ConnectedPageSidebar pathname={pathname} />
       )}
+      <DatabaseBackupModal>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"ghost"}
+                size={"icon"}
+                className="hover:bg-secondary"
+              >
+                <Database size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Database Backup</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </DatabaseBackupModal>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

@@ -26,6 +26,22 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
   // Command palette state
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
   const [startSearchValue, setStartSearchValue] = React.useState(">");
+  
+  // Listen for custom command palette trigger events
+  React.useEffect(() => {
+    const handleCommandPaletteTrigger = (event: CustomEvent) => {
+      const { type = 'file' } = event.detail;
+      setStartSearchValue(type === 'command' ? '>' : '');
+      setCommandPaletteOpen(true);
+    };
+
+    document.addEventListener('command-palette-trigger', handleCommandPaletteTrigger as EventListener);
+
+    return () => {
+      document.removeEventListener('command-palette-trigger', handleCommandPaletteTrigger as EventListener);
+    };
+  }, []);
+
   const handleAction = async(action: string) => {
     switch (action) {
       case "tablesView":

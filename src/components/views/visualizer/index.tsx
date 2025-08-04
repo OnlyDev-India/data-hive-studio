@@ -599,8 +599,8 @@ const SchemaVisualizer = () => {
             </div>
           </div>
 
-          <div className="scrollable-container-gutter h-[calc(100%-60px)] overflow-auto rounded-b-lg pb-4">
-            <div className="space-y-3 p-3">
+          <div className="scrollable-container-gutter h-[calc(100%-42px)] overflow-auto rounded-b-lg">
+            <div className="space-y-3 px-3">
               {/* Search Input */}
               <div className="space-y-2 sticky top-0 z-10 bg-secondary pb-3">
                 <div className="text-xs font-medium text-foreground">
@@ -707,8 +707,8 @@ const SchemaVisualizer = () => {
           >
             <Background
               variant={BackgroundVariant.Dots}
-              gap={30}
-              size={1}
+              gap={50}
+              size={10}
               className="opacity-20 dark:opacity-10"
               color="hsl(var(--muted-foreground))"
             />

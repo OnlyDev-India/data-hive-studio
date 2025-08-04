@@ -6,11 +6,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 export function CommandMenu() {
   const handleClick = () => {
     // Dispatch a custom event to trigger the command palette
-    const event = new KeyboardEvent('keydown', {
-      key: 'p',
-      ctrlKey: true,
-      shiftKey: true,
-      bubbles: true
+    const event = new CustomEvent('command-palette-trigger', {
+      bubbles: true,
+      detail: { 
+        source: 'search-button',
+        type: 'file' // or 'command' for command mode
+      }
     });
     document.dispatchEvent(event);
   };
@@ -27,7 +28,7 @@ export function CommandMenu() {
         </TooltipTrigger>
         <TooltipContent side="right">
         Command Palette
-        <span className="text-xs text-muted-foreground">{` (ctrl+shift+p)`}</span>
+        {/* <span className="text-xs text-muted-foreground">{` (ctrl+shift+p)`}</span> */}
         </TooltipContent>
       </Tooltip>
   );
