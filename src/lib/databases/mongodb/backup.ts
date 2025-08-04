@@ -30,7 +30,7 @@ export class MongoBackup {
       const fileName = `mongodb-backup-${timestamp}.json`;
       
       const collections = await this.connection.getCollections();
-      let backupData: any = {
+      const backupData: any = {
         version: "1.0.0",
         timestamp: new Date().toISOString(),
         database: this.connection.databaseName,
@@ -76,7 +76,7 @@ export class MongoBackup {
       const fileName = `mongodb-backup-${timestamp}.${format}`;
       
       const collections = await this.connection.getCollections();
-      let backupData: any = {
+      const backupData: any = {
         version: "1.0.0",
         timestamp: new Date().toISOString(),
         database: this.connection.databaseName,
@@ -239,7 +239,7 @@ export class MongoBackup {
       // This would require BSON serialization
       // For now, returning JSON format
       const collections = await this.connection.getCollections();
-      let backupData: any = {
+      const backupData: any = {
         version: "1.0.0",
         timestamp: new Date().toISOString(),
         database: this.connection.databaseName,
