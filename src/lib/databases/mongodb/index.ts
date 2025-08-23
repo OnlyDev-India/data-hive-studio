@@ -1,8 +1,7 @@
 import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";
-import { Collection, CollectionInfo, Db, MongoClient, ObjectId } from "mongodb";
-import { cookies } from "next/headers";
+import { CollectionInfo, MongoClient, ObjectId } from "mongodb";
 import { SortColumn } from "react-data-grid";
 
 export class MongoDbClient implements DatabaseClient {
@@ -16,9 +15,36 @@ export class MongoDbClient implements DatabaseClient {
   }) {
     try {
       const uri = connectionDetails.connection_string;
+      
       this.client = new MongoClient(uri);
       await this.client.connect();
-      this.db = this.client.db();
+      
+      // Try to get database from connection details or URI
+      let databaseName = connectionDetails.database;
+      
+      if (!databaseName) {
+        // Extract database name from URI if not provided in connection details
+        try {
+          const url = new URL(uri);
+          databaseName = url.pathname.replace('/', '') || undefined;
+        } catch (urlError) {
+          // Silently continue if URI parsing fails
+        }
+      }
+      
+      if (databaseName) {
+        this.db = this.client.db(databaseName);
+      } else {
+        this.db = this.client.db();
+      }
+      
+      // Test the connection by trying to ping
+      try {
+        await this.db.admin().ping();
+      } catch (pingError) {
+        // Connection test failed, but continue anyway
+      }
+      
       return { success: true };
     } catch (error) {
       return {
@@ -40,7 +66,7 @@ export class MongoDbClient implements DatabaseClient {
   }
 
   isConnectedToDb() {
-    return this.db;
+    return !!this.db;
   }
 
   async executeQuery(query: string) {
@@ -112,25 +138,42 @@ export class MongoDbClient implements DatabaseClient {
       await client.close();
       return { success: true, error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { success: false, error: error.message };
     }
   }
 
-  async getTablesWithFieldsFromDb() {
-    if (!this.db) return { tables: [], error: "No connection to the database" };
+  async getTablesWithFieldsFromDb(currentSchema: string = "", isUpdateSchema: boolean = false) {
+    if (!this.db) {
+      return { tables: [], error: "No connection to the database" };
+    }
+    
+    if (!this.client) {
+      return { tables: [], error: "No client connection to the database" };
+    }
+    
     try {
+      // First, test if we can access the database
+      try {
+        await this.db.admin().ping();
+      } catch (pingError) {
+        return { tables: [], error: "Database connection is not accessible" };
+      }
+      
       const result: CollectionInfo[] = await this.db
         .listCollections()
         .toArray();
+      
+      if (!Array.isArray(result)) {
+        return { tables: [], error: "Invalid response from database" };
+      }
+      
       const collections = result.map((collection) => ({
         table_name: collection.name,
         fields: [],
       }));
-
+      
       return { tables: collections, error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { tables: [], error: error.message };
     }
   }
@@ -149,7 +192,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { databases: databases || [], error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { databases: [], error: error.message };
     }
   }
@@ -202,7 +244,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { columns, error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { columns: null, error: error.message };
     }
   }
@@ -228,34 +269,130 @@ export class MongoDbClient implements DatabaseClient {
 
       let filterQuery = {};
       if (filters && filters.length > 0) {
-        filterQuery = {
-          $and: filters.map((filter) => {
-            const value = filter.value;
-            if (filter.column === "_id") {
-              return { _id: ObjectId.createFromHexString(value) };
+                 const mongoFilters = filters.map((filter) => {
+           const { column, compare, value, value2, isCustomQuery, customQuery } = filter;
+           
+           // Handle custom queries
+           if (isCustomQuery && customQuery && customQuery.trim()) {
+             try {
+               // For MongoDB, we'll try to parse the custom query as a JSON object
+               // This allows users to write MongoDB query syntax directly
+               return JSON.parse(customQuery.trim());
+             } catch (error) {
+               return {};
+             }
+           }
+           
+           const field = column === "_id" ? "_id" : column;
+          
+          // Handle ObjectId conversion for _id field
+          const processValue = (val: any) => {
+            if (field === "_id" && typeof val === "string") {
+              try {
+                return ObjectId.createFromHexString(val);
+              } catch {
+                return val; // Return original value if ObjectId conversion fails
+              }
             }
-            switch (filter.compare) {
-              case "contains":
-                return { [filter.column]: { $regex: value, $options: "i" } };
-              case "equals":
-                return { [filter.column]: value };
-              case "startsWith":
-                return { [filter.column]: { $regex: `^${value}`, $options: "i" } };
-              case "endsWith":
-                return { [filter.column]: { $regex: `${value}$`, $options: "i" } };
-              case "greaterThan":
-                return { [filter.column]: { $gt: value } };
-              case "lessThan":
-                return { [filter.column]: { $lt: value } };
-              case "greaterThanOrEqual":
-                return { [filter.column]: { $gte: value } };
-              case "lessThanOrEqual":
-                return { [filter.column]: { $lte: value } };
-              default:
-                return {};
-            }
-          }),
-        };
+            return val;
+          };
+
+          switch (compare) {
+            // Null checks
+            case "is null":
+              return { [field]: null };
+            case "is not null":
+              return { [field]: { $ne: null } };
+            
+            // Boolean checks
+            case "is true":
+              return { [field]: true };
+            case "is false":
+              return { [field]: false };
+            
+            // Empty checks
+            case "is empty":
+              return { $or: [{ [field]: null }, { [field]: "" }] };
+            case "is not empty":
+              return { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: "" } }] };
+            
+            // String operations
+            case "equals":
+              return { [field]: processValue(value) };
+            case "not equals":
+              return { [field]: { $ne: processValue(value) } };
+            case "contains":
+              return { [field]: { $regex: value, $options: "i" } };
+            case "not contains":
+              return { [field]: { $not: { $regex: value, $options: "i" } } };
+            case "starts with":
+              return { [field]: { $regex: `^${value}`, $options: "i" } };
+            case "ends with":
+              return { [field]: { $regex: `${value}$`, $options: "i" } };
+            case "regex":
+              return { [field]: { $regex: value } };
+            
+            // Numeric/Date comparisons
+            case "greater than":
+              return { [field]: { $gt: processValue(value) } };
+            case "less than":
+              return { [field]: { $lt: processValue(value) } };
+            case "greater than or equal":
+              return { [field]: { $gte: processValue(value) } };
+            case "less than or equal":
+              return { [field]: { $lte: processValue(value) } };
+            
+            // Range operations
+            case "between":
+              return { [field]: { $gte: processValue(value), $lte: processValue(value2) } };
+            case "not between":
+              return { $or: [{ [field]: { $lt: processValue(value) } }, { [field]: { $gt: processValue(value2) } }] };
+            
+            // Array operations
+            case "in":
+              const inValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
+              return { [field]: { $in: inValues } };
+            case "not in":
+              const notInValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
+              return { [field]: { $nin: notInValues } };
+            
+            // Date-specific operations
+            case "is today":
+              const today = new Date();
+              const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+              const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+              return { [field]: { $gte: startOfDay, $lt: endOfDay } };
+            
+            case "is this week":
+              const now = new Date();
+              const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+              const endOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 7));
+              return { [field]: { $gte: startOfWeek, $lt: endOfWeek } };
+            
+            case "is this month":
+              const thisMonth = new Date();
+              const startOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+              const endOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth() + 1, 1);
+              return { [field]: { $gte: startOfMonth, $lt: endOfMonth } };
+            
+            case "is this year":
+              const thisYear = new Date();
+              const startOfYear = new Date(thisYear.getFullYear(), 0, 1);
+              const endOfYear = new Date(thisYear.getFullYear() + 1, 0, 1);
+              return { [field]: { $gte: startOfYear, $lt: endOfYear } };
+            
+            // Array-specific operations
+            case "has length":
+              return { [field]: { $size: parseInt(value) } };
+            
+            default:
+              return {};
+          }
+        }).filter(filter => Object.keys(filter).length > 0);
+
+        if (mongoFilters.length > 0) {
+          filterQuery = mongoFilters.length === 1 ? mongoFilters[0] : { $and: mongoFilters };
+        }
       }
       
       const result = await this.db
@@ -271,10 +408,12 @@ export class MongoDbClient implements DatabaseClient {
             : {},
         )
         .toArray();
+      
+
+      
       const totalRecords = await this.db.collection(tableName).countDocuments();
       return { data: result, error: null, totalRecords };
     } catch (error: any) {
-      console.error("Error:", error);
       return { data: null, error: error.message, totalRecords: 0 };
     }
   }
@@ -290,7 +429,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { data: null, error: null };
     } catch (error: any) {
-      console.error("Error dropping table:", error);
       return { data: null, error: error.message };
     }
   }
@@ -313,26 +451,50 @@ export class MongoDbClient implements DatabaseClient {
 
     try {
       let totalUpdated = 0;
-      console.log(data);
       for (const { oldValue, newValue } of data) {
-        // Convert _id to ObjectId in both oldValue and newValue if present
-        const processedOldValue = { ...oldValue };
-        const processedNewValue = { ...newValue };
-
-        if (processedOldValue._id && typeof processedOldValue._id === 'string') {
-          processedOldValue._id = ObjectId.createFromHexString(processedOldValue._id);
+        // For MongoDB, we need to use the _id field for reliable updates
+        if (!oldValue._id) {
+          continue;
         }
 
-        if (processedNewValue._id && typeof processedNewValue._id === 'string') {
-          processedNewValue._id = ObjectId.createFromHexString(processedNewValue._id);
+        // Convert _id to ObjectId for the filter
+        let filterId;
+        try {
+          filterId = typeof oldValue._id === 'string' 
+            ? ObjectId.createFromHexString(oldValue._id)
+            : oldValue._id;
+        } catch (error) {
+          continue;
         }
 
+        // Create the update document with only changed fields
+        const updateDoc: any = {};
+        Object.keys(newValue).forEach(key => {
+          if (key !== '_id' && newValue[key] !== oldValue[key]) {
+            updateDoc[key] = newValue[key];
+          }
+        });
+
+        // If no fields actually changed, skip this update
+        if (Object.keys(updateDoc).length === 0) {
+          continue;
+        }
+
+        // Use updateOne with _id filter for reliable updates
+        
         const result = await this.db
           .collection(tableName)
-          .updateMany(processedOldValue, { $set: processedNewValue });
-        totalUpdated += result.modifiedCount;
+          .updateOne(
+            { _id: filterId },
+            { $set: updateDoc }
+          );
+
+        if (result.matchedCount > 0) {
+          totalUpdated += result.modifiedCount;
+        }
       }
 
+      // Fetch updated data
       const { data: updatedData, error: fetchError } =
         await this.getTablesData(tableName);
 
@@ -343,7 +505,6 @@ export class MongoDbClient implements DatabaseClient {
         fetchError,
       };
     } catch (error: any) {
-      console.error("Error updating records:", error);
       return {
         data: null,
         effectedRows: 0,
@@ -381,7 +542,6 @@ export class MongoDbClient implements DatabaseClient {
         fetchError,
       };
     } catch (error: any) {
-      console.error("Error deleting records:", error);
       return {
         data: null,
         deleteError:
@@ -424,7 +584,6 @@ export class MongoDbClient implements DatabaseClient {
         error: null,
       };
     } catch (error: any) {
-      console.error("Error inserting records:", error);
       return {
         data: null,
         effectRows: 0,
@@ -457,7 +616,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { data: [], error: null };
     } catch (error: any) {
-      console.error("Error creating collection:", error);
       return { data: null, error: error.message };
     }
   }

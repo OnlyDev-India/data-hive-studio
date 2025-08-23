@@ -25,6 +25,63 @@ export interface BackupResult {
   recordsCount?: number;
 }
 
+export interface BackupCommand {
+  command: string;
+  description: string;
+  additionalCommands?: BackupCommand[];
+}
+
+export async function getCurrentConnectionDetails(): Promise<ConnectionDetailsType | null> {
+  try {
+    const connectionManager = EnhancedConnectionManager.getInstance();
+    return connectionManager.getCurrentConnectionDetails();
+  } catch (error) {
+    console.error("Failed to get current connection details:", error);
+    return null;
+  }
+}
+
+export async function generateDatabaseBackupCommands(
+  connectionDetails: ConnectionDetailsType
+): Promise<BackupCommand[]> {
+  try {
+    const connectionManager = EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getCurrentConnection();
+    
+    if (!connection) {
+      throw new Error("No active database connection");
+    }
+
+    const config = parseConnectionString(connectionDetails.connection_string);
+    if (config.error) {
+      throw new Error(config.error);
+    }
+
+    const dbType = connectionDetails.connection_type;
+    
+    switch (dbType) {
+      case 'pgSql':
+        const postgresBackup = new PostgresBackup(connection);
+        return postgresBackup.generateBackupCommands(connectionDetails.connection_string);
+        
+      case 'sqlite':
+        const sqliteBackup = new SqliteBackup(connection);
+        return sqliteBackup.generateBackupCommands(connectionDetails.connection_string);
+        
+      case 'mongodb':
+        const mongoBackup = new MongoBackup(connection);
+        return mongoBackup.generateBackupCommands(connectionDetails.connection_string);
+        
+      default:
+        throw new Error(`Unsupported database type: ${dbType}`);
+    }
+  } catch (error) {
+    console.error("Failed to generate backup commands:", error);
+    throw error;
+  }
+}
+
+// Legacy function - kept for compatibility but deprecated
 export async function createDatabaseBackup(
   connectionDetails: ConnectionDetailsType,
   options: DatabaseBackupOptions = {
@@ -36,44 +93,11 @@ export async function createDatabaseBackup(
     compression: false
   }
 ): Promise<BackupResult> {
-  try {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    const connection = connectionManager.getCurrentConnection();
-    
-    if (!connection) {
-      return { success: false, error: "No active database connection" };
-    }
-
-    const config = parseConnectionString(connectionDetails.connection_string);
-    if (config.error) {
-      return { success: false, error: config.error };
-    }
-
-    const dbType = connectionDetails.connection_type;
-    
-    switch (dbType) {
-      case 'pgSql':
-        const postgresBackup = new PostgresBackup(connection);
-        return await postgresBackup.createBackup(options);
-        
-      case 'sqlite':
-        const sqliteBackup = new SqliteBackup(connection);
-        return await sqliteBackup.createBackup(options);
-        
-      case 'mongodb':
-        const mongoBackup = new MongoBackup(connection);
-        return await mongoBackup.createBackupWithOptions(options);
-        
-      default:
-        return { success: false, error: `Unsupported database type: ${dbType}` };
-    }
-  } catch (error) {
-    console.error("Database backup failed:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Failed to create database backup" 
-    };
-  }
+  console.warn('createDatabaseBackup is deprecated. Use generateDatabaseBackupCommands instead.');
+  return {
+    success: false,
+    error: 'This function is deprecated. Use generateDatabaseBackupCommands to get terminal commands instead.'
+  };
 }
 
 // Helper functions for statistics
@@ -103,20 +127,29 @@ export async function getRecordsCount(connection: any): Promise<number> {
   }
 }
 
-// Database-specific backup functions
+// Database-specific backup functions - deprecated
 export async function createPostgresBackup(connection: any, options: DatabaseBackupOptions): Promise<BackupResult> {
-  const postgresBackup = new PostgresBackup(connection);
-  return await postgresBackup.createBackup(options);
+  console.warn('createPostgresBackup is deprecated. Use generateDatabaseBackupCommands instead.');
+  return {
+    success: false,
+    error: 'This function is deprecated. Use generateDatabaseBackupCommands to get terminal commands instead.'
+  };
 }
 
 export async function createSqliteBackup(connection: any, options: DatabaseBackupOptions): Promise<BackupResult> {
-  const sqliteBackup = new SqliteBackup(connection);
-  return await sqliteBackup.createBackup(options);
+  console.warn('createSqliteBackup is deprecated. Use generateDatabaseBackupCommands instead.');
+  return {
+    success: false,
+    error: 'This function is deprecated. Use generateDatabaseBackupCommands to get terminal commands instead.'
+  };
 }
 
 export async function createMongoBackup(connection: any, options: DatabaseBackupOptions): Promise<BackupResult> {
-  const mongoBackup = new MongoBackup(connection);
-  return await mongoBackup.createBackupWithOptions(options);
+  console.warn('createMongoBackup is deprecated. Use generateDatabaseBackupCommands instead.');
+  return {
+    success: false,
+    error: 'This function is deprecated. Use generateDatabaseBackupCommands to get terminal commands instead.'
+  };
 }
 
 // Restore functions (placeholders for future implementation)
