@@ -22,6 +22,8 @@ import {
   CheckIcon,
   TableIcon,
   FileTextIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ForeignKeyCells from "../table-cells/foreign-key-cells";
@@ -63,16 +65,124 @@ interface TableProps {
 const formatNoSqlValue = (value: any): string => {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return `[${value.length} items]`;
-  if (typeof value === "object")
-    return (
-      JSON.stringify(value)
-    );
+  if (typeof value === "object") return JSON.stringify(value);
   if (typeof value === "boolean") return String(value);
   if (typeof value === "number") return String(value);
   if (typeof value === "string") {
     return value.length > 50 ? value.substring(0, 50) + "..." : value;
   }
   return String(value);
+};
+
+// Inline Object Editor Component for expandable sub-tables
+interface InlineObjectEditorProps {
+  objectData: any;
+  rowIndex: number;
+  columnKey: string;
+  onSave: (rowIndex: number, columnKey: string, updatedObject: any) => void;
+}
+
+const InlineObjectEditor = ({
+  objectData,
+  rowIndex,
+  columnKey,
+  onSave,
+}: InlineObjectEditorProps) => {
+  const [editableData, setEditableData] =
+    useState<Record<string, any>>(objectData);
+  const [newFieldName, setNewFieldName] = useState("");
+
+  const handleFieldChange = (key: string, value: any) => {
+    setEditableData((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const addNewField = () => {
+    if (
+      newFieldName.trim() &&
+      !editableData.hasOwnProperty(newFieldName.trim())
+    ) {
+      setEditableData((prev) => ({
+        ...prev,
+        [newFieldName.trim()]: "",
+      }));
+      setNewFieldName("");
+    }
+  };
+
+  const removeField = (key: string) => {
+    setEditableData((prev) => {
+      const newData = { ...prev };
+      delete newData[key];
+      return newData;
+    });
+  };
+
+  const handleSave = () => {
+    onSave(rowIndex, columnKey, editableData);
+  };
+
+  return (
+    <div className="my-2 ml-4 rounded-r-md border-l-4 border-primary bg-muted/30 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-sm font-medium text-muted-foreground">
+          Editing: {columnKey}
+        </h4>
+        <Button size="sm" onClick={handleSave} className="h-7 px-3 text-xs">
+          Save
+        </Button>
+      </div>
+
+      <div className="max-h-48 space-y-2 overflow-auto">
+        {Object.entries(editableData).map(([key, value]) => (
+          <div
+            key={key}
+            className="flex items-center gap-2 rounded border bg-background p-2"
+          >
+            <span className="min-w-[80px] text-xs font-medium">{key}</span>
+            <Input
+              value={typeof value === "string" ? value : String(value || "")}
+              onChange={(e) => handleFieldChange(key, e.target.value)}
+              className="h-7 flex-1 text-xs"
+              placeholder="Enter value"
+            />
+            <span className="min-w-[60px] text-xs text-muted-foreground">
+              {Array.isArray(value) ? "array" : typeof value}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+              onClick={() => removeField(key)}
+            >
+              <XIcon size={10} />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+        <Input
+          value={newFieldName}
+          onChange={(e) => setNewFieldName(e.target.value)}
+          placeholder="New field name"
+          className="h-7 flex-1 text-xs"
+          onKeyPress={(e) => e.key === "Enter" && addNewField()}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={addNewField}
+          disabled={!newFieldName.trim()}
+          className="h-7 px-2 text-xs"
+        >
+          Add
+        </Button>
+      </div>
+    </div>
+  );
 };
 
 const Table = ({
@@ -87,6 +197,9 @@ const Table = ({
 
   const [filterDivHeight, setFilterDivHeight] = useState<number>(40);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
+  const [expandedObjects, setExpandedObjects] = useState<Set<string>>(
+    new Set(),
+  );
 
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
@@ -133,6 +246,44 @@ const Table = ({
       }),
     );
     // setIsNewRows(true);
+  };
+
+  const toggleObjectExpansion = (rowIndex: number, columnKey: string) => {
+    const key = `${rowIndex}-${columnKey}`;
+    setExpandedObjects((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
+  const isObjectExpanded = (rowIndex: number, columnKey: string) => {
+    return expandedObjects.has(`${rowIndex}-${columnKey}`);
+  };
+
+  const saveObjectChanges = (
+    rowIndex: number,
+    columnKey: string,
+    updatedObject: any,
+  ) => {
+    // Create updated rows with the modified object
+    const updatedRows = data.map((row, idx) => {
+      if (idx === rowIndex) {
+        return {
+          ...row,
+          [columnKey]: updatedObject,
+        };
+      }
+      return row;
+    });
+
+    // Update the grid data
+    const changes = { indexes: [rowIndex], column: { key: columnKey } };
+    handleRowChange(updatedRows, changes);
   };
 
   const handleRemoveNewRecord = (rowIdx?: number) => {
@@ -272,31 +423,64 @@ const Table = ({
 
           // For MongoDB and other NoSQL databases, use custom cell renderer
           if (isNosql) {
+            const cellValue = props.row[column.key];
+            const isObjectValue =
+              typeof cellValue === "object" &&
+              cellValue !== null &&
+              !Array.isArray(cellValue);
+
             return (
-              <div>
-                <Input
-                  value={formatNoSqlValue(props.row[column.key])}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    const newRow = {
-                      ...props.row,
-                      [column.key]: e.target.value,
-                    };
-                    
-                    // IMPORTANT: Don't create a new array, modify the existing one
-                    // This prevents ReactDataGrid from losing track of row indices
-                    const updatedRows = data.map((row, idx) => {
-                      if (idx === props.rowIdx) {
-                        return newRow;
-                      }
-                      return row;
-                    });
-                    
-                    // Call onRowChange with the updated rows array
-                    props.onRowChange(updatedRows, { indexes: [props.rowIdx], column: column });
-                  }}
-                  className="rounded-none border-0 border-primary p-0 hover:border-b-2 focus-visible:border-b-2 focus-visible:outline-none focus-visible:ring-0"
-                  placeholder="null"
-                />
+              <div className="flex items-center gap-2">
+                {isObjectValue ? (
+                  <>
+                    <span className="text-xs text-muted-foreground">
+                      {Object.keys(cellValue).length} fields
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={true} //TODO: remove this
+                      onClick={() => {
+                        // Toggle sub-table expansion for editing object
+                        toggleObjectExpansion(props.rowIdx, column.key);
+                      }}
+                    >
+                      {isObjectExpanded(props.rowIdx, column.key) ? (
+                        <ChevronDownIcon size={12} />
+                      ) : (
+                        <ChevronRightIcon size={12} />
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <Input
+                    value={formatNoSqlValue(cellValue)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const newRow = {
+                        ...props.row,
+                        [column.key]: e.target.value,
+                      };
+
+                      // IMPORTANT: Don't create a new array, modify the existing one
+                      // This prevents ReactDataGrid from losing track of row indices
+                      const updatedRows = data.map((row, idx) => {
+                        if (idx === props.rowIdx) {
+                          return newRow;
+                        }
+                        return row;
+                      });
+
+                      // Call onRowChange with the updated rows array
+                      props.onRowChange(updatedRows, {
+                        indexes: [props.rowIdx],
+                        column: column,
+                      });
+                    }}
+                    className="rounded-none border-0 border-primary p-0 hover:border-b-2 focus-visible:border-b-2 focus-visible:outline-none focus-visible:ring-0"
+                    placeholder="null"
+                  />
+                )}
               </div>
             );
           }
@@ -412,17 +596,21 @@ const Table = ({
     // ReactDataGrid sends the full rows array, not individual rows
     // We need to find which rows actually changed
     const changedData = { ...changedRows };
-    
+
     // IMPORTANT: Fix malformed data structure from ReactDataGrid
     // The grid sometimes sends nested arrays instead of flat row objects
     const sanitizedRows = rows.map((row, index) => {
       if (Array.isArray(row)) {
         // The issue: ReactDataGrid is sending the wrong data structure
         // We need to find the correct row data for this index
-        if (row.length > index && row[index] && typeof row[index] === 'object') {
+        if (
+          row.length > index &&
+          row[index] &&
+          typeof row[index] === "object"
+        ) {
           // If the array has an element at the correct index, use it
           return row[index];
-        } else if (row.length > 0 && row[0] && typeof row[0] === 'object') {
+        } else if (row.length > 0 && row[0] && typeof row[0] === "object") {
           // Fallback: use the first element if it has the right structure
           return row[0];
         } else {
@@ -432,20 +620,20 @@ const Table = ({
       }
       return row;
     });
-    
+
     // Process each change
     if (changesRows.indexes && changesRows.indexes.length > 0) {
       changesRows.indexes.forEach((rowIndex: number) => {
         const newRow = sanitizedRows[rowIndex];
         const oldRow = data[rowIndex];
-        
+
         if (newRow && oldRow) {
           // Process this row change
           processRowChange(rowIndex, newRow, oldRow, changedData);
         }
       });
     }
-    
+
     // Update Redux store with sanitized rows
     dispatch(
       updateFile({
@@ -464,15 +652,20 @@ const Table = ({
   };
 
   // Helper function to process individual row changes
-  const processRowChange = (rowIndex: number, newRow: any, oldRow: any, changedData: any) => {
+  const processRowChange = (
+    rowIndex: number,
+    newRow: any,
+    oldRow: any,
+    changedData: any,
+  ) => {
     // Additional safety check - handle the case where newRow might still be an array
     let processedNewRow = newRow;
     if (Array.isArray(newRow)) {
       processedNewRow = newRow[0] || newRow; // Extract first element if it's an array
     }
-    
+
     // Validate that we have a proper row object
-    if (!processedNewRow || typeof processedNewRow !== 'object') {
+    if (!processedNewRow || typeof processedNewRow !== "object") {
       return;
     }
 
@@ -501,12 +694,15 @@ const Table = ({
       }
 
       // For MongoDB, ensure _id is preserved as string if it's an ObjectId
-      if (key === "_id" && value && typeof value === "object" && value.toString) {
+      if (
+        key === "_id" &&
+        value &&
+        typeof value === "object" &&
+        value.toString
+      ) {
         sanitizedNewRow[key] = value.toString();
       }
     });
-
-
 
     // Only track changes for non-new rows
     if (!sanitizedNewRow.isNew) {
@@ -704,8 +900,8 @@ const Table = ({
             </div>
           </div>
           {currentFile?.tableFilter?.filterOpened && (
-            <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary p-4">
-              <Filter columns={columns} />
+            <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary px-4 mb-4 relative">
+              <Filter columns={columns} dbType={dbType} viewMode={viewMode} />
             </div>
           )}
         </div>
@@ -738,6 +934,77 @@ const Table = ({
             {/* )} */}
             {isNosql ? (
               viewMode === "table" ? (
+                <div className="relative">
+                  <ReactDataGrid
+                    columns={updatedColumns} // Dynamically set columns
+                    rows={data} // Use data prop directly to avoid state management issues
+                    rowHeight={30} // Row height
+                    headerRowHeight={40} // Header row height
+                    sortColumns={currentFile?.tableOrder || []}
+                    onSortColumnsChange={handleShortData}
+                    onRowsChange={(newRows, changes) => {
+                      handleRowChange(newRows, changes);
+                    }}
+                    rowClass={(row, rowIndex) => {
+                      let classNames = "bg-secondary ";
+                      if (changedRows?.[rowIndex]) {
+                        classNames += "!bg-primary/10 ";
+                      }
+                      if (selectedRows && selectedRows.includes(rowIndex)) {
+                        classNames += "!bg-destructive/20 ";
+                      }
+                      if (row.isNew) {
+                        classNames += "bg-yellow-100 ";
+                      }
+                      return classNames;
+                    }}
+                    className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
+                  />
+
+                  {/* Expandable Object Editors */}
+                  {data
+                    .map((row, rowIndex) =>
+                      updatedColumns.map((column) => {
+                        const cellValue = row[column.key];
+                        const isObjectValue =
+                          typeof cellValue === "object" &&
+                          cellValue !== null &&
+                          !Array.isArray(cellValue);
+
+                        if (
+                          isObjectValue &&
+                          isObjectExpanded(rowIndex, column.key)
+                        ) {
+                          return (
+                            <div
+                              key={`${rowIndex}-${column.key}`}
+                              className="absolute left-0 right-0 z-10"
+                              style={{ top: `${(rowIndex + 1) * 30 + 40}px` }}
+                            >
+                              <InlineObjectEditor
+                                objectData={cellValue}
+                                rowIndex={rowIndex}
+                                columnKey={column.key}
+                                onSave={saveObjectChanges}
+                              />
+                            </div>
+                          );
+                        }
+                        return null;
+                      }),
+                    )
+                    .filter(Boolean)}
+                </div>
+              ) : (
+                <NoSqlTable
+                  rows={data}
+                  handleRemoveNewRecord={handleRemoveNewRecord}
+                  selectedRows={selectedRows}
+                  setSelectedRows={setSelectedRows}
+                />
+              )
+            ) : (
+              <div className="relative h-full">
                 <ReactDataGrid
                   columns={updatedColumns} // Dynamically set columns
                   rows={data} // Use data prop directly to avoid state management issues
@@ -763,40 +1030,41 @@ const Table = ({
                   }}
                   className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
                 />
-              ) : (
-                <NoSqlTable
-                  rows={data}
-                  handleRemoveNewRecord={handleRemoveNewRecord}
-                  selectedRows={selectedRows}
-                  setSelectedRows={setSelectedRows}
-                />
-              )
-            ) : (
-                            <ReactDataGrid
-                columns={updatedColumns} // Dynamically set columns
-                rows={data} // Use data prop directly to avoid state management issues
-                rowHeight={30} // Row height
-                headerRowHeight={40} // Header row height
-                sortColumns={currentFile?.tableOrder || []}
-                onSortColumnsChange={handleShortData}
-                onRowsChange={(newRows, changes) => {
-                  handleRowChange(newRows, changes);
-                }}
-                rowClass={(row, rowIndex) => {
-                  let classNames = "bg-secondary ";
-                  if (changedRows?.[rowIndex]) {
-                    classNames += "!bg-primary/10 ";
-                  }
-                  if (selectedRows && selectedRows.includes(rowIndex)) {
-                    classNames += "!bg-destructive/20 ";
-                  }
-                  if (row.isNew) {
-                    classNames += "bg-yellow-100 ";
-                  }
-                  return classNames;
-                }}
-                className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
-              />
+
+                {/* Expandable Object Editors for SQL */}
+                {data
+                  .map((row, rowIndex) =>
+                    updatedColumns.map((column) => {
+                      const cellValue = row[column.key];
+                      const isObjectValue =
+                        typeof cellValue === "object" &&
+                        cellValue !== null &&
+                        !Array.isArray(cellValue);
+
+                      if (
+                        isObjectValue &&
+                        isObjectExpanded(rowIndex, column.key)
+                      ) {
+                        return (
+                          <div
+                            key={`${rowIndex}-${column.key}`}
+                            className="absolute left-0 right-0 z-10"
+                            style={{ top: `${(rowIndex + 1) * 30 + 40}px` }}
+                          >
+                            <InlineObjectEditor
+                              objectData={cellValue}
+                              rowIndex={rowIndex}
+                              columnKey={column.key}
+                              onSave={saveObjectChanges}
+                            />
+                          </div>
+                        );
+                      }
+                      return null;
+                    }),
+                  )
+                  .filter(Boolean)}
+              </div>
             )}
           </div>
         )}

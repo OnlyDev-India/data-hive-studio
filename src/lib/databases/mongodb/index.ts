@@ -8,6 +8,102 @@ export class MongoDbClient implements DatabaseClient {
   private client: MongoClient | null = null;
   private db: any = null;
 
+  // Helper function to parse flexible object syntax
+  private parseFlexibleObject(input: string): any {
+    if (!input || typeof input !== 'string') return {};
+    
+    try {
+      // First try standard JSON parsing
+      return JSON.parse(input);
+    } catch (error) {
+      try {
+        // If JSON parsing fails, try to convert to valid JSON
+        // Replace unquoted keys with quoted keys
+        let processedInput = input.trim();
+        
+        // Handle edge cases
+        if (!processedInput.startsWith('{') || !processedInput.endsWith('}')) {
+          throw new Error('Invalid object format');
+        }
+        
+        // Remove outer braces for processing
+        processedInput = processedInput.slice(1, -1);
+        
+        // Split by commas, but be careful about nested objects
+        const parts = [];
+        let currentPart = '';
+        let braceCount = 0;
+        let inString = false;
+        let escapeNext = false;
+        
+        for (let i = 0; i < processedInput.length; i++) {
+          const char = processedInput[i];
+          
+          if (escapeNext) {
+            currentPart += char;
+            escapeNext = false;
+            continue;
+          }
+          
+          if (char === '\\') {
+            escapeNext = true;
+            currentPart += char;
+            continue;
+          }
+          
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            currentPart += char;
+            continue;
+          }
+          
+          if (!inString) {
+            if (char === '{' || char === '[') {
+              braceCount++;
+            } else if (char === '}' || char === ']') {
+              braceCount--;
+            } else if (char === ',' && braceCount === 0) {
+              parts.push(currentPart.trim());
+              currentPart = '';
+              continue;
+            }
+          }
+          
+          currentPart += char;
+        }
+        
+        if (currentPart.trim()) {
+          parts.push(currentPart.trim());
+        }
+        
+        // Process each part to add quotes around unquoted keys
+        const processedParts = parts.map(part => {
+          const colonIndex = part.indexOf(':');
+          if (colonIndex === -1) return part;
+          
+          const key = part.substring(0, colonIndex).trim();
+          const value = part.substring(colonIndex + 1).trim();
+          
+          // If key is not quoted, add quotes
+          let processedKey = key;
+          if (!key.startsWith('"') && !key.startsWith("'")) {
+            processedKey = `"${key}"`;
+          }
+          
+          return `${processedKey}:${value}`;
+        });
+        
+        // Reconstruct the object
+        const validJson = `{${processedParts.join(',')}}`;
+        return JSON.parse(validJson);
+        
+      } catch (secondError) {
+        console.warn('Failed to parse flexible object syntax:', input, secondError);
+        return {};
+      }
+    }
+  }
+
   async connectDb({
     connectionDetails,
   }: {
@@ -268,130 +364,152 @@ export class MongoDbClient implements DatabaseClient {
       const skip = (page - 1) * limit;
 
       let filterQuery = {};
+      let customSortBy = {};
+      
       if (filters && filters.length > 0) {
-                 const mongoFilters = filters.map((filter) => {
-           const { column, compare, value, value2, isCustomQuery, customQuery } = filter;
-           
-           // Handle custom queries
-           if (isCustomQuery && customQuery && customQuery.trim()) {
-             try {
-               // For MongoDB, we'll try to parse the custom query as a JSON object
-               // This allows users to write MongoDB query syntax directly
-               return JSON.parse(customQuery.trim());
-             } catch (error) {
-               return {};
-             }
-           }
-           
-           const field = column === "_id" ? "_id" : column;
-          
-          // Handle ObjectId conversion for _id field
-          const processValue = (val: any) => {
-            if (field === "_id" && typeof val === "string") {
-              try {
-                return ObjectId.createFromHexString(val);
-              } catch {
-                return val; // Return original value if ObjectId conversion fails
-              }
-            }
-            return val;
-          };
-
-          switch (compare) {
-            // Null checks
-            case "is null":
-              return { [field]: null };
-            case "is not null":
-              return { [field]: { $ne: null } };
-            
-            // Boolean checks
-            case "is true":
-              return { [field]: true };
-            case "is false":
-              return { [field]: false };
-            
-            // Empty checks
-            case "is empty":
-              return { $or: [{ [field]: null }, { [field]: "" }] };
-            case "is not empty":
-              return { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: "" } }] };
-            
-            // String operations
-            case "equals":
-              return { [field]: processValue(value) };
-            case "not equals":
-              return { [field]: { $ne: processValue(value) } };
-            case "contains":
-              return { [field]: { $regex: value, $options: "i" } };
-            case "not contains":
-              return { [field]: { $not: { $regex: value, $options: "i" } } };
-            case "starts with":
-              return { [field]: { $regex: `^${value}`, $options: "i" } };
-            case "ends with":
-              return { [field]: { $regex: `${value}$`, $options: "i" } };
-            case "regex":
-              return { [field]: { $regex: value } };
-            
-            // Numeric/Date comparisons
-            case "greater than":
-              return { [field]: { $gt: processValue(value) } };
-            case "less than":
-              return { [field]: { $lt: processValue(value) } };
-            case "greater than or equal":
-              return { [field]: { $gte: processValue(value) } };
-            case "less than or equal":
-              return { [field]: { $lte: processValue(value) } };
-            
-            // Range operations
-            case "between":
-              return { [field]: { $gte: processValue(value), $lte: processValue(value2) } };
-            case "not between":
-              return { $or: [{ [field]: { $lt: processValue(value) } }, { [field]: { $gt: processValue(value2) } }] };
-            
-            // Array operations
-            case "in":
-              const inValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
-              return { [field]: { $in: inValues } };
-            case "not in":
-              const notInValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
-              return { [field]: { $nin: notInValues } };
-            
-            // Date-specific operations
-            case "is today":
-              const today = new Date();
-              const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-              const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-              return { [field]: { $gte: startOfDay, $lt: endOfDay } };
-            
-            case "is this week":
-              const now = new Date();
-              const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
-              const endOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 7));
-              return { [field]: { $gte: startOfWeek, $lt: endOfWeek } };
-            
-            case "is this month":
-              const thisMonth = new Date();
-              const startOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
-              const endOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth() + 1, 1);
-              return { [field]: { $gte: startOfMonth, $lt: endOfMonth } };
-            
-            case "is this year":
-              const thisYear = new Date();
-              const startOfYear = new Date(thisYear.getFullYear(), 0, 1);
-              const endOfYear = new Date(thisYear.getFullYear() + 1, 0, 1);
-              return { [field]: { $gte: startOfYear, $lt: endOfYear } };
-            
-            // Array-specific operations
-            case "has length":
-              return { [field]: { $size: parseInt(value) } };
-            
-            default:
-              return {};
+        // Extract sortBy from the first filter if it exists
+        if (filters[0]?.sortBy && filters[0].sortBy.trim()) {
+          try {
+            customSortBy = this.parseFlexibleObject(filters[0].sortBy.trim());
+          } catch (error) {
+            console.warn('Invalid sortBy format:', filters[0].sortBy);
           }
-        }).filter(filter => Object.keys(filter).length > 0);
+        }
+        
+        // Check if we have a custom query
+        const customQueryFilter = filters.find(filter => filter.isCustomQuery && filter.customQuery && filter.customQuery.trim());
+        
+        if (customQueryFilter && customQueryFilter.customQuery && customQueryFilter.customQuery.trim()) {
+          try {
+            // Use custom query directly
+            filterQuery = this.parseFlexibleObject(customQueryFilter.customQuery.trim());
+          } catch (error) {
+            console.warn('Invalid custom query format:', customQueryFilter.customQuery);
+            filterQuery = {};
+          }
+        } else {
+                    // Process regular filters
+          const mongoFilters = filters.map((filter) => {
+            const { column, compare, value, value2 } = filter;
+            
+            // Skip filters that don't have the required fields for regular filtering
+            if (!column || !compare || value === undefined || value === "") {
+              return null;
+            }
+            
+            const field = column === "_id" ? "_id" : column;
+            
+            // Handle ObjectId conversion for _id field
+            const processValue = (val: any) => {
+              if (field === "_id" && typeof val === "string") {
+                try {
+                  return ObjectId.createFromHexString(val);
+                } catch {
+                  return val; // Return original value if ObjectId conversion fails
+                }
+              }
+              return val;
+            };
 
-        if (mongoFilters.length > 0) {
-          filterQuery = mongoFilters.length === 1 ? mongoFilters[0] : { $and: mongoFilters };
+            switch (compare) {
+              // Null checks
+              case "is null":
+                return { [field]: null };
+              case "is not null":
+                return { [field]: { $ne: null } };
+              
+              // Boolean checks
+              case "is true":
+                return { [field]: true };
+              case "is false":
+                return { [field]: false };
+              
+              // Empty checks
+              case "is empty":
+                return { $or: [{ [field]: null }, { [field]: "" }] };
+              case "is not empty":
+                return { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: "" } }] };
+              
+              // String operations
+              case "equals":
+                return { [field]: processValue(value) };
+              case "not equals":
+                return { [field]: { $ne: processValue(value) } };
+              case "contains":
+                return { [field]: { $regex: value, $options: "i" } };
+              case "not contains":
+                return { [field]: { $not: { $regex: value, $options: "i" } } };
+              case "starts with":
+                return { [field]: { $regex: `^${value}`, $options: "i" } };
+              case "ends with":
+                return { [field]: { $regex: `${value}$`, $options: "i" } };
+              case "regex":
+                return { [field]: { $regex: value } };
+              
+              // Numeric/Date comparisons
+              case "greater than":
+                return { [field]: { $gt: processValue(value) } };
+              case "less than":
+                return { [field]: { $lt: processValue(value) } };
+              case "greater than or equal":
+                return { [field]: { $gte: processValue(value) } };
+              case "less than or equal":
+                return { [field]: { $lte: processValue(value) } };
+              
+              // Range operations
+              case "between":
+                return { [field]: { $gte: processValue(value), $lte: processValue(value2) } };
+              case "not between":
+                return { $or: [{ [field]: { $lt: processValue(value) } }, { [field]: { $gt: processValue(value2) } }] };
+              
+              // Array operations
+              case "in":
+                const inValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
+                return { [field]: { $in: inValues } };
+              case "not in":
+                const notInValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
+                return { [field]: { $nin: notInValues } };
+              
+              // Date-specific operations
+              case "is today":
+                const today = new Date();
+                const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+                return { [field]: { $gte: startOfDay, $lt: endOfDay } };
+              
+              case "is this week":
+                const now = new Date();
+                const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+                const endOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 7));
+                return { [field]: { $gte: startOfWeek, $lt: endOfWeek } };
+              
+              case "is this month":
+                const thisMonth = new Date();
+                const startOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+                const endOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth() + 1, 1);
+                return { [field]: { $gte: startOfMonth, $lt: endOfMonth } };
+              
+              case "is this year":
+                const thisYear = new Date();
+                const startOfYear = new Date(thisYear.getFullYear(), 0, 1);
+                const endOfYear = new Date(thisYear.getFullYear() + 1, 0, 1);
+                return { [field]: { $gte: startOfYear, $lt: endOfYear } };
+              
+              // Array-specific operations
+              case "has length":
+                return { [field]: { $size: parseInt(value) } };
+              
+              default:
+                return null;
+            }
+          }).filter((filter): filter is any => filter !== null && Object.keys(filter).length > 0);
+
+          if (mongoFilters.length > 0) {
+            filterQuery = mongoFilters.length === 1 ? mongoFilters[0] : { $and: mongoFilters };
+          } else {
+            // If no valid filters but we have sortBy, use empty filter to get all documents
+            filterQuery = {};
+          }
         }
       }
       
@@ -401,15 +519,15 @@ export class MongoDbClient implements DatabaseClient {
         .skip(skip)
         .limit(limit)
         .sort(
-          orderBy && orderBy?.length > 0
+          Object.keys(customSortBy).length > 0
+            ? customSortBy
+            : orderBy && orderBy?.length > 0
             ? {
                 [orderBy[0].columnKey]: orderBy[0].direction === "ASC" ? 1 : -1,
               }
             : {},
         )
         .toArray();
-      
-
       
       const totalRecords = await this.db.collection(tableName).countDocuments();
       return { data: result, error: null, totalRecords };
