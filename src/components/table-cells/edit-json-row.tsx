@@ -13,6 +13,8 @@ import {
   AlertTriangleIcon,
   LoaderCircleIcon,
   PencilLineIcon,
+  DatabaseIcon,
+  CodeIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Editor, Monaco } from "@monaco-editor/react";
@@ -25,6 +27,8 @@ import { updateFile } from "@/redux/features/open-files";
 import { updateTable } from "@/lib/actions/fetch-data";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { Badge } from "../ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 
 const EditJsonRow = ({ data, index }: any) => {
   const copyData = JSON.parse(JSON.stringify(data));
@@ -34,6 +38,7 @@ const EditJsonRow = ({ data, index }: any) => {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [editMode, setEditMode] = useState<"json" | "structured">("json");
 
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
@@ -56,6 +61,23 @@ const EditJsonRow = ({ data, index }: any) => {
     monaco.editor.setTheme(
       theme?.includes("dark") ? "github-dark" : "github-light",
     );
+    
+    // Add MongoDB-specific language support
+    monaco.languages.register({ id: "mongodb-json" });
+    monaco.languages.setMonacoTokensProvider("mongodb-json", {
+      tokenizer: {
+        root: [
+          [/\b(_id|ObjectId|ISODate|NumberInt|NumberLong|NumberDecimal)\b/, "type"],
+          [/\b(true|false|null)\b/, "constant"],
+          [/".*?"/, "string"],
+          [/\d+/, "number"],
+          [/[{}\[\]]/, "delimiter"],
+          [/[:]/, "delimiter"],
+          [/\/\/.*/, "comment"],
+        ],
+      },
+    });
+    
     editor.getAction("editor.action.formatDocument").run();
   };
 
@@ -67,14 +89,12 @@ const EditJsonRow = ({ data, index }: any) => {
       setError("");
     } catch (error: any) {
       setIsValidData(false);
-      // console.warn("Invalid JSON, skipping parse:", error.message);
       setError(error.message);
     }
   };
 
   const handleUpdateData = async () => {
     if (!isValidData) return;
-    // console.log(updatedData, index);
     setLoading(true);
 
     if (data.isNew) {
@@ -113,7 +133,7 @@ const EditJsonRow = ({ data, index }: any) => {
           },
         }),
       );
-      toast.success(`Data updated`);
+      toast.success(`Document updated successfully`);
       setOpen(false);
     } else if (response.updateError) {
       toast.error(response.updateError);
@@ -123,6 +143,31 @@ const EditJsonRow = ({ data, index }: any) => {
 
     setLoading(false);
   };
+
+  const formatJson = (data: any) => {
+    try {
+      return JSON.stringify(data, null, 2);
+    } catch {
+      return JSON.stringify(data);
+    }
+  };
+
+  const getDocumentStats = (data: any) => {
+    const stats = {
+      fields: Object.keys(data).length,
+      size: JSON.stringify(data).length,
+      types: {} as Record<string, number>,
+    };
+
+    Object.values(data).forEach(value => {
+      const type = Array.isArray(value) ? 'array' : typeof value;
+      stats.types[type] = (stats.types[type] || 0) + 1;
+    });
+
+    return stats;
+  };
+
+  const documentStats = getDocumentStats(copyData);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -138,33 +183,96 @@ const EditJsonRow = ({ data, index }: any) => {
             </Button>
           </DialogTrigger>
         </TooltipTrigger>
-        <TooltipContent>Edit</TooltipContent>
+        <TooltipContent>Edit Document</TooltipContent>
       </Tooltip>
-      <DialogContent className="scrollable-container-gutter h-[80%] w-[80%] min-w-[80%] overflow-auto">
+      <DialogContent className="scrollable-container-gutter h-[90%] w-[90%] min-w-[90%] overflow-auto">
         <DialogHeader>
-          <DialogTitle className="hidden">hi</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <DatabaseIcon size={16} />
+              Edit MongoDB Document
+            </DialogTitle>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {documentStats.fields} fields
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {documentStats.size} bytes
+              </Badge>
+            </div>
+          </div>
         </DialogHeader>
-        <Editor
-          height={"100%"}
-          language="json"
-          value={JSON.stringify(copyData) || ""}
-          onMount={handleEditor}
-          onChange={updateCode}
-          path={"1"}
-          theme={theme?.includes("dark") ? "github-dark" : "github-light"}
-          options={{
-            minimap: {
-              enabled: false,
-            },
-          }}
-        />
+
+        <Tabs value={editMode} onValueChange={(value: string) => setEditMode(value as "json" | "structured")}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="json" className="flex items-center gap-2">
+              <CodeIcon size={16} />
+              JSON Editor
+            </TabsTrigger>
+            <TabsTrigger value="structured" className="flex items-center gap-2">
+              <DatabaseIcon size={16} />
+              Structured View
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="json" className="mt-4">
+            <div className="mb-4">
+              <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Document ID: {copyData._id || 'New Document'}</span>
+                {copyData._id && (
+                  <Badge variant="secondary" className="text-xs">
+                    MongoDB ObjectId
+                  </Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                {Object.entries(documentStats.types).map(([type, count]) => (
+                  <Badge key={type} variant="outline" className="text-xs">
+                    {type}: {count}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            
+            <Editor
+              height="400px"
+              language="mongodb-json"
+              value={formatJson(copyData)}
+              onMount={handleEditor}
+              onChange={updateCode}
+              path="mongodb-document.json"
+              theme={theme?.includes("dark") ? "github-dark" : "github-light"}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 12,
+                lineNumbers: "on",
+                roundedSelection: false,
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                wordWrap: "on",
+                suggestOnTriggerCharacters: true,
+                quickSuggestions: true,
+              }}
+            />
+          </TabsContent>
+
+          <TabsContent value="structured" className="mt-4">
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Structured editing coming soon. Use the JSON editor for now.
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+
         {error && (
           <Alert className="border-yellow-400 bg-yellow-400/20 text-yellow-400 backdrop-blur-md">
             <AlertTriangleIcon className="mr-2 size-4 stroke-yellow-400" />
-            <AlertTitle>Warning</AlertTitle>
+            <AlertTitle>JSON Validation Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+
         <DialogFooter className="items-center">
           <Button
             variant={"outline"}
@@ -179,7 +287,7 @@ const EditJsonRow = ({ data, index }: any) => {
             className="h-7 py-0 text-xs text-white"
           >
             {loading && <LoaderCircleIcon className="animate-spin" />}
-            {data.isNew ? "save" : loading ? "Updating..." : "Update"}
+            {data.isNew ? "Save Document" : loading ? "Updating..." : "Update Document"}
           </Button>
         </DialogFooter>
       </DialogContent>

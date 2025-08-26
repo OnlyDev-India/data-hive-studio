@@ -18,12 +18,15 @@ import {
   PlusIcon,
   RefreshCcwIcon,
   XIcon,
+  TableIcon,
+  FileTextIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ForeignKeyCells from "../table-cells/foreign-key-cells";
 import { Checkbox } from "../ui/checkbox";
 import SelectCell from "../table-cells/select-cell";
 import InputCell from "../table-cells/input-cell";
+
 import FloatingActions from "./floating-action";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
@@ -34,6 +37,7 @@ import Pagination from "./pagination";
 import { isNoSql } from "@/lib/helper/checkDbType";
 import NoSqlTable from "./no-sql-table";
 import { getCurrentDatabaseType } from "@/lib/actions/fetch-data";
+import { EditorModal } from "./editor-modal";
 
 // Define the structure of the data (you can update this based on your actual data)
 export interface ColumnProps extends Column<any> {
@@ -53,6 +57,19 @@ interface TableProps {
   dbType: string;
 }
 
+// Helper function to format NoSQL values for display
+const formatNoSqlValue = (value: any): string => {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "boolean") return String(value);
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") {
+    return value.length > 50 ? value.substring(0, 50) + "..." : value;
+  }
+  return String(value);
+};
+
 const Table = ({
   columns,
   data,
@@ -60,10 +77,11 @@ const Table = ({
   isFetching,
   dbType,
 }: TableProps) => {
-  // React Data Grid requires columns and rows
-  const [gridRows, setGridRows] = useState<Row[]>([]);
+  // We're now using the data prop directly instead of managing local state
+  // const [gridRows, setGridRows] = useState<Row[]>([]);
 
   const [filterDivHeight, setFilterDivHeight] = useState<number>(40);
+  const [viewMode, setViewMode] = useState<"table" | "json">("table");
 
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
@@ -100,12 +118,12 @@ const Table = ({
         id: currentFile?.id,
         tableData: {
           columns: currentFile?.tableData?.columns,
-          rows: [newRow, ...gridRows],
+          rows: [newRow, ...data],
           totalRecords: currentFile?.tableData?.totalRecords,
         },
         tableOperations: {
           ...currentFile?.tableOperations,
-          insertedRows: gridRows.filter((row) => row.isNew)?.length + 1,
+          insertedRows: data.filter((row) => row.isNew)?.length + 1,
         },
       }),
     );
@@ -116,9 +134,9 @@ const Table = ({
     let newRows;
 
     if (rowIdx === 0 || rowIdx) {
-      newRows = gridRows.filter((_, index) => index !== rowIdx);
+      newRows = data.filter((_, index) => index !== rowIdx);
     } else {
-      newRows = gridRows.filter((row) => !row.isNew);
+      newRows = data.filter((row) => !row.isNew);
     }
 
     dispatch(
@@ -150,7 +168,28 @@ const Table = ({
   };
 
   const updatedColumns: Column<any>[] = useMemo(() => {
-    const newColumns = columns.map((column) => {
+    // For NoSQL databases, dynamically create columns from data if none exist
+    let columnsToUse = columns;
+    if (isNosql && columns.length === 0 && data.length > 0) {
+      // Extract all unique keys from all documents
+      const allKeys = new Set<string>();
+      data.forEach((row: any) => {
+        Object.keys(row).forEach((key) => {
+          if (key !== "isNew") allKeys.add(key);
+        });
+      });
+
+      columnsToUse = Array.from(allKeys).map((key) => ({
+        key,
+        name: key,
+        data_type: typeof data.find((r: any) => r[key])?.[key] || "string",
+        width: 200,
+        resizable: true,
+        sortable: true,
+      }));
+    }
+
+    const newColumns = columnsToUse.map((column) => {
       const data_type = column.data_type;
 
       return {
@@ -195,6 +234,43 @@ const Table = ({
         ),
         renderCell: (props: any) => {
           // const { row, column } = props;
+
+          // For MongoDB and other NoSQL databases, use custom cell renderer
+          if (isNosql) {
+            const cellValue = props.row[column.key];
+            const isObjectValue =
+              typeof cellValue === "object" &&
+              cellValue !== null &&
+              !Array.isArray(cellValue);
+
+            return (
+              <EditorModal
+                data={props.row}
+                onSave={handleUpdateChanges}
+                index={props.rowIdx}
+                title="Edit Object"
+                isDoubleClick
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Edit Object"
+                  className="h-full w-full justify-start p-0 hover:bg-transparent"
+                >
+                  {isObjectValue ? (
+                    <>
+                      <span className="text-xs text-muted-foreground">
+                        {Object.keys(cellValue).length} fields
+                      </span>
+                    </>
+                  ) : (
+                    <>{formatNoSqlValue(cellValue)}</>
+                  )}
+                </Button>
+              </EditorModal>
+            );
+          }
+
           if (column.key_type === "FOREIGN KEY") {
             return <ForeignKeyCells {...props} disabled={false} />;
           }
@@ -225,6 +301,7 @@ const Table = ({
               />
             );
           }
+
           return (
             <InputCell
               name={column.key}
@@ -248,11 +325,11 @@ const Table = ({
       renderHeaderCell: () => {
         const isChecked =
           selectedRows &&
-          selectedRows.length === gridRows.length &&
-          gridRows.length > 0;
+          selectedRows.length === data.length &&
+          data.length > 0;
         const handleCheckedChanges = (checked: boolean) => {
           if (checked) {
-            setSelectedRows(gridRows.map((_, index) => index));
+            setSelectedRows(data.map((_, index) => index));
           } else {
             setSelectedRows([]);
           }
@@ -320,7 +397,7 @@ const Table = ({
     };
 
     return [checkBoxColumn, ...newColumns];
-  }, [columns, currentFile?.tableOrder, selectedRows, gridRows]);
+  }, [columns, currentFile?.tableOrder, selectedRows, data]);
 
   const handleShortData = (cols: readonly SortColumn[]) => {
     dispatch(
@@ -333,40 +410,54 @@ const Table = ({
   };
 
   const handleRowChange = (rows: Row[], changesRows: any) => {
-    const rowIndexes = changesRows.indexes;
-    const newRow = rows[rowIndexes[0]];
-    // console.log({ ...changedRows, [rowIndexes[0]]: row });
-    const oldRow = gridRows[rowIndexes[0]];
+    // ReactDataGrid sends the full rows array, not individual rows
+    // We need to find which rows actually changed
     const changedData = { ...changedRows };
-    if (newRow.isNew) {
-      // return;
-    } else if (changedData[rowIndexes[0]]?.old) {
-      changedData[rowIndexes[0]] = {
-        old: changedData[rowIndexes[0]].old,
-        new: newRow,
-      };
-    } else {
-      changedData[rowIndexes[0]] = {
-        old: oldRow,
-        new: newRow,
-      };
+
+    // IMPORTANT: Fix malformed data structure from ReactDataGrid
+    // The grid sometimes sends nested arrays instead of flat row objects
+    const sanitizedRows = rows.map((row, index) => {
+      if (Array.isArray(row)) {
+        // The issue: ReactDataGrid is sending the wrong data structure
+        // We need to find the correct row data for this index
+        if (
+          row.length > index &&
+          row[index] &&
+          typeof row[index] === "object"
+        ) {
+          // If the array has an element at the correct index, use it
+          return row[index];
+        } else if (row.length > 0 && row[0] && typeof row[0] === "object") {
+          // Fallback: use the first element if it has the right structure
+          return row[0];
+        } else {
+          // Last resort: return the original row
+          return row;
+        }
+      }
+      return row;
+    });
+
+    // Process each change
+    if (changesRows.indexes && changesRows.indexes.length > 0) {
+      changesRows.indexes.forEach((rowIndex: number) => {
+        const newRow = sanitizedRows[rowIndex];
+        const oldRow = data[rowIndex];
+
+        if (newRow && oldRow) {
+          // Process this row change
+          processRowChange(rowIndex, newRow, oldRow, changedData);
+        }
+      });
     }
 
-    if (
-      !newRow.isNew &&
-      JSON.stringify(changedData[rowIndexes[0]].old) ===
-        JSON.stringify(changedData[rowIndexes[0]].new)
-    ) {
-      delete changedData[rowIndexes[0]];
-    }
-
-    // console.log(changedData);
+    // Update Redux store with sanitized rows
     dispatch(
       updateFile({
         id: currentFile?.id,
         tableData: {
           columns: currentFile?.tableData?.columns,
-          rows: rows,
+          rows: sanitizedRows, // Use sanitized rows to fix data structure
           totalRecords: currentFile?.tableData?.totalRecords,
         },
         tableOperations: {
@@ -375,7 +466,83 @@ const Table = ({
         },
       }),
     );
-    // setGridRows(rows);
+  };
+
+  // Helper function to process individual row changes
+  const processRowChange = (
+    rowIndex: number,
+    newRow: any,
+    oldRow: any,
+    changedData: any,
+  ) => {
+    // Additional safety check - handle the case where newRow might still be an array
+    let processedNewRow = newRow;
+    if (Array.isArray(newRow)) {
+      processedNewRow = newRow[0] || newRow; // Extract first element if it's an array
+    }
+
+    // Validate that we have a proper row object
+    if (!processedNewRow || typeof processedNewRow !== "object") {
+      return;
+    }
+
+    // Sanitize the new row data to remove undefined values and clean up data
+    const sanitizedNewRow = { ...processedNewRow };
+    Object.keys(sanitizedNewRow).forEach((key) => {
+      const value = sanitizedNewRow[key];
+
+      // Convert "$undefined" strings back to undefined
+      if (value === "$undefined" || value === "undefined") {
+        sanitizedNewRow[key] = undefined;
+      }
+
+      // Convert empty strings to null for better database handling
+      // Don't convert _id field to null as it's required for MongoDB updates
+      if (value === "" && key !== "_id") {
+        sanitizedNewRow[key] = null;
+      }
+
+      // Ensure boolean values are properly typed
+      if (
+        typeof value === "string" &&
+        (value === "true" || value === "false")
+      ) {
+        sanitizedNewRow[key] = value === "true";
+      }
+
+      // For MongoDB, ensure _id is preserved as string if it's an ObjectId
+      if (
+        key === "_id" &&
+        value &&
+        typeof value === "object" &&
+        value.toString
+      ) {
+        sanitizedNewRow[key] = value.toString();
+      }
+    });
+
+    // Only track changes for non-new rows
+    if (!sanitizedNewRow.isNew) {
+      if (changedData[rowIndex]?.old) {
+        changedData[rowIndex] = {
+          old: changedData[rowIndex].old,
+          new: sanitizedNewRow,
+        };
+      } else {
+        changedData[rowIndex] = {
+          old: oldRow,
+          new: sanitizedNewRow,
+        };
+      }
+
+      // Only remove from tracking if the row is exactly the same (no changes)
+      if (
+        JSON.stringify(changedData[rowIndex].old) ===
+        JSON.stringify(changedData[rowIndex].new)
+      ) {
+        delete changedData[rowIndex];
+      }
+    }
   };
 
   const handleResetChanges = () => {
@@ -429,24 +596,6 @@ const Table = ({
     }
   };
 
-  const updatedData = useMemo(() => {
-    const changedRows = currentFile?.tableOperations?.changedRows;
-    if (!changedRows) return data;
-
-    if (Object.keys(changedRows).length > 0) {
-      const keys = Object.keys(changedRows);
-      const newRows = [...data];
-      keys.forEach((key) => {
-        newRows[+key] = changedRows[+key].new;
-      });
-      return newRows;
-    }
-    return data;
-  }, [data, currentFile?.tableOperations?.changedRows]);
-
-  useEffect(() => {
-    setGridRows(updatedData as any);
-  }, [updatedData, currentFile?.tableName]);
   const updateDivHeight = () => {
     if (filterRef.current) {
       setFilterDivHeight(filterRef.current.offsetHeight || 0);
@@ -480,7 +629,32 @@ const Table = ({
       <>
         <div ref={filterRef}>
           <div className="flex h-10 items-center justify-between gap-2 px-4">
-            <Pagination isFetching={isFetching} />
+            <div className="flex items-center gap-4">
+              <Pagination isFetching={isFetching} />
+              {/* View Mode Toggle for NoSQL databases */}
+              {isNosql && (
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-md border border-border">
+                    <Button
+                      variant={viewMode === "table" ? "default" : "ghost"}
+                      size="sm"
+                      className="h-7 rounded-r-none border-r border-border px-3 text-xs"
+                      onClick={() => setViewMode("table")}
+                    >
+                      <TableIcon size={14} className="mr-1" />
+                    </Button>
+                    <Button
+                      variant={viewMode === "json" ? "default" : "ghost"}
+                      size="sm"
+                      className="h-7 rounded-l-none px-3 text-xs"
+                      onClick={() => setViewMode("json")}
+                    >
+                      <FileTextIcon size={14} className="mr-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               {currentFile?.tableName && (
                 <>
@@ -527,14 +701,14 @@ const Table = ({
               )}
               <ExportTable
                 columns={columns}
-                data={gridRows}
+                data={data}
                 selectedData={selectedRows}
               />
             </div>
           </div>
           {currentFile?.tableFilter?.filterOpened && (
-            <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary p-4">
-              <Filter columns={columns} />
+            <div className="scrollable-container-gutter relative mb-4 max-h-40 overflow-auto bg-secondary px-4">
+              <Filter columns={columns} dbType={dbType} viewMode={viewMode} />
             </div>
           )}
         </div>
@@ -560,42 +734,76 @@ const Table = ({
               selectedRows={selectedRows}
               changedRows={changedRows}
               tableName={currentFile?.tableName || ""}
-              updatedRows={gridRows}
+              updatedRows={data}
               handleUpdateTableChanges={handleUpdateChanges}
               isFloatingActionsVisible={isFloatingActionsVisible}
             />
             {/* )} */}
             {isNosql ? (
-              <NoSqlTable
-                rows={gridRows}
-                handleRemoveNewRecord={handleRemoveNewRecord}
-                selectedRows={selectedRows}
-                setSelectedRows={setSelectedRows}
-              />
+              viewMode === "table" ? (
+                <div className="relative h-full">
+                  <ReactDataGrid
+                    columns={updatedColumns} // Dynamically set columns
+                    rows={data} // Use data prop directly to avoid state management issues
+                    rowHeight={30} // Row height
+                    headerRowHeight={40} // Header row height
+                    sortColumns={currentFile?.tableOrder || []}
+                    onSortColumnsChange={handleShortData}
+                    onRowsChange={(newRows, changes) => {
+                      handleRowChange(newRows, changes);
+                    }}
+                    rowClass={(row, rowIndex) => {
+                      let classNames = "bg-secondary ";
+                      if (changedRows?.[rowIndex]) {
+                        classNames += "!bg-primary/10 ";
+                      }
+                      if (selectedRows && selectedRows.includes(rowIndex)) {
+                        classNames += "!bg-destructive/20 ";
+                      }
+                      if (row.isNew) {
+                        classNames += "bg-yellow-100 ";
+                      }
+                      return classNames;
+                    }}
+                    className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
+                  />
+                </div>
+              ) : (
+                <NoSqlTable
+                  rows={data}
+                  handleRemoveNewRecord={handleRemoveNewRecord}
+                  selectedRows={selectedRows}
+                  setSelectedRows={setSelectedRows}
+                />
+              )
             ) : (
-              <ReactDataGrid
-                columns={updatedColumns} // Dynamically set columns
-                rows={gridRows} // Dynamically set rows
-                rowHeight={30} // Row height
-                headerRowHeight={40} // Header row height
-                sortColumns={currentFile?.tableOrder || []}
-                onSortColumnsChange={handleShortData}
-                onRowsChange={handleRowChange} // Handling row changes
-                rowClass={(row, rowIndex) => {
-                  let classNames = "bg-secondary ";
-                  if (changedRows?.[rowIndex]) {
-                    classNames += "!bg-primary/10 ";
-                  }
-                  if (selectedRows && selectedRows.includes(rowIndex)) {
-                    classNames += "!bg-destructive/20 ";
-                  }
-                  if (row.isNew) {
-                    classNames += "bg-yellow-100 ";
-                  }
-                  return classNames;
-                }}
-                className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
-              />
+              <div className="relative h-full">
+                <ReactDataGrid
+                  columns={updatedColumns} // Dynamically set columns
+                  rows={data} // Use data prop directly to avoid state management issues
+                  rowHeight={30} // Row height
+                  headerRowHeight={40} // Header row height
+                  sortColumns={currentFile?.tableOrder || []}
+                  onSortColumnsChange={handleShortData}
+                  onRowsChange={(newRows, changes) => {
+                    handleRowChange(newRows, changes);
+                  }}
+                  rowClass={(row, rowIndex) => {
+                    let classNames = "bg-secondary ";
+                    if (changedRows?.[rowIndex]) {
+                      classNames += "!bg-primary/10 ";
+                    }
+                    if (selectedRows && selectedRows.includes(rowIndex)) {
+                      classNames += "!bg-destructive/20 ";
+                    }
+                    if (row.isNew) {
+                      classNames += "bg-yellow-100 ";
+                    }
+                    return classNames;
+                  }}
+                  className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
+                />
+              </div>
             )}
           </div>
         )}

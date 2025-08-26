@@ -83,12 +83,32 @@ const TableView = ({ dbType }: { dbType: string }) => {
 
   const processRowData = (rows: any[]) => {
     return rows.map((item: any) => {
-      const copiedItem = JSON.parse(JSON.stringify(item));
-      Object.keys(item).forEach((key) => {
-        if (!Array.isArray(item[key]) && typeof item[key] === "object") {
-          copiedItem[key] = item[key]?.toString();
+      // Create a shallow copy to avoid mutating the original
+      const copiedItem = { ...item };
+      
+      // For MongoDB data, ensure ObjectId and Date objects are properly handled
+      Object.keys(copiedItem).forEach((key) => {
+        const value = copiedItem[key];
+        
+        // Convert ObjectId to string if it exists (check multiple possible ObjectId formats)
+        if (value && typeof value === 'object' && (
+          value._bsontype === 'ObjectID' || 
+          value.constructor && value.constructor.name === 'ObjectId' ||
+          (value.toString && value.toString().match(/^[0-9a-fA-F]{24}$/))
+        )) {
+          copiedItem[key] = value.toString();
+        }
+        // Convert Date objects to ISO strings
+        else if (value instanceof Date) {
+          copiedItem[key] = value.toISOString();
+        }
+        // Keep other object types as-is for proper display
+        else if (value && typeof value === 'object' && !Array.isArray(value)) {
+          // Don't convert to string - let the table component handle display
+          copiedItem[key] = value;
         }
       });
+      
       return copiedItem;
     });
   };
@@ -116,12 +136,11 @@ const TableView = ({ dbType }: { dbType: string }) => {
         const { filter } = tableFilter;
         if (!filter) return;
 
-        if (
-          JSON.stringify(filter.oldFilter) === JSON.stringify(filter.newFilter)
-        )
-          return;
+        // Allow re-applying the same filter (useful for refreshing data)
+        // Removed the check that prevented same filter re-application
 
-        const oldFilter = filter.newFilter.filter((item: any) => item.value);
+        // Keep the complete filter structure, not just items with values
+        const oldFilter = filter.newFilter;
 
         const { data, totalRecords } = await getTablesData(tableName, {
           filters: filter.newFilter,

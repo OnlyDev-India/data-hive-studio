@@ -31,4 +31,8 @@ export interface FilterType {
   compare: string;
   separator: string;
   value: any;
+  value2?: any; // For between, range operations
+  isCustomQuery?: boolean; // Flag to indicate if this is a custom SQL query
+  customQuery?: string; // Custom SQL query text
+  sortBy?: string; // MongoDB sort object for custom sorting
 }

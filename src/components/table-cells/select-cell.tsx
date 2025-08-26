@@ -30,20 +30,35 @@ const SelectCell = ({
   const value =
     typeof row[name] === "string" ? row[name]?.trim() : row[name]?.toString();
 
+  const handleValueChange = (value: string) => {
+    let sanitizedValue: any = value;
+    
+    // Sanitize the selected value
+    if (value === "undefined" || value === "$undefined") {
+      sanitizedValue = undefined;
+    } else if (value === "true") {
+      sanitizedValue = true;
+    } else if (value === "false") {
+      sanitizedValue = false;
+    } else if (value === "null" || value === "") {
+      sanitizedValue = null;
+    }
+    
+    onRowChange({
+      ...row,
+      [name]: sanitizedValue,
+    });
+  };
+
   return (
     <Select
       value={value}
-      onValueChange={(value) =>
-        onRowChange({
-          ...row,
-          [name]: value === "true" ? true : value === "false" ? false : value,
-        })
-      }
+      onValueChange={handleValueChange}
     >
       <SelectTrigger
         disabled={disabled}
         className={cn(
-          "border-0 p-0 focus:outline-none focus:ring-0",
+          "border-0 p-0 focus:outline-none focus:ring-0 bg-transparent",
           {
             "[&_span]:text-muted-foreground": value === "" || !value,
           },
@@ -52,7 +67,7 @@ const SelectCell = ({
       >
         <SelectValue placeholder={"(null)"} />
       </SelectTrigger>
-      <SelectContent className="bg-secondary/70 backdrop-blur-md">
+      <SelectContent>
         {items
           .filter((item) =>
             item.label.toLowerCase().includes(search.toLowerCase()),

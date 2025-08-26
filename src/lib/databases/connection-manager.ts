@@ -332,6 +332,12 @@ export class EnhancedConnectionManager {
     return this.getConnection(this.currentConnectionId);
   }
 
+  public getCurrentConnectionDetails(): ConnectionDetailsType | null {
+    if (!this.currentConnectionId) return null;
+    const connectionInfo = this.connectionDetails.get(this.currentConnectionId);
+    return connectionInfo?.details || null;
+  }
+
   public getConnectionState(connectionId: string): ConnectionState | null {
     return this.connectionStates.get(connectionId) || null;
   }
