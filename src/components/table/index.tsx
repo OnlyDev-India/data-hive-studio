@@ -18,19 +18,14 @@ import {
   PlusIcon,
   RefreshCcwIcon,
   XIcon,
-  Edit3Icon,
-  CheckIcon,
   TableIcon,
   FileTextIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ForeignKeyCells from "../table-cells/foreign-key-cells";
 import { Checkbox } from "../ui/checkbox";
 import SelectCell from "../table-cells/select-cell";
 import InputCell from "../table-cells/input-cell";
-import { Input } from "../ui/input";
 
 import FloatingActions from "./floating-action";
 import { useDispatch, useSelector } from "react-redux";
@@ -42,6 +37,7 @@ import Pagination from "./pagination";
 import { isNoSql } from "@/lib/helper/checkDbType";
 import NoSqlTable from "./no-sql-table";
 import { getCurrentDatabaseType } from "@/lib/actions/fetch-data";
+import { EditorModal } from "./editor-modal";
 
 // Define the structure of the data (you can update this based on your actual data)
 export interface ColumnProps extends Column<any> {
@@ -74,117 +70,6 @@ const formatNoSqlValue = (value: any): string => {
   return String(value);
 };
 
-// Inline Object Editor Component for expandable sub-tables
-interface InlineObjectEditorProps {
-  objectData: any;
-  rowIndex: number;
-  columnKey: string;
-  onSave: (rowIndex: number, columnKey: string, updatedObject: any) => void;
-}
-
-const InlineObjectEditor = ({
-  objectData,
-  rowIndex,
-  columnKey,
-  onSave,
-}: InlineObjectEditorProps) => {
-  const [editableData, setEditableData] =
-    useState<Record<string, any>>(objectData);
-  const [newFieldName, setNewFieldName] = useState("");
-
-  const handleFieldChange = (key: string, value: any) => {
-    setEditableData((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  const addNewField = () => {
-    if (
-      newFieldName.trim() &&
-      !editableData.hasOwnProperty(newFieldName.trim())
-    ) {
-      setEditableData((prev) => ({
-        ...prev,
-        [newFieldName.trim()]: "",
-      }));
-      setNewFieldName("");
-    }
-  };
-
-  const removeField = (key: string) => {
-    setEditableData((prev) => {
-      const newData = { ...prev };
-      delete newData[key];
-      return newData;
-    });
-  };
-
-  const handleSave = () => {
-    onSave(rowIndex, columnKey, editableData);
-  };
-
-  return (
-    <div className="my-2 ml-4 rounded-r-md border-l-4 border-primary bg-muted/30 p-3">
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className="text-sm font-medium text-muted-foreground">
-          Editing: {columnKey}
-        </h4>
-        <Button size="sm" onClick={handleSave} className="h-7 px-3 text-xs">
-          Save
-        </Button>
-      </div>
-
-      <div className="max-h-48 space-y-2 overflow-auto">
-        {Object.entries(editableData).map(([key, value]) => (
-          <div
-            key={key}
-            className="flex items-center gap-2 rounded border bg-background p-2"
-          >
-            <span className="min-w-[80px] text-xs font-medium">{key}</span>
-            <Input
-              value={typeof value === "string" ? value : String(value || "")}
-              onChange={(e) => handleFieldChange(key, e.target.value)}
-              className="h-7 flex-1 text-xs"
-              placeholder="Enter value"
-            />
-            <span className="min-w-[60px] text-xs text-muted-foreground">
-              {Array.isArray(value) ? "array" : typeof value}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-              onClick={() => removeField(key)}
-            >
-              <XIcon size={10} />
-            </Button>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-        <Input
-          value={newFieldName}
-          onChange={(e) => setNewFieldName(e.target.value)}
-          placeholder="New field name"
-          className="h-7 flex-1 text-xs"
-          onKeyPress={(e) => e.key === "Enter" && addNewField()}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={addNewField}
-          disabled={!newFieldName.trim()}
-          className="h-7 px-2 text-xs"
-        >
-          Add
-        </Button>
-      </div>
-    </div>
-  );
-};
-
 const Table = ({
   columns,
   data,
@@ -197,9 +82,6 @@ const Table = ({
 
   const [filterDivHeight, setFilterDivHeight] = useState<number>(40);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
-  const [expandedObjects, setExpandedObjects] = useState<Set<string>>(
-    new Set(),
-  );
 
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
@@ -246,44 +128,6 @@ const Table = ({
       }),
     );
     // setIsNewRows(true);
-  };
-
-  const toggleObjectExpansion = (rowIndex: number, columnKey: string) => {
-    const key = `${rowIndex}-${columnKey}`;
-    setExpandedObjects((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(key)) {
-        newSet.delete(key);
-      } else {
-        newSet.add(key);
-      }
-      return newSet;
-    });
-  };
-
-  const isObjectExpanded = (rowIndex: number, columnKey: string) => {
-    return expandedObjects.has(`${rowIndex}-${columnKey}`);
-  };
-
-  const saveObjectChanges = (
-    rowIndex: number,
-    columnKey: string,
-    updatedObject: any,
-  ) => {
-    // Create updated rows with the modified object
-    const updatedRows = data.map((row, idx) => {
-      if (idx === rowIndex) {
-        return {
-          ...row,
-          [columnKey]: updatedObject,
-        };
-      }
-      return row;
-    });
-
-    // Update the grid data
-    const changes = { indexes: [rowIndex], column: { key: columnKey } };
-    handleRowChange(updatedRows, changes);
   };
 
   const handleRemoveNewRecord = (rowIdx?: number) => {
@@ -390,6 +234,43 @@ const Table = ({
         ),
         renderCell: (props: any) => {
           // const { row, column } = props;
+
+          // For MongoDB and other NoSQL databases, use custom cell renderer
+          if (isNosql) {
+            const cellValue = props.row[column.key];
+            const isObjectValue =
+              typeof cellValue === "object" &&
+              cellValue !== null &&
+              !Array.isArray(cellValue);
+
+            return (
+              <EditorModal
+                data={props.row}
+                onSave={handleUpdateChanges}
+                index={props.rowIdx}
+                title="Edit Object"
+                isDoubleClick
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Edit Object"
+                  className="h-full w-full justify-start p-0 hover:bg-transparent"
+                >
+                  {isObjectValue ? (
+                    <>
+                      <span className="text-xs text-muted-foreground">
+                        {Object.keys(cellValue).length} fields
+                      </span>
+                    </>
+                  ) : (
+                    <>{formatNoSqlValue(cellValue)}</>
+                  )}
+                </Button>
+              </EditorModal>
+            );
+          }
+
           if (column.key_type === "FOREIGN KEY") {
             return <ForeignKeyCells {...props} disabled={false} />;
           }
@@ -418,70 +299,6 @@ const Table = ({
                   { label: "false", value: false },
                 ]}
               />
-            );
-          }
-
-          // For MongoDB and other NoSQL databases, use custom cell renderer
-          if (isNosql) {
-            const cellValue = props.row[column.key];
-            const isObjectValue =
-              typeof cellValue === "object" &&
-              cellValue !== null &&
-              !Array.isArray(cellValue);
-
-            return (
-              <div className="flex items-center gap-2">
-                {isObjectValue ? (
-                  <>
-                    <span className="text-xs text-muted-foreground">
-                      {Object.keys(cellValue).length} fields
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      disabled={true} //TODO: remove this
-                      onClick={() => {
-                        // Toggle sub-table expansion for editing object
-                        toggleObjectExpansion(props.rowIdx, column.key);
-                      }}
-                    >
-                      {isObjectExpanded(props.rowIdx, column.key) ? (
-                        <ChevronDownIcon size={12} />
-                      ) : (
-                        <ChevronRightIcon size={12} />
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <Input
-                    value={formatNoSqlValue(cellValue)}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                      const newRow = {
-                        ...props.row,
-                        [column.key]: e.target.value,
-                      };
-
-                      // IMPORTANT: Don't create a new array, modify the existing one
-                      // This prevents ReactDataGrid from losing track of row indices
-                      const updatedRows = data.map((row, idx) => {
-                        if (idx === props.rowIdx) {
-                          return newRow;
-                        }
-                        return row;
-                      });
-
-                      // Call onRowChange with the updated rows array
-                      props.onRowChange(updatedRows, {
-                        indexes: [props.rowIdx],
-                        column: column,
-                      });
-                    }}
-                    className="rounded-none border-0 border-primary p-0 hover:border-b-2 focus-visible:border-b-2 focus-visible:outline-none focus-visible:ring-0"
-                    placeholder="null"
-                  />
-                )}
-              </div>
             );
           }
 
@@ -779,16 +596,6 @@ const Table = ({
     }
   };
 
-  // updatedData is now just a reference to data since we're using data directly
-  const updatedData = useMemo(() => data, [data]);
-
-  // No need to initialize gridRows since we're using data prop directly
-  // useEffect(() => {
-  //   if (data && data.length > 0) {
-  //     console.log('Initializing gridRows with data:', data.length);
-  //     setGridRows(data);
-  //   }
-  // }, [data]);
   const updateDivHeight = () => {
     if (filterRef.current) {
       setFilterDivHeight(filterRef.current.offsetHeight || 0);
@@ -900,7 +707,7 @@ const Table = ({
             </div>
           </div>
           {currentFile?.tableFilter?.filterOpened && (
-            <div className="scrollable-container-gutter max-h-40 overflow-auto bg-secondary px-4 mb-4 relative">
+            <div className="scrollable-container-gutter relative mb-4 max-h-40 overflow-auto bg-secondary px-4">
               <Filter columns={columns} dbType={dbType} viewMode={viewMode} />
             </div>
           )}
@@ -934,7 +741,7 @@ const Table = ({
             {/* )} */}
             {isNosql ? (
               viewMode === "table" ? (
-                <div className="relative">
+                <div className="relative h-full">
                   <ReactDataGrid
                     columns={updatedColumns} // Dynamically set columns
                     rows={data} // Use data prop directly to avoid state management issues
@@ -960,40 +767,6 @@ const Table = ({
                     }}
                     className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
                   />
-
-                  {/* Expandable Object Editors */}
-                  {data
-                    .map((row, rowIndex) =>
-                      updatedColumns.map((column) => {
-                        const cellValue = row[column.key];
-                        const isObjectValue =
-                          typeof cellValue === "object" &&
-                          cellValue !== null &&
-                          !Array.isArray(cellValue);
-
-                        if (
-                          isObjectValue &&
-                          isObjectExpanded(rowIndex, column.key)
-                        ) {
-                          return (
-                            <div
-                              key={`${rowIndex}-${column.key}`}
-                              className="absolute left-0 right-0 z-10"
-                              style={{ top: `${(rowIndex + 1) * 30 + 40}px` }}
-                            >
-                              <InlineObjectEditor
-                                objectData={cellValue}
-                                rowIndex={rowIndex}
-                                columnKey={column.key}
-                                onSave={saveObjectChanges}
-                              />
-                            </div>
-                          );
-                        }
-                        return null;
-                      }),
-                    )
-                    .filter(Boolean)}
                 </div>
               ) : (
                 <NoSqlTable
@@ -1030,40 +803,6 @@ const Table = ({
                   }}
                   className="fill-grid react-data-grid h-full rounded-b-lg bg-secondary"
                 />
-
-                {/* Expandable Object Editors for SQL */}
-                {data
-                  .map((row, rowIndex) =>
-                    updatedColumns.map((column) => {
-                      const cellValue = row[column.key];
-                      const isObjectValue =
-                        typeof cellValue === "object" &&
-                        cellValue !== null &&
-                        !Array.isArray(cellValue);
-
-                      if (
-                        isObjectValue &&
-                        isObjectExpanded(rowIndex, column.key)
-                      ) {
-                        return (
-                          <div
-                            key={`${rowIndex}-${column.key}`}
-                            className="absolute left-0 right-0 z-10"
-                            style={{ top: `${(rowIndex + 1) * 30 + 40}px` }}
-                          >
-                            <InlineObjectEditor
-                              objectData={cellValue}
-                              rowIndex={rowIndex}
-                              columnKey={column.key}
-                              onSave={saveObjectChanges}
-                            />
-                          </div>
-                        );
-                      }
-                      return null;
-                    }),
-                  )
-                  .filter(Boolean)}
               </div>
             )}
           </div>

@@ -551,6 +551,12 @@ export class MongoDbClient implements DatabaseClient {
     }
   }
 
+  /**
+   * Updates MongoDB documents with support for field updates, additions, and removals
+   * @param tableName - Name of the collection to update
+   * @param data - Array of objects containing oldValue and newValue for comparison
+   * @returns Object with updated data, effected rows count, and any errors
+   */
   async updateTable(
     tableName: string,
     data: Array<{
@@ -587,25 +593,47 @@ export class MongoDbClient implements DatabaseClient {
 
         // Create the update document with only changed fields
         const updateDoc: any = {};
+        const unsetDoc: any = {};
+        
+        // Check for fields to update or add
         Object.keys(newValue).forEach(key => {
           if (key !== '_id' && newValue[key] !== oldValue[key]) {
             updateDoc[key] = newValue[key];
           }
         });
+        
+        // Check for fields that were removed (exist in oldValue but not in newValue)
+        // This handles cases where users delete fields from the JSON editor
+        Object.keys(oldValue).forEach(key => {
+          if (key !== '_id' && !(key in newValue)) {
+            unsetDoc[key] = ""; // $unset requires a value, but it's ignored
+          }
+        });
 
-        // If no fields actually changed, skip this update
-        if (Object.keys(updateDoc).length === 0) {
+        // If no fields actually changed or removed, skip this update
+        if (Object.keys(updateDoc).length === 0 && Object.keys(unsetDoc).length === 0) {
           continue;
         }
-
-        // Use updateOne with _id filter for reliable updates
         
+        // Build the update operation combining $set and $unset operations
+        // $set: Updates existing fields or adds new fields
+        // $unset: Removes fields that exist in oldValue but not in newValue
+        const updateOperation: any = {};
+        if (Object.keys(updateDoc).length > 0) {
+          updateOperation.$set = updateDoc;
+        }
+        if (Object.keys(unsetDoc).length > 0) {
+          updateOperation.$unset = unsetDoc;
+        }
+        
+        // Use updateOne with _id filter for reliable updates
         const result = await this.db
           .collection(tableName)
           .updateOne(
             { _id: filterId },
-            { $set: updateDoc }
+            updateOperation
           );
+
 
         if (result.matchedCount > 0) {
           totalUpdated += result.modifiedCount;
