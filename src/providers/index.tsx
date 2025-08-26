@@ -9,9 +9,11 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
   return (
     <ThemeProvider>
       <ReduxProvider>
-          <ReactFlowProvider>
-            <ShortCutProvider>{children}</ShortCutProvider>
-          </ReactFlowProvider>
+        <ReactFlowProvider>
+          <ShortCutProvider>
+            {children}
+          </ShortCutProvider>
+        </ReactFlowProvider>
       </ReduxProvider>
     </ThemeProvider>
   );

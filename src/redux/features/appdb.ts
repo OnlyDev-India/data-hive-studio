@@ -1,17 +1,25 @@
-import { deleteConnection, getConnections } from "@/lib/actions/app-data";
+import { getConnections } from "@/lib/actions/app-data";
 import { ConnectionsType } from "@/types/db.type";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 export const initAppData = createAsyncThunk(
   "tables/connectToAppDB",
-  async () => {
-    // const tables = await getTablesWithFieldsFromDb();
+  async (_, { rejectWithValue }) => {
+    try {
+      if (typeof window === "undefined" || !window.electron) {
+        throw new Error("Electron environment not available.");
+      }
+      const dbPath = await window.electron.getConnectionsJsonPath();
+      const response = await getConnections(dbPath);
 
-    const response = await getConnections();
-    if (response && 'data' in response && Array.isArray(response.data?.rows)) {
-      return { connections: response.data.rows as ConnectionsType[] };
+      if (response.success && response.data) {
+        return { connections: response.data.rows as ConnectionsType[] };
+      } else {
+        return rejectWithValue(response.error || "Failed to fetch connections.");
+      }
+    } catch (error: any) {
+      return rejectWithValue(error.message);
     }
-    return { connections: null };
   },
 );
 
@@ -78,6 +86,8 @@ export const appDBSlice = createSlice({
       })
       .addCase(initAppData.rejected, (state, action) => {
         state.loading = false; // Set loading to false on error
+        // Optionally, you can store the error message in the state
+        // state.connectionMessage = { success: false, error: action.payload as string };
       });
   },
 });

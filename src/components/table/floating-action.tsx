@@ -19,6 +19,7 @@ import { updateFile } from "@/redux/features/open-files";
 import { FileTableType } from "@/types/file.type";
 import DeleteModal from "../modals/delete-modal";
 import { motion, AnimatePresence } from "framer-motion";
+import { sanitizeForDatabaseUpdate, sanitizeForDatabaseInsert } from "@/lib/helper/data-sanitizer";
 interface Row {
   [key: string]: any; // Dynamic data rows
 }
@@ -50,11 +51,14 @@ const FloatingActions = ({
   const handleUpdateChanges = async () => {
     if (!changedRows) return;
     setLoading("updating");
-    const changedData = Object.values(changedRows).map((row) => ({
-      oldValue: row.old,
-      newValue: row.new,
-    }));
-    const response = await updateTable(tableName, changedData);
+    
+    // Sanitize the changed data before sending to database
+    const sanitizedChangedData = Object.values(changedRows).map((row) => {
+      const sanitized = sanitizeForDatabaseUpdate(row.old, row.new);
+      return sanitized;
+    });
+    
+    const response = await updateTable(tableName, sanitizedChangedData);
 
     if (response.effectedRows) {
       toast.success(`Updated ${response.effectedRows} rows`);
@@ -110,19 +114,20 @@ const FloatingActions = ({
       .map((row: any) => {
         const copiedRow = JSON.parse(JSON.stringify(row));
         delete copiedRow.isNew;
-        return Object.fromEntries(
-          Object.entries(copiedRow).filter(
-            ([_, value]) =>
-              value !== null && value !== undefined && value !== "",
-          ),
-        );
+        return copiedRow;
       });
     if (!insertingRows || insertingRows.length === 0) return;
     setLoading("adding");
 
+    // Sanitize the data before inserting
+    const sanitizedInsertingRows = sanitizeForDatabaseInsert(insertingRows);
+    
+    // Convert object array to array format expected by insertTableData
+    const valuesArray = sanitizedInsertingRows.map(row => Object.values(row));
+
     const response = await insertTableData({
       tableName: currentFile.tableName,
-      values: insertingRows,
+      values: valuesArray,
     });
     if (response.effectedRows > 0 && response.data) {
       const newRows = JSON.parse(response.data);

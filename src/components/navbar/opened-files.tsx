@@ -198,7 +198,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       className="relative h-full w-full rounded-lg bg-secondary"
     >
       <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg">
-        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2">
+        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2 pr-0">
           {openFiles?.map((item: any, index: number) => {
             const Icon = tabIcons[item.type as "table" | "file" | "structure"];
             return (

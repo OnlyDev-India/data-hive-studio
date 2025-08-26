@@ -6,6 +6,7 @@ import { FilterType, TableForm } from "@/types/table.type";
 import { cookies } from "next/headers";
 import { SortColumn } from "react-data-grid";
 import { PaginationType } from "@/types/file.type";
+import { updateConnection } from "./app-data";
 
 // console.log(cookies().get("currentConnection")?.value);
 
@@ -104,7 +105,8 @@ export async function getTablesWithFieldsFromDb(
   const connection = connectionManager.getCurrentConnection();
   if (!connection) return null;
   
-  return await connection.getTablesWithFieldsFromDb(currentSchema, isUpdateSchema);
+  const result = await connection.getTablesWithFieldsFromDb(currentSchema, isUpdateSchema);
+  return result;
 }
 
 export async function getDatabases() {
@@ -147,6 +149,32 @@ export async function getTablesData(
     table_name,
     options,
   );
+
+  // For MongoDB, we need to serialize ObjectId and other special types properly
+  // Check if this is MongoDB by looking for ObjectId in the data
+  if (data && Array.isArray(data) && data.length > 0) {
+    const firstDoc = data[0];
+    
+    if (firstDoc && firstDoc._id && typeof firstDoc._id === 'object' && firstDoc._id.toString) {
+      // This is likely MongoDB data, serialize it properly
+      const serializedData = data.map((doc: any) => {
+        const plainDoc = { ...doc };
+        // Convert ObjectId to string
+        if (plainDoc._id && typeof plainDoc._id === 'object' && plainDoc._id.toString) {
+          plainDoc._id = plainDoc._id.toString();
+        }
+        // Convert Date objects to ISO strings
+        Object.keys(plainDoc).forEach(key => {
+          if (plainDoc[key] instanceof Date) {
+            plainDoc[key] = plainDoc[key].toISOString();
+          }
+        });
+        return plainDoc;
+      });
+      
+      return { data: JSON.stringify(serializedData), error, totalRecords };
+    }
+  }
 
   return { data: JSON.stringify(data), error, totalRecords };
 }
@@ -202,7 +230,7 @@ export async function testConnection({
   return { success, error };
 }
 
-export async function disconnectDb() {
+export async function disconnectDb(connectionPath: string|null) {
   const cookie = cookies();
   const connectionUrl = cookie.get("currentConnection");
   if (!connectionUrl) return false;
@@ -211,6 +239,12 @@ export async function disconnectDb() {
   const connectionManager = EnhancedConnectionManager.getInstance();
   await connectionManager.disconnect(connectionDetails.id);
   
+  if (connectionPath) {
+    await updateConnection(connectionPath, {
+      ...connectionDetails,
+      is_current: false,
+    });
+  }
   cookie.delete("currentConnection");
   cookie.delete("dbType");
   return true;
@@ -225,9 +259,12 @@ export async function updateTable(
 ) {
   const connectionManager = EnhancedConnectionManager.getInstance();
   const connection = connectionManager.getCurrentConnection();
-  if (!connection) return false;
+  if (!connection) {
+    return false;
+  }
   
   const response = await connection.updateTable(tableName, data);
+  
   return { ...response, data: JSON.stringify(response.data) };
 }
 
@@ -296,7 +333,6 @@ export async function getConnectionStatus() {
       }
     };
   } catch (error) {
-    console.error("Error getting connection status:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error"
@@ -318,6 +354,15 @@ export async function forceReconnect(connectionId?: string) {
     }
     const connectionManager = EnhancedConnectionManager.getInstance();
     const success = await connectionManager.forceReconnect(id!);
+    if(success) {
+      const { response } = await connectDb();
+      if(response.success) {
+        return {
+          success: true,
+          message: "Reconnection successful"
+        };
+      }
+    }
     return {
       success,
       message: success ? "Reconnection initiated" : "Reconnection failed"

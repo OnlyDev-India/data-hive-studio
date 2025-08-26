@@ -2,7 +2,14 @@
 import { Button } from "../../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import { disconnectDb } from "@/lib/actions/fetch-data";
-import { CirclePowerIcon, MoonIcon, SettingsIcon, SunIcon } from "lucide-react";
+import {
+  CirclePowerIcon,
+  Database,
+  MonitorIcon,
+  MoonIcon,
+  SettingsIcon,
+  SunIcon,
+} from "lucide-react";
 import { useDispatch } from "react-redux";
 import { resetOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
@@ -21,14 +28,19 @@ import {
 import { useTheme } from "next-themes";
 import ConnectedPageSidebar from "./connected-page";
 import ConnectionPageSidebar from "./connection-page";
+import { useAppData } from "@/hooks/useAppData";
+import { DatabaseBackupModal } from "@/components/modals/database-backup-modal";
+import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
+import { TooltipTrigger } from "@/components/ui/tooltip";
 
 const Sidebar = () => {
   const router = useRouter();
   const dispatch = useDispatch();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const { connectionPath } = useAppData();
   const handleDisconnect = async () => {
-    const response = await disconnectDb();
+    const response = await disconnectDb(connectionPath);
     if (response) {
       dispatch(resetOpenFiles());
       dispatch(resetQuery());
@@ -42,6 +54,24 @@ const Sidebar = () => {
       {pathname.startsWith("/app") && (
         <ConnectedPageSidebar pathname={pathname} />
       )}
+      <DatabaseBackupModal>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"ghost"}
+                size={"icon"}
+                className="hover:bg-secondary"
+              >
+                <Database size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Database Backup</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </DatabaseBackupModal>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -77,6 +107,13 @@ const Sidebar = () => {
                 >
                   <MoonIcon size={12} />
                   <span>Dark</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setTheme("system")}
+                  className="text-xs"
+                >
+                  <MonitorIcon size={12} />
+                  <span>System</span>
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuPortal>

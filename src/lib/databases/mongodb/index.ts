@@ -1,13 +1,108 @@
 import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";
-import { Collection, CollectionInfo, Db, MongoClient, ObjectId } from "mongodb";
-import { cookies } from "next/headers";
+import { CollectionInfo, MongoClient, ObjectId } from "mongodb";
 import { SortColumn } from "react-data-grid";
 
 export class MongoDbClient implements DatabaseClient {
   private client: MongoClient | null = null;
   private db: any = null;
+
+  // Helper function to parse flexible object syntax
+  private parseFlexibleObject(input: string): any {
+    if (!input || typeof input !== 'string') return {};
+    
+    try {
+      // First try standard JSON parsing
+      return JSON.parse(input);
+    } catch (error) {
+      try {
+        // If JSON parsing fails, try to convert to valid JSON
+        // Replace unquoted keys with quoted keys
+        let processedInput = input.trim();
+        
+        // Handle edge cases
+        if (!processedInput.startsWith('{') || !processedInput.endsWith('}')) {
+          throw new Error('Invalid object format');
+        }
+        
+        // Remove outer braces for processing
+        processedInput = processedInput.slice(1, -1);
+        
+        // Split by commas, but be careful about nested objects
+        const parts = [];
+        let currentPart = '';
+        let braceCount = 0;
+        let inString = false;
+        let escapeNext = false;
+        
+        for (let i = 0; i < processedInput.length; i++) {
+          const char = processedInput[i];
+          
+          if (escapeNext) {
+            currentPart += char;
+            escapeNext = false;
+            continue;
+          }
+          
+          if (char === '\\') {
+            escapeNext = true;
+            currentPart += char;
+            continue;
+          }
+          
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            currentPart += char;
+            continue;
+          }
+          
+          if (!inString) {
+            if (char === '{' || char === '[') {
+              braceCount++;
+            } else if (char === '}' || char === ']') {
+              braceCount--;
+            } else if (char === ',' && braceCount === 0) {
+              parts.push(currentPart.trim());
+              currentPart = '';
+              continue;
+            }
+          }
+          
+          currentPart += char;
+        }
+        
+        if (currentPart.trim()) {
+          parts.push(currentPart.trim());
+        }
+        
+        // Process each part to add quotes around unquoted keys
+        const processedParts = parts.map(part => {
+          const colonIndex = part.indexOf(':');
+          if (colonIndex === -1) return part;
+          
+          const key = part.substring(0, colonIndex).trim();
+          const value = part.substring(colonIndex + 1).trim();
+          
+          // If key is not quoted, add quotes
+          let processedKey = key;
+          if (!key.startsWith('"') && !key.startsWith("'")) {
+            processedKey = `"${key}"`;
+          }
+          
+          return `${processedKey}:${value}`;
+        });
+        
+        // Reconstruct the object
+        const validJson = `{${processedParts.join(',')}}`;
+        return JSON.parse(validJson);
+        
+      } catch (secondError) {
+        console.warn('Failed to parse flexible object syntax:', input, secondError);
+        return {};
+      }
+    }
+  }
 
   async connectDb({
     connectionDetails,
@@ -16,9 +111,36 @@ export class MongoDbClient implements DatabaseClient {
   }) {
     try {
       const uri = connectionDetails.connection_string;
+      
       this.client = new MongoClient(uri);
       await this.client.connect();
-      this.db = this.client.db();
+      
+      // Try to get database from connection details or URI
+      let databaseName = connectionDetails.database;
+      
+      if (!databaseName) {
+        // Extract database name from URI if not provided in connection details
+        try {
+          const url = new URL(uri);
+          databaseName = url.pathname.replace('/', '') || undefined;
+        } catch (urlError) {
+          // Silently continue if URI parsing fails
+        }
+      }
+      
+      if (databaseName) {
+        this.db = this.client.db(databaseName);
+      } else {
+        this.db = this.client.db();
+      }
+      
+      // Test the connection by trying to ping
+      try {
+        await this.db.admin().ping();
+      } catch (pingError) {
+        // Connection test failed, but continue anyway
+      }
+      
       return { success: true };
     } catch (error) {
       return {
@@ -40,7 +162,7 @@ export class MongoDbClient implements DatabaseClient {
   }
 
   isConnectedToDb() {
-    return this.db;
+    return !!this.db;
   }
 
   async executeQuery(query: string) {
@@ -112,25 +234,42 @@ export class MongoDbClient implements DatabaseClient {
       await client.close();
       return { success: true, error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { success: false, error: error.message };
     }
   }
 
-  async getTablesWithFieldsFromDb() {
-    if (!this.db) return { tables: [], error: "No connection to the database" };
+  async getTablesWithFieldsFromDb(currentSchema: string = "", isUpdateSchema: boolean = false) {
+    if (!this.db) {
+      return { tables: [], error: "No connection to the database" };
+    }
+    
+    if (!this.client) {
+      return { tables: [], error: "No client connection to the database" };
+    }
+    
     try {
+      // First, test if we can access the database
+      try {
+        await this.db.admin().ping();
+      } catch (pingError) {
+        return { tables: [], error: "Database connection is not accessible" };
+      }
+      
       const result: CollectionInfo[] = await this.db
         .listCollections()
         .toArray();
+      
+      if (!Array.isArray(result)) {
+        return { tables: [], error: "Invalid response from database" };
+      }
+      
       const collections = result.map((collection) => ({
         table_name: collection.name,
         fields: [],
       }));
-
+      
       return { tables: collections, error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { tables: [], error: error.message };
     }
   }
@@ -149,7 +288,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { databases: databases || [], error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { databases: [], error: error.message };
     }
   }
@@ -202,7 +340,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { columns, error: null };
     } catch (error: any) {
-      console.error("Error:", error);
       return { columns: null, error: error.message };
     }
   }
@@ -227,35 +364,153 @@ export class MongoDbClient implements DatabaseClient {
       const skip = (page - 1) * limit;
 
       let filterQuery = {};
+      let customSortBy = {};
+      
       if (filters && filters.length > 0) {
-        filterQuery = {
-          $and: filters.map((filter) => {
-            const value = filter.value;
-            if (filter.column === "_id") {
-              return { _id: ObjectId.createFromHexString(value) };
+        // Extract sortBy from the first filter if it exists
+        if (filters[0]?.sortBy && filters[0].sortBy.trim()) {
+          try {
+            customSortBy = this.parseFlexibleObject(filters[0].sortBy.trim());
+          } catch (error) {
+            console.warn('Invalid sortBy format:', filters[0].sortBy);
+          }
+        }
+        
+        // Check if we have a custom query
+        const customQueryFilter = filters.find(filter => filter.isCustomQuery && filter.customQuery && filter.customQuery.trim());
+        
+        if (customQueryFilter && customQueryFilter.customQuery && customQueryFilter.customQuery.trim()) {
+          try {
+            // Use custom query directly
+            filterQuery = this.parseFlexibleObject(customQueryFilter.customQuery.trim());
+          } catch (error) {
+            console.warn('Invalid custom query format:', customQueryFilter.customQuery);
+            filterQuery = {};
+          }
+        } else {
+                    // Process regular filters
+          const mongoFilters = filters.map((filter) => {
+            const { column, compare, value, value2 } = filter;
+            
+            // Skip filters that don't have the required fields for regular filtering
+            if (!column || !compare || value === undefined || value === "") {
+              return null;
             }
-            switch (filter.compare) {
-              case "contains":
-                return { [filter.column]: { $regex: value, $options: "i" } };
+            
+            const field = column === "_id" ? "_id" : column;
+            
+            // Handle ObjectId conversion for _id field
+            const processValue = (val: any) => {
+              if (field === "_id" && typeof val === "string") {
+                try {
+                  return ObjectId.createFromHexString(val);
+                } catch {
+                  return val; // Return original value if ObjectId conversion fails
+                }
+              }
+              return val;
+            };
+
+            switch (compare) {
+              // Null checks
+              case "is null":
+                return { [field]: null };
+              case "is not null":
+                return { [field]: { $ne: null } };
+              
+              // Boolean checks
+              case "is true":
+                return { [field]: true };
+              case "is false":
+                return { [field]: false };
+              
+              // Empty checks
+              case "is empty":
+                return { $or: [{ [field]: null }, { [field]: "" }] };
+              case "is not empty":
+                return { $and: [{ [field]: { $ne: null } }, { [field]: { $ne: "" } }] };
+              
+              // String operations
               case "equals":
-                return { [filter.column]: value };
-              case "startsWith":
-                return { [filter.column]: { $regex: `^${value}`, $options: "i" } };
-              case "endsWith":
-                return { [filter.column]: { $regex: `${value}$`, $options: "i" } };
-              case "greaterThan":
-                return { [filter.column]: { $gt: value } };
-              case "lessThan":
-                return { [filter.column]: { $lt: value } };
-              case "greaterThanOrEqual":
-                return { [filter.column]: { $gte: value } };
-              case "lessThanOrEqual":
-                return { [filter.column]: { $lte: value } };
+                return { [field]: processValue(value) };
+              case "not equals":
+                return { [field]: { $ne: processValue(value) } };
+              case "contains":
+                return { [field]: { $regex: value, $options: "i" } };
+              case "not contains":
+                return { [field]: { $not: { $regex: value, $options: "i" } } };
+              case "starts with":
+                return { [field]: { $regex: `^${value}`, $options: "i" } };
+              case "ends with":
+                return { [field]: { $regex: `${value}$`, $options: "i" } };
+              case "regex":
+                return { [field]: { $regex: value } };
+              
+              // Numeric/Date comparisons
+              case "greater than":
+                return { [field]: { $gt: processValue(value) } };
+              case "less than":
+                return { [field]: { $lt: processValue(value) } };
+              case "greater than or equal":
+                return { [field]: { $gte: processValue(value) } };
+              case "less than or equal":
+                return { [field]: { $lte: processValue(value) } };
+              
+              // Range operations
+              case "between":
+                return { [field]: { $gte: processValue(value), $lte: processValue(value2) } };
+              case "not between":
+                return { $or: [{ [field]: { $lt: processValue(value) } }, { [field]: { $gt: processValue(value2) } }] };
+              
+              // Array operations
+              case "in":
+                const inValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
+                return { [field]: { $in: inValues } };
+              case "not in":
+                const notInValues = value.toString().split(',').map((v: string) => processValue(v.trim()));
+                return { [field]: { $nin: notInValues } };
+              
+              // Date-specific operations
+              case "is today":
+                const today = new Date();
+                const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+                return { [field]: { $gte: startOfDay, $lt: endOfDay } };
+              
+              case "is this week":
+                const now = new Date();
+                const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+                const endOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 7));
+                return { [field]: { $gte: startOfWeek, $lt: endOfWeek } };
+              
+              case "is this month":
+                const thisMonth = new Date();
+                const startOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+                const endOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth() + 1, 1);
+                return { [field]: { $gte: startOfMonth, $lt: endOfMonth } };
+              
+              case "is this year":
+                const thisYear = new Date();
+                const startOfYear = new Date(thisYear.getFullYear(), 0, 1);
+                const endOfYear = new Date(thisYear.getFullYear() + 1, 0, 1);
+                return { [field]: { $gte: startOfYear, $lt: endOfYear } };
+              
+              // Array-specific operations
+              case "has length":
+                return { [field]: { $size: parseInt(value) } };
+              
               default:
-                return {};
+                return null;
             }
-          }),
-        };
+          }).filter((filter): filter is any => filter !== null && Object.keys(filter).length > 0);
+
+          if (mongoFilters.length > 0) {
+            filterQuery = mongoFilters.length === 1 ? mongoFilters[0] : { $and: mongoFilters };
+          } else {
+            // If no valid filters but we have sortBy, use empty filter to get all documents
+            filterQuery = {};
+          }
+        }
       }
       
       const result = await this.db
@@ -264,17 +519,19 @@ export class MongoDbClient implements DatabaseClient {
         .skip(skip)
         .limit(limit)
         .sort(
-          orderBy && orderBy?.length > 0
+          Object.keys(customSortBy).length > 0
+            ? customSortBy
+            : orderBy && orderBy?.length > 0
             ? {
                 [orderBy[0].columnKey]: orderBy[0].direction === "ASC" ? 1 : -1,
               }
             : {},
         )
         .toArray();
+      
       const totalRecords = await this.db.collection(tableName).countDocuments();
       return { data: result, error: null, totalRecords };
     } catch (error: any) {
-      console.error("Error:", error);
       return { data: null, error: error.message, totalRecords: 0 };
     }
   }
@@ -290,11 +547,16 @@ export class MongoDbClient implements DatabaseClient {
 
       return { data: null, error: null };
     } catch (error: any) {
-      console.error("Error dropping table:", error);
       return { data: null, error: error.message };
     }
   }
 
+  /**
+   * Updates MongoDB documents with support for field updates, additions, and removals
+   * @param tableName - Name of the collection to update
+   * @param data - Array of objects containing oldValue and newValue for comparison
+   * @returns Object with updated data, effected rows count, and any errors
+   */
   async updateTable(
     tableName: string,
     data: Array<{
@@ -313,26 +575,72 @@ export class MongoDbClient implements DatabaseClient {
 
     try {
       let totalUpdated = 0;
-      console.log(data);
       for (const { oldValue, newValue } of data) {
-        // Convert _id to ObjectId in both oldValue and newValue if present
-        const processedOldValue = { ...oldValue };
-        const processedNewValue = { ...newValue };
-
-        if (processedOldValue._id && typeof processedOldValue._id === 'string') {
-          processedOldValue._id = ObjectId.createFromHexString(processedOldValue._id);
+        // For MongoDB, we need to use the _id field for reliable updates
+        if (!oldValue._id) {
+          continue;
         }
 
-        if (processedNewValue._id && typeof processedNewValue._id === 'string') {
-          processedNewValue._id = ObjectId.createFromHexString(processedNewValue._id);
+        // Convert _id to ObjectId for the filter
+        let filterId;
+        try {
+          filterId = typeof oldValue._id === 'string' 
+            ? ObjectId.createFromHexString(oldValue._id)
+            : oldValue._id;
+        } catch (error) {
+          continue;
         }
 
+        // Create the update document with only changed fields
+        const updateDoc: any = {};
+        const unsetDoc: any = {};
+        
+        // Check for fields to update or add
+        Object.keys(newValue).forEach(key => {
+          if (key !== '_id' && newValue[key] !== oldValue[key]) {
+            updateDoc[key] = newValue[key];
+          }
+        });
+        
+        // Check for fields that were removed (exist in oldValue but not in newValue)
+        // This handles cases where users delete fields from the JSON editor
+        Object.keys(oldValue).forEach(key => {
+          if (key !== '_id' && !(key in newValue)) {
+            unsetDoc[key] = ""; // $unset requires a value, but it's ignored
+          }
+        });
+
+        // If no fields actually changed or removed, skip this update
+        if (Object.keys(updateDoc).length === 0 && Object.keys(unsetDoc).length === 0) {
+          continue;
+        }
+        
+        // Build the update operation combining $set and $unset operations
+        // $set: Updates existing fields or adds new fields
+        // $unset: Removes fields that exist in oldValue but not in newValue
+        const updateOperation: any = {};
+        if (Object.keys(updateDoc).length > 0) {
+          updateOperation.$set = updateDoc;
+        }
+        if (Object.keys(unsetDoc).length > 0) {
+          updateOperation.$unset = unsetDoc;
+        }
+        
+        // Use updateOne with _id filter for reliable updates
         const result = await this.db
           .collection(tableName)
-          .updateMany(processedOldValue, { $set: processedNewValue });
-        totalUpdated += result.modifiedCount;
+          .updateOne(
+            { _id: filterId },
+            updateOperation
+          );
+
+
+        if (result.matchedCount > 0) {
+          totalUpdated += result.modifiedCount;
+        }
       }
 
+      // Fetch updated data
       const { data: updatedData, error: fetchError } =
         await this.getTablesData(tableName);
 
@@ -343,7 +651,6 @@ export class MongoDbClient implements DatabaseClient {
         fetchError,
       };
     } catch (error: any) {
-      console.error("Error updating records:", error);
       return {
         data: null,
         effectedRows: 0,
@@ -381,7 +688,6 @@ export class MongoDbClient implements DatabaseClient {
         fetchError,
       };
     } catch (error: any) {
-      console.error("Error deleting records:", error);
       return {
         data: null,
         deleteError:
@@ -424,7 +730,6 @@ export class MongoDbClient implements DatabaseClient {
         error: null,
       };
     } catch (error: any) {
-      console.error("Error inserting records:", error);
       return {
         data: null,
         effectRows: 0,
@@ -457,7 +762,6 @@ export class MongoDbClient implements DatabaseClient {
 
       return { data: [], error: null };
     } catch (error: any) {
-      console.error("Error creating collection:", error);
       return { data: null, error: error.message };
     }
   }

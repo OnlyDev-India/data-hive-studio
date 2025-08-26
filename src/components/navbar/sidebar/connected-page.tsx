@@ -5,19 +5,10 @@ import {
 } from "@/components/ui/tooltip";
 import { sideBadMenu } from "@/config/menu";
 import { cn } from "@/lib/utils";
-import { fetchTables } from "@/redux/features/tables";
 import Link from "next/link";
-import { useEffect } from "react";
-import { useDispatch } from "react-redux";
 
 const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
-  const dispatch = useDispatch();
-  const handleFetchTables = async () => {
-    dispatch(fetchTables() as any);
-  };
-  useEffect(() => {
-    handleFetchTables();
-  }, [dispatch]);
+
   return (
     <div
       className={cn(
@@ -35,7 +26,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
               href={item.link}
               className={cn(
                 "flex items-center justify-center",
-                "w-full rounded-md p-2 text-muted-foreground hover:bg-popover/40 hover:text-foreground",
+                "w-full rounded-md p-2 text-muted-foreground transition-colors duration-150 hover:bg-popover/40 hover:text-foreground",
                 {
                   "bg-popover text-primary": pathname.includes(item.link),
                 },
@@ -47,7 +38,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={10}>
                   {item.title}
-                  <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span>
+                  {/* <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span> */}
                 </TooltipContent>
               </Tooltip>
             </Link>
