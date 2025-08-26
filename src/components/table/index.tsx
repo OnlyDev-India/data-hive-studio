@@ -598,7 +598,7 @@ const Table = ({
 
   const updateDivHeight = () => {
     if (filterRef.current) {
-      setFilterDivHeight(filterRef.current.offsetHeight || 0);
+      setFilterDivHeight(filterRef.current.offsetHeight + 16 || 0);
     }
   };
 
