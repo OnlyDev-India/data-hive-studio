@@ -28,7 +28,12 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getConnectionStatus, forceReconnect, getConnectionState } from "@/lib/actions/fetch-data";
+import { 
+  getConnectionStatus, 
+  forceReconnect, 
+  getConnectionState,
+  connectDb 
+} from "@/lib/actions/fetch-data";
 
 interface ConnectionState {
   isConnected: boolean;
@@ -53,6 +58,41 @@ export function ConnectionStatus({
     useState<ConnectionState | null>(null);
   const [isForceReconnecting, setIsForceReconnecting] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [autoReconnectAttempts, setAutoReconnectAttempts] = useState(0);
+  const [isAutoReconnecting, setIsAutoReconnecting] = useState(false);
+  const [isFirstLoad, setIsFirstLoad] = useState(true); // Track first load
+
+  // Auto-reconnection logic
+  const attemptAutoReconnect = async () => {
+    if (isAutoReconnecting || autoReconnectAttempts >= 3) return;
+
+    setIsAutoReconnecting(true);
+    setAutoReconnectAttempts(prev => prev + 1);
+
+    try {
+      const result = await connectDb();
+      
+      if (result.response.success) {
+        setAutoReconnectAttempts(0);
+        await fetchConnectionState();
+      } else {
+        throw new Error(result.response.error || "Reconnection failed");
+      }
+    } catch (error) {
+      console.error("Auto-reconnection failed:", error);
+      
+      if (autoReconnectAttempts < 3) {
+        // Schedule next attempt with exponential backoff
+        setTimeout(() => {
+          if (!connectionState?.isConnected) {
+            attemptAutoReconnect();
+          }
+        }, (autoReconnectAttempts + 1) * 5000);
+      }
+    } finally {
+      setIsAutoReconnecting(false);
+    }
+  };
 
   useEffect(() => {
     // Listen for connection events
@@ -63,6 +103,7 @@ export function ConnectionStatus({
           description: "Auto-reconnection successful",
           duration: 4000,
         });
+        setAutoReconnectAttempts(0);
         fetchConnectionState();
       }
     };
@@ -88,8 +129,11 @@ export function ConnectionStatus({
       handleConnectionLost as EventListener,
     );
 
-    // Initial fetch
-    fetchConnectionState();
+    // Initial fetch with delay to allow app to initialize
+    const initialTimer = setTimeout(() => {
+      fetchConnectionState();
+      setIsFirstLoad(false); // Mark first load as complete
+    }, 2000); // Wait 2 seconds before first check
 
     // Set up periodic state updates
     const interval = setInterval(fetchConnectionState, 10000); // Update every 10 seconds
@@ -103,6 +147,7 @@ export function ConnectionStatus({
         "database-connection-lost",
         handleConnectionLost as EventListener,
       );
+      clearTimeout(initialTimer);
       clearInterval(interval);
     };
   }, [connectionId]);
@@ -118,6 +163,11 @@ export function ConnectionStatus({
           lastError: data.state.lastError,
           isReconnecting: data.state.isReconnecting,
         });
+        
+        // Reset auto-reconnect attempts if connection is successful
+        if (data.state.isConnected) {
+          setAutoReconnectAttempts(0);
+        }
       } else {
         // If no connection found, show disconnected state
         setConnectionState({
@@ -127,6 +177,11 @@ export function ConnectionStatus({
           lastError: "No active connection",
           isReconnecting: false,
         });
+        
+        // Trigger automatic reconnection if not already attempting
+        if (!isAutoReconnecting && autoReconnectAttempts < 3) {
+          setTimeout(() => attemptAutoReconnect(), 2000); // Wait 2 seconds before auto-reconnect
+        }
       }
     } catch (error) {
       console.error("Failed to fetch connection state:", error);
@@ -137,6 +192,11 @@ export function ConnectionStatus({
         lastError: "Failed to check connection status",
         isReconnecting: false,
       });
+      
+      // Trigger automatic reconnection on error if not already attempting
+      if (!isAutoReconnecting && autoReconnectAttempts < 3) {
+        setTimeout(() => attemptAutoReconnect(), 3000); // Wait 3 seconds before auto-reconnect
+      }
     }
   };
 
@@ -165,9 +225,10 @@ export function ConnectionStatus({
   };
 
   const getStatusIcon = () => {
+    if (isFirstLoad) return <Clock className="h-3 w-3" />;
     if (!connectionState) return <Clock className="h-3 w-3" />;
 
-    if (connectionState.isReconnecting || isForceReconnecting) {
+    if (connectionState.isReconnecting || isForceReconnecting || isAutoReconnecting) {
       return <RefreshCw className="h-3 w-3 animate-spin" />;
     }
 
@@ -183,10 +244,15 @@ export function ConnectionStatus({
   };
 
   const getStatusText = () => {
+    if (isFirstLoad) return "Checking...";
     if (!connectionState) return "Checking...";
 
     if (connectionState.isReconnecting || isForceReconnecting) {
       return "Reconnecting...";
+    }
+
+    if (isAutoReconnecting) {
+      return `Auto-reconnecting (${autoReconnectAttempts}/3)`;
     }
 
     if (connectionState.isConnected) {
@@ -197,13 +263,18 @@ export function ConnectionStatus({
       return `Reconnecting (${connectionState.connectionAttempts}/3)`;
     }
 
+    if (autoReconnectAttempts > 0) {
+      return `Auto-reconnect failed (${autoReconnectAttempts}/3)`;
+    }
+
     return "Disconnected";
   };
 
   const getStatusColor = () => {
+    if (isFirstLoad) return "secondary";
     if (!connectionState) return "secondary";
 
-    if (connectionState.isReconnecting || isForceReconnecting) {
+    if (connectionState.isReconnecting || isForceReconnecting || isAutoReconnecting) {
       return "secondary";
     }
 
@@ -211,7 +282,7 @@ export function ConnectionStatus({
       return "default";
     }
 
-    if (connectionState.connectionAttempts > 0) {
+    if (connectionState.connectionAttempts > 0 || autoReconnectAttempts > 0) {
       return "secondary";
     }
 
@@ -248,13 +319,15 @@ export function ConnectionStatus({
               className={cn("flex items-center justify-center", {
                 "text-green-500":
                   connectionState?.isConnected &&
-                  !connectionState?.isReconnecting,
+                  !connectionState?.isReconnecting &&
+                  !isFirstLoad,
                 "text-yellow-500":
-                  connectionState?.isReconnecting || isForceReconnecting,
+                  connectionState?.isReconnecting || isForceReconnecting || isAutoReconnecting,
                 "text-red-500":
                   !connectionState?.isConnected &&
-                  !connectionState?.isReconnecting,
-                "text-muted-foreground": !connectionState,
+                  !connectionState?.isReconnecting &&
+                  !isFirstLoad,
+                "text-muted-foreground": !connectionState || isFirstLoad,
               })}
             >
               {getStatusIcon()}
@@ -262,7 +335,7 @@ export function ConnectionStatus({
             <span className="min-w-0 truncate text-foreground">
               {getStatusText()}
             </span>
-            {(connectionState?.isReconnecting || isForceReconnecting) && (
+            {(connectionState?.isReconnecting || isForceReconnecting || isAutoReconnecting || isFirstLoad) && (
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
             )}
           </div>
@@ -285,10 +358,10 @@ export function ConnectionStatus({
                 <div className={cn(
                   "w-2 h-2 rounded-full",
                   {
-                    "bg-green-500": connectionState?.isConnected && !connectionState?.isReconnecting,
-                    "bg-yellow-500": connectionState?.isReconnecting || isForceReconnecting,
-                    "bg-red-500": !connectionState?.isConnected && !connectionState?.isReconnecting,
-                    "bg-gray-500": !connectionState,
+                    "bg-green-500": connectionState?.isConnected && !connectionState?.isReconnecting && !isAutoReconnecting && !isFirstLoad,
+                    "bg-yellow-500": connectionState?.isReconnecting || isForceReconnecting || isAutoReconnecting,
+                    "bg-red-500": !connectionState?.isConnected && !connectionState?.isReconnecting && !isAutoReconnecting && !isFirstLoad,
+                    "bg-gray-500": !connectionState || isFirstLoad,
                   }
                 )} />
                 <span className="text-sm">{getStatusText()}</span>
@@ -309,6 +382,15 @@ export function ConnectionStatus({
                     <span className="text-sm font-medium">Retry Attempts:</span>
                     <span className="text-sm text-muted-foreground">
                       {connectionState.connectionAttempts}/3
+                    </span>
+                  </div>
+                )}
+                
+                {autoReconnectAttempts > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Auto-reconnect Attempts:</span>
+                    <span className="text-sm text-muted-foreground">
+                      {autoReconnectAttempts}/3
                     </span>
                   </div>
                 )}
@@ -342,9 +424,10 @@ export function ConnectionStatus({
             </div>
             
             <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
-              <p>• Health checks every 30 seconds</p>
+              <p>• Health checks every 10 seconds</p>
               <p>• Auto-reconnect with exponential backoff</p>
-              <p>• Maximum 3 retry attempts</p>
+              <p>• Maximum 3 auto-reconnect attempts</p>
+              <p>• Manual force reconnect available</p>
             </div>
           </div>
         </DialogContent>
@@ -387,6 +470,15 @@ export function ConnectionStatus({
               </div>
             )}
 
+            {autoReconnectAttempts > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Auto-reconnect Attempts:</span>
+                <span className="text-sm text-muted-foreground">
+                  {autoReconnectAttempts}/3
+                </span>
+              </div>
+            )}
+
             {connectionState.lastError && (
               <div className="space-y-1">
                 <span className="text-sm font-medium text-destructive">
@@ -418,9 +510,10 @@ export function ConnectionStatus({
         </div>
 
         <div className="space-y-1 text-xs text-muted-foreground">
-          <p>• Health checks every 30 seconds</p>
+          <p>• Health checks every 10 seconds</p>
           <p>• Auto-reconnect with exponential backoff</p>
-          <p>• Maximum 3 retry attempts</p>
+          <p>• Maximum 3 auto-reconnect attempts</p>
+          <p>• Manual force reconnect available</p>
         </div>
       </CardContent>
     </Card>
