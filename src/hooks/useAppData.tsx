@@ -23,9 +23,6 @@ export const useAppData = () => {
         }
       } catch (err: any) {
         setError(err.message);
-        toast.error("Failed to initialize app data", {
-          description: err.message,
-        });
       } finally {
         setLoading(false);
       }
