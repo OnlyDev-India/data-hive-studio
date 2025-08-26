@@ -1,5 +1,6 @@
 import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
 import { handlers } from "./db";
+import { connectDb } from "../actions/fetch-data";
 
 export interface ConnectionConfig {
   maxRetries: number;
@@ -21,11 +22,14 @@ export class EnhancedConnectionManager {
   private static instance: EnhancedConnectionManager;
   private connections: Map<string, DatabaseClient>;
   private connectionStates: Map<string, ConnectionState>;
-  private connectionDetails: Map<string, { details: ConnectionDetailsType; dbType: keyof typeof handlers }>;
+  private connectionDetails: Map<
+    string,
+    { details: ConnectionDetailsType; dbType: keyof typeof handlers }
+  >;
   private healthCheckIntervals: Map<string, NodeJS.Timeout>;
   private reconnectionTimeouts: Map<string, NodeJS.Timeout>;
   private currentConnectionId: string | null = null;
-  
+
   private config: ConnectionConfig = {
     maxRetries: 3,
     retryDelay: 5000, // 5 seconds
@@ -66,46 +70,52 @@ export class EnhancedConnectionManager {
   private async performHealthCheck(connectionId: string): Promise<boolean> {
     const connection = this.connections.get(connectionId);
     const state = this.connectionStates.get(connectionId);
-    
+
     if (!connection || !state) return false;
 
     try {
       // Check if connection is still alive
       const isConnected = connection.isConnectedToDb();
-      
+
       if (isConnected) {
         // Additional check: try to execute a simple query
         await this.testConnectionHealth(connection);
-        
+
         state.isConnected = true;
         state.lastHealthCheck = new Date();
         state.lastError = null;
-        
+
         return true;
       } else {
         throw new Error("Connection is not active");
       }
     } catch (error) {
-      console.warn(`Health check failed for connection ${connectionId}:`, error);
-      
+      console.warn(
+        `Health check failed for connection ${connectionId}:`,
+        error,
+      );
+
       state.isConnected = false;
-      state.lastError = error instanceof Error ? error.message : "Unknown error";
-      
+      state.lastError =
+        error instanceof Error ? error.message : "Unknown error";
+
       // Trigger auto-reconnection
       this.scheduleReconnection(connectionId);
-      
+
       return false;
     }
   }
 
-  private async testConnectionHealth(connection: DatabaseClient): Promise<void> {
+  private async testConnectionHealth(
+    connection: DatabaseClient,
+  ): Promise<void> {
     // Try to execute a simple query to test connection health
     try {
-      if ('executeQuery' in connection) {
+      if ("executeQuery" in connection) {
         // For SQL databases, use a simple SELECT query
-        if (connection.constructor.name === 'PostgresClient') {
-          await connection.executeQuery('SELECT 1');
-        } else if (connection.constructor.name === 'MongoDbClient') {
+        if (connection.constructor.name === "PostgresClient") {
+          await connection.executeQuery("SELECT 1");
+        } else if (connection.constructor.name === "MongoDbClient") {
           // For MongoDB, try to list collections
           await connection.getDatabases();
         }
@@ -133,11 +143,13 @@ export class EnhancedConnectionManager {
   private scheduleReconnection(connectionId: string) {
     const state = this.connectionStates.get(connectionId);
     const connectionInfo = this.connectionDetails.get(connectionId);
-    
+
     if (!state || !connectionInfo || state.isReconnecting) return;
 
     if (state.connectionAttempts >= this.config.maxRetries) {
-      console.error(`Max reconnection attempts reached for connection ${connectionId}`);
+      console.error(
+        `Max reconnection attempts reached for connection ${connectionId}`,
+      );
       this.notifyConnectionLost(connectionId);
       return;
     }
@@ -145,9 +157,12 @@ export class EnhancedConnectionManager {
     state.isReconnecting = true;
     state.connectionAttempts++;
 
-    const delay = this.config.retryDelay * Math.pow(2, state.connectionAttempts - 1); // Exponential backoff
+    const delay =
+      this.config.retryDelay * Math.pow(2, state.connectionAttempts - 1); // Exponential backoff
 
-    console.log(`Scheduling reconnection attempt ${state.connectionAttempts}/${this.config.maxRetries} for connection ${connectionId} in ${delay}ms`);
+    console.log(
+      `Scheduling reconnection attempt ${state.connectionAttempts}/${this.config.maxRetries} for connection ${connectionId} in ${delay}ms`,
+    );
 
     const timeout = setTimeout(async () => {
       await this.attemptReconnection(connectionId);
@@ -159,7 +174,7 @@ export class EnhancedConnectionManager {
   private async attemptReconnection(connectionId: string): Promise<boolean> {
     const state = this.connectionStates.get(connectionId);
     const connectionInfo = this.connectionDetails.get(connectionId);
-    
+
     if (!state || !connectionInfo) return false;
 
     console.log(`Attempting to reconnect ${connectionId}...`);
@@ -170,7 +185,9 @@ export class EnhancedConnectionManager {
 
       // Create new connection
       const connection = new handlers[connectionInfo.dbType]();
-      const result = await connection.connectDb({ connectionDetails: connectionInfo.details });
+      const result = await connection.connectDb({
+        connectionDetails: connectionInfo.details,
+      });
 
       if (result?.success) {
         this.connections.set(connectionId, connection);
@@ -181,21 +198,22 @@ export class EnhancedConnectionManager {
         state.lastHealthCheck = new Date();
 
         console.log(`Successfully reconnected to ${connectionId}`);
-        
+
         // Resume health checks
         this.scheduleHealthCheck(connectionId);
-        
+
         // Notify successful reconnection
         this.notifyReconnectionSuccess(connectionId);
-        
+
         return true;
       } else {
         throw new Error(result?.error || "Reconnection failed");
       }
     } catch (error) {
       console.error(`Reconnection attempt failed for ${connectionId}:`, error);
-      
-      state.lastError = error instanceof Error ? error.message : "Reconnection failed";
+
+      state.lastError =
+        error instanceof Error ? error.message : "Reconnection failed";
       state.isReconnecting = false;
 
       // Schedule next attempt if we haven't exceeded max retries
@@ -205,19 +223,25 @@ export class EnhancedConnectionManager {
         console.error(`All reconnection attempts failed for ${connectionId}`);
         this.notifyConnectionLost(connectionId);
       }
-      
+
       return false;
     }
   }
 
-  private async cleanupConnection(connectionId: string, removeState: boolean = true) {
+  private async cleanupConnection(
+    connectionId: string,
+    removeState: boolean = true,
+  ) {
     const connection = this.connections.get(connectionId);
-    
+
     if (connection) {
       try {
         await connection.disconnect();
       } catch (error) {
-        console.warn(`Error during connection cleanup for ${connectionId}:`, error);
+        console.warn(
+          `Error during connection cleanup for ${connectionId}:`,
+          error,
+        );
       }
       this.connections.delete(connectionId);
     }
@@ -244,19 +268,23 @@ export class EnhancedConnectionManager {
 
   private notifyReconnectionSuccess(connectionId: string) {
     // Dispatch custom event for UI to handle
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('database-reconnected', {
-        detail: { connectionId }
-      }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("database-reconnected", {
+          detail: { connectionId },
+        }),
+      );
     }
   }
 
   private notifyConnectionLost(connectionId: string) {
     // Dispatch custom event for UI to handle
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('database-connection-lost', {
-        detail: { connectionId }
-      }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("database-connection-lost", {
+          detail: { connectionId },
+        }),
+      );
     }
   }
 
@@ -282,7 +310,10 @@ export class EnhancedConnectionManager {
       // Initialize connection state
       const state = this.initializeConnectionState(connectionId);
       this.connectionStates.set(connectionId, state);
-      this.connectionDetails.set(connectionId, { details: connectionDetails, dbType });
+      this.connectionDetails.set(connectionId, {
+        details: connectionDetails,
+        dbType,
+      });
 
       // Create new connection
       const connection = new handlers[dbType]();
@@ -291,22 +322,25 @@ export class EnhancedConnectionManager {
       if (result?.success) {
         this.connections.set(connectionId, connection);
         this.currentConnectionId = connectionId;
-        
+
         state.isConnected = true;
         state.lastHealthCheck = new Date();
         state.connectionAttempts = 0;
-        
+
         // Start health monitoring
         this.scheduleHealthCheck(connectionId);
-        
-        console.log(`Successfully connected to ${connectionId} with auto-reconnection enabled`);
+
+        console.log(
+          `Successfully connected to ${connectionId} with auto-reconnection enabled`,
+        );
       }
 
       return result || { success: false, error: "Connection failed" };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -314,16 +348,16 @@ export class EnhancedConnectionManager {
   public getConnection(connectionId: string): DatabaseClient | null {
     const connection = this.connections.get(connectionId);
     const state = this.connectionStates.get(connectionId);
-    
+
     if (connection && state?.isConnected) {
       return connection;
     }
-    
+
     // If connection exists but is not healthy, trigger health check
     if (connection && !state?.isConnected && !state?.isReconnecting) {
       this.performHealthCheck(connectionId);
     }
-    
+
     return null;
   }
 
@@ -348,7 +382,7 @@ export class EnhancedConnectionManager {
 
   public async disconnect(connectionId: string) {
     await this.cleanupConnection(connectionId);
-    
+
     if (this.currentConnectionId === connectionId) {
       this.currentConnectionId = null;
     }
@@ -356,23 +390,23 @@ export class EnhancedConnectionManager {
 
   public async disconnectAll() {
     const connectionIds = Array.from(this.connections.keys());
-    
+
     for (const connectionId of connectionIds) {
       await this.cleanupConnection(connectionId);
     }
-    
+
     this.currentConnectionId = null;
   }
 
   public async forceReconnect(connectionId: string): Promise<boolean> {
     const state = this.connectionStates.get(connectionId);
-    console.log("state", state);
     if (state) {
       state.connectionAttempts = 0; // Reset attempt counter
       state.isReconnecting = false;
       return await this.attemptReconnection(connectionId);
     }
-    return false;
+    await connectDb();
+    return true;
   }
 
   public isConnectionHealthy(connectionId: string): boolean {
@@ -384,4 +418,4 @@ export class EnhancedConnectionManager {
     const state = this.connectionStates.get(connectionId);
     return state?.lastError || null;
   }
-} 
+}
