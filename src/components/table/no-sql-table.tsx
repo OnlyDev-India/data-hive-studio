@@ -20,6 +20,7 @@ const NoSqlTable = ({
   handleRemoveNewRecord,
   selectedRows,
   setSelectedRows,
+  columnMetadata,
 }: any) => {
   return (
     <div className="flex h-full flex-col gap-2 overflow-auto px-6 pb-4">
@@ -40,6 +41,7 @@ const JsonView = ({
   handleRemoveNewRecord,
   selectedRows,
   setSelectedRows,
+  columnMetadata,
 }: any) => {
   return (
     <div className="space-y-4">
@@ -51,6 +53,7 @@ const JsonView = ({
           handleRemoveNewRecord={handleRemoveNewRecord}
           selectedRows={selectedRows}
           setSelectedRows={setSelectedRows}
+          columnMetadata={columnMetadata}
         />
       ))}
     </div>
@@ -64,6 +67,7 @@ const DataView = ({
   handleRemoveNewRecord,
   selectedRows,
   setSelectedRows,
+  columnMetadata,
 }: any) => {
   const isChecked = selectedRows && selectedRows.includes(index);
   const { currentFile }: { currentFile: FileTableType } = useSelector(
@@ -152,6 +156,7 @@ const DataView = ({
                 key={fieldIndex}
                 isNew={row.isNew}
                 originalValue={row[key]}
+                columnMetadata={columnMetadata}
               />
             ))}
         </div>
@@ -177,6 +182,7 @@ const SingleDataView = ({
   objectKey,
   isNew,
   originalValue,
+  columnMetadata,
 }: any) => {
   const isObject = typeof objectValue === "object" && objectValue !== null;
   const isArray = Array.isArray(objectValue);
@@ -226,6 +232,7 @@ const SingleDataView = ({
                   key={index}
                   isNew={isNew}
                   originalValue={objectValue[index]}
+                  columnMetadata={columnMetadata}
                 />
               ))}
             </div>
@@ -242,6 +249,7 @@ const SingleDataView = ({
                       key={index}
                       isNew={isNew}
                       originalValue={objectValue[key]}
+                      columnMetadata={columnMetadata}
                     />
                   ))}
               </div>
@@ -253,8 +261,11 @@ const SingleDataView = ({
         variant="outline"
         className="mr-2 h-6 w-16 truncate text-center text-xs"
       >
-        {getDataType(objectValue)}
-        {isArray ? `Array (${objectValue.length})` : ""}
+        {columnMetadata && columnMetadata[objectKey] 
+          ? columnMetadata[objectKey] 
+          : getDataType(objectValue)
+        }
+        {isArray ? ` (${objectValue.length})` : ""}
       </Badge>
     </div>
   );

@@ -50,8 +50,8 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
           data.rows?.map((item: any) => {
             const copiedItem = JSON.parse(JSON.stringify(item));
             Object.keys(item).forEach((key) => {
-              if (typeof item[key] === "object")
-                copiedItem[key] = item[key]?.toString();
+              // if (typeof item[key] === "object")
+              //   copiedItem[key] = item[key]?.toString();
             });
             return copiedItem;
           }),
