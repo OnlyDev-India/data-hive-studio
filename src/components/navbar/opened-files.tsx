@@ -148,18 +148,18 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       if (response?.schemas) {
         schemas = response?.schemas;
         schemas.forEach(async (schema: any) => {
-          const { tables } = await getTablesWithFieldsFromDb(
+          const response = await getTablesWithFieldsFromDb(
             schema.schema_name,
           );
-          schemasWithTables[schema.schema_name] = tables;
+          schemasWithTables[schema.schema_name] = response?.tables;
         });
       }
 
       pgSqlLanguageServer(monaco, { schemasWithTables });
     }
     if (dbType === "mongodb") {
-      const { tables } = await getTablesWithFieldsFromDb("");
-      mongodbLanguageServer(monaco, { collections: tables });
+      const response = await getTablesWithFieldsFromDb("");
+      mongodbLanguageServer(monaco, { collections: response?.tables || [] });
     }
   };
 
