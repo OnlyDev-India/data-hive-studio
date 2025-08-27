@@ -167,6 +167,16 @@ const Table = ({
     );
   };
 
+  // Create column metadata mapping for MongoDB formatting
+  const columnMetadata = useMemo(() => {
+    return columns.reduce((acc: Record<string, string>, col: ColumnProps) => {
+      if (col.data_type) {
+        acc[col.key] = col.data_type;
+      }
+      return acc;
+    }, {});
+  }, [columns]);
+
   const updatedColumns: Column<any>[] = useMemo(() => {
     // For NoSQL databases, dynamically create columns from data if none exist
     let columnsToUse = columns;
@@ -243,6 +253,8 @@ const Table = ({
               cellValue !== null &&
               !Array.isArray(cellValue);
 
+
+
             return (
               <EditorModal
                 data={props.row}
@@ -250,6 +262,8 @@ const Table = ({
                 index={props.rowIdx}
                 title="Edit Object"
                 isDoubleClick
+                dbType={dbType}
+                columnMetadata={columnMetadata}
               >
                 <Button
                   variant="ghost"
@@ -598,7 +612,6 @@ const Table = ({
 
   const updateDivHeight = () => {
     if (filterRef.current) {
-      console.log(filterRef.current.offsetHeight);
       setFilterDivHeight(
         filterRef.current.offsetHeight + 16 === 56
           ? filterRef.current.offsetHeight
@@ -779,6 +792,7 @@ const Table = ({
                   handleRemoveNewRecord={handleRemoveNewRecord}
                   selectedRows={selectedRows}
                   setSelectedRows={setSelectedRows}
+                  columnMetadata={columnMetadata}
                 />
               )
             ) : (

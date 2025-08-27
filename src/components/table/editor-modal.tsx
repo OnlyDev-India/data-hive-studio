@@ -24,6 +24,8 @@ interface EditorModalProps {
   children: React.ReactNode;
   isDoubleClick?: boolean;
   index: number;
+  dbType?: string;
+  columnMetadata?: Record<string, string>;
 }
 
 export const EditorModal = ({
