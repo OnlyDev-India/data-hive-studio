@@ -28,6 +28,7 @@ export class EnhancedConnectionManager {
   >;
   private healthCheckIntervals: Map<string, NodeJS.Timeout>;
   private reconnectionTimeouts: Map<string, NodeJS.Timeout>;
+  private periodicCleanupInterval: NodeJS.Timeout | null = null;
   private currentConnectionId: string | null = null;
 
   private config: ConnectionConfig = {
@@ -236,14 +237,35 @@ export class EnhancedConnectionManager {
 
     if (connection) {
       try {
-        await connection.disconnect();
+        console.log(`🧹 Cleaning up connection ${connectionId}...`);
+        
+        // Call destroy method to ensure proper cleanup
+        if (typeof connection.destroy === 'function') {
+          connection.destroy();
+          // Destroy method called for connection
+        } else {
+          await connection.disconnect();
+        }
+        
+        // Additional cleanup: ensure connection is completely closed
+        if (connection.isConnectedToDb && connection.isConnectedToDb()) {
+          try {
+            await connection.disconnect();
+          } catch (forceError) {
+            console.warn(`Force disconnect failed for ${connectionId}:`, forceError);
+          }
+        }
+        
       } catch (error) {
         console.warn(
           `Error during connection cleanup for ${connectionId}:`,
           error,
         );
+      } finally {
+        // Always remove from connections map
+        this.connections.delete(connectionId);
+        console.log(`🗑️ Connection ${connectionId} removed from connections map`);
       }
-      this.connections.delete(connectionId);
     }
 
     // Clear health check interval
@@ -302,9 +324,13 @@ export class EnhancedConnectionManager {
 
       const connectionId = connectionDetails.id;
 
-      // Cleanup existing connection if any
+      // Cleanup existing connection if any - ensure complete destruction
       if (this.connections.has(connectionId)) {
+        console.log(`🔄 Destroying old connection for ${connectionId} before creating new one...`);
         await this.cleanupConnection(connectionId);
+        
+        // Wait a bit to ensure cleanup is complete
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       // Initialize connection state
@@ -331,7 +357,7 @@ export class EnhancedConnectionManager {
         this.scheduleHealthCheck(connectionId);
 
         console.log(
-          `Successfully connected to ${connectionId} with auto-reconnection enabled`,
+          `✅ Successfully connected to ${connectionId} with auto-reconnection enabled`,
         );
       }
 
@@ -390,12 +416,73 @@ export class EnhancedConnectionManager {
 
   public async disconnectAll() {
     const connectionIds = Array.from(this.connections.keys());
+    console.log(`🔄 Disconnecting all ${connectionIds.length} connections...`);
 
     for (const connectionId of connectionIds) {
       await this.cleanupConnection(connectionId);
     }
 
     this.currentConnectionId = null;
+    console.log(`✅ All connections disconnected and destroyed`);
+  }
+
+  // Force cleanup all connections and reset state - useful when switching databases
+  public async forceCleanupAll() {
+    console.log(`🧹 Force cleaning up all connections...`);
+    
+    // Clear all intervals and timeouts first
+    for (const [connectionId, interval] of Array.from(this.healthCheckIntervals)) {
+      clearInterval(interval);
+      console.log(`⏰ Health check interval cleared for ${connectionId}`);
+    }
+    this.healthCheckIntervals.clear();
+    
+    for (const [connectionId, timeout] of Array.from(this.reconnectionTimeouts)) {
+      clearTimeout(timeout);
+      console.log(`⏰ Reconnection timeout cleared for ${connectionId}`);
+    }
+    this.reconnectionTimeouts.clear();
+    
+    // Clear periodic cleanup interval
+    if (this.periodicCleanupInterval) {
+      clearInterval(this.periodicCleanupInterval);
+      this.periodicCleanupInterval = null;
+      console.log(`⏰ Periodic cleanup interval cleared`);
+    }
+    
+    // Disconnect all connections
+    await this.disconnectAll();
+    
+    // Clear all state
+    this.connectionStates.clear();
+    this.connectionDetails.clear();
+    
+    console.log(`✅ Force cleanup completed - all connections destroyed and state reset`);
+  }
+
+  // Switch database connection - ensures old connections are completely destroyed
+  public async switchDatabase(
+    connectionDetails: ConnectionDetailsType,
+    dbType: keyof typeof handlers
+  ) {
+    console.log(`🔄 Switching database connection...`);
+    
+    // Force cleanup all existing connections first
+    await this.forceCleanupAll();
+    
+    // Wait a bit to ensure cleanup is complete
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Now connect to the new database
+    const result = await this.connect({ connectionDetails, dbType });
+    
+    if (result.success) {
+      console.log(`✅ Successfully switched to new database: ${connectionDetails.name}`);
+    } else {
+      console.error(`❌ Failed to switch database: ${result.error}`);
+    }
+    
+    return result;
   }
 
   public async forceReconnect(connectionId: string): Promise<boolean> {
@@ -417,5 +504,19 @@ export class EnhancedConnectionManager {
   public getLastError(connectionId: string): string | null {
     const state = this.connectionStates.get(connectionId);
     return state?.lastError || null;
+  }
+
+  // Cleanup method for serverless environments
+  public cleanup() {
+    // Clear all intervals and timeouts
+    for (const [connectionId, interval] of Array.from(this.healthCheckIntervals)) {
+      clearInterval(interval);
+    }
+    for (const [connectionId, timeout] of Array.from(this.reconnectionTimeouts)) {
+      clearTimeout(timeout);
+    }
+    
+    // Disconnect all connections
+    this.disconnectAll();
   }
 }

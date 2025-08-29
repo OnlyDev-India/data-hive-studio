@@ -2,6 +2,10 @@ import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
 import { PostgresClient } from "./postgres";
 import { SqliteClient } from "./sqlite";
 import { MongoDbClient } from "./mongodb";
+import { setupProcessCleanup } from "@/lib/utils/process-cleanup";
+
+// Setup process cleanup for serverless environments
+setupProcessCleanup();
 
 declare global {
   let dbConnection: PostgresClient | MongoDbClient | null;

@@ -15,6 +15,16 @@ export class PostgresClient implements DatabaseClient {
     this.currentSchema = "public";
   }
 
+  // Destructor to ensure connections are closed when object is garbage collected
+  public destroy() {
+    this.disconnect();
+  }
+
+  // Finalizer for serverless environments
+  public finalize() {
+    this.disconnect();
+  }
+
   async connectDb({
     connectionDetails,
   }: {
