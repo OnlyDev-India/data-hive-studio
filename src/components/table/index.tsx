@@ -86,6 +86,7 @@ const Table = ({
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
   );
+  const isEditable: boolean = !!currentFile?.tableName; //if we have opened table file then only we can edit the table
   const { changedRows, insertedRows, selectedRows } =
     currentFile.tableOperations || {};
   const dispatch = useDispatch();
@@ -253,8 +254,6 @@ const Table = ({
               cellValue !== null &&
               !Array.isArray(cellValue);
 
-
-
             return (
               <EditorModal
                 data={props.row}
@@ -264,6 +263,7 @@ const Table = ({
                 isDoubleClick
                 dbType={dbType}
                 columnMetadata={columnMetadata}
+                isEditable={isEditable}
               >
                 <Button
                   variant="ghost"
@@ -354,7 +354,7 @@ const Table = ({
               checked={isChecked}
               className={cn("invisible group-hover:visible", {
                 visible: selectedRows && selectedRows.length > 0,
-                "!invisible": !currentFile?.tableName,
+                "!invisible": !isEditable,
               })}
               onCheckedChange={handleCheckedChanges}
             />
@@ -392,13 +392,13 @@ const Table = ({
                   onCheckedChange={handleCheckedChanges}
                   className={cn("hidden group-hover:inline-block", {
                     "inline-block": selectedRowsArray.length > 0,
-                    "!hidden": !currentFile?.tableName,
+                    "!hidden": !isEditable,
                   })}
                 />
                 <p
                   className={cn("inline-block group-hover:hidden", {
                     hidden: selectedRowsArray.length > 0,
-                    "!inline-block": !currentFile?.tableName,
+                    "!inline-block": !isEditable,
                   })}
                 >
                   {rowIdx + 1}
@@ -674,7 +674,7 @@ const Table = ({
               )}
             </div>
             <div className="flex items-center gap-2">
-              {currentFile?.tableName && (
+              {isEditable && (
                 <>
                   <Button
                     variant={"outline"}
@@ -793,6 +793,8 @@ const Table = ({
                   selectedRows={selectedRows}
                   setSelectedRows={setSelectedRows}
                   columnMetadata={columnMetadata}
+                  isEditable={isEditable}
+                  dbType={dbType}
                 />
               )
             ) : (

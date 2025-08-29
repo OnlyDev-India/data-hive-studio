@@ -22,6 +22,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
 import ShortcutGrid from "@/components/common/shortcut-grids";
 import { Editor } from "@monaco-editor/react";
+import { getSchemas, getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
+import { pgSqlLanguageServer } from "@/lib/editor-language-servers/pgsql";
+import { mongodbLanguageServer } from "@/lib/editor-language-servers/mongodb";
 
 interface CodeEditorProps {
   handleRunQuery: (editor: any) => Promise<void>;
@@ -88,6 +91,26 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
     monaco.editor.setTheme(
       resolvedTheme === "dark" ? "github-dark" : "github-light",
     );
+    if (dbType === "pgSql") {
+      let schemas: any = [];
+      const schemasWithTables: { [key: string]: any } = {};
+      const response = await getSchemas();
+      if (response?.schemas) {
+        schemas = response?.schemas;
+        schemas.forEach(async (schema: any) => {
+          const response = await getTablesWithFieldsFromDb(
+            schema.schema_name,
+          );
+          schemasWithTables[schema.schema_name] = response?.tables;
+        });
+      }
+
+      pgSqlLanguageServer(monaco, { schemasWithTables });
+    }
+    if (dbType === "mongodb") {
+      const response = await getTablesWithFieldsFromDb("");
+      mongodbLanguageServer(monaco, { collections: response?.tables || [] });
+    }
     editor.addAction({
       id: "my-action-runQuery",
       label: "Run Query",

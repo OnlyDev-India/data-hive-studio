@@ -3,7 +3,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible";
-import { ChevronRight, Trash2Icon, Edit3Icon } from "lucide-react";
+import { ChevronRight, Trash2Icon, Edit3Icon, EyeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -21,6 +21,8 @@ const NoSqlTable = ({
   selectedRows,
   setSelectedRows,
   columnMetadata,
+  isEditable,
+  dbType,
 }: any) => {
   return (
     <div className="flex h-full flex-col gap-2 overflow-auto px-6 pb-4">
@@ -30,6 +32,9 @@ const NoSqlTable = ({
         handleRemoveNewRecord={handleRemoveNewRecord}
         selectedRows={selectedRows}
         setSelectedRows={setSelectedRows}
+        columnMetadata={columnMetadata}
+        isEditable={isEditable}
+        dbType={dbType}
       />
     </div>
   );
@@ -42,6 +47,8 @@ const JsonView = ({
   selectedRows,
   setSelectedRows,
   columnMetadata,
+  isEditable,
+  dbType,
 }: any) => {
   return (
     <div className="space-y-4">
@@ -54,6 +61,8 @@ const JsonView = ({
           selectedRows={selectedRows}
           setSelectedRows={setSelectedRows}
           columnMetadata={columnMetadata}
+          isEditable={isEditable}
+          dbType={dbType}
         />
       ))}
     </div>
@@ -68,6 +77,8 @@ const DataView = ({
   selectedRows,
   setSelectedRows,
   columnMetadata,
+  isEditable,
+  dbType,
 }: any) => {
   const isChecked = selectedRows && selectedRows.includes(index);
   const { currentFile }: { currentFile: FileTableType } = useSelector(
@@ -107,7 +118,7 @@ const DataView = ({
           { "bg-destructive/20": isChecked },
         )}
       >
-        {currentFile?.tableName && (
+        {isEditable && (
           <>
             <div className="absolute left-2 top-2 flex items-center gap-2">
               <Checkbox
@@ -118,34 +129,37 @@ const DataView = ({
                 onCheckedChange={handleCheckedChanges}
               />
             </div>
-            <div className="absolute right-2 top-2 flex items-center gap-2">
-              <EditorModal
-                data={row}
-                onSave={handleSaveObject}
-                title="Edit Object"
-                index={index}
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="invisible h-7 px-3 text-xs group-hover:visible"
-                >
-                  <Edit3Icon size={12} className="mr-1" />
-                </Button>
-              </EditorModal>
-              {row.isNew && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 border border-border bg-secondary [&_svg]:size-3"
-                  onClick={() => handleRemoveNewRecord(index)}
-                >
-                  <Trash2Icon />
-                </Button>
-              )}
-            </div>
           </>
         )}
+        <div className="absolute right-2 top-2 flex items-center gap-2">
+          <EditorModal
+            data={row}
+            onSave={handleSaveObject}
+            title="Edit Object"
+            index={index}
+            columnMetadata={columnMetadata}
+            isEditable={isEditable}
+            dbType={dbType}
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              className="invisible h-7 bg-secondary px-3 text-xs group-hover:visible"
+            >
+              {isEditable ? <Edit3Icon size={12} /> : <EyeIcon size={12} />}
+            </Button>
+          </EditorModal>
+          {row.isNew && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 border border-border bg-secondary [&_svg]:size-3"
+              onClick={() => handleRemoveNewRecord(index)}
+            >
+              <Trash2Icon />
+            </Button>
+          )}
+        </div>
         <div className="space-y-1">
           {Object.keys(row)
             .filter((key: any) => key !== "isNew")
@@ -208,6 +222,17 @@ const SingleDataView = ({
             <span className={cn("text-foreground", { "text-black": isNew })}>
               {objectKey}:
             </span>
+            {(isArray || isObject) && (
+              <Badge
+                variant="outline"
+                className="mr-2 h-6 w-16 truncate text-center text-xs"
+              >
+                {columnMetadata && columnMetadata[objectKey]
+                  ? columnMetadata[objectKey]
+                  : getDataType(objectValue)}
+                {isArray ? ` (${objectValue.length})` : ""}
+              </Badge>
+            )}
           </div>
           {!isArray && !isObject && (
             <div className="flex items-center gap-2">
@@ -257,16 +282,15 @@ const SingleDataView = ({
           )
         )}
       </Collapsible>
-      <Badge
+      {/* <Badge
         variant="outline"
         className="mr-2 h-6 w-16 truncate text-center text-xs"
       >
-        {columnMetadata && columnMetadata[objectKey] 
-          ? columnMetadata[objectKey] 
-          : getDataType(objectValue)
-        }
+        {columnMetadata && columnMetadata[objectKey]
+          ? columnMetadata[objectKey]
+          : getDataType(objectValue)}
         {isArray ? ` (${objectValue.length})` : ""}
-      </Badge>
+      </Badge> */}
     </div>
   );
 };

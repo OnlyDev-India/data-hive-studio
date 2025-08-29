@@ -41,6 +41,8 @@ export interface DatabaseClient {
   deleteTableData: (tableName: string, data: any[]) => Promise<any>;
   insertRecord: (data: { tableName: string; values: any[][] }) => Promise<any>;
   createTable: (data: TableForm) => Promise<any>;
+  destroy?: () => void;
+  finalize?: () => void;
 }
 
 export const DbConnectionsTypes = [

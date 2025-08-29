@@ -16,6 +16,12 @@ import {
   Code2,
   ChevronUp,
 } from "lucide-react";
+import {
+  safeParseMongoJSON,
+  stringifyWithMongoFunctions,
+} from "@/lib/utils/mongodb-parser";
+import { convertDataToEditor } from "@/lib/utils/mongodb-parser";
+import { mongoJsonLanguageServer } from "@/lib/editor-language-servers/mongodb";
 
 interface EditorModalProps {
   data: any;
@@ -25,7 +31,8 @@ interface EditorModalProps {
   isDoubleClick?: boolean;
   index: number;
   dbType?: string;
-  columnMetadata?: Record<string, string>;
+  columnMetadata: Record<string, string>;
+  isEditable?: boolean;
 }
 
 export const EditorModal = ({
@@ -35,10 +42,12 @@ export const EditorModal = ({
   children,
   isDoubleClick = false,
   index,
+  dbType,
+  columnMetadata,
+  isEditable,
 }: EditorModalProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [editableData, setEditableData] = useState(data);
-  const [editError, setEditError] = useState<string | null>(null);
+  const [displayData, setDisplayData] = useState(data);
   const [jsonValidation, setJsonValidation] = useState<{
     isValid: boolean;
     errorLine?: number;
@@ -55,13 +64,27 @@ export const EditorModal = ({
     monaco.editor.setTheme(
       resolvedTheme === "dark" ? "github-dark" : "github-light",
     );
+
+    // Inject MongoDB functions into the editor context if this is MongoDB
+    if (dbType === "mongodb") {
+      await mongoJsonLanguageServer(monaco);
+    }
   };
 
   const handleSave = async () => {
     try {
-      // Validate JSON format
-      const jsonString = JSON.stringify(editableData, null, 2);
-      const parsed = JSON.parse(jsonString);
+      // Use custom MongoDB parser instead of JSON.parse
+      let parsed;
+      if (dbType === "mongodb") {
+        // For MongoDB, editableData already contains the normal data
+        const result = safeParseMongoJSON(displayData);
+        // const editableData = convertEditorToData(displayData);
+        parsed = result.data;
+      } else {
+        // Use regular JSON parsing for non-MongoDB
+        const jsonString = JSON.stringify(displayData, null, 2);
+        parsed = JSON.parse(jsonString);
+      }
 
       if (data.isNew) {
         dispatch(
@@ -110,24 +133,24 @@ export const EditorModal = ({
       setLoading(false);
 
       onSave("update");
-      setEditError(null);
+      setJsonValidation({ isValid: true });
     } catch (error) {
-      setEditError("Invalid JSON format. Please check your syntax.");
+      setJsonValidation({
+        isValid: false,
+        errorMessage: "Invalid JSON format. Please check your syntax.",
+      });
     }
   };
 
   const handleCancel = () => {
-    setEditableData(null);
-    setEditError(null);
+    setJsonValidation({ isValid: true });
     setIsOpen(false);
   };
 
   const validateJSON = (value: string) => {
     try {
       if (value) {
-        const parsed = JSON.parse(value);
-        setEditableData(parsed);
-        setEditError(null);
+        JSON.parse(value);
         setJsonValidation({ isValid: true });
         return true;
       }
@@ -149,19 +172,45 @@ export const EditorModal = ({
 
   const handleChange = (value: string | undefined) => {
     if (value) {
-      validateJSON(value);
+      if (dbType === "mongodb") {
+        // Use custom MongoDB parser that preserves function calls
+        setDisplayData(value);
+        const result = safeParseMongoJSON(value);
+        if (!result.success) {
+          setJsonValidation({
+            isValid: false,
+            errorLine: result.errorLine || 0,
+            errorMessage:
+              result.error ||
+              "Invalid MongoDB format. Use functions like ObjectId(), ISODate(), etc.",
+          });
+        } else {
+          setJsonValidation({ isValid: true });
+        }
+      } else {
+        // Use regular JSON validation
+        validateJSON(value);
+      }
     }
   };
 
   // Reset editable data when modal opens with new data
   useEffect(() => {
     if (isOpen) {
-      setEditableData(data);
-      setEditError(null);
+      // Convert data to executable functions for MongoDB editing
+      let displayData = data;
+      if (dbType === "mongodb" && data) {
+        displayData = convertDataToEditor(data, columnMetadata);
+        displayData = stringifyWithMongoFunctions(displayData);
+      } else {
+        displayData = JSON.stringify(displayData, null, 2);
+      }
+      // Store display data for the editor
+      setDisplayData(displayData);
       setJsonValidation({ isValid: true });
       setLoading(true);
     }
-  }, [isOpen, data]);
+  }, [isOpen, data, dbType]);
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -173,63 +222,52 @@ export const EditorModal = ({
         {children}
       </div>
       <DialogContent className="max-h-[80vh] max-w-4xl overflow-hidden border-0 bg-gradient-to-br from-background to-muted/20 shadow-2xl">
-        <DialogHeader className="border-b border-border/50 pb-4">
+        <DialogHeader className="border-b border-border/50 pb-2">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600">
-              <Code2 className="h-5 w-5 text-white" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-muted">
+              <Code2 className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <DialogTitle className="text-xl font-semibold">
+              <DialogTitle className="text-lg font-semibold">
                 {title}
               </DialogTitle>
-              <p className="text-sm text-muted-foreground">
-                Edit your JSON document with real-time validation
+              <p className="text-xs text-muted-foreground">
+                {dbType === "mongodb"
+                  ? "Edit MongoDB document"
+                  : "Edit JSON document"}
               </p>
             </div>
           </div>
         </DialogHeader>
 
         <div className="custom-scrollbar max-h-[calc(80vh-120px)] space-y-4 overflow-y-auto scroll-smooth pr-2">
-          {/* Scroll Indicator */}
-          <div className="sticky top-0 z-10 mb-2 flex items-center justify-center">
-            <div className="h-1 w-16 rounded-full bg-gradient-to-r from-transparent via-muted-foreground/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
-          </div>
-
-          {/* Error Display */}
-          {editError && (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="mt-0.5 h-5 w-5 text-destructive" />
-                <div className="space-y-1">
-                  <h4 className="font-medium text-destructive">
-                    Error occurred
-                  </h4>
-                  <p className="text-sm text-destructive/80">{editError}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div>
             {/* Editor Header */}
             <div className="flex items-center justify-between rounded-t-lg border border-b-0 bg-muted/50 px-4 py-2">
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-green-500"></div>
                 <span className="text-sm font-medium text-muted-foreground">
-                  JSON Editor
+                  {dbType === "mongodb" ? "MongoDB Editor" : "JSON Editor"}
                 </span>
+                {dbType === "mongodb" && (
+                  <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                    MongoDB Mode
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  Theme: {resolvedTheme === "dark" ? "Dark" : "Light"}
-                </span>
-                <span>•</span>
-                <span>Language: JSON</span>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>
+                    Theme: {resolvedTheme === "dark" ? "Dark" : "Light"}
+                  </span>
+                  <span>•</span>
+                  <span>Language: JSON</span>
+                </div>
               </div>
             </div>
 
             {/* Editor Container */}
-            <div className="relative rounded-b-lg border border-t-0">
+            <div className="relative overflow-hidden rounded-b-lg border border-t-0">
               {loading && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                   <div className="flex items-center gap-2">
@@ -244,7 +282,7 @@ export const EditorModal = ({
               <Editor
                 height="400px"
                 defaultLanguage="json"
-                defaultValue={JSON.stringify(editableData, null, 2)}
+                defaultValue={displayData}
                 theme={
                   resolvedTheme === "dark" ? "github-dark" : "github-light"
                 }
@@ -266,58 +304,68 @@ export const EditorModal = ({
                   renderLineHighlight: "all",
                   cursorBlinking: "smooth",
                   cursorSmoothCaretAnimation: "on",
+                  readOnly: !isEditable,
                 }}
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            {/* JSON Validation Status */}
-            <div className="flex items-center gap-2">
-              {jsonValidation.isValid ? (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle size={16} />
-                  <span className="text-sm font-medium">Valid JSON</span>
+          {isEditable && (
+            <>
+              <div className="flex items-center justify-between">
+                {/* Validation Status */}
+                <div className="flex items-center gap-2">
+                  {jsonValidation.isValid ? (
+                    <div className="flex items-center gap-2 text-green-600">
+                      <CheckCircle size={16} />
+                      <span className="text-sm font-medium">
+                        {dbType === "mongodb"
+                          ? "Valid MongoDB Format"
+                          : "Valid JSON"}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-red-600">
+                      <AlertCircle size={16} />
+                      <span className="text-sm font-medium">
+                        {dbType === "mongodb"
+                          ? `Invalid MongoDB Format - ${jsonValidation.errorMessage}`
+                          : `Invalid JSON - Line ${jsonValidation.errorLine}: ${jsonValidation.errorMessage}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="flex items-center gap-2 text-red-600">
-                  <AlertCircle size={16} />
-                  <span className="text-sm font-medium">
-                    Invalid JSON - Line {jsonValidation.errorLine}:{" "}
-                    {jsonValidation.errorMessage}
-                  </span>
-                </div>
-              )}
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={handleCancel}
-                disabled={isSaving}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={!jsonValidation.isValid || isSaving}
-                className="min-w-[120px]"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                    Save Changes
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
+                {/* Action Buttons */}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleCancel}
+                    disabled={isSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSave}
+                    disabled={!jsonValidation.isValid || isSaving}
+                    className="min-w-[120px]"
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Save Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Scroll to Top Button */}
