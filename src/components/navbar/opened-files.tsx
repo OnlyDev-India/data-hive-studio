@@ -44,9 +44,9 @@ import { Tooltip, TooltipContent } from "../ui/tooltip";
 import { TooltipTrigger } from "@radix-ui/react-tooltip";
 import ShortcutGrid from "../common/shortcut-grids";
 import { useMonaco } from "@monaco-editor/react";
-import { pgSqlLanguageServer } from "../views/editor/pgsql";
+import { pgSqlLanguageServer } from "../../lib/editor-language-servers/pgsql";
 import { AppDispatch } from "@/redux/store";
-import { mongodbLanguageServer } from "../views/editor/mongodb";
+import { mongodbLanguageServer } from "../../lib/editor-language-servers/mongodb";
 
 // Dynamically import the CodeEditor component
 const CodeEditor = dynamic(() => import('../views/editor'), { ssr: false });
@@ -138,35 +138,6 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       dispatch(setExecutingQuery(false));
     }
   };
-
-  const initializeLanguageServer = async () => {
-    if (!monaco?.editor) return;
-    if (dbType === "pgSql") {
-      let schemas: any = [];
-      const schemasWithTables: { [key: string]: any } = {};
-      const response = await getSchemas();
-      if (response?.schemas) {
-        schemas = response?.schemas;
-        schemas.forEach(async (schema: any) => {
-          const response = await getTablesWithFieldsFromDb(
-            schema.schema_name,
-          );
-          schemasWithTables[schema.schema_name] = response?.tables;
-        });
-      }
-
-      pgSqlLanguageServer(monaco, { schemasWithTables });
-    }
-    if (dbType === "mongodb") {
-      const response = await getTablesWithFieldsFromDb("");
-      mongodbLanguageServer(monaco, { collections: response?.tables || [] });
-    }
-  };
-
-  useEffect(() => {
-    if (!monaco || !currentSchema) return;
-    initializeLanguageServer();
-  }, [monaco, currentSchema]);
 
   const handleDragStart = (index: number) => {
     setDragIndex(index);

@@ -9,6 +9,45 @@ export class MongoDbClient implements DatabaseClient {
   private client: MongoClient | null = null;
   private db: any = null;
 
+  // Destructor to ensure connections are closed when object is garbage collected
+  public destroy() {
+    console.log('🔌 MongoDB client destroy() called');
+    this.disconnect();
+  }
+
+  // Finalizer for serverless environments
+  public finalize() {
+    console.log('🔌 MongoDB client finalize() called');
+    this.disconnect();
+  }
+
+  // Enhanced disconnect with additional cleanup
+  async disconnect() {
+    if (this.client) {
+      try {
+        console.log('🔌 Closing MongoDB connection...');
+        
+        // Close the database connection
+        if (this.db) {
+          this.db = null;
+        }
+        
+        // Close the client connection
+        await this.client.close();
+        console.log('✅ MongoDB connection closed successfully');
+        
+        // Force garbage collection hint
+        this.client = null;
+        
+      } catch (error) {
+        console.warn('⚠️ Error closing MongoDB connection:', error);
+      } finally {
+        this.client = null;
+        this.db = null;
+      }
+    }
+  }
+
   // Helper function to convert MongoDB BSON types to displayable strings
   private convertObjectIdToString(value: any): any {
     if (value && typeof value === "object" && value._bsontype) {
@@ -319,13 +358,7 @@ export class MongoDbClient implements DatabaseClient {
     }
   }
 
-  async disconnect() {
-    if (this.client) {
-      await this.client.close();
-      this.client = null;
-      this.db = null;
-    }
-  }
+
 
   isConnectedToDb() {
     return !!this.db;

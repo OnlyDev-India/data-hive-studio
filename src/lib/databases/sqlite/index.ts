@@ -6,6 +6,16 @@ import { TableForm } from "@/types/table.type";
 export class SqliteClient implements DatabaseClient {
   private db: Database | null = null;
 
+  // Destructor to ensure connections are closed when object is garbage collected
+  public destroy() {
+    this.disconnect();
+  }
+
+  // Finalizer for serverless environments
+  public finalize() {
+    this.disconnect();
+  }
+
   async connectDb({ connectionDetails }: { connectionDetails: ConnectionDetailsType }) {
     try {
       this.db = await open({
