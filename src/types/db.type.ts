@@ -20,6 +20,10 @@ export interface ConnectionsType {
   is_current?: boolean;
 }
 
+export interface connectionsStoreType {
+  connections: ConnectionsType[];
+}
+
 export interface ConnectionDetailsType extends ConnectionsType {
   id: string;
 }

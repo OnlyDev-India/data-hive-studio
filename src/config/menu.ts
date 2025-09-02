@@ -7,6 +7,7 @@ export const sideBadMenu = [
     title: "Table",
     link: "/app/editor",
     shortcut: "Ctrl+Shift+T",
+    saveId: "editor-sidebar",
   },
   { icon: SearchIcon, btn: CommandMenu, title: "Command Palette", shortcut: "Ctrl+Shift+P" },
   {
@@ -14,5 +15,6 @@ export const sideBadMenu = [
     title: "Schema Visualizer",
     link: "/app/visualizer",
     shortcut: "Ctrl+Shift+V",
+    saveId: "editor-sidebar",
   },
 ];

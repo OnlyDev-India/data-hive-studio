@@ -1,6 +1,6 @@
 "use server";
 import { ConnectionDetailsType } from "./../../types/db.type";
-import { ConnectionManager, handlers, HandlersTypes } from "@/lib/databases/db";
+import { handlers, HandlersTypes } from "@/lib/databases/db";
 import { EnhancedConnectionManager } from "@/lib/databases/connection-manager";
 import { FilterType, TableForm } from "@/types/table.type";
 import { cookies } from "next/headers";
@@ -8,9 +8,6 @@ import { SortColumn } from "react-data-grid";
 import { PaginationType } from "@/types/file.type";
 import { updateConnection } from "./app-data";
 
-// console.log(cookies().get("currentConnection")?.value);
-
-// connectionHandler();
 
 export async function connectDb() {
   const cookie = cookies();

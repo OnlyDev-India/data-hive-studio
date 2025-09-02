@@ -21,7 +21,7 @@ const ConnectionsPage = () => {
   }, []);
 
   return (
-    <ResizablePanelGroup direction="horizontal">
+    <ResizablePanelGroup direction="horizontal" autoSaveId={"connection-page-panel-group"}>
       <ResizablePanel defaultSize={20} minSize={20} maxSize={70}>
         <ConnectionSidebar />
       </ResizablePanel>

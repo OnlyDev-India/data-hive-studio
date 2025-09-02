@@ -52,26 +52,28 @@ const Sidebar = () => {
     <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">
       {pathname === "/" && <ConnectionPageSidebar />}
       {pathname.startsWith("/app") && (
-        <ConnectedPageSidebar pathname={pathname} />
+        <>
+          <ConnectedPageSidebar pathname={pathname} />
+          <DatabaseBackupModal>
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={"ghost"}
+                    size={"icon"}
+                    className="hover:bg-secondary"
+                  >
+                    <Database size={12} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Database Backup</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </DatabaseBackupModal>
+        </>
       )}
-      <DatabaseBackupModal>
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={"ghost"}
-                size={"icon"}
-                className="hover:bg-secondary"
-              >
-                <Database size={12} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Database Backup</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </DatabaseBackupModal>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

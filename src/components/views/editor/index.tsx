@@ -125,7 +125,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
 
   return (
     <div className="h-full w-full">
-      <ResizablePanelGroup direction="vertical">
+      <ResizablePanelGroup direction="vertical" autoSaveId={"editor-query-output"}>
         <ResizablePanel
           defaultSize={50}
           minSize={10}

@@ -1,13 +1,26 @@
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { sideBadMenu } from "@/config/menu";
+import { useResizable } from "@/providers/resizable-provider";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
+  const { toggleResizable, getResizableState } = useResizable();
+  const router = useRouter();
+
+  const handleClick = (item: any) => {
+    const resizableState = getResizableState(item.saveId);
+    if (pathname === item.link) {
+      toggleResizable(item.saveId);
+    }else {
+      router.push(item.link);
+    }
+  };
 
   return (
     <div
@@ -19,29 +32,37 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
         if (item.btn) {
           return <item.btn key={index} />;
         }
+        // Determine if this item should be highlighted
+        const isActive = item.link && pathname.includes(item.link);
+        const resizableState = item.saveId
+          ? getResizableState(item.saveId)
+          : "expanded";
+        const shouldHighlight =
+          isActive && (!item.saveId || resizableState === "expanded");
+
         return (
           item.link && (
-            <Link
+            <Button
               key={index}
-              href={item.link}
+              variant={"ghost"}
+              onClick={() => handleClick(item)}
               className={cn(
                 "flex items-center justify-center",
                 "w-full rounded-md p-2 text-muted-foreground transition-colors duration-150 hover:bg-popover/40 hover:text-foreground",
                 {
-                  "bg-popover text-primary": pathname.includes(item.link),
+                  "bg-popover text-primary": shouldHighlight,
                 },
               )}
             >
               <Tooltip>
-                <TooltipTrigger>
+                <TooltipTrigger asChild>
                   <item.icon size={20} />
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={10}>
                   {item.title}
-                  {/* <span className="text-xs text-muted-foreground">{` (${item.shortcut})`}</span> */}
                 </TooltipContent>
               </Tooltip>
-            </Link>
+            </Button>
           )
         );
       })}

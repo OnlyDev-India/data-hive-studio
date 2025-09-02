@@ -15,32 +15,12 @@ import {
 import { useSelector } from "react-redux";
 import { DatabaseSchemaNode } from "@/components/views/visualizer/database-schema-node";
 import { Button } from "@/components/ui/button";
-import {
-  RotateCcwIcon,
-  Grid3X3Icon,
-  SearchIcon,
-  XIcon,
-  ZoomInIcon,
-} from "lucide-react";
+import { RotateCcwIcon, Grid3X3Icon, SearchIcon, XIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -53,9 +33,10 @@ import "@xyflow/react/dist/style.css";
 import "@/styles/visualizer.css";
 import Dagre from "@dagrejs/dagre";
 
-import BuildingBlocks from "@public/building-blocks.json";
-import Lottie from "lottie-react";
-import { KeyIcon, LinkIcon } from "lucide-react";
+import { useResizable } from "@/providers/resizable-provider";
+import { ImperativePanelHandle } from "react-resizable-panels";
+import { useRef } from "react";
+import resizableConfig from "@/config/resizeableConfig";
 
 const nodeTypes = {
   databaseSchema: DatabaseSchemaNode,
@@ -91,6 +72,27 @@ const getLayoutedElements = (nodes: any, edges: any, options: any) => {
 };
 
 const SchemaVisualizer = () => {
+  const activeId = "editor-sidebar";
+  const { getResizableState, toggleResizable, handleResizeCollapse } =
+    useResizable();
+  const ref = useRef<ImperativePanelHandle>(null);
+  const resizableState = getResizableState(activeId);
+  const { defaultSizes, minSizes, maxSizes } = resizableConfig.editor;
+  const [isFirstRender, setIsFirstRender] = useState(true);
+
+  useEffect(() => {
+    if (isFirstRender) {
+      setIsFirstRender(false);
+      toggleResizable(activeId, "expanded");
+      return;
+    }
+    if (resizableState === "expanded" && ref.current) {
+      ref.current.resize(defaultSizes[0]);
+    } else if (resizableState === "collapsed" && ref.current) {
+      ref.current.resize(0);
+    }
+  }, [resizableState]);
+
   const { tables } = useSelector((state: any) => state.tables);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -477,15 +479,15 @@ const SchemaVisualizer = () => {
 
   const resetPositions = useCallback(() => {
     if (!tables || tables.length === 0) return;
-    
+
     const positions = calculateOptimalPositions(tables);
     setOriginalPositions(positions);
-    
+
     const updatedNodes = nodes.map((node) => ({
       ...node,
       position: positions[node.id] || { x: 0, y: 0 },
     }));
-    
+
     setNodes(updatedNodes);
   }, [tables, nodes]);
 
@@ -566,19 +568,23 @@ const SchemaVisualizer = () => {
   }, [tables]);
 
   return (
-    <ResizablePanelGroup direction="horizontal">
+    <ResizablePanelGroup direction="horizontal" autoSaveId={activeId}>
       <ResizablePanel
-        defaultSize={30}
-        minSize={20}
-        maxSize={30}
+        ref={ref}
+        defaultSize={defaultSizes[0]}
+        minSize={minSizes[0]}
+        maxSize={maxSizes[0]}
         className="py-2"
+        onCollapse={() => handleResizeCollapse(true, activeId)}
+        onExpand={() => handleResizeCollapse(false, activeId)}
+        collapsible
       >
         {/* Search Sub-Sidebar */}
         <div className="group/collapsible h-full rounded-lg bg-secondary">
           <div className="group sticky top-0 z-10 flex w-full flex-col items-center justify-between gap-2 rounded-t-lg bg-secondary pl-2 pt-2 text-xs font-semibold uppercase shadow-md">
             <div className="flex w-full items-center justify-between px-3">
               <div className="flex items-center gap-1">
-                <p className="flex items-center gap-2 py-2">
+                <p className="flex items-center gap-2 py-2 truncate">
                   <SearchIcon className="h-3 w-3" />
                   Table Search
                   <span className="rounded-full bg-popover p-0 px-1 text-xs text-muted-foreground">
@@ -602,7 +608,7 @@ const SchemaVisualizer = () => {
           <div className="scrollable-container-gutter h-[calc(100%-42px)] overflow-auto rounded-b-lg">
             <div className="space-y-3 px-3">
               {/* Search Input */}
-              <div className="space-y-2 sticky top-0 z-10 bg-secondary pb-3">
+              <div className="sticky top-0 z-10 space-y-2 bg-secondary pb-3">
                 <div className="text-xs font-medium text-foreground">
                   Search Tables
                 </div>
@@ -655,14 +661,14 @@ const SchemaVisualizer = () => {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full bg-primary/60 group-hover:bg-primary/80 transition-colors" />
+                          <div className="h-2 w-2 rounded-full bg-primary/60 transition-colors group-hover:bg-primary/80" />
                           <span className="text-xs font-medium text-foreground group-hover:text-foreground/90">
                             {table.table_name}
                           </span>
                         </div>
-                        <Badge 
-                          variant="secondary" 
-                          className="text-xs bg-muted/50 text-muted-foreground border-0"
+                        <Badge
+                          variant="secondary"
+                          className="border-0 bg-muted/50 text-xs text-muted-foreground"
                         >
                           {table.fields?.length || 0}
                         </Badge>
@@ -686,9 +692,9 @@ const SchemaVisualizer = () => {
       <ResizableHandle className="!w-2 bg-background" />
 
       <ResizablePanel
-        defaultSize={70}
-        minSize={50}
-        maxSize={100}
+        defaultSize={defaultSizes[1]}
+        minSize={minSizes[1]}
+        maxSize={maxSizes[1]}
         className="p-2 pl-0"
       >
         {/* Visualizer Main Area */}
@@ -723,7 +729,7 @@ const SchemaVisualizer = () => {
                   <Button
                     variant={"ghost"}
                     size={"icon"}
-                    className="h-6 w-6 [&_svg]:size-3 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80"
+                    className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
                     onClick={handleResetView}
                   >
                     <RotateCcwIcon className="h-4 w-4" />
@@ -737,7 +743,7 @@ const SchemaVisualizer = () => {
                   <Button
                     variant={"ghost"}
                     size={"icon"}
-                    className="h-6 w-6 [&_svg]:size-3 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80"
+                    className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
                     onClick={resetPositions}
                   >
                     <Grid3X3Icon className="h-4 w-4" />
