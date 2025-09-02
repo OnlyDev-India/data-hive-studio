@@ -8,7 +8,8 @@ import {
 import SubSideBar from "@/components/navbar/sub-sidebar";
 import { useResizable } from "@/providers/resizable-provider";
 import { ImperativePanelHandle } from "react-resizable-panels";
-import resizableConfig from "@/config/resizeableConfig";
+import resizableConfig from "@/config/resizableConfig";
+import SideBarTables from "@/components/views/sidebar-tables";
 
 const EditorLayout = ({ children }: { children: React.ReactNode }) => {
   const activeId = "editor-sidebar";
@@ -43,7 +44,9 @@ const EditorLayout = ({ children }: { children: React.ReactNode }) => {
         onExpand={() => handleResizeCollapse(false, activeId)}
         collapsible
       >
-        <SubSideBar />
+        <SubSideBar>
+          <SideBarTables />
+        </SubSideBar>
       </ResizablePanel>
       <ResizableHandle className="!w-2 bg-background" />
       <ResizablePanel

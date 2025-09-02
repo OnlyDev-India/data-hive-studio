@@ -36,7 +36,7 @@ import Dagre from "@dagrejs/dagre";
 import { useResizable } from "@/providers/resizable-provider";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { useRef } from "react";
-import resizableConfig from "@/config/resizeableConfig";
+import resizableConfig from "@/config/resizableConfig";
 
 const nodeTypes = {
   databaseSchema: DatabaseSchemaNode,

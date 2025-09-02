@@ -27,7 +27,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
         `z-10 h-full w-full flex-col justify-start bg-background p-2`,
       )}
     >
-      {sideBadMenu.map((item, index) => {
+      {sideBadMenu.filter((item) => !item.disabled).map((item, index) => {
         if (item.btn) {
           return <item.btn key={index} />;
         }

@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
+import { sideBadMenu } from "./config/menu";
 
-const protectedRoutes = ["/app/editor", "/app/visualizer"];
+const protectedRoutes = sideBadMenu.filter((item) => item.link).map((item) => item.link);
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(request: NextRequest) {
