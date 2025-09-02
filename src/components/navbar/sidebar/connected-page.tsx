@@ -14,10 +14,9 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
   const router = useRouter();
 
   const handleClick = (item: any) => {
-    const resizableState = getResizableState(item.saveId);
     if (pathname === item.link) {
       toggleResizable(item.saveId);
-    }else {
+    } else {
       router.push(item.link);
     }
   };
@@ -42,27 +41,26 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
 
         return (
           item.link && (
-            <Button
-              key={index}
-              variant={"ghost"}
-              onClick={() => handleClick(item)}
-              className={cn(
-                "flex items-center justify-center",
-                "w-full rounded-md p-2 text-muted-foreground transition-colors duration-150 hover:bg-popover/40 hover:text-foreground",
-                {
-                  "bg-popover text-primary": shouldHighlight,
-                },
-              )}
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
+            <Tooltip key={index}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={"ghost"}
+                  onClick={() => handleClick(item)}
+                  className={cn(
+                    "flex items-center justify-center",
+                    "w-full rounded-md p-2 text-muted-foreground transition-colors duration-150 hover:bg-popover/40 hover:text-foreground",
+                    {
+                      "bg-popover text-primary": shouldHighlight,
+                    },
+                  )}
+                >
                   <item.icon size={20} />
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={10}>
-                  {item.title}
-                </TooltipContent>
-              </Tooltip>
-            </Button>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={10}>
+                {item.title}
+              </TooltipContent>
+            </Tooltip>
           )
         );
       })}
