@@ -79,7 +79,7 @@ const createWindow = async () => {
   try {
     const connectionsData = fs.readFileSync(connectionsJsonPath, "utf-8");
     const connections = JSON.parse(connectionsData);
-    const currentConnection = connections.find((c: any) => c.is_current);
+    const currentConnection = connections.connections.find((c: any) => c.is_current);
 
     if (currentConnection) {
       // Set cookies that will be accessible by the renderer process
@@ -285,5 +285,5 @@ app.on("window-all-closed", () => app.quit()); // if (process.platform !== 'darw
 app.on(
   "activate",
   () =>
-    BrowserWindow.getAllWindows().length === 0 && !mainWindow && createWindow(),
+    BrowserWindow.getAllWindows().length === 0 && !mainWindow && createWindow()
 );
