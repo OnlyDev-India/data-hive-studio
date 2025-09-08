@@ -45,6 +45,7 @@ export const tablesSlice = createSlice({
     resetTables: (state) => {
       state.tables = initialState.tables;
       state.loading = initialState.loading;
+      state.currentSchema = initialState.currentSchema;
     },
     setTables: (state, action) => {
       state.tables = action.payload;

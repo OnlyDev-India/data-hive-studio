@@ -23,6 +23,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "../ui/resizable";
+import { AppDispatch } from "@/redux/store";
 
 const ConnectionSidebar = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -35,7 +36,7 @@ const ConnectionSidebar = () => {
     loading: boolean;
   } = useSelector((state: any) => state.appDB);
 
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const router = useRouter();
   const { updateConnection } = useAppData();
 
@@ -90,7 +91,7 @@ const ConnectionSidebar = () => {
   };
 
   const handleRefreshConnections = () => {
-    dispatch(initAppData() as any);
+    dispatch(initAppData());
   };
 
   return (

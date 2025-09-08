@@ -1,60 +1,28 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
-import SubSideBar from "@/components/navbar/sub-sidebar";
-import { useResizable } from "@/providers/resizable-provider";
-import { ImperativePanelHandle } from "react-resizable-panels";
-import resizableConfig from "@/config/resizableConfig";
+import React, { useEffect, useState } from "react";
+import { APISidebar } from "@/features/custom-api/components/navbar";
+import ResizableLayout from "@/components/common/resizable-layout";
 
 const CustomApiLayout = ({ children }: { children: React.ReactNode }) => {
-  const activeId = "editor-sidebar";
-  const { getResizableState, toggleResizable, handleResizeCollapse } =
-    useResizable();
-  const ref = useRef<ImperativePanelHandle>(null);
-  const resizableState = getResizableState(activeId);
-  const { defaultSizes, minSizes, maxSizes } = resizableConfig.customApi;
-  const [isFirstRender, setIsFirstRender] = useState(true);
+
+  const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
-    if (isFirstRender) {
-      setIsFirstRender(false);
-      toggleResizable(activeId, "expanded");
-      return;
+    if (
+      typeof window !== "undefined" &&
+      typeof window.electron !== "undefined"
+    ) {
+      setIsDesktop(true);
     }
-    if (resizableState === "expanded" && ref.current) {
-      ref.current.resize(defaultSizes[0]);
-    } else if (resizableState === "collapsed" && ref.current) {
-      ref.current.resize(0);
-    }
-  }, [resizableState]);
-  return (
-    <ResizablePanelGroup direction="horizontal" autoSaveId={activeId}>
-      <ResizablePanel
-        ref={ref}
-        defaultSize={defaultSizes[0]}
-        minSize={minSizes[0]}
-        maxSize={maxSizes[0]}
-        className="py-2"
-        onCollapse={() => handleResizeCollapse(true, activeId)}
-        onExpand={() => handleResizeCollapse(false, activeId)}
-        collapsible
-      >
-        <SubSideBar>test</SubSideBar>
-      </ResizablePanel>
-      <ResizableHandle className="!w-2 bg-background" />
-      <ResizablePanel
-        defaultSize={defaultSizes[1]}
-        minSize={minSizes[1]}
-        maxSize={maxSizes[1]}
-        className="p-2 pl-0"
-      >
-        <div className="h-full w-full flex-1">{children}</div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+  }, []);
+  return isDesktop ? (
+    <ResizableLayout child1={<APISidebar />} child2={children} />
+  ) : (
+    <div className="h-full w-full flex-1 rounded-lg bg-secondary p-2 pl-0">
+      <div className="flex h-full w-full items-center justify-center">
+        Available on desktop only
+      </div>
+    </div>
   );
 };
 

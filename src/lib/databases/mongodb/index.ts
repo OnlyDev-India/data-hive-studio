@@ -1,11 +1,12 @@
-import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
+import { ConnectionDetailsType } from "@/types/db.type";
+import { DatabaseClient } from "@/lib/databases/database-client";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";
 import { CollectionInfo, MongoClient, ObjectId } from "mongodb";
 import { SortColumn } from "react-data-grid";
 import { parseMongoDBSyntax } from "../../utils";
 
-export class MongoDbClient implements DatabaseClient {
+export class MongoDbClient extends DatabaseClient {
   private client: MongoClient | null = null;
   private db: any = null;
 

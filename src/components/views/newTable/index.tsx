@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AppDispatch } from "@/redux/store";
 
 const NewTableView = () => {
   const [formData, setFormData] = useState<TableForm | null>(null);
@@ -43,7 +44,7 @@ const NewTableView = () => {
   const { tables } = useSelector((state: any) => state.tables);
   const [copied, setCopied] = useState(false);
 
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
 
   const createQueryToCreateTable = async () => {
     if (!formData || !formData.name)
@@ -149,10 +150,10 @@ const NewTableView = () => {
   const handleCreateTable = async () => {
     setLoading(true);
     const { data, error } = await createQueryToCreateTable();
-    if (data) {
+    if (data!='null') {
       // setInitialData(true);
       toast.success("Table created successfully");
-      dispatch(fetchTables() as any);
+      dispatch(fetchTables());
     } else if (error) {
       toast.error(error);
     } else {

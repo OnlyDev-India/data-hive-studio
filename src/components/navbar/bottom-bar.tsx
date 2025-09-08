@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import ConnectionStatus from "../common/connection-status";
+// import ConnectionStatus from "../common/connection-status";
 import { usePathname } from "next/navigation";
 
 const statusIcons: any = {
@@ -55,7 +55,7 @@ const BottomBar = () => {
     <div className="flex h-[var(--bottom-nav-height)] items-center justify-between bg-secondary px-4 text-xs">
       <div>
         <div className="flex h-full items-center gap-2">
-          {isConnectedPage && <ConnectionStatus />}
+          {/* {isConnectedPage && <ConnectionStatus />} */}
         </div>
       </div>
       <div className="h-full">

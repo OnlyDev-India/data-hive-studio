@@ -1,16 +1,8 @@
 "use server";
 
 import { ConnectionDetailsType, connectionsStoreType, ConnectionsType } from "@/types/db.type";
-import { connectToAppDB, AppDBManager } from "../databases/db";
-import { SqliteClient } from "../databases/sqlite";
+import { ConnectionsTypeWithAPIs } from "@/features/custom-api/types/custom-api.type";
 import { promises as fs } from "fs";
-
-async function getConnectionsPath() {
-  if (typeof window !== "undefined" && window.electron) {
-    return window.electron.getConnectionsJsonPath();
-  }
-  throw new Error("Electron environment not found.");
-}
 
 async function readStoredData(connectionPath: string): Promise<connectionsStoreType> {
   const filePath = connectionPath;
@@ -22,24 +14,6 @@ async function writeConnections(connectionPath: string, connections: connections
   const filePath = connectionPath;
   await fs.writeFile(filePath, JSON.stringify(connections, null, 2));
 }
-
-export const connectAppDB = async ({
-  connectionDetails,
-}: {
-  connectionDetails: ConnectionDetailsType;
-}) => {
-  const { connection_string } = connectionDetails;
-  if (!connection_string) return false;
-  return connectToAppDB({ connectionDetails });
-};
-
-export const testConnection = async ({
-  connectionDetails,
-}: {
-  connectionDetails: ConnectionDetailsType;
-}) => {
-  return new SqliteClient().testConnection({ connectionDetails });
-};
 
 export const getConnections = async (connectionPath: string) => {
   try {
@@ -69,7 +43,11 @@ export const createConnection = async (connectionPath: string, connection: Omit<
   try {
     const connections = await readStoredData(connectionPath);
     // Simple ID generation for the new connection
-    const newConnection = { ...connection, id: crypto.randomUUID() };
+    const newConnection: ConnectionsTypeWithAPIs = { 
+      ...connection, 
+      id: crypto.randomUUID(),
+      apis: [] // Initialize empty APIs array
+    };
     connections.connections.push(newConnection);
     await writeConnections(connectionPath, connections);
     return { success: true, data: { rows: [newConnection] } };
@@ -115,6 +93,31 @@ export const getLastUsedConnection = async (connectionPath: string) => {
       return b_last_used - a_last_used;
     });
     return { success: true, data: { rows: [sortedConnections[0]] } };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Ensure all connections have APIs field
+export const ensureConnectionsHaveAPIs = async (connectionPath: string, connectionId: string, apiId: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const connections = await readStoredData(connectionPath);
+    let needsUpdate = false;
+    
+    connections.connections = connections.connections.map(connection => {
+      const connWithAPIs = connection as ConnectionsTypeWithAPIs;
+      if (!connWithAPIs.apis) {
+        needsUpdate = true;
+        return { ...connWithAPIs, apis: apiId };
+      }
+      return connWithAPIs;
+    });
+    
+    if (needsUpdate) {
+      await writeConnections(connectionPath, connections);
+    }
+    
+    return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

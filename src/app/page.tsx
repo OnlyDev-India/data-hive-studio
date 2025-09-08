@@ -9,12 +9,13 @@ import {
 import { useDispatch } from "react-redux";
 import { initAppData } from "@/redux/features/appdb";
 import { useEffect } from "react";
+import { AppDispatch } from "@/redux/store";
 
 const ConnectionsPage = () => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   // console.log(loading);
   const connectDb = async () => {
-    dispatch(initAppData() as any);
+    dispatch(initAppData());
   };
   useEffect(() => {
     connectDb();
@@ -25,7 +26,7 @@ const ConnectionsPage = () => {
       <ResizablePanel defaultSize={20} minSize={20} maxSize={70}>
         <ConnectionSidebar />
       </ResizablePanel>
-      <ResizableHandle className="!w-2 bg-background" />
+      <ResizableHandle className="!w-1 bg-background" />
       <ResizablePanel defaultSize={80} minSize={30} maxSize={80} className="p-2 pl-0">
         <div className="h-full w-full flex-1 bg-secondary rounded-lg">
           <ConnectionForm />

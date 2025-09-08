@@ -1,47 +1,68 @@
 import { EnhancedConnectionManager } from '@/lib/databases/connection-manager';
 
 // Handle process cleanup for serverless environments
-export function setupProcessCleanup() {
+export async function setupProcessCleanup() {
   // Handle process exit
-  process.on('exit', () => {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    connectionManager.cleanup();
+  process.on('exit', async () => {
+    const connectionManager = await EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getConnection();
+    if (connection) {
+      await connection.disconnect();
+    }
   });
 
   // Handle SIGTERM (graceful shutdown)
-  process.on('SIGTERM', () => {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    connectionManager.cleanup();
+  process.on('SIGTERM', async () => {
+    const connectionManager = await EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getConnection();
+    if (connection) {
+      await connection.disconnect();
+    }
     process.exit(0);
   });
 
   // Handle SIGINT (Ctrl+C)
-  process.on('SIGINT', () => {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    connectionManager.cleanup();
+  process.on('SIGINT', async () => {
+    const connectionManager = await EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getConnection();
+    if (connection) {
+      await connection.disconnect();
+    }
     process.exit(0);
   });
 
   // Handle uncaught exceptions
-  process.on('uncaughtException', (error) => {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    connectionManager.cleanup();
+  process.on('uncaughtException', async (error) => {
+    const connectionManager = await EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getConnection();
+    if (connection) {
+      await connection.disconnect();
+    }
+    await connectionManager.disconnect();
     process.exit(1);
   });
 
   // Handle unhandled promise rejections
-  process.on('unhandledRejection', (reason, promise) => {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    connectionManager.cleanup();
+  process.on('unhandledRejection', async (reason, promise) => {
+    const connectionManager = await EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getConnection();
+    if (connection) {
+      await connection.disconnect();
+    }
+    await connectionManager.disconnect();
     process.exit(1);
   });
 }
 
 // Cleanup function that can be called manually
-export function cleanupConnections() {
+export async function cleanupConnections() {
   try {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    connectionManager.cleanup();
+    const connectionManager = await EnhancedConnectionManager.getInstance();
+    const connection = connectionManager.getConnection();
+    if (connection) {
+      await connection.disconnect();
+    }
+    await connectionManager.disconnect();
   } catch (error) {
     // Silent error handling
   }

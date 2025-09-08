@@ -25,7 +25,7 @@ const Tree = ({
   item: { table_name: string; fields: { name: string; type: string }[] }[];
 }) => {
   return (
-    <div>
+    <div className="scrollable-container-gutter flex-1 overflow-auto custom-scrollbar">
       {item.map((subItem, index) => (
         <Branch key={index} subItem={subItem} />
       ))}

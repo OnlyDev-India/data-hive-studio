@@ -42,7 +42,6 @@ export const sideBadMenu: SideBadMenuType[] = [
     title: "Custom API",
     link: "/app/custom-api",
     shortcut: "Ctrl+Shift+C",
-    saveId: "editor-sidebar",
-    disabled: true,
+    saveId: "editor-sidebar", 
   },
 ];

@@ -104,17 +104,14 @@ const SideBarTables = () => {
     if (response?.success) {
       handleFetchCurrentDatabase();
       setDatabaseOpen(false);
-      // wait for 2 seconds to update the connection details then fetch the table details;
-      setTimeout(async () => {
-        fetchSchemasAndDatabases();
-        if (dbType && dbType === "pgSql") {
-          handleSchemaChange("public");
-        } else {
-          handleFetchTables(true);
-        }
-        dispatch(resetOpenFiles());
-        dispatch(resetQuery());
-      }, 3800);
+      fetchSchemasAndDatabases();
+      if (dbType && dbType === "pgSql") {
+        handleSchemaChange("public");
+      } else {
+        handleFetchTables(true);
+      }
+      dispatch(resetOpenFiles());
+      dispatch(resetQuery());
     }
   };
 
@@ -136,8 +133,8 @@ const SideBarTables = () => {
   }, [schemaOpen, databaseOpen]);
 
   return (
-    <div className="group/collapsible">
-      <div className="group sticky top-0 z-10 flex w-full flex-col items-center justify-between gap-2 bg-secondary pl-2 pt-2 text-sm font-semibold uppercase shadow-md">
+    <div className="group/collapsible flex h-full flex-col overflow-hidden">
+      <div className="group sticky top-0 z-10 flex w-full flex-col items-center justify-between gap-2 bg-secondary px-2 pt-2 text-sm font-semibold uppercase shadow-md">
         <Popover open={databaseOpen} onOpenChange={setDatabaseOpen}>
           <PopoverTrigger disabled={loading !== null} asChild>
             <Button
@@ -153,8 +150,8 @@ const SideBarTables = () => {
             </Button>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[200px] bg-popover/60 p-0 backdrop-blur-md"
-            align="start"
+            className="min-w-[200px] w-full bg-popover/60 p-0 backdrop-blur-md"
+            align="center"
           >
             <Command className="bg-transparent">
               <CommandInput placeholder="Search database..." />
@@ -225,8 +222,8 @@ const SideBarTables = () => {
               </Button>
             </PopoverTrigger>
             <PopoverContent
-              className="w-[200px] bg-popover/60 p-0 backdrop-blur-md"
-              align="start"
+              className="min-w-[200px] w-full bg-popover/60 p-0 backdrop-blur-md"
+              align="center"
             >
               <Command className="bg-transparent">
                 <CommandInput placeholder="Search schema..." />

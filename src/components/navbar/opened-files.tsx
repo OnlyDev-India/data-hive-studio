@@ -64,7 +64,6 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
   const { openFiles, currentFile } = useSelector(
     (state: any) => state.openFiles,
   );
-  const { currentSchema } = useSelector((state: any) => state.tables);
 
   const [dragOverIndex, setDragOverIndex] = useState(-1);
   const [dragIndex, setDragIndex] = useState(-1);

@@ -38,6 +38,7 @@ import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { cn } from "@/lib/utils";
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { useAppData } from "@/hooks/useAppData";
+import { AppDispatch } from "@/redux/store";
 
 const ConnectionForm = () => {
   const { createConnection, updateConnection } = useAppData();
@@ -51,7 +52,7 @@ const ConnectionForm = () => {
     (state: any) => state.appDB,
   );
 
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
 
   const router = useRouter();
   const defaultValues = {
@@ -178,7 +179,7 @@ const ConnectionForm = () => {
       }
 
       if (response?.success) {
-        dispatch(initAppData() as any);
+        dispatch(initAppData());
       }
     } catch (error: any) {
       toast.error("An unexpected error occurred", {

@@ -146,7 +146,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
             }}
           />
         </ResizablePanel>
-        <ResizableHandle className="!h-2 bg-background" />
+        <ResizableHandle className="!h-1 bg-background" />
         <ResizablePanel defaultSize={50} minSize={10} className="bg-background">
           <div className="h-[calc(100%-2.5rem)] w-full rounded-lg bg-secondary">
             <div className="mx-2 flex items-center justify-between border-b-2 border-border px-2 py-1">

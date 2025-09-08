@@ -23,76 +23,20 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
 
 import "@xyflow/react/dist/style.css";
 import "@/styles/visualizer.css";
-import Dagre from "@dagrejs/dagre";
 
 import { useResizable } from "@/providers/resizable-provider";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { useRef } from "react";
 import resizableConfig from "@/config/resizableConfig";
+import ResizableLayout from "@/components/common/resizable-layout";
 
 const nodeTypes = {
   databaseSchema: DatabaseSchemaNode,
 };
-
-const getLayoutedElements = (nodes: any, edges: any, options: any) => {
-  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: options.direction });
-
-  edges.forEach((edge: Edge) => g.setEdge(edge.source, edge.target));
-  nodes.forEach((node: Node) =>
-    g.setNode(node.id, {
-      ...node,
-      width: node.measured?.width ?? 0,
-      height: node.measured?.height ?? 0,
-    }),
-  );
-
-  Dagre.layout(g);
-
-  return {
-    nodes: nodes.map((node: Node) => {
-      const position = g.node(node.id);
-      // We are shifting the dagre node position (anchor=center center) to the top left
-      // so it matches the React Flow node anchor point (top left).
-      const x = position.x - (node.measured?.width ?? 0) / 2;
-      const y = position.y - (node.measured?.height ?? 0) / 2;
-
-      return { ...node, position: { x, y } };
-    }),
-    edges,
-  };
-};
-
 const SchemaVisualizer = () => {
-  const activeId = "editor-sidebar";
-  const { getResizableState, toggleResizable, handleResizeCollapse } =
-    useResizable();
-  const ref = useRef<ImperativePanelHandle>(null);
-  const resizableState = getResizableState(activeId);
-  const { defaultSizes, minSizes, maxSizes } = resizableConfig.editor;
-  const [isFirstRender, setIsFirstRender] = useState(true);
-
-  useEffect(() => {
-    if (isFirstRender) {
-      setIsFirstRender(false);
-      toggleResizable(activeId, "expanded");
-      return;
-    }
-    if (resizableState === "expanded" && ref.current) {
-      ref.current.resize(defaultSizes[0]);
-    } else if (resizableState === "collapsed" && ref.current) {
-      ref.current.resize(0);
-    }
-  }, [resizableState]);
-
   const { tables } = useSelector((state: any) => state.tables);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -103,7 +47,6 @@ const SchemaVisualizer = () => {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -118,7 +61,6 @@ const SchemaVisualizer = () => {
     (tableName: string) => {
       setSelectedNode(tableName);
       setHighlightedNode(tableName);
-      setSearchOpen(false);
       setSelectedIndex(0);
 
       // Find the node and zoom to it
@@ -568,23 +510,13 @@ const SchemaVisualizer = () => {
   }, [tables]);
 
   return (
-    <ResizablePanelGroup direction="horizontal" autoSaveId={activeId}>
-      <ResizablePanel
-        ref={ref}
-        defaultSize={defaultSizes[0]}
-        minSize={minSizes[0]}
-        maxSize={maxSizes[0]}
-        className="py-2"
-        onCollapse={() => handleResizeCollapse(true, activeId)}
-        onExpand={() => handleResizeCollapse(false, activeId)}
-        collapsible
-      >
-        {/* Search Sub-Sidebar */}
+    <ResizableLayout
+      child1={
         <div className="group/collapsible h-full rounded-lg bg-secondary">
           <div className="group sticky top-0 z-10 flex w-full flex-col items-center justify-between gap-2 rounded-t-lg bg-secondary pl-2 pt-2 text-xs font-semibold uppercase shadow-md">
             <div className="flex w-full items-center justify-between px-3">
               <div className="flex items-center gap-1">
-                <p className="flex items-center gap-2 py-2 truncate">
+                <p className="flex items-center gap-2 truncate py-2">
                   <SearchIcon className="h-3 w-3" />
                   Table Search
                   <span className="rounded-full bg-popover p-0 px-1 text-xs text-muted-foreground">
@@ -605,13 +537,10 @@ const SchemaVisualizer = () => {
             </div>
           </div>
 
-          <div className="scrollable-container-gutter h-[calc(100%-42px)] overflow-auto rounded-b-lg">
-            <div className="space-y-3 px-3">
+          <div className="scrollable-container-gutter custom-scrollbar h-[calc(100%-42px)] overflow-auto rounded-b-lg">
+            <div className="px-3">
               {/* Search Input */}
-              <div className="sticky top-0 z-10 space-y-2 bg-secondary pb-3">
-                <div className="text-xs font-medium text-foreground">
-                  Search Tables
-                </div>
+              <div className="sticky top-0 z-10 space-y-2 bg-secondary pb-3 pt-1">
                 <div className="relative">
                   <SearchIcon className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 transform text-muted-foreground" />
                   <input
@@ -650,11 +579,11 @@ const SchemaVisualizer = () => {
                     <div
                       key={table.table_name}
                       className={cn(
-                        "group cursor-pointer rounded-md border border-transparent p-2.5 transition-all duration-200 hover:border-border/50",
+                        "group cursor-pointer rounded-md border border-transparent p-2 transition-all duration-200 hover:border-border/50",
                         selectedNode === table.table_name
                           ? "border-primary/30 bg-primary/10 shadow-sm"
                           : index === selectedIndex
-                            ? "border-accent/30 bg-accent/10 shadow-sm"
+                            ? "border-border/50 bg-muted/30 shadow-sm"
                             : "hover:bg-muted/30 hover:shadow-sm",
                       )}
                       onClick={() => handleNodeSelect(table.table_name)}
@@ -687,104 +616,93 @@ const SchemaVisualizer = () => {
             </div>
           </div>
         </div>
-      </ResizablePanel>
+      }
+      child2={
+        <ReactFlow
+          nodes={highlightedNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          nodeTypes={nodeTypes}
+          fitView
+          minZoom={0.005}
+          maxZoom={1.5}
+          defaultViewport={{ x: 0, y: 0, zoom: 0.2 }}
+          fitViewOptions={{ padding: 0.8 }}
+          className="bg-transparent [&_.react-flow\_\_attribution]:hidden"
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={50}
+            size={10}
+            className="opacity-20 dark:opacity-10"
+            color="hsl(var(--muted-foreground))"
+          />
 
-      <ResizableHandle className="!w-2 bg-background" />
-
-      <ResizablePanel
-        defaultSize={defaultSizes[1]}
-        minSize={minSizes[1]}
-        maxSize={maxSizes[1]}
-        className="p-2 pl-0"
-      >
-        {/* Visualizer Main Area */}
-        <div className="h-full w-full flex-1 overflow-hidden rounded-lg bg-background">
-          <ReactFlow
-            nodes={highlightedNodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            nodeTypes={nodeTypes}
-            fitView
-            minZoom={0.005}
-            maxZoom={1.5}
-            defaultViewport={{ x: 0, y: 0, zoom: 0.2 }}
-            fitViewOptions={{ padding: 0.8 }}
-            className="bg-transparent [&_.react-flow\_\_attribution]:hidden"
+          {/* Clean Control Panel */}
+          <Panel
+            position="top-left"
+            className="flex gap-2 rounded-lg border border-border/50 bg-background/95 px-4 py-1 shadow-lg backdrop-blur-sm"
           >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={50}
-              size={10}
-              className="opacity-20 dark:opacity-10"
-              color="hsl(var(--muted-foreground))"
-            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={"ghost"}
+                  size={"icon"}
+                  className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
+                  onClick={handleResetView}
+                >
+                  <RotateCcwIcon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reset View</TooltipContent>
+            </Tooltip>
 
-            {/* Clean Control Panel */}
-            <Panel
-              position="top-left"
-              className="flex gap-2 rounded-lg border border-border/50 bg-background/95 px-4 py-1 shadow-lg backdrop-blur-sm"
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={"ghost"}
-                    size={"icon"}
-                    className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
-                    onClick={handleResetView}
-                  >
-                    <RotateCcwIcon className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Reset View</TooltipContent>
-              </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={"ghost"}
+                  size={"icon"}
+                  className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
+                  onClick={resetPositions}
+                >
+                  <Grid3X3Icon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reset Positions</TooltipContent>
+            </Tooltip>
+          </Panel>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={"ghost"}
-                    size={"icon"}
-                    className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
-                    onClick={resetPositions}
-                  >
-                    <Grid3X3Icon className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Reset Positions</TooltipContent>
-              </Tooltip>
-            </Panel>
-
-            {/* Clean Legend */}
-            <Panel
-              position="top-right"
-              className="rounded-lg border border-border/50 bg-background/95 px-4 py-3 shadow-lg backdrop-blur-sm"
-            >
-              <div className="mb-3 text-sm font-semibold text-foreground">
-                Schema Legend
+          {/* Clean Legend */}
+          <Panel
+            position="top-right"
+            className="rounded-lg border border-border/50 bg-background/95 px-4 py-3 shadow-lg backdrop-blur-sm"
+          >
+            <div className="mb-3 text-sm font-semibold text-foreground">
+              Schema Legend
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-yellow-500"></div>
+                <span className="text-foreground">Primary Key</span>
               </div>
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-yellow-500"></div>
-                  <span className="text-foreground">Primary Key</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-primary"></div>
-                  <span className="text-foreground">Foreign Key</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-muted-foreground"></div>
-                  <span className="text-foreground">Regular Field</span>
-                </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-primary"></div>
+                <span className="text-foreground">Foreign Key</span>
               </div>
-            </Panel>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-muted-foreground"></div>
+                <span className="text-foreground">Regular Field</span>
+              </div>
+            </div>
+          </Panel>
 
-            <Controls
-              showInteractive={false}
-              className="rounded-lg border border-border/50 bg-card/95 shadow-lg backdrop-blur-sm"
-            />
-          </ReactFlow>
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+          <Controls
+            showInteractive={false}
+            className="rounded-lg border border-border/50 bg-card/95 shadow-lg backdrop-blur-sm"
+          />
+        </ReactFlow>
+      }
+    />
   );
 };
 

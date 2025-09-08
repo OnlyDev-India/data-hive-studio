@@ -63,12 +63,12 @@ const TablesMenu = ({
           Copy Name
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <DeleteModal 
+        <DeleteModal
           title="Drop Table"
           description={`Are you sure you want to drop the table "${table_name}"? This action cannot be undone.`}
           onConfirm={handleDropTable}
         >
-          <div className="relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none text-destructive hover:bg-destructive/20 data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
+          <div className="relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive outline-none hover:bg-destructive/20 data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
             <Trash2Icon className="h-4 w-4" />
             Drop Table
           </div>
