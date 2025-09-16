@@ -1,3 +1,6 @@
+import { CustomServer } from "@/features/custom-api/lib/custom-server";
+import { DatabaseClient } from "./db.type";
+
 declare global {
   interface Window {
     electron: {
@@ -15,6 +18,10 @@ declare global {
       ) => Promise<{ success: boolean; error: string }>;
     };
   }
+  var customServer: {[key: string]: CustomServer | null};
+  var connectionManagerInstance: DatabaseClient | null;
 }
+
+global.customServer = {};
 
 export {};

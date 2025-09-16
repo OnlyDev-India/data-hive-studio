@@ -72,7 +72,7 @@ const CreateEndpointDialog: React.FC<CreateEndpointDialogProps> = ({
         <Button
           size="icon"
           variant={"outline"}
-          className="h-8 w-8 [&_svg]:size-4"
+          className="h-6 w-6 [&_svg]:size-4 bg-secondary border-border"
           title="Create Endpoint"
         >
           <Plus />

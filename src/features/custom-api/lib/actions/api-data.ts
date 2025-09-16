@@ -3,10 +3,16 @@
 import {
   APIDetails,
   APIDetailsStore,
-  APIEndpoint
+  APIEndpoint,
+  APIFlow,
+  APINode,
+  APIEdge,
+  WorkbenchNode,
 } from "@/features/custom-api/types/custom-api.type";
+import { Edge } from "@xyflow/react";
 import { promises as fs } from "fs";
 import { API_FORM_DEFAULT_VALUES } from "@/features/custom-api/config/default-values";
+import { getCurrentConnectionDetails } from "@/lib/actions/database-backup";
 
 // Read API details from file
 async function readAPIDetails(
@@ -149,12 +155,15 @@ export const createEndpoint = async (
 // Get APIs by connection ID
 export const getAPIsByConnectionId = async (
   apiDetailsPath: string,
-  connectionId: string,
 ): Promise<{ success: boolean; data?: APIDetails; error?: string }> => {
   try {
+    const connection = await getCurrentConnectionDetails();
+    if (!connection) {
+      return { success: false, error: "Connection not found" };
+    }
     const apiDetails = await readAPIDetails(apiDetailsPath);
     const api = Object.values(apiDetails.apiDetails).filter(
-      (api) => api.connectionId === connectionId,
+      (api) => api.connectionId === connection.id,
     )[0];
     // const groups = api.groups || [];
     // const endpoints = api.endpoints || [];
@@ -193,6 +202,65 @@ export const toggleAPIRunning = async (
     await writeAPIDetails(apiDetailsPath, apiDetails);
 
     return { success: true, data: updatedAPI };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const updateAPI = async (
+  apiDetailsPath: string,
+  api: APIDetails,
+): Promise<{ success: boolean; data?: APIDetails; error?: string }> => {
+  try {
+    const apiDetails = await readAPIDetails(apiDetailsPath);
+    let existingAPI = apiDetails.apiDetails[api.connectionId];
+
+    if (!existingAPI) {
+      return { success: false, error: "API not found" };
+    }
+
+    existingAPI = { ...existingAPI, ...api, updatedAt: new Date() };
+    apiDetails.apiDetails[api.connectionId] = existingAPI;
+    await writeAPIDetails(apiDetailsPath, apiDetails);
+
+    return { success: true, data: existingAPI };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Update endpoint
+export const updateEndpoint = async (
+  apiDetailsPath: string,
+  connectionId: string,
+  endpointId: string,
+  updatedEndpoint: APIEndpoint,
+): Promise<{ success: boolean; data?: APIEndpoint; error?: string }> => {
+  try {
+    const apiDetails = await readAPIDetails(apiDetailsPath);
+    const existingAPI = apiDetails.apiDetails[connectionId];
+
+    if (!existingAPI) {
+      return { success: false, error: "API not found" };
+    }
+
+    const endpointIndex = existingAPI.endpoints.findIndex(
+      (ep) => ep.id === endpointId,
+    );
+    if (endpointIndex === -1) {
+      return { success: false, error: "Endpoint not found" };
+    }
+
+    // Update the endpoint
+    existingAPI.endpoints[endpointIndex] = {
+      ...updatedEndpoint,
+      updatedAt: new Date(),
+    };
+
+    apiDetails.apiDetails[connectionId] = existingAPI;
+    await writeAPIDetails(apiDetailsPath, apiDetails);
+
+    return { success: true, data: existingAPI.endpoints[endpointIndex] };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

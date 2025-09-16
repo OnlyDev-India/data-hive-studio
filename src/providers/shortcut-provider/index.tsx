@@ -12,10 +12,12 @@ import { FileType } from "@/types/file.type";
 import { useMonaco } from "@monaco-editor/react";
 import { CommandPalette } from "@/components/common/command-palette";
 import { useAppData } from "@/hooks/useAppData";
+import { closeAPIServer } from "@/features/custom-api/utils/data-thunk-func";
+import { AppDispatch } from "@/redux/store";
 
 const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const monaco = useMonaco();
   const { shortcuts } = customShortcuts;
   const { currentFile }: { currentFile: FileType } = useSelector(
@@ -55,12 +57,13 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
         dispatch(resetOpenFiles());
         dispatch(resetQuery());
         dispatch(resetTables());
+        dispatch(closeAPIServer());
         router.push("/");
         break;
       case "closeTab":
         if (currentFile?.id) {
-          const currentModal = monaco.editor.getModel(
-            `file:///${currentFile.id}`,
+          const currentModal = monaco?.editor.getModel(
+            monaco.Uri.parse(`file:///${currentFile.id}`),
           );
           if (currentModal) currentModal.dispose();
           dispatch(removeFile({ id: currentFile.id }));

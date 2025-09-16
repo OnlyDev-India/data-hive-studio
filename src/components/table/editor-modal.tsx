@@ -296,6 +296,7 @@ export const EditorModal = ({
                   scrollBeyondLastLine: false,
                   fontSize: 14,
                   lineNumbers: "on",
+                  glyphMargin: false,
                   roundedSelection: false,
                   automaticLayout: true,
                   wordWrap: "on",
@@ -305,6 +306,7 @@ export const EditorModal = ({
                   cursorBlinking: "smooth",
                   cursorSmoothCaretAnimation: "on",
                   readOnly: !isEditable,
+                  lineNumbersMinChars: 3,
                 }}
               />
             </div>

@@ -41,10 +41,13 @@ export class MongoDbClient extends DatabaseClient {
         this.client = null;
         
       } catch (error) {
-        console.warn('⚠️ Error closing MongoDB connection:', error);
+        console.log('⚠️ Error closing MongoDB connection:', error);
       } finally {
         this.client = null;
         this.db = null;
+        // Update connection state
+        this.isConnected = false;
+        this.isConnecting = false;
       }
     }
   }
@@ -316,9 +319,17 @@ export class MongoDbClient extends DatabaseClient {
     connectionDetails: ConnectionDetailsType;
   }) {
     try {
+      // Close existing connection if it exists
+      if (this.client) {
+        console.log('🔌 Closing existing MongoDB connection before creating new one...');
+        await this.disconnect();
+      }
+
       const uri = connectionDetails.connection_string;
 
-      this.client = new MongoClient(uri);
+      this.client = new MongoClient(uri,{
+        maxIdleTimeMS: 15 * 60 * 1000, // 15 minutes
+      });
       await this.client.connect();
 
       // Try to get database from connection details or URI
@@ -347,8 +358,23 @@ export class MongoDbClient extends DatabaseClient {
         // Connection test failed, but continue anyway
       }
 
+      // Update connection state
+      this.isConnected = true;
+      this.isConnecting = false;
+
       return { success: true };
     } catch (error) {
+      // Clean up on error
+      if (this.client) {
+        try {
+          await this.client.close();
+        } catch (closeError) {
+          console.error('Error closing client after connection failure:', closeError);
+        }
+        this.client = null;
+        this.db = null;
+      }
+      
       return {
         success: false,
         error:
@@ -362,7 +388,7 @@ export class MongoDbClient extends DatabaseClient {
 
 
   isConnectedToDb() {
-    return !!this.db;
+    return !!this.db && !!this.client && this.isConnectionValid();
   }
 
   async executeQuery(query: string) {

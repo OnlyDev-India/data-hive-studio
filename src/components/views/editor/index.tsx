@@ -22,7 +22,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
 import ShortcutGrid from "@/components/common/shortcut-grids";
 import { Editor } from "@monaco-editor/react";
-import { getSchemas, getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
+import {
+  getSchemas,
+  getTablesWithFieldsFromDb,
+} from "@/lib/actions/fetch-data";
 import { pgSqlLanguageServer } from "@/lib/editor-language-servers/pgsql";
 import { mongodbLanguageServer } from "@/lib/editor-language-servers/mongodb";
 
@@ -98,9 +101,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
       if (response?.schemas) {
         schemas = response?.schemas;
         schemas.forEach(async (schema: any) => {
-          const response = await getTablesWithFieldsFromDb(
-            schema.schema_name,
-          );
+          const response = await getTablesWithFieldsFromDb(schema.schema_name);
           schemasWithTables[schema.schema_name] = response?.tables;
         });
       }
@@ -125,7 +126,10 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
 
   return (
     <div className="h-full w-full">
-      <ResizablePanelGroup direction="vertical" autoSaveId={"editor-query-output"}>
+      <ResizablePanelGroup
+        direction="vertical"
+        autoSaveId={"editor-query-output"}
+      >
         <ResizablePanel
           defaultSize={50}
           minSize={10}
@@ -140,9 +144,20 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
             path={currentFile?.id}
             theme={resolvedTheme === "dark" ? "github-dark" : "github-light"}
             options={{
-              minimap: {
-                enabled: false,
-              },
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              fontSize: 14,
+              lineNumbers: "on",
+              glyphMargin: false,
+              roundedSelection: false,
+              automaticLayout: true,
+              wordWrap: "on",
+              folding: true,
+              showFoldingControls: "always",
+              renderLineHighlight: "all",
+              cursorBlinking: "smooth",
+              cursorSmoothCaretAnimation: "on",
+              lineNumbersMinChars: 3,
             }}
           />
         </ResizablePanel>
@@ -168,10 +183,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
             </div>
             {executingQuery ? (
               <div className="flex h-full items-center justify-center overflow-auto p-4">
-                <QueryExecutingAnimation 
-                  className="h-full"
-                  size={64}
-                />
+                <QueryExecutingAnimation className="h-full" size={64} />
               </div>
             ) : columns.length > 0 ? (
               <div className="h-[calc(100%-2.7rem)]">

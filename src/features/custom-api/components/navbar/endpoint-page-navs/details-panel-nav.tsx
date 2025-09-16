@@ -1,12 +1,15 @@
 "use client";
+import EndpointDetails from "@/features/custom-api/components/endpoint-details";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { ENDPOINT_PAGE_NAVS } from "@/features/custom-api/config/navs";
-import { cn } from "@/lib/utils";
 import { useResizable } from "@/providers/resizable-provider";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import Workbench from "../../api-workbench/workbench";
+import { CustomTabList, CustomTabsContent } from "@/components/common/custom-tab";
+import TestApi from "@/features/custom-api/components/test-api";
 
 const DetailsPanelNav = () => {
   const router = useRouter();
@@ -21,7 +24,7 @@ const DetailsPanelNav = () => {
   const { toggleResizable, getResizableState } = useResizable();
   const resizableState = getResizableState("endpoint-page");
   //   TODO: fix the collapsed panel
-  const isCollapsed = resizableState.size?.[0] === 5.5 ? true : false;
+  const isCollapsed = resizableState.state === "collapsed" || resizableState.state === "collapsed:2";
 
   useEffect(() => {
     setActiveTab(detailsTab || ENDPOINT_PAGE_NAVS[0].value);
@@ -29,9 +32,9 @@ const DetailsPanelNav = () => {
 
   const handleToggle = () => {
     if (!isCollapsed) {
-      toggleResizable("endpoint-page", "collapsed", [5.5, 94.5]);
+      toggleResizable("endpoint-page", "collapsed");
     } else {
-      toggleResizable("endpoint-page", "expanded", [50, 50]);
+      toggleResizable("endpoint-page", "expanded");
     }
   };
 
@@ -49,42 +52,8 @@ const DetailsPanelNav = () => {
       onValueChange={handleNavClick}
       className="relative h-full w-full rounded-lg bg-secondary"
     >
-      <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg border-b pr-2">
-        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2">
-          {ENDPOINT_PAGE_NAVS.map((nav) => {
-            const Icon = nav.icon;
-            const isActive = activeTab === nav.value;
-            return (
-              <div
-                key={nav.value}
-                className={cn(
-                  "group flex h-full items-center justify-between rounded-md border border-transparent hover:bg-background active:cursor-grabbing",
-                  {
-                    "border-primary bg-primary/20 hover:bg-primary/40":
-                      isActive,
-                  },
-                )}
-              >
-                <TabsTrigger
-                  value={nav.value}
-                  className="h-full rounded-md bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent"
-                >
-                  <span className="flex items-center gap-1 text-xs">
-                    {Icon && (
-                      <Icon
-                        size={14}
-                        className={cn({
-                          "text-primary": isActive,
-                        })}
-                      />
-                    )}
-                    {nav.label}
-                  </span>
-                </TabsTrigger>
-              </div>
-            );
-          })}
-        </TabsList>
+      <CustomTabList tabs={ENDPOINT_PAGE_NAVS} activeTab={activeTab} >
+        
         <Button
           variant={"outline"}
           size={"icon"}
@@ -93,34 +62,17 @@ const DetailsPanelNav = () => {
         >
           {isCollapsed ? <ChevronDownIcon /> : <ChevronUpIcon />}
         </Button>
-      </div>
+      </CustomTabList>
       <CustomTabsContent value={"overview"}>
-        <h1>Hello</h1>
+        <EndpointDetails />
       </CustomTabsContent>
       <CustomTabsContent value={"workbench"}>
-        <h1>Hello Workbench</h1>
+        <Workbench />
       </CustomTabsContent>
       <CustomTabsContent value={"test"}>
-        <h1>Test</h1>
+        <TestApi />
       </CustomTabsContent>
     </Tabs>
-  );
-};
-
-const CustomTabsContent = ({
-  children,
-  value,
-}: {
-  children: React.ReactNode;
-  value: string;
-}) => {
-  return (
-    <TabsContent
-      value={value}
-      className="m-0 h-[calc(100%-var(--tabs-height))] p-0"
-    >
-      {children}
-    </TabsContent>
   );
 };
 

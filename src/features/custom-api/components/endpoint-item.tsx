@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { APIEndpoint } from "@/features/custom-api/types/custom-api.type";
+import { useSearchParams } from "next/navigation";
+import { API_METHOD_COLORS } from "../config/api-config";
 
 interface EndpointItemProps {
   endpoint: APIEndpoint;
@@ -32,6 +34,7 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
   groupPath,
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const searchParams = useSearchParams();
   const displayPath = groupPath
     ? `${groupPath}${endpoint.path.startsWith("/") ? "" : "/"}${endpoint.path}`
     : endpoint.path;
@@ -42,23 +45,29 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
   const handleToggleEndpoint = () => {
     console.log("Toggling endpoint:", endpoint.id);
   };
+  const methodColor =
+    API_METHOD_COLORS[endpoint.method as keyof typeof API_METHOD_COLORS];
   return (
     <div className="group relative cursor-pointer rounded-lg border bg-background transition-colors hover:bg-accent">
       <Link
-        href={`/app/custom-api/endpoint/${apiId}/${endpoint.id}`}
+        href={{
+          pathname: `/app/custom-api/endpoint/${apiId}/${endpoint.id}`,
+          search: searchParams.toString(),
+        }}
         className="flex items-start justify-between overflow-hidden p-2"
       >
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-2">
-            <h4 className="min-w-6 truncate text-sm font-medium">
-              {endpoint.name}
-            </h4>
             <Badge
-              variant={endpoint.enabled ? "default" : "secondary"}
+              variant={endpoint.enabled ? "default" : "outline"}
               className="text-xs"
+              style={endpoint.enabled ? { ...methodColor } : {}}
             >
               {endpoint.method}
             </Badge>
+            <h4 className="min-w-6 truncate text-sm font-medium">
+              {endpoint.name}
+            </h4>
           </div>
           {endpoint.description && (
             <p className="line-clamp-1 text-xs text-muted-foreground">

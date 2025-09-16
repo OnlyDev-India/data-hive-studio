@@ -63,57 +63,97 @@ const ResizableLayout = ({
   const currentActiveId = activeId || "editor-sidebar";
   const { getResizableState, toggleResizable, handleResizeCollapse } =
     useResizable();
-  const ref = useRef<ImperativePanelHandle>(null);
+  const ref1 = useRef<ImperativePanelHandle>(null);
+  const ref2 = useRef<ImperativePanelHandle>(null);
   const resizableState = getResizableState(currentActiveId);
-  const { defaultSizes, minSizes, maxSizes } = resizableConfig[config];
-  const [isFirstRender, setIsFirstRender] = useState(true);
+  const { defaultSizes, minSizes, maxSizes, collapsedTo } =
+    resizableConfig[config];
 
   useEffect(() => {
-    if (isFirstRender) {
-      setIsFirstRender(false);
-      if (!isSubLayout) {
-        toggleResizable(currentActiveId, "expanded");
-      }
+    if (!isSubLayout) {
+      toggleResizable(currentActiveId, "expanded");
+    }
+  }, [isSubLayout]);
+
+  useEffect(() => {
+    if (!child2 || !ref1.current || !ref2.current) {
       return;
     }
-    if (child2 && resizableState.state === "expanded" && ref.current) {
-      ref.current.resize(resizableState.size?.[0] || defaultSizes[0]);
-    } else if (child2 && resizableState.state === "collapsed" && ref.current) {
-      ref.current.resize(resizableState.size?.[0] || 0);
+    const isExpandedChild1 = ref1.current.isExpanded();
+    const isCollapsedChild1 = ref1.current.isCollapsed();
+    const isToBeExpandedChild1 =
+      resizableState.state === "expanded" && isCollapsedChild1;
+    const isToBeCollapsedChild1 =
+      resizableState.state === "collapsed" && isExpandedChild1;
+    if (isToBeExpandedChild1) {
+      ref1.current.expand();
+      return;
+    } else if (isToBeCollapsedChild1) {
+      ref1.current.collapse();
+      return;
     }
-  }, [resizableState, ref, child2]);
+
+    const isExpandedChild2 = ref2.current.isExpanded();
+    const isCollapsedChild2 = ref2.current.isCollapsed();
+    const isToBeExpandedChild2 =
+      resizableState.state === "expanded:2" && isCollapsedChild2;
+    const isToBeCollapsedChild2 =
+      resizableState.state === "collapsed:2" && isExpandedChild2;
+    if (isToBeExpandedChild2) {
+      ref2.current.expand();
+      return;
+    } else if (isToBeCollapsedChild2) {
+      ref2.current.collapse();
+      return;
+    }
+  }, [resizableState, ref1, child2, ref2]);
+
   return (
     <ResizablePanelGroup direction={direction} autoSaveId={currentActiveId}>
       <ResizablePanel
-        ref={ref}
+        ref={ref1}
         defaultSize={defaultSizes[0]}
         minSize={minSizes[0]}
         maxSize={maxSizes[0]}
-        className={cn(panelClass({ direction: isSubLayout ? "subLayoutVertical" : direction}))}
-        onCollapse={() => handleResizeCollapse(true, currentActiveId)}
-        onExpand={() => handleResizeCollapse(false, currentActiveId)}
+        className={cn(
+          panelClass({
+            direction: isSubLayout ? "subLayoutVertical" : direction,
+          }),
+        )}
+        onCollapse={() => handleResizeCollapse(currentActiveId, "collapsed")}
+        onExpand={() => handleResizeCollapse(currentActiveId, "expanded")}
         collapsible={collapsible}
+        collapsedSize={collapsedTo ? collapsedTo[0] : 0}
         order={1}
       >
         {isSidebar ? <SubSideBar>{child1}</SubSideBar> : child1}
       </ResizablePanel>
-      <ResizableHandle
-        className={cn(dividerClass({ direction, variant: separatorVariant }))}
-      />
       {child2 && (
-        <ResizablePanel
-          defaultSize={defaultSizes[1]}
-          minSize={minSizes[1]}
-          maxSize={maxSizes[1]}
-          className={cn("p-2 pl-0", {
-            "bg-background p-0": direction === "vertical" || isSubLayout,
-          })}
-          order={2}
-        >
-          <div className="h-full overflow-hidden rounded-lg bg-secondary">
-            {child2}
-          </div>
-        </ResizablePanel>
+        <>
+          <ResizableHandle
+            className={cn(
+              dividerClass({ direction, variant: separatorVariant }),
+            )}
+          />
+          <ResizablePanel
+            ref={ref2}
+            defaultSize={defaultSizes[1]}
+            minSize={minSizes[1]}
+            maxSize={maxSizes[1]}
+            className={cn("p-2 pl-0", {
+              "bg-background p-0": direction === "vertical" || isSubLayout,
+            })}
+            order={2}
+            onCollapse={() => handleResizeCollapse(currentActiveId, "collapsed:2")}
+            onExpand={() => handleResizeCollapse(currentActiveId, "expanded:2")}
+            collapsedSize={collapsedTo ? collapsedTo[1] : 0}
+            collapsible={collapsible}
+          >
+            <div className="h-full overflow-hidden rounded-lg bg-secondary">
+              {child2}
+            </div>
+          </ResizablePanel>
+        </>
       )}
     </ResizablePanelGroup>
   );

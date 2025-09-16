@@ -95,7 +95,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
     // check if file is open
     if (openFiles[index] && monaco?.editor) {
       const currentModal = monaco.editor.getModel(
-        `file:///${openFiles[index].id}`,
+        monaco.Uri.parse(`file:///${openFiles[index].id}`),
       );
       if (currentModal) currentModal.dispose();
       dispatch(removeFile({ id: openFiles[index].id }));
@@ -112,7 +112,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       if (!monaco?.editor) return;
       const editor1 = monaco.editor;
 
-      const currentModal = editor1.getModel(`file:///${currentFile?.id}`);
+      const currentModal = editor1.getModel(monaco.Uri.parse(`file:///${currentFile?.id}`));
       const currentEditor = edit || editor;
       if (currentModal && currentEditor) {
         dispatch(setExecutingQuery(true));

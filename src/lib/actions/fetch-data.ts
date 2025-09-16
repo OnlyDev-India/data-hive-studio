@@ -1,7 +1,6 @@
 "use server";
-import { ConnectionDetailsType } from "./../../types/db.type";
+import { ConnectionDetailsType, DatabaseClient } from "./../../types/db.type";
 import { handlers } from "@/lib/databases/db";
-import { EnhancedConnectionManager } from "@/lib/databases/connection-manager";
 import { FilterType, TableForm } from "@/types/table.type";
 import { cookies } from "next/headers";
 import { SortColumn } from "react-data-grid";
@@ -13,26 +12,76 @@ export async function getCookie() {
   return cookie;
 }
 
-export async function isConnecting() {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
-  if (!connection) return false;
-  return connection.isConnecting;
-}
+export const getDbInstance = async (): Promise<DatabaseClient | null> => {
+  if (!global.connectionManagerInstance) {
+    const cookie = await getCookie();
+    const dbType = cookie.get("dbType")?.value as keyof typeof handlers;
+    global.connectionManagerInstance = new handlers[dbType]();
+  }
+  const isConnected = global.connectionManagerInstance.isConnectedToDb();
+  if (isConnected) {
+    return global.connectionManagerInstance;
+  }
+  const result =
+    await global.connectionManagerInstance.getConnectionDetailsFromCookies();
+  if (!result.connectionDetails) {
+    return null;
+  }
+  await global.connectionManagerInstance.connectDb({
+    connectionDetails: result.connectionDetails,
+  });
+  return global.connectionManagerInstance;
+};
 
-export async function changeDataBase({ newConnectionDetails }: { newConnectionDetails: Partial<ConnectionDetailsType> }) {
+export const getConnectionDetails = async (): Promise<ConnectionDetailsType | null> => {
+  if (global.connectionManagerInstance) {
+    const cookie = await getCookie();
+    const dbType = cookie.get("dbType")?.value as keyof typeof handlers;
+    global.connectionManagerInstance = new handlers[dbType]();
+    const result =
+      await global.connectionManagerInstance.getConnectionDetailsFromCookies();
+    if (!result.connectionDetails) {
+      return null;
+    }
+    return result.connectionDetails;
+  }
+  return global.connectionManagerInstance;
+};
+
+export const resetDbInstance = async (): Promise<void> => {
+  if (global.connectionManagerInstance) {
+    await global.connectionManagerInstance.disconnectDb();
+    global.connectionManagerInstance = null;
+  }
+};
+
+export async function changeDataBase({
+  newConnectionDetails,
+}: {
+  newConnectionDetails: Partial<ConnectionDetailsType>;
+}) {
   const cookie = cookies();
   const connectionUrl = cookie.get("currentConnection");
   if (!connectionUrl) {
     return { success: false, error: "No connection to the database" };
   }
 
-  const oldConnectionDetails: ConnectionDetailsType = JSON.parse(connectionUrl?.value || "");
-  const updatedConnectionDetails = { ...oldConnectionDetails, ...newConnectionDetails };
-  
+  const oldConnectionDetails: ConnectionDetailsType = JSON.parse(
+    connectionUrl?.value || "",
+  );
+  const updatedConnectionDetails = {
+    ...oldConnectionDetails,
+    ...newConnectionDetails,
+  };
+
   cookie.set("currentConnection", JSON.stringify(updatedConnectionDetails));
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  await connectionManager.connect();
+  const connectionManager = await getDbInstance();
+  if (!connectionManager) {
+    return { success: false, error: "No connection to the database" };
+  }
+  await connectionManager.connectDb({
+    connectionDetails: updatedConnectionDetails,
+  });
   return { success: true };
 }
 
@@ -55,35 +104,34 @@ export async function getTablesWithFieldsFromDb(
   currentSchema: string,
   isUpdateSchema = false,
 ) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return null;
-  
-  const result = await connection.getTablesWithFieldsFromDb(currentSchema, isUpdateSchema);
+
+  const result = await connection.getTablesWithFieldsFromDb(
+    currentSchema,
+    isUpdateSchema,
+  );
   return result;
 }
 
 export async function getDatabases() {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return null;
 
   return await connection.getDatabases();
 }
 
 export async function getSchemas() {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return null;
-  
+
   return await connection.getSchemas();
 }
 
 export async function getTableColumns(table_name: string) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return { columns: null };
-  
+
   return await connection.getTableColumns(table_name);
 }
 
@@ -95,10 +143,10 @@ export async function getTablesData(
     pagination?: PaginationType;
   },
 ) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
-  if (!connection) return { data: null, error: "No connection to the database" };
-  
+  const connection = await getDbInstance();
+  if (!connection)
+    return { data: null, error: "No connection to the database" };
+
   const { data, error, totalRecords } = await connection.getTablesData(
     table_name,
     options,
@@ -108,24 +156,33 @@ export async function getTablesData(
   // Check if this is MongoDB by looking for ObjectId in the data
   if (data && Array.isArray(data) && data.length > 0) {
     const firstDoc = data[0];
-    
-    if (firstDoc && firstDoc._id && typeof firstDoc._id === 'object' && firstDoc._id.toString) {
+
+    if (
+      firstDoc &&
+      firstDoc._id &&
+      typeof firstDoc._id === "object" &&
+      firstDoc._id.toString
+    ) {
       // This is likely MongoDB data, serialize it properly
       const serializedData = data.map((doc: any) => {
         const plainDoc = { ...doc };
         // Convert ObjectId to string
-        if (plainDoc._id && typeof plainDoc._id === 'object' && plainDoc._id.toString) {
+        if (
+          plainDoc._id &&
+          typeof plainDoc._id === "object" &&
+          plainDoc._id.toString
+        ) {
           plainDoc._id = plainDoc._id.toString();
         }
         // Convert Date objects to ISO strings
-        Object.keys(plainDoc).forEach(key => {
+        Object.keys(plainDoc).forEach((key) => {
           if (plainDoc[key] instanceof Date) {
             plainDoc[key] = plainDoc[key].toISOString();
           }
         });
         return plainDoc;
       });
-      
+
       return { data: JSON.stringify(serializedData), error, totalRecords };
     }
   }
@@ -134,26 +191,30 @@ export async function getTablesData(
 }
 
 export async function getTableRelations(table_name: string) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
-  if (!connection) return { data: null, error: "No connection to the database" };
-  
+  const connection = await getDbInstance();
+  if (!connection)
+    return { data: null, error: "No connection to the database" };
+
   return await connection.getTableRelations(table_name);
 }
 
 export async function dropTable(table_name: string) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
-  if (!connection) return { data: null, error: "No connection to the database" };
-  
+  const connection = await getDbInstance();
+  if (!connection)
+    return { data: null, error: "No connection to the database" };
+
   return await connection.dropTable(table_name);
 }
 
 export async function executeQuery(query: string) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
-  if (!connection) return { data: null, message: null, error: "No connection to the database" };
-  
+  const connection = await getDbInstance();
+  if (!connection)
+    return {
+      data: null,
+      message: null,
+      error: "No connection to the database",
+    };
+
   return await connection.executeQuery(query);
 }
 
@@ -175,7 +236,7 @@ export async function testConnection({
   const { success, error } = await handler.testConnection({
     connectionDetails,
   });
-  
+
   const cookie = cookies();
   if (success && isConnect) {
     cookie.set("currentConnection", JSON.stringify(connectionDetails));
@@ -184,15 +245,18 @@ export async function testConnection({
   return { success, error };
 }
 
-export async function disconnectDb(connectionPath: string|null) {
+export async function disconnectDb(connectionPath: string | null) {
   const cookie = cookies();
   const connectionUrl = cookie.get("currentConnection");
   if (!connectionUrl) return false;
 
-  const connectionDetails: ConnectionDetailsType = JSON.parse(connectionUrl.value);
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  await connectionManager.disconnect();
-  
+  const connectionDetails: ConnectionDetailsType = JSON.parse(
+    connectionUrl.value,
+  );
+
+  // Use resetInstance to ensure complete cleanup
+  await resetDbInstance();
+
   if (connectionPath) {
     await updateConnection(connectionPath, {
       ...connectionDetails,
@@ -211,22 +275,20 @@ export async function updateTable(
     newValue: Record<string, any>;
   }>,
 ) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) {
     return false;
   }
-  
+
   const response = await connection.updateTable(tableName, data);
-  
+
   return { ...response, data: JSON.stringify(response.data) };
 }
 
 export async function deleteTableData(tableName: string, data: any[]) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return false;
-  
+
   const response = await connection.deleteTableData(tableName, data);
   return { ...response, data: JSON.stringify(response.data) };
 }
@@ -235,19 +297,17 @@ export async function insertTableData(data: {
   tableName: string;
   values: any[][];
 }) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return false;
-  
+
   const response = await connection.insertRecord(data);
   return { ...response, data: JSON.stringify(response.data) };
 }
 
 export async function createTable(data: TableForm) {
-  const connectionManager = await EnhancedConnectionManager.getInstance();
-  const connection = connectionManager.getConnection();
+  const connection = await getDbInstance();
   if (!connection) return { data: null, error: "Not connected to Database" };
-  
+
   const response = await connection.createTable(data);
   return { ...response, data: JSON.stringify(response.data) };
 }

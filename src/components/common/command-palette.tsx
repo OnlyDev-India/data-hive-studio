@@ -42,6 +42,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppData } from "@/hooks/useAppData";
+import { closeAPIServer } from "@/features/custom-api/utils/data-thunk-func";
+import { AppDispatch } from "@/redux/store";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -56,7 +58,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const { theme, setTheme } = useTheme();
   const isDark = theme === "dark";
   const { tables } = useSelector((state: any) => state.tables);
@@ -276,6 +278,7 @@ export function CommandPalette({
           dispatch(resetOpenFiles());
           dispatch(resetQuery());
           dispatch(resetTables());
+          dispatch(closeAPIServer());
           router.push("/");
         }
       },

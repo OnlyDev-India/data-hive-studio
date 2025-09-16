@@ -32,10 +32,12 @@ import { useAppData } from "@/hooks/useAppData";
 import { DatabaseBackupModal } from "@/components/modals/database-backup-modal";
 import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipTrigger } from "@/components/ui/tooltip";
+import { closeAPIServer } from "@/features/custom-api/utils/data-thunk-func";
+import { AppDispatch } from "@/redux/store";
 
 const Sidebar = () => {
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const { connectionPath } = useAppData();
@@ -45,6 +47,7 @@ const Sidebar = () => {
       dispatch(resetOpenFiles());
       dispatch(resetQuery());
       dispatch(resetTables());
+      dispatch(closeAPIServer());
       router.push("/");
     }
   };

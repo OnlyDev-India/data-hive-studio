@@ -1,12 +1,12 @@
 "use server";
 import { ConnectionDetailsType } from "@/types/db.type";
-import { EnhancedConnectionManager } from "@/lib/databases/connection-manager";
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { PostgresBackup } from "@/lib/databases/postgres/backup";
 import { SqliteBackup } from "@/lib/databases/sqlite/backup";
 import { MongoBackup } from "@/lib/databases/mongodb/backup";
 import { cookies } from "next/headers";
 import { handlers } from "../databases/db";
+import { getConnectionDetails } from "./fetch-data";
 
 export interface DatabaseBackupOptions {
   includeData: boolean;
@@ -36,9 +36,7 @@ export interface BackupCommand {
 export async function getCurrentConnectionDetails(): Promise<ConnectionDetailsType | null> {
   try {
     const cookie = cookies();
-    const connectionManager = await EnhancedConnectionManager.getInstance();
-    const connection = connectionManager.getConnection();
-    const connectionDetails = connection?.getConnectionDetails();
+    const connectionDetails = await getConnectionDetails();
     
     // If connection details found from connection manager, return them
     if (connectionDetails) {
@@ -73,8 +71,7 @@ export async function generateDatabaseBackupCommands(
   try {
     const cookie = cookies();
     const dbType = cookie.get("dbType")?.value as keyof typeof handlers;
-    const connectionManager = await EnhancedConnectionManager.getInstance();
-    const connection = connectionManager.getConnection();
+    const connection = await getConnectionDetails();
     
     if (!connection) {
       throw new Error("No active database connection");

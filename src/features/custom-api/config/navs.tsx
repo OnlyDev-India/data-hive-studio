@@ -6,6 +6,9 @@ import {
   TerminalIcon,
   WorkflowIcon,
   FileTextIcon,
+  SettingsIcon,
+  GroupIcon,
+  CodeIcon,
 } from "lucide-react";
 
 export const ENDPOINT_PAGE_NAVS = [
@@ -49,5 +52,31 @@ export const ENDPOINT_PAGE_TEST_NAVS = [
     label: "Response",
     value: "response",
     icon: FileTextIcon,
+  },
+];
+
+export const SETTINGS_PAGE_NAVS = [
+  {
+    label: "Settings",
+    value: "settings",
+    icon: SettingsIcon,
+  },
+  {
+    label: "Logs",
+    value: "logs",
+    icon: LogsIcon,
+  },
+];
+
+export const API_SIDEBAR_NAVS = [
+  {
+    label: "Endpoints",
+    value: "endpoints",
+    icon: GroupIcon,
+  },
+  {
+    label: "Middleware",
+    value: "middleware",
+    icon: CodeIcon,
   },
 ];

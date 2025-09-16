@@ -7,21 +7,21 @@ import React, {
   ReactNode,
 } from "react";
 
+type ResizableState = "expanded" | "collapsed" | "expanded:2" | "collapsed:2";
+
 type ResizablePanels = {
   saveId: string;
-  state: "expanded" | "collapsed";
-  size?: [number, number];
+  state: ResizableState;
 };
 
 interface ResizableContextType {
   resizablePanels: ResizablePanels[];
   toggleResizable: (
     saveId: string,
-    state?: "expanded" | "collapsed",
-    size?: [number, number],
+    state: ResizableState,
   ) => void;
   getResizableState: (saveId: string) => ResizablePanels;
-  handleResizeCollapse: (collapsed: boolean, saveId: string) => void;
+  handleResizeCollapse: (saveId: string, state: ResizableState) => void;
 }
 
 const ResizableContext = createContext<ResizableContextType | undefined>(
@@ -39,8 +39,7 @@ export const ResizableProvider: React.FC<ResizableProviderProps> = ({
 
   const toggleResizable = (
     saveId: string,
-    state?: "expanded" | "collapsed",
-    size?: [number, number],
+    state: ResizableState,
   ) => {
     setResizablePanels((prev: ResizablePanels[]) => {
       const newResizablePanels = prev.find((panel) => panel.saveId === saveId)
@@ -48,16 +47,11 @@ export const ResizableProvider: React.FC<ResizableProviderProps> = ({
             panel.saveId === saveId
               ? {
                   saveId: saveId,
-                  state: state
-                    ? state
-                    : panel.state === "expanded"
-                      ? ("collapsed" as const)
-                      : ("expanded" as const),
-                  size: size ? size : panel.size,
+                  state: state,
                 }
               : panel,
           )
-        : [...prev, { saveId: saveId, state: "expanded" as const, size: size }];
+        : [...prev, { saveId: saveId, state: "expanded" as ResizableState }];
 
       // Save to localStorage with the new state
       localStorage.setItem(
@@ -73,8 +67,7 @@ export const ResizableProvider: React.FC<ResizableProviderProps> = ({
     return panel ? panel : { saveId: saveId, state: "expanded" as const }; // Default to expanded
   };
 
-  const handleResizeCollapse = (collapsed: boolean, saveId: string) => {
-    const state = collapsed ? "collapsed" : "expanded";
+  const handleResizeCollapse = (saveId: string, state: ResizableState) => {
     toggleResizable(saveId, state);
   };
 

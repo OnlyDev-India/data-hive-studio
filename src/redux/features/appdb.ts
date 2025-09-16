@@ -16,7 +16,7 @@ export const initAppData = createAsyncThunk(
 
       if (response.success && response.data) {
         // Initialize API details after connections are loaded
-        dispatch(initAPIDetails({}));
+        dispatch(initAPIDetails());
         return { connections: response.data.rows as ConnectionsType[] };
       } else {
         return rejectWithValue(response.error || "Failed to fetch connections.");

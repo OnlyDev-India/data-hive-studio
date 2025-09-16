@@ -8,12 +8,15 @@ import {
   createEndPoint,
   getAPIsForConnection,
   toggleAPI,
+  updateEndPoint,
+  updateCurrentAPI,
+  closeAPIServer,
 } from "../utils/data-thunk-func";
 
 const initialState: {
   apis: APIDetails[];
   currentAPI: APIDetails | null;
-  loading: LoadingState;
+  loading: LoadingState | "updatingEndpoint" | "updatingAPI" | "updatingCurrentAPI";
   error: string | null;
 } = {
   apis: [],
@@ -58,12 +61,6 @@ export const apiSlice = createSlice({
         state.loading = "idle";
         const api = action.payload;
         state.currentAPI?.endpoints.push(api);
-
-        // Update connection-specific APIs
-        // if (!state.apisByConnection[api.connectionId]) {
-        //   state.apisByConnection[api.connectionId] = [];
-        // }
-        // state.apisByConnection[api.connectionId].push(api);
       })
       .addCase(createEndPoint.rejected, (state, action) => {
         state.loading = "failed";
@@ -94,6 +91,56 @@ export const apiSlice = createSlice({
         state.currentAPI = action.payload;
       })
       .addCase(toggleAPI.rejected, (state, action) => {
+        state.loading = "failed";
+        state.error = action.payload as string;
+      })
+
+      // Update endpoint
+      .addCase(updateEndPoint.pending, (state) => {
+        state.loading = "updatingEndpoint";
+        state.error = null;
+      })
+      .addCase(updateEndPoint.fulfilled, (state, action) => {
+        state.loading = "idle";
+        // Update the endpoint in the current API
+        if (state.currentAPI) {
+          const endpointIndex = state.currentAPI.endpoints.findIndex(
+            ep => ep.id === action.payload.id
+          );
+          if (endpointIndex !== -1) {
+            state.currentAPI.endpoints[endpointIndex] = action.payload;
+          }
+        }
+      })
+      .addCase(updateEndPoint.rejected, (state, action) => {
+        state.loading = "failed";
+        state.error = action.payload as string;
+      })
+
+      // Update API
+      .addCase(updateCurrentAPI.pending, (state) => {
+        state.loading = "updatingCurrentAPI";
+        state.error = null;
+      })
+      .addCase(updateCurrentAPI.fulfilled, (state, action) => {
+        state.loading = "idle";
+        state.currentAPI = action.payload;
+      })
+      .addCase(updateCurrentAPI.rejected, (state, action) => {
+        state.loading = "failed";
+        state.error = action.payload as string;
+      })
+
+      // Close API server
+      .addCase(closeAPIServer.pending, (state) => {
+        state.loading = "toggling";
+        state.error = null;
+      })
+      .addCase(closeAPIServer.fulfilled, (state, action) => {
+        state.loading = "idle";
+        state.currentAPI = null;
+      })
+      .addCase(closeAPIServer.rejected, (state, action) => {
         state.loading = "failed";
         state.error = action.payload as string;
       });

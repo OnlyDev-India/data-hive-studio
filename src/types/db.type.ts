@@ -1,6 +1,4 @@
-import { BSONType } from "mongodb";
 import sqlite3 from "sqlite3";
-import { TableForm } from "./table.type";
 
 export interface DBType extends sqlite3.Database {}
 

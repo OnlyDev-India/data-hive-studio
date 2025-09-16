@@ -1,55 +1,50 @@
 "use client";
 
 import React from "react";
-import { GroupIcon, Settings } from "lucide-react";
-import EndpointIcon from "./endpoint-icon";
-import { Badge } from "@/components/ui/badge";
+import { LogsIcon, Settings } from "lucide-react";
 import Link from "next/link";
-import CreateEndpointDialog from "./create-endpoint-dialog";
+import { useSearchParams } from "next/navigation";
 
 interface APIHeaderProps {
   connectionName: string;
-  totalGroups: number;
-  totalEndpoints: number;
   apiId: string;
 }
 
-const APIHeader: React.FC<APIHeaderProps> = ({
-  connectionName,
-  totalGroups,
-  totalEndpoints,
-  apiId,
-}) => {
+const APIHeader: React.FC<APIHeaderProps> = ({ connectionName, apiId }) => {
+  const searchParams = useSearchParams();
+
   return (
-    <div className="border-b p-4">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="pt-2">
+      <div className="flex flex-wrap justify-between gap-2 px-2">
         <div className="flex items-start gap-2">
           <div>
-            <h3 className="text-sm font-semibold">Endpoints</h3>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm font-semibold">
               {connectionName
-                ? `for ${connectionName}`
+                ? `${connectionName}`
                 : "No connection selected"}
             </p>
           </div>
-          <Badge variant="outline" className="gap-1 rounded-full">
-            <EndpointIcon className="h-4 w-4" />
-            {totalEndpoints}
-          </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <CreateEndpointDialog connectionName={connectionName} />
-          <Link
-            href={`/app/custom-api/settings/${apiId}`}
-            className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-muted [&_svg]:size-3"
-            title="API Settings"
-          >
-            <Settings />
-          </Link>
+          {apiId && (
+            <>
+              <Link
+                href={`/app/custom-api/settings/${apiId}?tab=settings&${searchParams.toString()}`}
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-secondary hover:bg-background [&_svg]:size-3"
+                title="API Settings"
+              >
+                <Settings />
+              </Link>
+              <Link
+                href={`/app/custom-api/settings/${apiId}?tab=logs&${searchParams.toString()}`}
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-secondary hover:bg-background [&_svg]:size-3"
+                title="API Settings"
+              >
+                <LogsIcon />
+              </Link>
+            </>
+          )}
         </div>
-      </div>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground"></div>
       </div>
     </div>
   );

@@ -66,6 +66,11 @@ export abstract class DatabaseClient {
     return await this.disconnect();
   }
 
+  // Method to check if connection is in a valid state
+  public isConnectionValid(): boolean {
+    return this.isConnected && !this.isConnecting && this.connectionDetails !== null;
+  }
+
   // Common validation methods
   public async validateConnection(): Promise<boolean> {
     try {

@@ -1,3 +1,6 @@
+import { Node } from "@xyflow/react";
+import { CSSProperties } from "react";
+
 export interface APIGroup {
   id: string;
   path: string;
@@ -16,6 +19,8 @@ export interface APIDetails {
   createdAt: Date;
   updatedAt: Date;
   version: string;
+  port?: number;
+  hostUrl?: string | null;
   tags?: string[];
   // Performance settings
   rateLimit?: number;
@@ -75,7 +80,7 @@ export interface APIResponse {
 
 export interface APIFlow {
   nodes: APINode[];
-  connections: APIConnection[];
+  edges: APIEdge[];
 }
 
 export interface APINode {
@@ -86,12 +91,13 @@ export interface APINode {
   config: any;
 }
 
-export interface APIConnection {
+export interface APIEdge {
   id: string;
   source: string;
   target: string;
-  sourceHandle?: string;
-  targetHandle?: string;
+  type: string;
+  animated?: boolean;
+  style?: CSSProperties;
 }
 
 export interface APIDetailsStore {
@@ -127,3 +133,43 @@ export type LoadingState =
   | "creating"
   | "fetching"
   | "initializing";
+
+
+// Types
+
+// Base node data interface
+export interface BaseNodeData {
+  name: string;
+  description?: string;
+  onAddNode?: (sourceId: string, targetX: number, targetY: number) => void;
+  hasChildren?: boolean;
+}
+
+// Endpoint node data interface
+export interface EndpointNodeData extends BaseNodeData {
+  type: 'endpointNode';
+  endpoint: any;
+}
+
+// Response node data interface
+export interface ResponseNodeData extends BaseNodeData {
+  type: 'responseNode';
+  statusCode: number;
+  responseBody: string;
+}
+
+// Conditional node data interface
+export interface ConditionalNodeData extends BaseNodeData {
+  type: 'conditionalNode';
+  condition: string;
+  truePath?: string;
+  falsePath?: string;
+}
+
+// Union type for all node data types
+export type NodeData = EndpointNodeData | ResponseNodeData | ConditionalNodeData;
+
+// Main workbench node interface
+export interface WorkbenchNode extends Node {
+  data: NodeData & Record<string, unknown>;
+}

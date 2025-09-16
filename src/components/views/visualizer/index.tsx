@@ -27,10 +27,6 @@ import { cn } from "@/lib/utils";
 import "@xyflow/react/dist/style.css";
 import "@/styles/visualizer.css";
 
-import { useResizable } from "@/providers/resizable-provider";
-import { ImperativePanelHandle } from "react-resizable-panels";
-import { useRef } from "react";
-import resizableConfig from "@/config/resizableConfig";
 import ResizableLayout from "@/components/common/resizable-layout";
 
 const nodeTypes = {

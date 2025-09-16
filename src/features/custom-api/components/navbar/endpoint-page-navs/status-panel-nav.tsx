@@ -17,11 +17,10 @@ const StatusPanelNav = () => {
   const [activeTab, setActiveTab] = useState(
     statusTab || ENDPOINT_PAGE_STATUS_NAVS[0].value,
   );
-  const [isFirstRender, setIsFirstRender] = useState(true);
   const { toggleResizable, getResizableState } = useResizable();
   const resizableState = getResizableState("endpoint-page");
-  //   TODO: fix the collapsed panel
-  const isCollapsed = resizableState.size?.[1] === 5.5 ? true : false;
+  const isExpandable = resizableState.state === "collapsed:2" || resizableState.state === "collapsed";
+  const isCollapsed = resizableState.state === "collapsed:2";
 
   useEffect(() => {
     setActiveTab(statusTab || ENDPOINT_PAGE_STATUS_NAVS[0].value);
@@ -29,11 +28,12 @@ const StatusPanelNav = () => {
 
   const handleToggle = () => {
     if (!isCollapsed) {
-      toggleResizable("endpoint-page", "collapsed", [94.5, 5.5]);
+      toggleResizable("endpoint-page", "collapsed:2");
     } else {
-      toggleResizable("endpoint-page", "expanded", [50, 50]);
+      toggleResizable("endpoint-page", "expanded:2");
     }
   };
+
   const handleNavClick = (value: string) => {
     setActiveTab(value);
     const searchParams = new URLSearchParams(window.location.search);

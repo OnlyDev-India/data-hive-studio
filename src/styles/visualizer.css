@@ -4,6 +4,6 @@
   }
 
   .react-flow .react-flow__controls button {
-    @apply !border-border !bg-popover;
+    @apply !border-border !bg-background;
   }
 }
