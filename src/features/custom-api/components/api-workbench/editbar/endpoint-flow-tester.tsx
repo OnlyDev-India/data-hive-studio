@@ -4,11 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { PlayIcon, LoaderIcon } from "lucide-react";
-import { useWorkbench } from "@/features/custom-api/context";
+import { useWorkbenchRedux } from "@/features/custom-api/hooks/use-workbench-redux";
 import { EndpointNodeData } from "@/features/custom-api/types/custom-api.type";
 import {
   EndpointFlowExecutor,
@@ -32,7 +31,7 @@ interface FlowTestFormData {
 }
 
 const EndpointFlowTester = () => {
-  const { getCurrentSelectedNodeId, currentEndpointState } = useWorkbench();
+  const { getCurrentSelectedNodeId, currentEndpointState } = useWorkbenchRedux();
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] =
     useState<FlowExecutionResult | null>(null);

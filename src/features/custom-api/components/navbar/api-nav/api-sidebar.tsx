@@ -4,7 +4,9 @@ import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { getCurrentConnectionDetails } from "@/lib/actions/database-backup";
-import { APIHeader, CreateEndpointDialog, EndpointsList } from "../../index";
+import { CreateEndpointDialog } from "../../index";
+import APIHeader from "./api-header";
+import EndpointsList from "./endpoints-list";
 import { GroupIcon, Wrench, Clock } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {

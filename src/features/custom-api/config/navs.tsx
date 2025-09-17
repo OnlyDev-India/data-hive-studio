@@ -1,5 +1,4 @@
 import {
-  BugIcon,
   FlaskConicalIcon,
   LogsIcon,
   NotebookTabsIcon,
@@ -8,7 +7,7 @@ import {
   FileTextIcon,
   SettingsIcon,
   GroupIcon,
-  CodeIcon,
+  CodeIcon
 } from "lucide-react";
 
 export const ENDPOINT_PAGE_NAVS = [
@@ -35,11 +34,11 @@ export const ENDPOINT_PAGE_STATUS_NAVS = [
     value: "logs",
     icon: LogsIcon,
   },
-  {
-    label: "Errors",
-    value: "errors",
-    icon: BugIcon,
-  },
+  // {
+  //   label: "Errors",
+  //   value: "errors",
+  //   icon: BugIcon,
+  // },
 ];
 
 export const ENDPOINT_PAGE_TEST_NAVS = [

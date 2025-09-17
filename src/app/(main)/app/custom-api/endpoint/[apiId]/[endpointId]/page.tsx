@@ -4,14 +4,14 @@ import EndpointPageDetails from "@/features/custom-api/components/endpoint-page-
 import EndpointPageStatus from "@/features/custom-api/components/endpoint-page-status";
 import WorkbenchSidebar from "@/features/custom-api/components/api-workbench/editbar/workbench-sidebar";
 import ApiTestSidebar from "@/features/custom-api/components/api-test-sidebar";
-import { useWorkbench } from "@/features/custom-api/context";
+import { useWorkbenchRedux } from "@/features/custom-api/hooks/use-workbench-redux";
 
 const EndpointPage = ({
   searchParams,
 }: {
   searchParams: { detailsTab: string };
 }) => {
-  const { getCurrentIsAddingNode, getCurrentSelectedNodeId } = useWorkbench();
+  const { getCurrentIsAddingNode, getCurrentSelectedNodeId } = useWorkbenchRedux();
   const rightSidebar: { [key: string]: React.ReactNode } = {
     workbench: getCurrentIsAddingNode() || getCurrentSelectedNodeId() ? <WorkbenchSidebar /> : null,
     test: <ApiTestSidebar />,

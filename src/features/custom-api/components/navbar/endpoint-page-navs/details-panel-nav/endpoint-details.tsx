@@ -17,14 +17,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Save } from "lucide-react";
-import { APIEndpoint, APIParameter } from "../types/custom-api.type";
+import { APIEndpoint, APIParameter } from "@/features/custom-api/types/custom-api.type";
 import { toast } from "sonner";
 import { AppDispatch, RootState } from "@/redux/store";
-import { updateEndPoint } from "../utils/data-thunk-func";
+import { updateEndPoint } from "@/features/custom-api/utils/data-thunk-func";
 import { useParams } from "next/navigation";
-import { API_METHOD_COLORS } from "../config/api-config";
+import { API_METHOD_COLORS } from "@/features/custom-api/config/api-config";
 import { cn } from "@/lib/utils";
-import { restartCustomServerAction } from "../lib/actions/server";
+import { restartCustomServerAction } from "@/features/custom-api/lib/actions/server";
 
 const EndpointDetails: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();

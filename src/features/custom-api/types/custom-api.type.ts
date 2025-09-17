@@ -148,7 +148,7 @@ export interface BaseNodeData {
 // Endpoint node data interface
 export interface EndpointNodeData extends BaseNodeData {
   type: 'endpointNode';
-  endpoint: any;
+  endpointId: string;
 }
 
 // Response node data interface

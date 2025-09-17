@@ -1,8 +1,7 @@
 "use server";
 
-import { updateAPI } from "./api-data";
 import { APIDetails } from "../../types/custom-api.type";
-import { CustomServer } from "../custom-server";
+import { CustomServer, FlowExecutionLog } from "../custom-server";
 
 // Global server instance
 
@@ -36,7 +35,7 @@ export const startCustomServerAction = async (options: APIDetails) => {
     }
     await currentServer.start();
 
-    return { success: true, message: `Server started on port ${options.port}` };
+    return { success: true, message: `Server started on port ${options.port || 3000}` };
   } catch (error) {
     return {
       success: false,
@@ -132,3 +131,79 @@ export const clearServerLogsAction = async (options: APIDetails) => {
     };
   }
 };
+
+export const getFlowExecutionLogsAction = async (
+  options: APIDetails,
+  endpointId: string,
+) => {
+  try {
+    const currentServer = global.customServer[options.connectionId];
+    if (!currentServer) {
+      return { success: false, error: "Server is not found" };
+    }
+
+    const logs = currentServer.getFlowExecutionLogs(endpointId);
+    return {
+      success: true,
+      logs:JSON.stringify(logs),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch flow execution logs",
+    };
+  }
+};
+
+export const getFlowExecutionLogAction = async (
+  options: APIDetails,
+  endpointId: string,
+  executionId: string,
+) => {
+  try {
+    const currentServer = global.customServer[options.connectionId];
+    if (!currentServer) {
+      return { success: false, error: "Server is not found" };
+    }
+
+    const log = currentServer.getFlowExecutionLog(endpointId, executionId);
+    if (!log) {
+      return { success: false, error: "Flow execution log not found" };
+    }
+
+    return {
+      success: true,
+      log,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch flow execution log",
+    };
+  }
+};
+
+export const getLatestFlowExecutionLogAction = async (
+  options: APIDetails,
+  endpointId: string,
+) => {
+  try {
+    const currentServer = global.customServer[options.connectionId];
+    if (!currentServer) {
+      return { success: false, error: "Server is not found" };
+    }
+
+    const log = currentServer.getLatestFlowExecutionLog(endpointId);
+    console.log("log", log);
+    return {
+      success: true,
+      log,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch latest flow execution log",
+    };
+  }
+};
+

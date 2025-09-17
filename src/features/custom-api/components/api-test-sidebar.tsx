@@ -26,7 +26,7 @@ const ApiTestSidebar = () => {
     endpointId: string;
   }>();
   const { currentAPI } = useSelector((state: RootState) => state.api);
-  const { testResults, getTestResult } = useTestResults();
+  const { getTestResult } = useTestResults();
   const apiTestTab = searchParams.get("apiTestTab");
 
   const [activeTab, setActiveTab] = useState(
@@ -35,8 +35,8 @@ const ApiTestSidebar = () => {
   const [selectedEndpoint, setSelectedEndpoint] = useState<APIEndpoint | null>(
     null,
   );
-  const [requestBody, setRequestBody] = useState("");
-  const [queryParams, setQueryParams] = useState("");
+  const [requestBody] = useState("");
+  const [queryParams] = useState("");
   const [headers, setHeaders] = useState("");
 
   // Get base URL - use hostUrl if available, otherwise localhost with port

@@ -19,7 +19,7 @@ import { ServerIcon, RotateCcwIcon, UploadIcon } from "lucide-react";
 import { nodeTypes } from "../../config/workbench-config";
 import { CustomEdge } from "./custom";
 import { APIEndpoint } from "@/features/custom-api/types/custom-api.type";
-import { useWorkbench } from "../../context";
+import { useWorkbenchRedux } from "../../hooks/use-workbench-redux";
 import "@xyflow/react/dist/style.css";
 import "@/styles/visualizer.css";
 import { toast } from "sonner";
@@ -41,10 +41,10 @@ const Workbench = () => {
   // Redux state
   const { currentAPI } = useSelector((state: any) => state.api);
 
-  // Workbench context
+  // Workbench Redux hook
   const {
-    state,
     currentEndpointState,
+    currentEndpointId,
     setEndpoint,
     startAddNode,
     cancelAddNode,
@@ -55,7 +55,7 @@ const Workbench = () => {
     getCurrentSelectedNodeId,
     saveWorkbenchToAPI,
     loadWorkbenchFromAPI,
-  } = useWorkbench();
+  } = useWorkbenchRedux();
 
   // React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -184,7 +184,7 @@ const Workbench = () => {
       currentAPI &&
       endpointId &&
       typeof endpointId === "string" &&
-      state.currentEndpointId !== endpointId
+      currentEndpointId !== endpointId
     ) {
       const selectedEndpoint = currentAPI.endpoints.find(
         (endpoint: APIEndpoint) => endpoint.id === endpointId,
@@ -210,7 +210,7 @@ const Workbench = () => {
   }, [
     currentAPI,
     endpointId,
-    state.currentEndpointId,
+    currentEndpointId,
     setEndpoint,
     loadWorkbenchFromAPI,
     handleAddNode,
@@ -238,7 +238,7 @@ const Workbench = () => {
     if (isNewEndpoint) {
       // New endpoint - handle viewport restoration or initial fit
       if (typeof endpointId === "string") {
-        const endpointState = state.endpoints[endpointId];
+        const endpointState = currentEndpointState;
         const hasCustomViewport =
           endpointState &&
           endpointState.viewport &&
@@ -294,7 +294,7 @@ const Workbench = () => {
     setCenter,
     fitView,
     isRestoringViewport,
-    state.endpoints,
+    currentEndpointState,
   ]);
 
   // Handle viewport changes from React Flow
@@ -353,7 +353,7 @@ const Workbench = () => {
         }
 
         const selectedNodeId = getCurrentSelectedNodeId();
-        if (selectedNodeId && selectedNodeId !== state.currentEndpointId) {
+        if (selectedNodeId && selectedNodeId !== currentEndpointId) {
           // Don't delete endpoint node
           event.preventDefault();
           handleDeleteNode(selectedNodeId);
@@ -368,7 +368,7 @@ const Workbench = () => {
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [getCurrentSelectedNodeId, state.currentEndpointId, handleDeleteNode]);
+  }, [getCurrentSelectedNodeId, currentEndpointId, handleDeleteNode]);
 
   const handleCancelDelete = useCallback(() => {
     setNodeToDelete(null);
@@ -383,9 +383,8 @@ const Workbench = () => {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodesDelete={(nodesToDelete) => {
-          console.log("nodesToDelete", nodesToDelete);
           nodesToDelete.forEach((node) => {
-            if (node.id !== state.currentEndpointId) {
+            if (node.id !== currentEndpointId) {
               // Don't delete endpoint node
               handleDeleteNode(node.id);
             }

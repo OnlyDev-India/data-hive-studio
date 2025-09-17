@@ -6,6 +6,7 @@ import appDBSlice from "./features/appdb";
 import backgroundProcessesSlice from "./features/background-processes";
 import tasksSlice from "./features/tasks";
 import apiSlice from "../features/custom-api/redux/api";
+import workbenchSlice from "../features/custom-api/redux/workbench";
 
 const store = configureStore({
   reducer: {
@@ -16,6 +17,7 @@ const store = configureStore({
     bgProcesses: backgroundProcessesSlice,
     tasks: tasksSlice,
     api: apiSlice,
+    workbench: workbenchSlice,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

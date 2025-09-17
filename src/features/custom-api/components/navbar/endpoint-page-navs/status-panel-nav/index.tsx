@@ -8,6 +8,7 @@ import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePathname } from "next/navigation";
 import React, { useEffect, useState } from "react";
+import FlowExecutionLogs from "./flow-execution-logs";
 
 const StatusPanelNav = () => {
   const pathname = usePathname();
@@ -93,11 +94,11 @@ const StatusPanelNav = () => {
         </Button>
       </div>
       <CustomTabsContent value={"logs"}>
-        <h1>Logs</h1>
+        <FlowExecutionLogs />
       </CustomTabsContent>
-      <CustomTabsContent value={"errors"}>
+      {/* <CustomTabsContent value={"errors"}>
         <h1>Errors</h1>
-      </CustomTabsContent>
+      </CustomTabsContent> */}
     </Tabs>
   );
 };

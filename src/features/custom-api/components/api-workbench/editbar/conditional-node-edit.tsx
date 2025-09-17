@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useWorkbench } from "@/features/custom-api/context";
+import { useWorkbenchRedux } from "@/features/custom-api/hooks/use-workbench-redux";
 import { ConditionalNodeData } from "@/features/custom-api/types/custom-api.type";
 
 const conditionalNodeSchema = z.object({
@@ -18,7 +18,7 @@ const conditionalNodeSchema = z.object({
 type ConditionalNodeFormData = z.infer<typeof conditionalNodeSchema>;
 
 const ConditionalNodeEdit: React.FC = () => {
-  const { getCurrentSelectedNodeId, currentEndpointState, updateNode } = useWorkbench()
+  const { getCurrentSelectedNodeId, currentEndpointState, updateNode } = useWorkbenchRedux()
 
   const selectedNodeId = getCurrentSelectedNodeId();
   const selectedNode = currentEndpointState?.nodes.find(
@@ -28,7 +28,7 @@ const ConditionalNodeEdit: React.FC = () => {
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid },
+    formState: { errors, isValid, isDirty },
     watch,
     reset,
   } = useForm<ConditionalNodeFormData>({
@@ -136,7 +136,7 @@ const ConditionalNodeEdit: React.FC = () => {
 
       <Button
         type="submit"
-        disabled={!isValid}
+        disabled={!isValid || !isDirty}
         className="w-full"
         size="sm"
       >

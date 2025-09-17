@@ -20,7 +20,7 @@ import {
 import Link from "next/link";
 import { APIEndpoint } from "@/features/custom-api/types/custom-api.type";
 import { useSearchParams } from "next/navigation";
-import { API_METHOD_COLORS } from "../config/api-config";
+import { API_METHOD_COLORS } from "@/features/custom-api/config/api-config";
 
 interface EndpointItemProps {
   endpoint: APIEndpoint;

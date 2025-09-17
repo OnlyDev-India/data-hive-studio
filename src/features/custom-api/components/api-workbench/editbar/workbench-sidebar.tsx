@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { useWorkbench } from "../../../context";
+import { useWorkbenchRedux } from "../../../hooks/use-workbench-redux";
 import { EditBarNodeTypes } from "../../../config/workbench-config";
 import { Trash2Icon, XIcon } from "lucide-react";
 import NodeTypesList from "./node-types-list";
@@ -15,7 +15,7 @@ const WorkbenchSidebar: React.FC = () => {
     deleteNode,
     currentEndpointState,
     selectNode,
-  } = useWorkbench();
+  } = useWorkbenchRedux();
 
   // State for delete confirmation modal
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);

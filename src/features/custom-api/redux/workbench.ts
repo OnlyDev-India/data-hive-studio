@@ -1,21 +1,14 @@
-import React, {
-  createContext,
-  useContext,
-  useReducer,
-  useCallback,
-  ReactNode
-} from "react";
+import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import { Edge } from "@xyflow/react";
 import ELK from "elkjs";
-import { useParams } from "next/navigation";
-import { useDispatch, useSelector } from "react-redux";
 import {
   WorkbenchNode,
   NodeData,
 } from "@/features/custom-api/types/custom-api.type";
 import { updateCurrentAPI } from "@/features/custom-api/utils/data-thunk-func";
-import { AppDispatch } from "@/redux/store";
+import { AppDispatch, RootState } from "@/redux/store";
 
+// Types
 export interface ViewportState {
   x: number;
   y: number;
@@ -37,137 +30,20 @@ export interface WorkbenchState {
   endpoints: Record<string, EndpointState>;
   currentEndpointId: string | null;
   selectedNodeType: string | null;
+  loading: boolean;
+  error: string | null;
 }
-
-// Actions
-type WorkbenchAction =
-  | {
-      type: "SET_ENDPOINT";
-      payload: {
-        endpointId: string;
-        endpoint: any;
-      };
-    }
-  | {
-      type: "START_ADD_NODE";
-      payload: { sourceId: string; endpointId: string; sourceHandle?: string };
-    }
-  | { type: "SELECT_NODE_TYPE"; payload: { nodeType: string } }
-  | {
-      type: "ADD_NODE";
-      payload: {
-        sourceId: string;
-        nodeType: string;
-      };
-    }
-  | { type: "CANCEL_ADD_NODE"; payload: { endpointId: string } }
-  | {
-      type: "SELECT_NODE";
-      payload: { nodeId: string | null; endpointId: string };
-    }
-  | { type: "DELETE_NODE"; payload: { nodeId: string } }
-  | {
-      type: "UPDATE_NODE";
-      payload: { nodeId: string; data: Partial<NodeData> };
-    }
-  | { type: "UPDATE_VIEWPORT"; payload: { viewport: ViewportState } }
-  | { type: "RESET_WORKBENCH" }
-  | {
-      type: "LOAD_WORKBENCH_DATA";
-      payload: { endpointId: string; nodes: WorkbenchNode[]; edges: Edge[] };
-    };
-
-// Initial state
-const initialState: WorkbenchState = {
-  endpoints: {},
-  currentEndpointId: null,
-  selectedNodeType: null,
-};
 
 // ELK.js configuration
 const elk = new ELK();
 
-// Helper function to apply ELK layout
+// Helper function to check if a node has children
+const hasChildren = (nodeId: string, edges: Edge[]): boolean => {
+  return edges.some((edge) => edge.source === nodeId);
+};
+
+// Helper function to apply simple tree layout
 const getLayoutedElements = (nodes: WorkbenchNode[], edges: Edge[]) => {
-  // Convert nodes to ELK format
-  // const elkNodes = nodes.map((node) => {
-  //   const nodeData = node.data as any;
-  //   const isConditional = nodeData?.type === 'conditionalNode';
-    
-  //   // Get outgoing edges to determine if we need extra spacing
-  //   const outgoingEdges = edges.filter(edge => edge.source === node.id);
-  //   const hasMultipleOutgoing = outgoingEdges.length > 1;
-    
-  //   return {
-  //     id: node.id,
-  //     width: 200,
-  //     height: isConditional ? 140 : 100, // Taller for conditional nodes
-  //     layoutOptions: {
-  //       'elk.priority': hasMultipleOutgoing ? '1' : '0', // Higher priority for nodes with multiple edges
-  //       'elk.spacing.nodeNode': '40', // Spacing between nodes
-  //       'elk.spacing.edgeNode': '20', // Spacing between edges and nodes
-  //     },
-  //     // Add ports for conditional nodes
-  //     ...(isConditional && {
-  //       ports: [
-  //         {
-  //           id: 'input',
-  //           width: 8,
-  //           height: 8,
-  //           properties: {
-  //             'port.side': 'WEST',
-  //             'port.index': '0',
-  //             'port.anchor': 'CENTER'
-  //           }
-  //         },
-  //         {
-  //           id: 'true',
-  //           width: 8,
-  //           height: 8,
-  //           properties: {
-  //             'port.side': 'EAST',
-  //             'port.index': '0',
-  //             'port.anchor': 'CENTER'
-  //           }
-  //         },
-  //         {
-  //           id: 'false',
-  //           width: 8,
-  //           height: 8,
-  //           properties: {
-  //             'port.side': 'EAST',
-  //             'port.index': '1',
-  //             'port.anchor': 'CENTER'
-  //           }
-  //         }
-  //       ]
-  //     })
-  //   };
-  // });
-
-  // // Convert edges to ELK format
-  // const elkEdges = edges.map((edge) => {
-  //   const sourceNode = nodes.find(n => n.id === edge.source);
-  //   const sourceNodeData = sourceNode?.data as any;
-  //   const isFromConditional = sourceNodeData?.type === 'conditionalNode';
-    
-  //   return {
-  //     id: edge.id,
-  //     sources: [edge.source],
-  //     targets: [edge.target],
-  //     // Add port information for conditional nodes
-  //     ...(isFromConditional && edge.sourceHandle && {
-  //       sources: [`${edge.source}:${edge.sourceHandle}`],
-  //       targets: [`${edge.target}:input`]
-  //     }),
-  //     layoutOptions: {
-  //       'elk.edgeRouting': 'ORTHOGONAL',
-  //       'elk.spacing.edgeEdge': '20', // Spacing between parallel edges
-  //       'elk.edge.priority': edge.sourceHandle === 'true' ? '1' : '0', // True edges get higher priority
-  //     }
-  //   };
-  // });
-
   // Create simple tree structure as fallback
   const layoutedNodes = [...nodes];
   
@@ -328,27 +204,22 @@ const getELKLayoutedElements = async (nodes: WorkbenchNode[], edges: Edge[]) => 
     };
   });
 
-  // Convert edges to ELK format with proper port connections
+  // Convert edges to ELK format
   const elkEdges = edges.map((edge) => {
     const sourceNode = nodes.find(n => n.id === edge.source);
     const targetNode = nodes.find(n => n.id === edge.target);
     const sourceNodeData = sourceNode?.data as any;
-    const targetNodeData = targetNode?.data as any;
     const isFromConditional = sourceNodeData?.type === 'conditionalNode';
-    const isToConditional = targetNodeData?.type === 'conditionalNode';
     
-    // Build source and target with port information
     let sources = [edge.source];
     let targets = [edge.target];
     
-    // Add source port for all nodes
     if (isFromConditional && edge.sourceHandle) {
       sources = [`${edge.source}:${edge.sourceHandle}`];
     } else {
       sources = [`${edge.source}:output`];
     }
     
-    // Add target port for all nodes (use input port)
     targets = [`${edge.target}:input`];
     
     return {
@@ -360,7 +231,6 @@ const getELKLayoutedElements = async (nodes: WorkbenchNode[], edges: Edge[]) => 
         'elk.spacing.edgeEdge': '40',
         'elk.edge.priority': edge.sourceHandle === 'true' ? '1' : '0',
         'elk.edge.thickness': '2',
-        // Force vertical positioning for conditional edges
         ...(isFromConditional && {
           'elk.edge.placement': 'CENTER',
           'elk.edge.routing': 'ORTHOGONAL',
@@ -388,10 +258,8 @@ const getELKLayoutedElements = async (nodes: WorkbenchNode[], edges: Edge[]) => 
   };
 
   try {
-    // Apply ELK layout
     const layoutedGraph = await elk.layout(elkGraph);
     
-    // Convert back to React Flow format
     const layoutedNodes = nodes.map((node) => {
       const elkNode = layoutedGraph.children?.find(n => n.id === node.id);
       if (!elkNode) return node;
@@ -487,14 +355,8 @@ const getELKLayoutedElements = async (nodes: WorkbenchNode[], edges: Edge[]) => 
     return { nodes: processedNodes, edges };
   } catch (error) {
     console.error('ELK layout error:', error);
-    // Fallback to simple layout
     return getLayoutedElements(nodes, edges);
   }
-};
-
-// Helper function to check if a node has children
-const hasChildren = (nodeId: string, edges: Edge[]) => {
-  return edges.some((edge) => edge.source === nodeId);
 };
 
 // Default endpoint state
@@ -525,13 +387,157 @@ const getEndpointState = (
   return state.endpoints[endpointId];
 };
 
-// Reducer
-const workbenchReducer = (
-  state: WorkbenchState,
-  action: WorkbenchAction,
-): WorkbenchState => {
-  switch (action.type) {
-    case "SET_ENDPOINT": {
+// Initial state
+const initialState: WorkbenchState = {
+  endpoints: {},
+  currentEndpointId: null,
+  selectedNodeType: null,
+  loading: false,
+  error: null,
+};
+
+// Async thunks
+export const saveWorkbenchToAPI = createAsyncThunk<
+  { success: boolean; error?: string },
+  string,
+  { dispatch: AppDispatch; state: RootState }
+>(
+  'workbench/saveWorkbenchToAPI',
+  async (endpointId, { dispatch, getState }) => {
+    try {
+      const state = getState();
+      const workbenchState = state.workbench;
+      const apiState = state.api;
+      
+      if (!workbenchState.currentEndpointId || !apiState.currentAPI) {
+        return { success: false, error: "No current endpoint state or API" };
+      }
+
+      const currentEndpointState = getEndpointState(workbenchState, workbenchState.currentEndpointId);
+
+      // Find the endpoint in the current API
+      const endpointIndex = apiState.currentAPI.endpoints.findIndex(
+        (ep: any) => ep.id === endpointId,
+      );
+      if (endpointIndex === -1) {
+        return { success: false, error: "Endpoint not found" };
+      }
+
+      // Convert workbench data to API flow format
+      const apiNodes = currentEndpointState.nodes.map((node) => ({
+        id: node.id,
+        type: node.type || "",
+        position: node.position,
+        data: node.data,
+        config: {},
+      }));
+
+      const apiEdges = currentEndpointState.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+        animated: edge.animated,
+        style: edge.style,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
+      }));
+
+      // Create updated API with flow data
+      const updatedAPI = {
+        ...apiState.currentAPI,
+        endpoints: apiState.currentAPI.endpoints.map((endpoint: any, index: number) =>
+          index === endpointIndex
+            ? {
+                ...endpoint,
+                flow: {
+                  nodes: apiNodes,
+                  edges: apiEdges,
+                },
+                updatedAt: new Date(),
+              }
+            : endpoint,
+        ),
+      };
+
+      // Use updateCurrentAPI to save the changes
+      const result = await dispatch(updateCurrentAPI(updatedAPI));
+
+      if (result.type.endsWith("/fulfilled")) {
+        return { success: true };
+      } else {
+        return {
+          success: false,
+          error: (result.payload as string) || "Failed to update API",
+        };
+      }
+    } catch (error) {
+      console.log(error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to save workbench data",
+      };
+    }
+  }
+);
+
+export const loadWorkbenchFromAPI = createAsyncThunk<
+  { success: boolean; error?: string },
+  string,
+  { dispatch: AppDispatch; state: RootState }
+>(
+  'workbench/loadWorkbenchFromAPI',
+  async (endpointId, { dispatch, getState }) => {
+    try {
+      const state = getState();
+      const apiState = state.api;
+      
+      if (!apiState.currentAPI) {
+        return { success: false, error: "No current API" };
+      }
+
+      // Find the endpoint in the current API
+      const endpoint = apiState.currentAPI.endpoints.find(
+        (ep: any) => ep.id === endpointId,
+      );
+      if (!endpoint) {
+        return { success: false, error: "Endpoint not found" };
+      }
+
+      if (!endpoint.flow) {
+        return { success: true };
+      }
+
+      // Convert API flow data to workbench format
+      const nodes = endpoint.flow.nodes;
+      const edges = endpoint.flow.edges;
+
+      // Dispatch actions to load the data
+      dispatch(setEndpoint({ endpointId, endpoint }));
+      dispatch(loadWorkbenchData({ endpointId, nodes, edges }));
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load workbench data",
+      };
+    }
+  }
+);
+
+// Slice
+const workbenchSlice = createSlice({
+  name: 'workbench',
+  initialState,
+  reducers: {
+    setEndpoint: (state, action: PayloadAction<{ endpointId: string; endpoint: any }>) => {
       const { endpointId, endpoint } = action.payload;
 
       // Get existing endpoint state or create new one
@@ -539,11 +545,9 @@ const workbenchReducer = (
 
       // If endpoint already has nodes, just switch to it
       if (existingState.nodes.length > 0) {
-        return {
-          ...state,
-          currentEndpointId: endpointId,
-          selectedNodeType: null, // Clear global selected node type when switching endpoints
-        };
+        state.currentEndpointId = endpointId;
+        state.selectedNodeType = null; // Clear global selected node type when switching endpoints
+        return;
       }
 
       // Create endpoint node for new endpoint
@@ -553,7 +557,7 @@ const workbenchReducer = (
         position: { x: 100, y: 200 },
         data: {
           type: "endpointNode",
-          endpoint,
+          endpointId: endpoint.id,
           name: endpoint.name,
           description: endpoint.description,
           hasChildren: false,
@@ -567,18 +571,12 @@ const workbenchReducer = (
         ...defaultEndpointState,
       } as EndpointState;
 
-      return {
-        ...state,
-        currentEndpointId: endpointId,
-        selectedNodeType: null, // Clear global selected node type when creating new endpoint
-        endpoints: {
-          ...state.endpoints,
-          [endpointId]: newEndpointState,
-        },
-      };
-    }
+      state.currentEndpointId = endpointId;
+      state.selectedNodeType = null; // Clear global selected node type when creating new endpoint
+      state.endpoints[endpointId] = newEndpointState;
+    },
 
-    case "START_ADD_NODE": {
+    startAddNode: (state, action: PayloadAction<{ sourceId: string; endpointId: string; sourceHandle?: string }>) => {
       const { sourceId, endpointId, sourceHandle } = action.payload;
 
       const currentEndpointState = getEndpointState(state, endpointId);
@@ -590,25 +588,16 @@ const workbenchReducer = (
         selectedNodeId: null, // Clear selection when starting to add
       };
 
-      return {
-        ...state,
-        currentEndpointId: endpointId,
-        endpoints: {
-          ...state.endpoints,
-          [endpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.currentEndpointId = endpointId;
+      state.endpoints[endpointId] = updatedEndpointState;
+    },
 
-    case "SELECT_NODE_TYPE": {
+    selectNodeType: (state, action: PayloadAction<{ nodeType: string }>) => {
       const { nodeType } = action.payload;
-      return {
-        ...state,
-        selectedNodeType: nodeType,
-      };
-    }
+      state.selectedNodeType = nodeType;
+    },
 
-    case "CANCEL_ADD_NODE": {
+    cancelAddNode: (state, action: PayloadAction<{ endpointId: string }>) => {
       const { endpointId } = action.payload;
 
       const currentEndpointState = getEndpointState(state, endpointId);
@@ -619,16 +608,10 @@ const workbenchReducer = (
         pendingSourceHandle: undefined,
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [endpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.endpoints[endpointId] = updatedEndpointState;
+    },
 
-    case "SELECT_NODE": {
+    selectNode: (state, action: PayloadAction<{ nodeId: string | null; endpointId: string }>) => {
       const { nodeId, endpointId } = action.payload;
 
       const currentEndpointState = getEndpointState(state, endpointId);
@@ -639,26 +622,17 @@ const workbenchReducer = (
         pendingSourceId: null,
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [endpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.endpoints[endpointId] = updatedEndpointState;
+    },
 
-    case "ADD_NODE": {
+    addNode: (state, action: PayloadAction<{ sourceId: string; nodeType: string }>) => {
       const { sourceId, nodeType } = action.payload;
 
       if (!state.currentEndpointId) {
-        return state; // No current endpoint, can't add node
+        return; // No current endpoint, can't add node
       }
 
-      const currentEndpointState = getEndpointState(
-        state,
-        state.currentEndpointId,
-      );
+      const currentEndpointState = getEndpointState(state, state.currentEndpointId);
       const timestamp = Date.now();
 
       let newNode: WorkbenchNode;
@@ -669,7 +643,7 @@ const workbenchReducer = (
         newNode = {
           id: newNodeId,
           type: nodeType,
-          position: { x: 0, y: 0 }, // Will be set by Dagre
+          position: { x: 0, y: 0 }, // Will be set by layout
           data: {
             type: nodeType,
             name: "Response Node",
@@ -685,7 +659,7 @@ const workbenchReducer = (
         newNode = {
           id: newNodeId,
           type: nodeType,
-          position: { x: 0, y: 0 }, // Will be set by Dagre
+          position: { x: 0, y: 0 }, // Will be set by layout
           data: {
             type: nodeType,
             name: "Conditional",
@@ -695,7 +669,7 @@ const workbenchReducer = (
           },
         };
       } else {
-        return state;
+        return;
       }
 
       // Create edge from source to new node
@@ -750,11 +724,8 @@ const workbenchReducer = (
       const updatedNodes = [...currentEndpointState.nodes, newNode];
       const updatedEdges = [...currentEndpointState.edges, newEdge];
 
-      // Apply ELK layout
-      const { nodes: layoutedNodes } = getLayoutedElements(
-        updatedNodes,
-        updatedEdges,
-      );
+      // Apply layout
+      const { nodes: layoutedNodes } = getLayoutedElements(updatedNodes, updatedEdges);
 
       // Update hasChildren for all nodes
       const finalNodes = layoutedNodes.map((node) => ({
@@ -778,32 +749,23 @@ const workbenchReducer = (
         selectedNodeId: newNode.id,
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [state.currentEndpointId]: updatedEndpointState,
-        },
-        // Reset global selected node type
-        selectedNodeType: null,
-      };
-    }
+      state.endpoints[state.currentEndpointId] = updatedEndpointState;
+      // Reset global selected node type
+      state.selectedNodeType = null;
+    },
 
-    case "DELETE_NODE": {
+    deleteNode: (state, action: PayloadAction<{ nodeId: string }>) => {
       const { nodeId } = action.payload;
 
       if (!state.currentEndpointId) {
-        return state; // No current endpoint, can't delete node
+        return; // No current endpoint, can't delete node
       }
 
-      const currentEndpointState = getEndpointState(
-        state,
-        state.currentEndpointId,
-      );
+      const currentEndpointState = getEndpointState(state, state.currentEndpointId);
 
       // Don't allow deleting the endpoint node itself
       if (nodeId === state.currentEndpointId) {
-        return state;
+        return;
       }
 
       // Helper function to recursively find all child nodes
@@ -824,10 +786,7 @@ const workbenchReducer = (
       };
 
       // Find all child nodes that need to be deleted
-      const childNodesToDelete = findChildNodes(
-        nodeId,
-        currentEndpointState.edges,
-      );
+      const childNodesToDelete = findChildNodes(nodeId, currentEndpointState.edges);
       const allNodesToDelete = [nodeId, ...childNodesToDelete];
 
       // Remove the node and all its children
@@ -842,11 +801,8 @@ const workbenchReducer = (
           !allNodesToDelete.includes(edge.target),
       );
 
-      // Apply ELK layout to remaining nodes
-      const { nodes: layoutedNodes } = getLayoutedElements(
-        updatedNodes,
-        updatedEdges,
-      );
+      // Apply layout to remaining nodes
+      const { nodes: layoutedNodes } = getLayoutedElements(updatedNodes, updatedEdges);
 
       // Update hasChildren for all remaining nodes
       const finalNodes = layoutedNodes.map((node) => ({
@@ -864,26 +820,17 @@ const workbenchReducer = (
         nodeCounter: currentEndpointState.nodeCounter, // Keep counter for consistency
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [state.currentEndpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.endpoints[state.currentEndpointId] = updatedEndpointState;
+    },
 
-    case "UPDATE_NODE": {
+    updateNode: (state, action: PayloadAction<{ nodeId: string; data: Partial<NodeData> }>) => {
       const { nodeId, data } = action.payload;
 
       if (!state.currentEndpointId) {
-        return state; // No current endpoint, can't update node
+        return; // No current endpoint, can't update node
       }
 
-      const currentEndpointState = getEndpointState(
-        state,
-        state.currentEndpointId,
-      );
+      const currentEndpointState = getEndpointState(state, state.currentEndpointId);
 
       // Find and update the node
       const updatedNodes = currentEndpointState.nodes.map((node) => {
@@ -904,44 +851,29 @@ const workbenchReducer = (
         nodes: updatedNodes,
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [state.currentEndpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.endpoints[state.currentEndpointId] = updatedEndpointState;
+    },
 
-    case "UPDATE_VIEWPORT": {
+    updateViewport: (state, action: PayloadAction<{ viewport: ViewportState }>) => {
       const { viewport } = action.payload;
 
       if (!state.currentEndpointId) {
-        return state; // No current endpoint, can't update viewport
+        return; // No current endpoint, can't update viewport
       }
 
-      const currentEndpointState = getEndpointState(
-        state,
-        state.currentEndpointId,
-      );
+      const currentEndpointState = getEndpointState(state, state.currentEndpointId);
 
       const updatedEndpointState: EndpointState = {
         ...currentEndpointState,
         viewport,
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [state.currentEndpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.endpoints[state.currentEndpointId] = updatedEndpointState;
+    },
 
-    case "RESET_WORKBENCH":
+    resetWorkbench: (state) => {
       if (!state.currentEndpointId) {
-        return state;
+        return;
       }
 
       // Reset only the current endpoint's state
@@ -952,15 +884,10 @@ const workbenchReducer = (
         ...defaultEndpointState,
       } as EndpointState;
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [state.currentEndpointId]: resetEndpointState,
-        },
-      };
+      state.endpoints[state.currentEndpointId] = resetEndpointState;
+    },
 
-    case "LOAD_WORKBENCH_DATA": {
+    loadWorkbenchData: (state, action: PayloadAction<{ endpointId: string; nodes: WorkbenchNode[]; edges: Edge[] }>) => {
       const { endpointId, nodes, edges } = action.payload;
       const existingState = getEndpointState(state, endpointId);
 
@@ -974,360 +901,88 @@ const workbenchReducer = (
         pendingSourceId: null,
       };
 
-      return {
-        ...state,
-        endpoints: {
-          ...state.endpoints,
-          [endpointId]: updatedEndpointState,
-        },
-      };
-    }
+      state.endpoints[endpointId] = updatedEndpointState;
+    },
 
-    default:
-      return state;
+    clearError: (state) => {
+      state.error = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(saveWorkbenchToAPI.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(saveWorkbenchToAPI.fulfilled, (state, action) => {
+        state.loading = false;
+        if (!action.payload.success) {
+          state.error = action.payload.error || "Failed to save workbench data";
+        }
+      })
+      .addCase(saveWorkbenchToAPI.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message || "Failed to save workbench data";
+      })
+      .addCase(loadWorkbenchFromAPI.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(loadWorkbenchFromAPI.fulfilled, (state, action) => {
+        state.loading = false;
+        if (!action.payload.success) {
+          state.error = action.payload.error || "Failed to load workbench data";
+        }
+      })
+      .addCase(loadWorkbenchFromAPI.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message || "Failed to load workbench data";
+      });
+  },
+});
+
+// Export actions
+export const {
+  setEndpoint,
+  startAddNode,
+  selectNodeType,
+  cancelAddNode,
+  selectNode,
+  addNode,
+  deleteNode,
+  updateNode,
+  updateViewport,
+  resetWorkbench,
+  loadWorkbenchData,
+  clearError,
+} = workbenchSlice.actions;
+
+// Export selectors
+export const selectCurrentEndpointState = (state: RootState): EndpointState | null => {
+  const workbenchState = state.workbench;
+  if (!workbenchState.currentEndpointId) {
+    return null;
   }
+  return getEndpointState(workbenchState, workbenchState.currentEndpointId);
 };
 
-// Context
-interface WorkbenchContextType {
-  state: WorkbenchState;
-  currentEndpointState: EndpointState | null;
-  setEndpoint: (endpoint: any) => void;
-  startAddNode: (sourceId: string, sourceHandle?: string) => void;
-  selectNodeType: (nodeType: string) => void;
-  selectAndAddNode: (nodeType: string) => void;
-  addNode: (sourceId: string, nodeType: string) => void;
-  cancelAddNode: () => void;
-  selectNode: (nodeId: string | null) => void;
-  deleteNode: (nodeId: string) => void;
-  updateNode: (nodeId: string, data: Partial<NodeData>) => void;
-  updateViewport: (viewport: ViewportState) => void;
-  resetWorkbench: () => void;
-  getLayoutedElements: (
-    nodes: WorkbenchNode[],
-    edges: Edge[],
-  ) => { nodes: WorkbenchNode[]; edges: Edge[] };
-  getELKLayoutedElements: (
-    nodes: WorkbenchNode[],
-    edges: Edge[],
-  ) => Promise<{ nodes: WorkbenchNode[]; edges: Edge[] }>;
-  // Helper functions to get current endpoint state
-  getCurrentIsAddingNode: () => boolean;
-  getCurrentSelectedNodeId: () => string | null;
-  getCurrentPendingSourceId: () => string | null;
-  // Save and load workbench data
-  saveWorkbenchToAPI: (
-    endpointId: string,
-  ) => Promise<{ success: boolean; error?: string }>;
-  loadWorkbenchFromAPI: (
-    endpointId: string,
-  ) => Promise<{ success: boolean; error?: string }>;
-}
-
-const WorkbenchContext = createContext<WorkbenchContextType | undefined>(
-  undefined,
-);
-
-// Provider
-interface WorkbenchProviderProps {
-  children: ReactNode;
-}
-
-export const WorkbenchProvider: React.FC<WorkbenchProviderProps> = ({
-  children,
-}) => {
-  const [state, dispatch] = useReducer(workbenchReducer, initialState);
-  const reduxDispatch = useDispatch<AppDispatch>();
-  const { currentAPI } = useSelector((state: any) => state.api);
-  const params = useParams();
-  const endpointId = params?.endpointId as string;
-
-  // Get current endpoint state
-  const currentEndpointState = state.currentEndpointId
-    ? getEndpointState(state, state.currentEndpointId)
-    : null;
-
-  const setEndpoint = useCallback(
-    (endpoint: any) => {
-      if (endpointId) {
-        dispatch({
-          type: "SET_ENDPOINT",
-          payload: { endpointId, endpoint },
-        });
-      }
-    },
-    [endpointId],
-  );
-
-  const startAddNode = useCallback(
-    (sourceId: string, sourceHandle?: string) => {
-      if (endpointId) {
-        dispatch({ type: "START_ADD_NODE", payload: { sourceId, endpointId, sourceHandle } });
-      }
-    },
-    [endpointId],
-  );
-
-  const selectNodeType = useCallback((nodeType: string) => {
-    dispatch({ type: "SELECT_NODE_TYPE", payload: { nodeType } });
-  }, []);
-
-  // Helper functions to get current endpoint state
-  const getCurrentIsAddingNode = useCallback(() => {
-    return currentEndpointState?.isAddingNode || false;
-  }, [currentEndpointState]);
-
-  const getCurrentSelectedNodeId = useCallback(() => {
-    return currentEndpointState?.selectedNodeId || null;
-  }, [currentEndpointState]);
-
-  const getCurrentPendingSourceId = useCallback(() => {
-    return currentEndpointState?.pendingSourceId || null;
-  }, [currentEndpointState]);
-
-  const selectAndAddNode = useCallback(
-    (nodeType: string) => {
-      const pendingSourceId = getCurrentPendingSourceId();
-      if (pendingSourceId) {
-        // Map node type IDs to data types
-        dispatch({
-          type: "ADD_NODE",
-          payload: {
-            sourceId: pendingSourceId,
-            nodeType: nodeType as any,
-          },
-        });
-      }
-    },
-    [getCurrentPendingSourceId],
-  );
-
-  const addNode = useCallback((sourceId: string, nodeType: string) => {
-    dispatch({
-      type: "ADD_NODE",
-      payload: { sourceId, nodeType },
-    });
-  }, []);
-
-  const cancelAddNode = useCallback(() => {
-    if (endpointId) {
-      dispatch({ type: "CANCEL_ADD_NODE", payload: { endpointId } });
-    }
-  }, [endpointId]);
-
-  const selectNode = useCallback(
-    (nodeId: string | null) => {
-      if (endpointId) {
-        dispatch({ type: "SELECT_NODE", payload: { nodeId, endpointId } });
-      }
-    },
-    [endpointId],
-  );
-
-  const deleteNode = useCallback((nodeId: string) => {
-    dispatch({ type: "DELETE_NODE", payload: { nodeId } });
-  }, []);
-
-  const updateNode = useCallback((nodeId: string, data: Partial<NodeData>) => {
-    dispatch({ type: "UPDATE_NODE", payload: { nodeId, data } });
-  }, []);
-
-  const updateViewport = useCallback((viewport: ViewportState) => {
-    dispatch({ type: "UPDATE_VIEWPORT", payload: { viewport } });
-  }, []);
-
-  const resetWorkbench = useCallback(() => {
-    dispatch({ type: "RESET_WORKBENCH" });
-  }, []);
-
-  const getLayoutedElementsCallback = useCallback(
-    (nodes: WorkbenchNode[], edges: Edge[]) => {
-      return getLayoutedElements(nodes, edges);
-    },
-    [],
-  );
-
-  const getELKLayoutedElementsCallback = useCallback(
-    async (nodes: WorkbenchNode[], edges: Edge[]) => {
-      return await getELKLayoutedElements(nodes, edges);
-    },
-    [],
-  );
-
-  // Save workbench data to API details
-  const saveWorkbenchToAPI = useCallback(
-    async (
-      endpointId: string,
-    ): Promise<{ success: boolean; error?: string }> => {
-      if (!currentEndpointState || !currentAPI) {
-        return { success: false, error: "No current endpoint state or API" };
-      }
-
-      try {
-        // Find the endpoint in the current API
-        const endpointIndex = currentAPI.endpoints.findIndex(
-          (ep: any) => ep.id === endpointId,
-        );
-        if (endpointIndex === -1) {
-          return { success: false, error: "Endpoint not found" };
-        }
-
-        // Convert workbench data to API flow format
-        const apiNodes = currentEndpointState.nodes.map((node) => ({
-          id: node.id,
-          type: node.type || "",
-          position: node.position,
-          data: node.data,
-          config: {},
-        }));
-
-        const apiEdges = currentEndpointState.edges.map((edge) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          type: edge.type,
-          animated: edge.animated,
-          style: edge.style,
-          sourceHandle: edge.sourceHandle,
-          targetHandle: edge.targetHandle,
-        }));
-
-        // Create updated API with flow data
-        const updatedAPI = {
-          ...currentAPI,
-          endpoints: currentAPI.endpoints.map((endpoint: any, index: number) =>
-            index === endpointIndex
-              ? {
-                  ...endpoint,
-                  flow: {
-                    nodes: apiNodes,
-                    edges: apiEdges,
-                  },
-                  updatedAt: new Date(),
-                }
-              : endpoint,
-          ),
-        };
-
-        // Use updateCurrentAPI to save the changes
-        const result = await reduxDispatch(updateCurrentAPI(updatedAPI));
-
-        if (result.type.endsWith("/fulfilled")) {
-          return { success: true };
-        } else {
-          return {
-            success: false,
-            error: (result.payload as string) || "Failed to update API",
-          };
-        }
-      } catch (error) {
-        console.log(error);
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to save workbench data",
-        };
-      }
-    },
-    [currentEndpointState, currentAPI, reduxDispatch],
-  );
-
-  // Load workbench data from API details
-  const loadWorkbenchFromAPI = useCallback(
-    async (
-      endpointId: string,
-    ): Promise<{ success: boolean; error?: string }> => {
-      try {
-        if (!currentAPI) {
-          return { success: false, error: "No current API" };
-        }
-
-        // Find the endpoint in the current API
-        const endpoint = currentAPI.endpoints.find(
-          (ep: any) => ep.id === endpointId,
-        );
-        if (!endpoint) {
-          return { success: false, error: "Endpoint not found" };
-        }
-
-        if (!endpoint.flow) {
-          return { success: true };
-        }
-
-        // Convert API flow data to workbench format
-        const nodes = endpoint.flow.nodes;
-
-        const edges = endpoint.flow.edges;
-
-        // First set the current endpoint ID
-        dispatch({
-          type: "SET_ENDPOINT",
-          payload: { endpointId, endpoint },
-        });
-
-        // Then update the current endpoint state with loaded data
-        dispatch({
-          type: "LOAD_WORKBENCH_DATA",
-          payload: {
-            endpointId,
-            nodes,
-            edges,
-          },
-        });
-
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to load workbench data",
-        };
-      }
-    },
-    [currentAPI],
-  );
-
-  const value: WorkbenchContextType = {
-    state,
-    currentEndpointState,
-    setEndpoint,
-    startAddNode,
-    selectNodeType,
-    selectAndAddNode,
-    addNode,
-    cancelAddNode,
-    selectNode,
-    deleteNode,
-    updateNode,
-    updateViewport,
-    resetWorkbench,
-    getLayoutedElements: getLayoutedElementsCallback,
-    getELKLayoutedElements: getELKLayoutedElementsCallback,
-    getCurrentIsAddingNode,
-    getCurrentSelectedNodeId,
-    getCurrentPendingSourceId,
-    saveWorkbenchToAPI,
-    loadWorkbenchFromAPI,
-  };
-
-  return (
-    <WorkbenchContext.Provider value={value}>
-      {children}
-    </WorkbenchContext.Provider>
-  );
+export const selectCurrentEndpointId = (state: RootState): string | null => {
+  return state.workbench.currentEndpointId;
 };
 
-// Custom hook
-export const useWorkbench = (): WorkbenchContextType => {
-  const context = useContext(WorkbenchContext);
-  if (context === undefined) {
-    throw new Error("useWorkbench must be used within a WorkbenchProvider");
-  }
-  return context;
+export const selectSelectedNodeType = (state: RootState): string | null => {
+  return state.workbench.selectedNodeType;
 };
 
-export default WorkbenchContext;
+export const selectWorkbenchLoading = (state: RootState): boolean => {
+  return state.workbench.loading;
+};
+
+export const selectWorkbenchError = (state: RootState): string | null => {
+  return state.workbench.error;
+};
+
+// Export layout functions
+export { getLayoutedElements, getELKLayoutedElements };
+
+export default workbenchSlice.reducer;

@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import { useWorkbench } from "@/features/custom-api/context";
+import { useWorkbenchRedux } from "@/features/custom-api/hooks/use-workbench-redux";
 import { cn } from "@/lib/utils";
 
 interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -8,7 +8,7 @@ interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export const BaseNode = ({ className, children, ...props }: BaseNodeProps) => {
   const { id } = props;
-  const { getCurrentSelectedNodeId } = useWorkbench();
+  const { getCurrentSelectedNodeId } = useWorkbenchRedux();
   const selected = getCurrentSelectedNodeId() === id;
   return (
     <Card

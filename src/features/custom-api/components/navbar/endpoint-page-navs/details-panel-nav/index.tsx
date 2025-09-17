@@ -1,5 +1,5 @@
 "use client";
-import EndpointDetails from "@/features/custom-api/components/endpoint-details";
+import EndpointDetails from "./endpoint-details";
 import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { ENDPOINT_PAGE_NAVS } from "@/features/custom-api/config/navs";
@@ -7,9 +7,9 @@ import { useResizable } from "@/providers/resizable-provider";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import Workbench from "../../api-workbench/workbench";
+import Workbench from "../../../api-workbench/workbench";
 import { CustomTabList, CustomTabsContent } from "@/components/common/custom-tab";
-import TestApi from "@/features/custom-api/components/test-api";
+import TestApi from "./test-api";
 
 const DetailsPanelNav = () => {
   const router = useRouter();

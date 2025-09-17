@@ -5,7 +5,7 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle
+  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,7 +46,9 @@ import {
 } from "@/components/common/custom-tab";
 import ServerLogs from "@/features/custom-api/components/server-logs";
 import {
-  restartCustomServerAction, stopCustomServerAction
+  restartCustomServerAction,
+  startCustomServerAction,
+  stopCustomServerAction,
 } from "@/features/custom-api/lib/actions/server";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -143,14 +145,15 @@ const SettingsPage = () => {
       try {
         if (!formData.enabled) {
           // Start server
-          const result = await restartCustomServerAction({
+          const result = await startCustomServerAction({
             ...currentAPI,
             enabled: true,
           });
 
-          
           if (!result.success) {
             throw new Error(result.error);
+          } else {
+            toast.success(result.message);
           }
         } else {
           // Stop server
@@ -159,7 +162,9 @@ const SettingsPage = () => {
 
         await dispatch(toggleAPI(currentAPI.connectionId) as any);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to toggle server");
+        toast.error(
+          error instanceof Error ? error.message : "Failed to toggle server",
+        );
         console.error("Failed to toggle server:", error);
         // Revert the change if failed
         setFormData((prev) => ({ ...prev, enabled: !prev.enabled }));
@@ -409,12 +414,12 @@ const SettingsPage = () => {
                     )}
                     <div>
                       <Label>Tags</Label>
-                      <div className="mt-2 flex flex-wrap gap-2 items-center">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         {formData.tags.map((tag, index) => (
                           <Badge
                             key={index}
                             variant="outline"
-                            className="gap-1 bg-secondary rounded-full text-xs py-0 h-7"
+                            className="h-7 gap-1 rounded-full bg-secondary py-0 text-xs"
                           >
                             {tag}
                             <button
@@ -517,7 +522,7 @@ const SettingsPage = () => {
                           handleInputChange("authentication", value)
                         }
                       >
-                        <SelectTrigger className="bg-secondary border-border">
+                        <SelectTrigger className="border-border bg-secondary">
                           <SelectValue placeholder="Select authentication method" />
                         </SelectTrigger>
                         <SelectContent>

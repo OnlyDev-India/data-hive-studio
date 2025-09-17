@@ -5,17 +5,17 @@ import { GitBranchIcon } from "lucide-react";
 import { BaseNode } from "./base-node";
 import { Badge } from "@/components/ui/badge";
 import { CustomHandle } from "../custom";
-import { useWorkbench } from "@/features/custom-api/context";
+import { useWorkbenchRedux } from "@/features/custom-api/hooks/use-workbench-redux";
 
 const ConditionalNode: React.FC<NodeProps> = ({ data, id }) => {
   const nodeData = data as unknown as ConditionalNodeData;
-  const { state } = useWorkbench();
+  const { currentEndpointState } = useWorkbenchRedux();
 
   // Check if specific handles have children
   const checkHandleHasChildren = (handleId: string) => {
-    if (!state.currentEndpointId) return false;
+    // if (!currentEndpointId) return false;
     
-    const currentEndpointState = state.endpoints[state.currentEndpointId];
+    // const currentEndpointState = currentEndpointState.endpoints[currentEndpointId];
     if (!currentEndpointState) return false;
 
     return currentEndpointState.edges.some(edge => 

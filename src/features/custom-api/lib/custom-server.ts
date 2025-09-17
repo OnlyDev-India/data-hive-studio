@@ -1,9 +1,11 @@
 import express, { Express, Request, Response } from "express";
 import { Server } from "http";
+import * as net from "net";
 import cors from "cors";
 import { APIDetails, APIEndpoint } from "../types/custom-api.type";
 import { DatabaseClient } from "@/types/db.type";
 import { EndpointFlowExecutor } from "../components/api-workbench/flow-executor";
+import { NodeLog } from "../components/api-workbench/flow-executor/endpoint-flow-executor";
 
 export interface LogEntry {
   id: string;
@@ -11,6 +13,26 @@ export interface LogEntry {
   level: "info" | "warn" | "error" | "debug";
   message: string;
   data?: any;
+}
+
+export interface FlowExecutionLog {
+  executionId: string;
+  endpointId: string;
+  timestamp: Date;
+  status: 'pending' | 'executing' | 'completed' | 'error';
+  statusCode?: number;
+  message?: string;
+  error?: string;
+  requestData?: {
+    method: string;
+    path: string;
+    params: any;
+    query: any;
+    body: any;
+    headers: any;
+  };
+  responseData?: any;
+  nodeLogs?: NodeLog[];
 }
 
 type methodsType = "get" | "post" | "put" | "delete" | "patch" | "all";
@@ -21,10 +43,12 @@ export class CustomServer {
   private port: number;
   private endpoints: APIEndpoint[];
   private logs: LogEntry[] = [];
+  private flowExecutionLogs: Record<string, Record<string, FlowExecutionLog>> = {}; // endpointId -> executionId -> logs
   private maxLogs: number = 1000; // Maximum number of logs to keep
+  private maxFlowLogs: number = 100; // Maximum number of flow execution logs per endpoint
   private instanceId: string; // Unique identifier for this server instance
   private apiDetails: APIDetails; // Store the complete API details for CORS and other configurations
-  private dbClient: DatabaseClient|null = null;
+  private dbClient: DatabaseClient | null = null;
 
   constructor(options: APIDetails) {
     this.apiDetails = options;
@@ -178,17 +202,47 @@ export class CustomServer {
   }
 
   private async isPortInUse(port: number): Promise<boolean> {
-    const testApp = express();
     return new Promise((resolve) => {
-      const testServer = testApp
-        .listen(port, () => {
-          testServer.close();
+      const server = net.createServer();
+      let resolved = false;
+
+      // Set a timeout to prevent hanging
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          server.close();
+          this.log("error", `Port check timeout for port ${port}`);
           resolve(false);
-        })
-        .on("error", () => {
-          this.log("info", `Port ${port} is in use`);
-          resolve(true);
-        });
+        }
+      }, 5000);
+
+      server.listen(port, () => {
+        // Port is available
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          server.once("close", () => {
+            resolve(false);
+          });
+          server.close();
+        }
+      });
+
+      server.on("error", (err: any) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          if (err.code === "EADDRINUSE") {
+            // Port is in use
+            this.log("info", `Port ${port} is in use`);
+            resolve(true);
+          } else {
+            // Other error
+            this.log("error", `Error checking port ${port}: ${err.message}`);
+            resolve(false);
+          }
+        }
+      });
     });
   }
 
@@ -199,10 +253,9 @@ export class CustomServer {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     const portCheck = await this.isPortInUse(this.port);
+    console.log("portCheck", portCheck);
     if (portCheck) {
-      throw new Error(
-        `Port ${this.port} is still in use after cleanup attempt`,
-      );
+      throw new Error(`Port ${this.port} is in use`);
     }
 
     this.server = this.app.listen(this.port, () => {
@@ -293,6 +346,79 @@ export class CustomServer {
     return this.apiDetails;
   }
 
+  /**
+   * Store flow execution log
+   */
+  public storeFlowExecutionLog(executionLog: FlowExecutionLog): void {
+    const { endpointId, executionId } = executionLog;
+    
+    if (!this.flowExecutionLogs[endpointId]) {
+      this.flowExecutionLogs[endpointId] = {};
+    }
+    
+    this.flowExecutionLogs[endpointId][executionId] = executionLog;
+    
+    // Keep only the latest maxFlowLogs per endpoint
+    const endpointLogs = Object.keys(this.flowExecutionLogs[endpointId]);
+    if (endpointLogs.length > this.maxFlowLogs) {
+      // Sort by timestamp and remove oldest
+      const sortedLogs = endpointLogs.sort((a, b) => {
+        const timestampA = this.flowExecutionLogs[endpointId][a].timestamp.getTime();
+        const timestampB = this.flowExecutionLogs[endpointId][b].timestamp.getTime();
+        return timestampB - timestampA; // Newest first
+      });
+      
+      // Remove oldest logs
+      const logsToRemove = sortedLogs.slice(this.maxFlowLogs);
+      logsToRemove.forEach(logId => {
+        delete this.flowExecutionLogs[endpointId][logId];
+      });
+    }
+  }
+
+  /**
+   * Get flow execution logs for an endpoint
+   */
+  public getFlowExecutionLogs(endpointId: string): FlowExecutionLog[] {
+    if (!this.flowExecutionLogs[endpointId]) {
+      return [];
+    }
+    
+    return Object.values(this.flowExecutionLogs[endpointId])
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()); // Newest first
+  }
+
+  /**
+   * Get specific flow execution log
+   */
+  public getFlowExecutionLog(endpointId: string, executionId: string): FlowExecutionLog | null {
+    return this.flowExecutionLogs[endpointId]?.[executionId] || null;
+  }
+
+  /**
+   * Get latest flow execution log for an endpoint
+   */
+  public getLatestFlowExecutionLog(endpointId: string): FlowExecutionLog | null {
+    const logs = this.getFlowExecutionLogs(endpointId);
+    return logs.length > 0 ? logs[0] : null;
+  }
+
+  /**
+   * Clear flow execution logs for an endpoint
+   */
+  public clearFlowExecutionLogs(endpointId: string): void {
+    if (this.flowExecutionLogs[endpointId]) {
+      delete this.flowExecutionLogs[endpointId];
+    }
+  }
+
+  /**
+   * Clear all flow execution logs
+   */
+  public clearAllFlowExecutionLogs(): void {
+    this.flowExecutionLogs = {};
+  }
+
   public getCorsStatus(): {
     enabled: boolean;
     origins: string[];
@@ -323,6 +449,10 @@ export class CustomServer {
     req: Request,
     res: Response,
   ): Promise<void> {
+    // Create execution ID (timestamp) - declare outside try block for error handling
+    const executionId = Date.now().toString();
+    let requestData: any = null;
+
     try {
       this.log(
         "info",
@@ -330,7 +460,11 @@ export class CustomServer {
       );
 
       // Check if endpoint has a flow defined
-      if (!endpoint.flow || !endpoint.flow.nodes || endpoint.flow.nodes.length === 0) {
+      if (
+        !endpoint.flow ||
+        !endpoint.flow.nodes ||
+        endpoint.flow.nodes.length === 0
+      ) {
         // No flow defined, return default response
         const params = req.params;
         const queryParams = req.query;
@@ -349,14 +483,27 @@ export class CustomServer {
         });
         return;
       }
-
+      
       // Create flow executor
       const executor = new EndpointFlowExecutor(endpoint.id);
-      
+
       // Initialize flow with nodes and edges
-      executor.initializeFlow(endpoint.flow.nodes, endpoint.flow.edges);
-      
+      executor.initializeFlow(
+        endpoint.flow.nodes,
+        endpoint.flow.edges,
+        endpoint,
+      );
+
       // Set context from request
+      requestData = {
+        method: req.method,
+        path: req.path,
+        params: req.params,
+        query: req.query,
+        body: req.body,
+        headers: req.headers,
+      };
+      
       executor.setContext({
         params: req.params,
         query: req.query as Record<string, any>,
@@ -364,8 +511,34 @@ export class CustomServer {
         headers: req.headers as Record<string, string>,
       });
 
+      // Store initial execution log
+      const initialLog: FlowExecutionLog = {
+        executionId,
+        endpointId: endpoint.id,
+        timestamp: new Date(),
+        status: 'executing',
+        requestData,
+      };
+      this.storeFlowExecutionLog(initialLog);
+
       // Execute the flow
       const result = await executor.execute();
+
+      // Update execution log with results
+      const completedLog: FlowExecutionLog = {
+        executionId,
+        endpointId: endpoint.id,
+        timestamp: new Date(),
+        status: result.statusCode >= 400 ? 'error' : 'completed',
+        statusCode: result.statusCode,
+        message: result.message,
+        error: result.error,
+        requestData,
+        responseData: result.data || { message: result.message, error: result.error },
+        nodeLogs: result.nodeLogs || [],
+      };
+      this.storeFlowExecutionLog(completedLog);
+      console.log(completedLog);
 
       // Send response based on flow execution result
       if (result.data) {
@@ -384,22 +557,41 @@ export class CustomServer {
           statusCode: result.statusCode,
           hasData: !!result.data,
           message: result.message,
-        }
+          executionId,
+        },
       );
-
     } catch (error) {
-      this.log(
-        "error",
-        `Error executing endpoint: ${endpoint.name}`,
-        {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined,
-        }
-      );
+      // Store error execution log
+        const errorLog: FlowExecutionLog = {
+          executionId,
+          endpointId: endpoint.id,
+          timestamp: new Date(),
+          status: 'error',
+          statusCode: 500,
+          message: "Internal server error",
+          error: error instanceof Error ? error.message : "Unknown error occurred",
+          requestData: requestData || {
+            method: req.method,
+            path: req.path,
+            params: req.params,
+            query: req.query,
+            body: req.body,
+            headers: req.headers,
+          },
+          nodeLogs: [],
+        };
+      this.storeFlowExecutionLog(errorLog);
+
+      this.log("error", `Error executing endpoint: ${endpoint.name}`, {
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+        executionId,
+      });
 
       res.status(500).json({
-        message: 'Internal server error',
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        message: "Internal server error",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       });
     }
   }

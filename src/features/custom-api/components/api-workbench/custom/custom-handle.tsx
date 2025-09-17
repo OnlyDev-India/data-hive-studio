@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Handle, Position } from "@xyflow/react";
 import React from "react";
 import { PlusIcon } from "lucide-react";
-import { useWorkbench } from "@/features/custom-api/context";
+import { useWorkbenchRedux } from "@/features/custom-api/hooks/use-workbench-redux";
 
 interface CustomHandleProps {
   hasChildren?: boolean;
@@ -15,7 +15,7 @@ interface CustomHandleProps {
 }
 
 export const CustomHandle = ({ hasChildren, nodeId, style, handleId, handleType, disableAddButton }: CustomHandleProps) => {
-  const {startAddNode} =useWorkbench();
+  const {startAddNode} = useWorkbenchRedux();
   
   // Get handle color based on type (for conditional nodes)
   const getHandleColor = () => {

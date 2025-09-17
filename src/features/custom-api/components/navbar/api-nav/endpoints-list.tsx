@@ -2,14 +2,10 @@
 
 import React from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import DeleteModal from "@/components/modals/delete-modal";
-import { GroupIcon, Trash2, Code } from "lucide-react";
+import { GroupIcon } from "lucide-react";
 import EndpointItem from "./endpoint-item";
-import Link from "next/link";
 import {
-  APIEndpoint,
-  APIDetails,
+  APIDetails
 } from "@/features/custom-api/types/custom-api.type";
 import { APIGroup } from "@/features/custom-api/types/custom-api.type";
 import { cn } from "@/lib/utils";
