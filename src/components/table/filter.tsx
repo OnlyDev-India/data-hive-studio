@@ -13,11 +13,10 @@ import { TypeIcons, TypeIconsType } from "@/config/types-icon";
 import { useDispatch, useSelector } from "react-redux";
 import { updateFile } from "@/redux/features/open-files";
 import { Button } from "../ui/button";
-import { PlusIcon, XIcon, CalendarIcon, SortAscIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
 import { isNoSql } from "@/lib/helper/checkDbType";
-import { cn } from "@/lib/utils";
 
 interface ColumnProps extends Column<any> {
   data_type?: string;

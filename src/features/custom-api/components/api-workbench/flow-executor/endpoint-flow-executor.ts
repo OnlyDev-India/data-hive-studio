@@ -3,8 +3,10 @@ import {
   EndpointNodeData,
   ResponseNodeData,
   ConditionalNodeData,
+  DatabaseSelectNodeData,
   APIEndpoint,
 } from "@/features/custom-api/types/custom-api.type";
+import { DatabaseClient } from "@/types/db.type";
 import { Edge } from "@xyflow/react";
 
 export interface FlowExecutionContext {
@@ -42,6 +44,7 @@ export class EndpointFlowExecutor {
   private edges: Edge[] = [];
   private context: FlowExecutionContext;
   private nodeLogs: NodeLog[] = [];
+  private databaseConnection: DatabaseClient | null = null;
 
   constructor(endpointId: string) {
     this.endpointId = endpointId;
@@ -51,6 +54,7 @@ export class EndpointFlowExecutor {
       body: null,
       headers: {},
     };
+    this.databaseConnection = null;
   }
 
   /**
@@ -60,11 +64,13 @@ export class EndpointFlowExecutor {
     nodes: WorkbenchNode[],
     edges: Edge[],
     endpoint: APIEndpoint,
+    databaseConnection: DatabaseClient,
   ): void {
     this.endpoint = endpoint;
     this.nodes = nodes;
     this.edges = edges;
     this.nodeLogs = []; // Reset node logs for new execution
+    this.databaseConnection = databaseConnection;
   }
 
   /**
@@ -113,6 +119,8 @@ export class EndpointFlowExecutor {
         return "Response Node";
       case "conditionalNode":
         return (nodeData as ConditionalNodeData).name || "Conditional";
+      case "databaseSelectNode":
+        return (nodeData as DatabaseSelectNodeData).name || "Database Select";
       default:
         return nodeData.type || "Unknown";
     }
@@ -250,6 +258,7 @@ export class EndpointFlowExecutor {
       for (const nextNode of nextNodes) {
         const result = await this.executeNodeFlow(nextNode);
         if (result) {
+          // Return any result immediately (success or error)
           return result;
         }
       }
@@ -298,6 +307,8 @@ export class EndpointFlowExecutor {
         };
       case "conditionalNode":
         return await this.processConditionalNode(node);
+      case "databaseSelectNode":
+        return await this.processDatabaseSelectNode(node);
       default:
         console.log(`Unknown node type: ${nodeData.type}`);
         return {
@@ -391,15 +402,10 @@ export class EndpointFlowExecutor {
         },
       };
     } catch (error) {
-      return {
-        input,
-        output: {
-          message: "Conditional node error",
-          condition: conditionalData.condition,
-          error: error instanceof Error ? error.message : "Unknown error",
-          path: "error",
-        },
-      };
+      // Return error response that will stop the flow execution
+      throw new Error(
+        `Conditional node error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }
 
@@ -451,6 +457,102 @@ export class EndpointFlowExecutor {
   }
 
   /**
+   * Process database select node - execute database query
+   */
+  private async processDatabaseSelectNode(
+    node: WorkbenchNode,
+  ): Promise<{ input?: any; output?: any }> {
+    const nodeData = node.data as DatabaseSelectNodeData;
+
+    try {
+      // Execute real database query using getTablesData
+      const startTime = Date.now();
+
+      if (!this.databaseConnection) {
+        throw new Error("No database connection available");
+      }
+
+      // Convert conditions to filters format
+      const filters = [
+        {
+          isCustomQuery: nodeData.isCustomQuery,
+          customQuery: nodeData.customQuery,
+        },
+      ];
+
+      // Convert orderBy to SortColumn format
+      const orderBy = nodeData.orderBy
+        ? [
+            {
+              columnKey: nodeData.orderBy,
+              direction:
+                (nodeData.orderDirection?.toLowerCase() as "asc" | "desc") ||
+                "asc",
+            },
+          ]
+        : undefined;
+
+      // Set up pagination if limit is specified
+      const pagination = nodeData.limit
+        ? {
+            page: 1,
+            limit: nodeData.limit,
+          }
+        : undefined;
+
+      const result = await this.databaseConnection.getTablesData(
+        nodeData.tableName,
+        {
+          filters,
+          orderBy,
+          pagination,
+        },
+      );
+
+      const executionTime = Date.now() - startTime;
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      const realResult = {
+        tableName: nodeData.tableName,
+        columns: nodeData.columns,
+        customQuery: nodeData.customQuery,
+        limit: nodeData.limit,
+        orderBy: nodeData.orderBy,
+        orderDirection: nodeData.orderDirection,
+        data: result.data || [],
+        rowCount: result.totalRecords || 0,
+        executionTime,
+      };
+
+      // Update context with query result using node ID to avoid conflicts
+      const contextKey = nodeData.name || `databaseSelect_${node.id}`;
+      this.updateContext({
+        [`${contextKey}_result`]: realResult.data,
+        // Also add with node ID for guaranteed uniqueness
+        [`node_${node.id}_result`]: realResult.data,
+      });
+
+      return {
+        input: this.context,
+        output: {
+          result: realResult.data,
+          rowCount: realResult.rowCount,
+          executionTime: realResult.executionTime,
+        },
+      };
+    } catch (error) {
+      console.error("Database select node error:", error);
+      // Return error response that will stop the flow execution
+      throw new Error(
+        error instanceof Error ? error.message : "Database query failed",
+      );
+    }
+  }
+
+  /**
    * Parse response body and replace template variables
    */
   private parseResponseBody(responseBody: string): any {
@@ -491,6 +593,17 @@ export class EndpointFlowExecutor {
           regex,
           JSON.stringify(this.context.headers[key]),
         );
+      });
+
+      // Replace database node results (any key ending with _result or _query)
+      Object.keys(this.context).forEach((key) => {
+        if (key.endsWith("_result") || key.endsWith("_query")) {
+          const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
+          parsedBody = parsedBody.replace(
+            regex,
+            JSON.stringify(this.context[key]),
+          );
+        }
       });
 
       // Parse as JSON

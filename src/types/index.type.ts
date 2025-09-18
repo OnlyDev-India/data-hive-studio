@@ -19,9 +19,10 @@ declare global {
     };
   }
   var customServer: {[key: string]: CustomServer | null};
-  var connectionManagerInstance: DatabaseClient | null;
+  var connectionManagerInstance: {[key: string]: DatabaseClient | null};
 }
 
 global.customServer = {};
+global.connectionManagerInstance = {};
 
 export {};

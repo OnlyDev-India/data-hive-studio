@@ -109,6 +109,12 @@ export const useWorkbenchRedux = () => {
     return currentEndpointState?.selectedNodeId || null;
   }, [currentEndpointState]);
 
+  const selectedNode = useCallback(() => {
+    const selectedNodeId = getCurrentSelectedNodeId();
+    if (!selectedNodeId || !currentEndpointState) return null;
+    return currentEndpointState.nodes.find(node => node.id === selectedNodeId) || null;
+  }, [currentEndpointState, getCurrentSelectedNodeId]);
+
   const getCurrentPendingSourceId = useCallback(() => {
     return currentEndpointState?.pendingSourceId || null;
   }, [currentEndpointState]);
@@ -202,6 +208,7 @@ export const useWorkbenchRedux = () => {
     // Helper functions
     getCurrentIsAddingNode,
     getCurrentSelectedNodeId,
+    selectedNode,
     getCurrentPendingSourceId,
     
     // Save and load

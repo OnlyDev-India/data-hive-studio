@@ -1084,10 +1084,50 @@ export class MongoDbClient extends DatabaseClient {
             );
 
           if (mongoFilters.length > 0) {
-            filterQuery =
-              mongoFilters.length === 1
-                ? mongoFilters[0]
-                : { $and: mongoFilters };
+            if (mongoFilters.length === 1) {
+              filterQuery = mongoFilters[0];
+            } else {
+              // Group filters by separator logic
+              const groupedFilters = [];
+              let currentGroup = [];
+              
+              for (let i = 0; i < filters.length; i++) {
+                const filter = filters[i];
+                const mongoFilter = mongoFilters[i];
+                
+                if (!mongoFilter) continue;
+                
+                // If this is the first filter or separator is WHERE, start a new group
+                if (i === 0 || filter.separator === "WHERE") {
+                  if (currentGroup.length > 0) {
+                    groupedFilters.push(currentGroup);
+                  }
+                  currentGroup = [mongoFilter];
+                } else if (filter.separator === "OR") {
+                  // For OR, add to current group
+                  currentGroup.push(mongoFilter);
+                } else {
+                  // For AND (default), add to current group
+                  currentGroup.push(mongoFilter);
+                }
+              }
+              
+              // Add the last group
+              if (currentGroup.length > 0) {
+                groupedFilters.push(currentGroup);
+              }
+              
+              // Combine groups with AND, and filters within each group with OR
+              if (groupedFilters.length === 1) {
+                const group = groupedFilters[0];
+                filterQuery = group.length === 1 ? group[0] : { $or: group };
+              } else {
+                const combinedGroups = groupedFilters.map(group => 
+                  group.length === 1 ? group[0] : { $or: group }
+                );
+                filterQuery = { $and: combinedGroups };
+              }
+            }
           } else {
             // If no valid filters but we have sortBy, use empty filter to get all documents
             filterQuery = {};

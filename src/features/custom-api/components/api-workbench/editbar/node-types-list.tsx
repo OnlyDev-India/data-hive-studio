@@ -86,7 +86,7 @@ const NodeTypesList = () => {
 
   const handleNodeTypeClick = (nodeType: string) => {
     // Check if trying to add response node when parent already has one
-    if (checkParentHasResponseNode(nodeType)) {
+    if (nodeType === "responseNode" && checkParentHasResponseNode(nodeType)) {
       toast.error(
         "You can't add more than 1 response node to the same parent node.",
       );
@@ -94,7 +94,7 @@ const NodeTypesList = () => {
     }
 
     // Check if trying to add conditional node when parent already has one
-    if (checkParentHasConditionalNode(nodeType)) {
+    if (nodeType === "conditionalNode" && checkParentHasConditionalNode(nodeType)) {
       toast.error(
         "You can't add more than 1 conditional node to the same parent node.",
       );

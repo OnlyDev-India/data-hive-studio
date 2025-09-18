@@ -19,8 +19,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { APIEndpoint } from "@/features/custom-api/types/custom-api.type";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { API_METHOD_COLORS } from "@/features/custom-api/config/api-config";
+import { cn } from "@/lib/utils";
 
 interface EndpointItemProps {
   endpoint: APIEndpoint;
@@ -33,6 +34,7 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
   apiId,
   groupPath,
 }) => {
+  const {endpointId} = useParams();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const searchParams = useSearchParams();
   const displayPath = groupPath
@@ -48,7 +50,7 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
   const methodColor =
     API_METHOD_COLORS[endpoint.method as keyof typeof API_METHOD_COLORS];
   return (
-    <div className="group relative cursor-pointer rounded-lg border bg-background transition-colors hover:bg-accent">
+    <div className={cn("group relative cursor-pointer rounded-lg border bg-background transition-colors hover:bg-accent", endpointId === endpoint.id && "border-primary")}>
       <Link
         href={{
           pathname: `/app/custom-api/endpoint/${apiId}/${endpoint.id}`,
@@ -57,7 +59,7 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
         className="flex items-start justify-between overflow-hidden p-2"
       >
         <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Badge
               variant={endpoint.enabled ? "default" : "outline"}
               className="text-xs"
@@ -69,7 +71,7 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
               {endpoint.name}
             </h4>
           </div>
-          {endpoint.description && (
+          {/* {endpoint.description && (
             <p className="line-clamp-1 text-xs text-muted-foreground">
               {endpoint.description}
             </p>
@@ -78,7 +80,7 @@ const EndpointItem: React.FC<EndpointItemProps> = ({
             <span className="font-mono">{displayPath}</span>
             <span>•</span>
             <span>{endpoint.enabled ? "Enabled" : "Disabled"}</span>
-          </div>
+          </div> */}
         </div>
 
         <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>

@@ -7,7 +7,8 @@ import {
   FileTextIcon,
   SettingsIcon,
   GroupIcon,
-  CodeIcon
+  CodeIcon,
+  ChartNoAxesGantt
 } from "lucide-react";
 
 export const ENDPOINT_PAGE_NAVS = [
@@ -30,9 +31,9 @@ export const ENDPOINT_PAGE_NAVS = [
 
 export const ENDPOINT_PAGE_STATUS_NAVS = [
   {
-    label: "Logs",
-    value: "logs",
-    icon: LogsIcon,
+    label: "Tracing",
+    value: "tracing",
+    icon: ChartNoAxesGantt,
   },
   // {
   //   label: "Errors",

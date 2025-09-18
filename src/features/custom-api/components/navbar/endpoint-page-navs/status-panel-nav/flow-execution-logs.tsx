@@ -1,21 +1,242 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import {
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
   Play,
-  RefreshCw,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FlowExecutionLog } from "@/features/custom-api/lib/custom-server";
 import { useFlowExecutionLogs } from "@/features/custom-api/hooks/use-flow-execution-logs";
 import { useParams } from "next/navigation";
+
+// Timeline Chart Component
+interface TimelineChartProps {
+  nodeLogs: FlowExecutionLog["nodeLogs"];
+  zoomLevel: number;
+}
+
+const TimelineChart: React.FC<TimelineChartProps> = ({
+  nodeLogs,
+  zoomLevel,
+}) => {
+  if (!nodeLogs || nodeLogs.length === 0) return null;
+
+  // Skip the first node as it's just a start point
+  const executionNodes = nodeLogs.slice(1);
+  if (executionNodes.length === 0) return null;
+
+  const startTime = new Date(nodeLogs[0].timestamp);
+
+  const tasks = executionNodes.map((nodeLog, index) => {
+    const nodeStartTime = new Date(nodeLog.timestamp);
+    const actualExecutionTime = nodeLog.executionTime || 0;
+
+    // For 0ms execution time, show a minimal bar (5ms width for visibility)
+    const displayDuration = actualExecutionTime === 0 ? 5 : actualExecutionTime;
+    const nodeEndTime = new Date(nodeStartTime.getTime() + displayDuration);
+
+    // Calculate relative start time from the first node (in milliseconds)
+    const relativeStart = nodeStartTime.getTime() - startTime.getTime();
+    const relativeEnd = nodeEndTime.getTime() - startTime.getTime();
+    const duration = relativeEnd - relativeStart;
+
+    return {
+      id: `node-${index + 1}`, // +1 because we skipped the first node
+      name: nodeLog.nodeName,
+      startTime: relativeStart,
+      endTime: relativeEnd,
+      duration: duration,
+      status: nodeLog.status,
+      executionTime: actualExecutionTime, // Keep original execution time for display
+      displayDuration: displayDuration, // Use this for bar width calculation
+    };
+  });
+
+  const maxTime = Math.max(...tasks.map((task) => task.endTime));
+  const timeScale = zoomLevel / 100;
+
+  // Ensure we have some padding at the end so bars don't get cut off
+  const paddedMaxTime = maxTime + maxTime * 0.2; // Add 20% padding
+  const timelineWidth = Math.max(paddedMaxTime * timeScale, 800);
+
+  // Generate time markers - show every 100ms or so
+  const timeMarkers = [];
+  const interval = Math.max(100, Math.floor(paddedMaxTime / 8)); // Show about 8 markers
+  for (let i = 0; i <= paddedMaxTime; i += interval) {
+    timeMarkers.push(i);
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "completed":
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case "error":
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      case "executing":
+        return <Play className="h-4 w-4 text-blue-500" />;
+      case "pending":
+        return <Clock className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  return (
+    <div className="h-full" style={{ minWidth: "50rem" }}>
+      {/* Timeline Header */}
+      <div className="sticky top-0 z-10 border-b border-border">
+        <div className="flex">
+          {/* Task Names Column */}
+          <div className="sticky left-0 z-20 w-48 border-r border-border bg-secondary p-3">
+            <div className="text-sm font-medium text-foreground">Tasks</div>
+          </div>
+
+          {/* Timeline Header */}
+          <div
+            className="relative flex-1 overflow-hidden"
+            style={{ width: `${timelineWidth}px` }}
+          >
+            <div className="border-b border-border px-3 py-1 text-sm font-medium text-foreground">
+              Timeline (ms)
+            </div>
+
+            {/* Time Markers */}
+            <div className="relative h-10 bg-muted/20">
+              {timeMarkers.map((time, index) => (
+                <div
+                  key={time}
+                  className="absolute top-0 flex h-full flex-col justify-center"
+                  style={{ left: `${(time / paddedMaxTime) * 100}%` }}
+                >
+                  {index > 0 && <div className="h-full w-px bg-border"></div>}
+                  <p className="absolute left-2 top-2 truncate whitespace-nowrap text-xs text-foreground">
+                    {time}ms
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Timeline Content */}
+      {/* <div
+        className="overflow-auto"
+        style={{ maxHeight: "calc(100vh - 200px)" }}
+      > */}
+        {tasks.map((task, index) => (
+          <div key={task.id} className="flex border-b border-border/50">
+            {/* Task Info */}
+            <div className="sticky left-0 flex min-h-[48px] w-48 items-center gap-3 border-r border-border bg-secondary px-3 py-1 z-20">
+              {getStatusIcon(task.status)}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-foreground">
+                  {task.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {task.executionTime}ms
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline Bar for this task */}
+            <div
+              className="relative flex min-h-[48px] flex-1 items-center overflow-hidden"
+              style={{ width: `${timelineWidth}px` }}
+            >
+              {/* Task Bar with Hover Card */}
+              <HoverCard>
+                <HoverCardTrigger asChild>
+                  <div
+                    className={cn(
+                      "absolute flex h-7 cursor-pointer items-center justify-center rounded text-xs font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+                    )}
+                    style={{
+                      left: `${(task.startTime / paddedMaxTime) * 100}%`,
+                      width: `${Math.max((task.displayDuration / paddedMaxTime) * 100, 0.5)}%`,
+                      minWidth: "24px",
+                      background: `
+                        repeating-linear-gradient(
+                          45deg,
+                          hsl(var(--primary) / 0.7) 0px,
+                          hsl(var(--primary) / 0.7) 8px,
+                          hsl(var(--primary) / 0.6) 8px,
+                          hsl(var(--primary) / 0.6) 16px
+                        )
+                      `,
+                    }}
+                  >
+                    {task.duration > 80 && (
+                      <span className="truncate px-2">
+                        {task.executionTime}ms
+                      </span>
+                    )}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent className="bg-secondary border-border border">
+                  <div className="space-y-3 bg-dropdown-style">
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(task.status)}
+                      <h4 className="text-sm font-semibold">{task.name}</h4>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Status:</span>
+                        <Badge
+                          variant="outline"
+                        >
+                          {task.status}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Execution Time:
+                        </span>
+                        <span className="font-medium">
+                          {task.executionTime}ms
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Start Time:
+                        </span>
+                        <span className="font-medium">
+                          {new Date(
+                            startTime.getTime() + task.startTime,
+                          ).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">End Time:</span>
+                        <span className="font-medium">
+                          {new Date(
+                            startTime.getTime() + task.endTime,
+                          ).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </HoverCardContent>
+              </HoverCard>
+            </div>
+          </div>
+        ))}
+      {/* </div> */}
+    </div>
+  );
+};
 
 const FlowExecutionLogs: React.FC = () => {
   const { endpointId } = useParams<{ endpointId: string }>();
@@ -26,6 +247,7 @@ const FlowExecutionLogs: React.FC = () => {
     null,
   );
   const [selectedLog, setSelectedLog] = useState<FlowExecutionLog | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   // Set default selection to latest execution
   useEffect(() => {
@@ -46,36 +268,6 @@ const FlowExecutionLogs: React.FC = () => {
     }
   }, [selectedExecutionId, flowExecutionLogs]);
 
-  const getStatusIcon = (status: FlowExecutionLog["status"]) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case "executing":
-        return <Play className="h-4 w-4 text-blue-500" />;
-      case "pending":
-        return <Clock className="h-4 w-4 text-yellow-500" />;
-      default:
-        return <AlertCircle className="h-4 w-4 text-gray-500" />;
-    }
-  };
-
-  const getStatusColor = (status: FlowExecutionLog["status"]) => {
-    switch (status) {
-      case "completed":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "error":
-        return "bg-red-100 text-red-800 border-red-200";
-      case "executing":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
   const formatTimestamp = (timestamp: Date) => {
     return new Date(timestamp).toLocaleString();
   };
@@ -83,6 +275,14 @@ const FlowExecutionLogs: React.FC = () => {
   const formatExecutionId = (executionId: string) => {
     const date = new Date(parseInt(executionId));
     return date.toLocaleTimeString();
+  };
+
+  const handleZoomIn = () => {
+    setZoomLevel((prev) => Math.min(prev + 25, 200));
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel((prev) => Math.max(prev - 25, 50));
   };
 
   return (
@@ -119,252 +319,56 @@ const FlowExecutionLogs: React.FC = () => {
         </div>
       </div>
 
-      {/* Right Panel - Execution Details */}
-      <div className="flex-1">
+      {/* Right Panel - Custom Timeline */}
+      <div className="flex-1" style={{ width: "50%" }}>
         {selectedLog ? (
-          <div className="scrollbar-gutter custom-scrollbar flex h-full flex-col overflow-auto">
-            <div className="flex-1">
-              <div className="space-y-6 p-4">
-                {/* Request Data */}
-                {selectedLog.requestData && (
-                  <div className="rounded-md border border-border bg-background">
-                    <div className="p-3">
-                      <div className="space-y-3">
-                        <div>
-                          <Badge variant="outline">
-                            {selectedLog.requestData.method}
-                          </Badge>
-                          <code className="rounded bg-muted px-2 py-1 text-sm">
-                            {selectedLog.requestData.path}
-                          </code>
-                        </div>
-                        {selectedLog.requestData.params &&
-                          Object.keys(selectedLog.requestData.params).length >
-                            0 && (
-                            <div>
-                              <p className="text-sm font-medium text-muted-foreground">
-                                Params
-                              </p>
-                              <pre className="overflow-auto rounded bg-secondary p-2 text-xs">
-                                {JSON.stringify(
-                                  selectedLog.requestData.params,
-                                  null,
-                                  2,
-                                )}
-                              </pre>
-                            </div>
-                          )}
-                        {selectedLog.requestData.query &&
-                          Object.keys(selectedLog.requestData.query).length >
-                            0 && (
-                            <div>
-                              <p className="text-sm font-medium text-muted-foreground">
-                                Query
-                              </p>
-                              <pre className="overflow-auto rounded bg-secondary p-2 text-xs">
-                                {JSON.stringify(
-                                  selectedLog.requestData.query,
-                                  null,
-                                  2,
-                                )}
-                              </pre>
-                            </div>
-                          )}
-                        {selectedLog.requestData.body && (
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">
-                              Body
-                            </p>
-                            <pre className="overflow-auto rounded bg-muted p-2 text-xs">
-                              {JSON.stringify(
-                                selectedLog.requestData.body,
-                                null,
-                                2,
-                              )}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
+          <div className="flex h-full flex-col">
+            {selectedLog.nodeLogs && selectedLog.nodeLogs.length > 0 ? (
+              <>
+                {/* Timeline Header with Zoom Controls */}
+                <div className="flex items-center justify-between border-b border-border bg-muted/50 px-4 py-2">
+                  <h3 className="text-lg font-semibold">Execution Timeline</h3>
+                  {/* <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleZoomOut}
+                      className="flex h-8 w-8 items-center justify-center rounded border border-border hover:bg-muted"
+                    >
+                      <ZoomOut className="h-4 w-4" />
+                    </button>
+                    <span className="min-w-[3rem] text-center text-sm font-medium">
+                      {zoomLevel}%
+                    </span>
+                    <button
+                      onClick={handleZoomIn}
+                      className="flex h-8 w-8 items-center justify-center rounded border border-border hover:bg-muted"
+                    >
+                      <ZoomIn className="h-4 w-4" />
+                    </button>
+                  </div> */}
+                </div>
 
-                {/* Response Data */}
-                {selectedLog.responseData && (
-                  <div className="rounded-md border border-border bg-background">
-                    <div className="p-3">
-                      <pre className="overflow-auto rounded bg-secondary p-2 text-xs">
-                        {JSON.stringify(selectedLog.responseData, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-
-                {/* Node Logs */}
-                {selectedLog.nodeLogs && selectedLog.nodeLogs.length > 0 && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold">
-                      Node Execution Flow
-                    </h3>
-                    <div className="relative">
-                      {/* Flow Container */}
-                      <div className="">
-                        {selectedLog.nodeLogs.map((nodeLog, index) => (
-                          <div
-                            key={index}
-                            className="relative flex flex-col items-center"
-                          >
-                            {/* Node Form */}
-                            <div
-                              className={cn(
-                                "relative mx-auto w-full max-w-md rounded-lg border-2 p-4 transition-all duration-200",
-                                nodeLog.status === "completed" &&
-                                  "border-green-200 bg-green-50 shadow-green-100",
-                                nodeLog.status === "error" &&
-                                  "border-red-200 bg-red-50 shadow-red-100",
-                                nodeLog.status === "executing" &&
-                                  "border-blue-200 bg-blue-50 shadow-blue-100",
-                                nodeLog.status === "pending" &&
-                                  "border-yellow-200 bg-yellow-50 shadow-yellow-100",
-                              )}
-                            >
-                              {/* Connection Points */}
-                              {index > 0 && (
-                                <div
-                                  className="absolute -top-0 left-1/2 h-4 w-4 -translate-x-1/2 transform rounded-full border-2 border-gray-400 bg-background"
-                                  style={{ top: "-0.5rem" }}
-                                ></div>
-                              )}
-                              {index <
-                                (selectedLog.nodeLogs?.length || 0) - 1 && (
-                                <div className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 transform rounded-full border-2 border-gray-400 bg-background"></div>
-                              )}
-
-                              {/* Node Header */}
-                              <div className="mb-3 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(nodeLog.status)}
-                                    <h4 className="font-medium text-foreground">
-                                      {nodeLog.nodeName}
-                                    </h4>
-                                  </div>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      "text-xs",
-                                      getStatusColor(nodeLog.status),
-                                    )}
-                                  >
-                                    {nodeLog.status}
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  {nodeLog.executionTime && (
-                                    <span>{nodeLog.executionTime}ms</span>
-                                  )}
-                                  <span>
-                                    {new Date(
-                                      nodeLog.timestamp,
-                                    ).toLocaleTimeString()}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Node Content */}
-                              <div className="space-y-3">
-                                {/* Error Display */}
-                                {nodeLog.error && (
-                                  <div className="rounded-md bg-red-100 p-3">
-                                    <p className="text-sm font-medium text-red-800">
-                                      Error:
-                                    </p>
-                                    <p className="text-sm text-red-700">
-                                      {nodeLog.error}
-                                    </p>
-                                  </div>
-                                )}
-
-                                {/* Input Display */}
-                                {nodeLog.input && (
-                                  <div className="space-y-2">
-                                    <details className="group">
-                                      <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-                                        View Input
-                                      </summary>
-                                      <div className="mt-2 rounded-md bg-muted p-3">
-                                        <pre className="overflow-auto text-xs">
-                                          {JSON.stringify(
-                                            nodeLog.input,
-                                            null,
-                                            2,
-                                          )}
-                                        </pre>
-                                      </div>
-                                    </details>
-                                  </div>
-                                )}
-
-                                {/* Output Display */}
-                                {nodeLog.output && (
-                                  <div className="space-y-2">
-                                    <details className="group">
-                                      <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-                                        View Output
-                                      </summary>
-                                      <div className="mt-2 rounded-md bg-muted p-3">
-                                        <pre className="overflow-auto text-xs">
-                                          {JSON.stringify(
-                                            nodeLog.output,
-                                            null,
-                                            2,
-                                          )}
-                                        </pre>
-                                      </div>
-                                    </details>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Connection Arrow */}
-                            {index <
-                              (selectedLog.nodeLogs?.length || 0) - 1 && (
-                              <div className="flex w-full flex-col items-center">
-                                {/* Vertical Line */}
-                                <div className="h-16 w-[1px] bg-border"></div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error Details */}
-                {selectedLog.error && (
-                  <Card className="border-red-200">
-                    <CardHeader>
-                      <CardTitle className="text-base text-red-600">
-                        Error
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-red-600">
-                        {selectedLog.error}
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
+                {/* Timeline Content */}
+                <div className="h-full flex-1 overflow-auto scrollbar-gutter custom-scrollbar">
+                  <TimelineChart
+                    nodeLogs={selectedLog.nodeLogs}
+                    zoomLevel={zoomLevel}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <AlertCircle className="mx-auto mb-4 h-12 w-12" />
+                  <p>No node execution data available</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <div className="text-center">
               <AlertCircle className="mx-auto mb-4 h-12 w-12" />
-              <p>Select an execution to view details</p>
+              <p>Select an execution to view timeline</p>
             </div>
           </div>
         )}

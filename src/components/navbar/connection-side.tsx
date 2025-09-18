@@ -4,7 +4,7 @@ import {
   setConnectionLoading,
   setCurrentConnection,
 } from "@/redux/features/appdb";
-import { ConnectionDetailsType, ConnectionsType } from "@/types/db.type";
+import { ConnectionsType } from "@/types/db.type";
 import { useDispatch, useSelector } from "react-redux";
 import { Button } from "../ui/button";
 import ConnectionMenu from "../context-menu/connection-menu";
@@ -18,11 +18,6 @@ import { RotateCwIcon, Plus, Search } from "lucide-react";
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { Badge } from "@/components/ui/badge";
 import { useAppData } from "@/hooks/useAppData";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "../ui/resizable";
 import { AppDispatch } from "@/redux/store";
 
 const ConnectionSidebar = () => {
@@ -114,12 +109,6 @@ const ConnectionSidebar = () => {
           />
         </div>
       </div>
-
-      <ResizablePanelGroup
-        direction="vertical"
-        autoSaveId={"connection-side-panel-group"}
-      >
-        <ResizablePanel defaultSize={50} className="px-2">
           <div className="h-full space-y-2 overflow-y-auto px-2 pb-1 relative">
             <div className="group flex items-center justify-between sticky top-0 bg-secondary z-10">
               <div className="flex items-center gap-2">
@@ -189,36 +178,6 @@ const ConnectionSidebar = () => {
                 ))}
             </div>
           </div>
-        </ResizablePanel>
-        <ResizableHandle className="!h-[1px]  bg-border" />
-        <ResizablePanel defaultSize={50} className="px-2 pt-2">
-          <div className="h-full space-y-2 overflow-y-auto px-2 pb-1 relative">
-            <div className="group flex items-center justify-between sticky top-0 bg-secondary z-10">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  APIs
-                </h3>
-                <Badge variant={"secondary"} className="rounded-full">
-                  {connections?.length || 0}
-                </Badge>
-              </div>
-              <Button
-                variant={"ghost"}
-                size={"icon"}
-                onClick={handleRefreshConnections}
-                className="h-6 w-6 text-muted-foreground opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-              >
-                <RotateCwIcon
-                  className={cn("h-3.5 w-3.5", { "animate-spin": loading })}
-                />
-              </Button>
-            </div>
-            <div className="flex flex-col gap-1">
-              Apis
-            </div>
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
     </div>
   );
 };

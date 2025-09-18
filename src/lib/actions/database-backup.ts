@@ -56,11 +56,11 @@ export async function getCurrentConnectionDetails(): Promise<ConnectionDetailsTy
       console.log("Retrieved connection details from cookies");
       return connectionDetailsFromCookie;
     } catch (parseError) {
-      console.error("Failed to parse connection details from cookie:", parseError);
+      // console.error("Failed to parse connection details from cookie:", parseError);
       return null;
     }
   } catch (error) {
-    console.error("Failed to get current connection details:", error);
+    // console.error("Failed to get current connection details:", error);
     return null;
   }
 }

@@ -166,8 +166,21 @@ export interface ConditionalNodeData extends BaseNodeData {
   falsePath?: string;
 }
 
+// Database select node data interface
+export interface DatabaseSelectNodeData extends BaseNodeData {
+  type: 'databaseSelectNode';
+  tableName: string;
+  queryName?: string;
+  columns?: string[];
+  limit?: number;
+  orderBy?: string;
+  orderDirection?: 'ASC' | 'DESC';
+  isCustomQuery?: boolean;
+  customQuery?: string;
+}
+
 // Union type for all node data types
-export type NodeData = EndpointNodeData | ResponseNodeData | ConditionalNodeData;
+export type NodeData = EndpointNodeData | ResponseNodeData | ConditionalNodeData | DatabaseSelectNodeData;
 
 // Main workbench node interface
 export interface WorkbenchNode extends Node {

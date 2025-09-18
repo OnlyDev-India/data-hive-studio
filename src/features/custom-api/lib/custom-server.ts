@@ -55,7 +55,7 @@ export class CustomServer {
     this.port = options.port || 3000;
     this.endpoints = options.endpoints;
     this.instanceId = crypto.randomUUID();
-    this.dbClient = null;
+    this.dbClient = global.connectionManagerInstance[options.connectionId as any];
     this.app = express();
     this.setupMiddleware();
     this.setupRoutes();
@@ -483,6 +483,10 @@ export class CustomServer {
         });
         return;
       }
+
+      if (!this.dbClient) {
+        throw new Error("Database client not found");
+      }
       
       // Create flow executor
       const executor = new EndpointFlowExecutor(endpoint.id);
@@ -492,6 +496,7 @@ export class CustomServer {
         endpoint.flow.nodes,
         endpoint.flow.edges,
         endpoint,
+        this.dbClient,
       );
 
       // Set context from request
@@ -538,7 +543,6 @@ export class CustomServer {
         nodeLogs: result.nodeLogs || [],
       };
       this.storeFlowExecutionLog(completedLog);
-      console.log(completedLog);
 
       // Send response based on flow execution result
       if (result.data) {

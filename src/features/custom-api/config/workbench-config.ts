@@ -1,13 +1,16 @@
 import { EndpointNode, ResponseNode, ConditionalNode } from "../components/api-workbench/nodes";
-import { FlaskConicalIcon, CheckCircle, GitBranchIcon } from "lucide-react";
+import { DatabaseSelectNode } from "../components/api-workbench/nodes/database-select-node";
+import { FlaskConicalIcon, CheckCircle, GitBranchIcon, Database } from "lucide-react";
 import ResponseNodeEdit from "../components/api-workbench/editbar/response-node-edit";
 import EndpointFlowTester from "../components/api-workbench/editbar/endpoint-flow-tester";
 import ConditionalNodeEdit from "../components/api-workbench/editbar/conditional-node-edit";
+import DatabaseSelectNodeEdit from "../components/api-workbench/editbar/database-select-node-edit";
 
 export const nodeTypes = {
     endpointNode: EndpointNode,
     responseNode: ResponseNode,
     conditionalNode: ConditionalNode,
+    databaseSelectNode: DatabaseSelectNode,
   };
   
   type nodeTypesType = Exclude<keyof typeof nodeTypes, "endpointNode">;
@@ -30,6 +33,11 @@ export const nodeTypes = {
         description: "Conditional Node",
         icon: GitBranchIcon,
       },
+      databaseSelectNode: {
+        name: "Database Select",
+        description: "Database Select Query",
+        icon: Database,
+      },
   }
   
   
@@ -44,4 +52,5 @@ export const nodeTypes = {
     endpointNode: EndpointFlowTester,
     responseNode: ResponseNodeEdit,
     conditionalNode: ConditionalNodeEdit,
+    databaseSelectNode: DatabaseSelectNodeEdit,
   }

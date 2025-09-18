@@ -668,6 +668,27 @@ const workbenchSlice = createSlice({
             hasChildren: true, // Conditional nodes can have children
           },
         };
+      } else if (nodeType === "databaseSelectNode") {
+        // Create database select node
+        const newNodeId = `database-select-node-${currentEndpointState.nodeCounter}-${timestamp}`;
+        newNode = {
+          id: newNodeId,
+          type: nodeType,
+          position: { x: 0, y: 0 }, // Will be set by layout
+          data: {
+            type: nodeType,
+            name: "Database Select",
+            tableName: "",
+            queryName: "",
+            columns: undefined,
+            conditions: [],
+            limit: undefined,
+            orderBy: undefined,
+            orderDirection: "ASC",
+            description: "Database Select Query",
+            hasChildren: true, // Database select nodes can have children
+          },
+        };
       } else {
         return;
       }

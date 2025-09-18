@@ -93,7 +93,7 @@ const StatusPanelNav = () => {
           {!isCollapsed ? <ChevronDownIcon /> : <ChevronUpIcon />}
         </Button>
       </div>
-      <CustomTabsContent value={"logs"}>
+      <CustomTabsContent value={"tracing"}>
         <FlowExecutionLogs />
       </CustomTabsContent>
       {/* <CustomTabsContent value={"errors"}>
