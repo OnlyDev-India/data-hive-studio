@@ -156,9 +156,9 @@ const ConnectionForm = () => {
     let extraParams = "";
     if (values.connection_string) {
       const parsed = parseConnectionString(values.connection_string);
-      if(parsed?.queryParams) {
-      extraParams = Object.entries(parsed.queryParams)
-        .map(([key, value]) => `${key}=${value}`)
+      if (parsed?.queryParams) {
+        extraParams = Object.entries(parsed.queryParams)
+          .map(([key, value]) => `${key}=${value}`)
           .join("&");
       }
     }
@@ -170,9 +170,13 @@ const ConnectionForm = () => {
       url = `postgresql://${username}:${password}@${host}${portToUse ? `:${portToUse}` : ""}/${database}`;
       if (ssl) {
         // Handle different SSL configurations
-        if (typeof ssl === "object" && ssl.rejectUnauthorized === false && !extraParams) {
+        if (
+          typeof ssl === "object" &&
+          ssl.rejectUnauthorized === false &&
+          !extraParams
+        ) {
           url += "?sslmode=require&channel_binding=require";
-        } else if(!extraParams) {
+        } else if (!extraParams) {
           url += "?sslmode=require";
         }
       }
@@ -183,7 +187,7 @@ const ConnectionForm = () => {
         url += "?ssl=true";
       }
     }
-    if(extraParams) {
+    if (extraParams) {
       url += `?${extraParams}`;
     }
     return url;
@@ -270,10 +274,7 @@ const ConnectionForm = () => {
 
     try {
       let response;
-      let dbConfig: Omit<ConnectionDetailsType, "id">;
-
-      // Build connection config from individual fields
-      dbConfig = {
+      const dbConfig: Omit<ConnectionDetailsType, "id"> = {
         name: values.name,
         connection_type: values.connection_type,
         host: values.host,
@@ -472,9 +473,7 @@ const ConnectionForm = () => {
                     name="host"
                     render={({ field }) => (
                       <FormItem>
-                        <Label className="text-sm font-medium">
-                          Host *
-                        </Label>
+                        <Label className="text-sm font-medium">Host *</Label>
                         <FormControl>
                           <Input
                             placeholder="localhost"
@@ -492,9 +491,7 @@ const ConnectionForm = () => {
                     name="port"
                     render={({ field }) => (
                       <FormItem>
-                        <Label className="text-sm font-medium">
-                          Port
-                        </Label>
+                        <Label className="text-sm font-medium">Port</Label>
                         <FormControl>
                           <Input
                             type="number"

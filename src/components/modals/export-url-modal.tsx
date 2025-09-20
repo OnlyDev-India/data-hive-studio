@@ -1,22 +1,18 @@
 "use client";
 import React from "react";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-    CopyIcon,
-    CheckIcon,
-    DownloadIcon, DatabaseIcon
-} from "lucide-react";
+import { CopyIcon, CheckIcon, DownloadIcon, DatabaseIcon } from "lucide-react";
 import { toast } from "sonner";
 
 interface ExportUrlModalProps {
@@ -36,7 +32,6 @@ const ExportUrlModal: React.FC<ExportUrlModalProps> = ({
   onCopy,
   isCopied,
 }) => {
-
   const getConnectionTypeInfo = (type: string) => {
     switch (type) {
       case "pgSql":
@@ -97,10 +92,10 @@ const ExportUrlModal: React.FC<ExportUrlModalProps> = ({
                 id="exported-url"
                 value={exportedUrl}
                 readOnly
-                className="min-h-[120px] resize-none font-mono text-sm bg-secondary pr-11 border-border"
+                className="min-h-[120px] resize-none border-border bg-secondary pr-11 font-mono text-sm"
                 placeholder="Connection URL will appear here..."
               />
-              <div className="absolute top-2 right-2">
+              <div className="absolute right-2 top-2">
                 <Button
                   size="sm"
                   variant="ghost"
@@ -116,7 +111,8 @@ const ExportUrlModal: React.FC<ExportUrlModalProps> = ({
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Click the copy button or select all text to copy the connection URL
+              Click the copy button or select all text to copy the connection
+              URL
             </p>
           </div>
 
@@ -125,8 +121,9 @@ const ExportUrlModal: React.FC<ExportUrlModalProps> = ({
             <div className="flex items-start gap-2">
               <div className="text-amber-600">⚠️</div>
               <div className="text-xs text-amber-200">
-                <strong>Security Notice:</strong> This URL contains sensitive information including your password. 
-                Keep it secure and don't share it in public repositories or unsecured channels.
+                <strong>Security Notice:</strong>
+                {` This URL contains sensitive information including your password. 
+                Keep it secure and don't share it in public repositories or unsecured channels.`}
               </div>
             </div>
           </div>
@@ -136,10 +133,7 @@ const ExportUrlModal: React.FC<ExportUrlModalProps> = ({
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button
-            onClick={onCopy}
-            className="flex items-center gap-2"
-          >
+          <Button onClick={onCopy} className="flex items-center gap-2">
             {isCopied ? (
               <>
                 <CheckIcon className="h-4 w-4" />

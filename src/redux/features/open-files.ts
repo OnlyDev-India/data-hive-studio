@@ -28,7 +28,7 @@ export const openFileSlice = createSlice({
       action: PayloadAction<Omit<FileType["type"], "table" | "structure">>,
     ) => {
       const fileType = action.payload;
-      let fileId: string = crypto.randomUUID();
+      const fileId: string = crypto.randomUUID();
       let newFile: FileType | null = null;
       switch (fileType) {
         case "file":

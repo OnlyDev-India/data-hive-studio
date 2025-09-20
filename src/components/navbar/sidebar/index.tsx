@@ -33,6 +33,7 @@ import { DatabaseBackupModal } from "@/components/modals/database-backup-modal";
 import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipTrigger } from "@/components/ui/tooltip";
 import { AppDispatch } from "@/redux/store";
+import { Suspense } from "react";
 
 const Sidebar = () => {
   const router = useRouter();
@@ -54,7 +55,9 @@ const Sidebar = () => {
       {pathname === "/" && <ConnectionPageSidebar />}
       {pathname.startsWith("/app") && (
         <>
-          <ConnectedPageSidebar pathname={pathname} />
+          <Suspense fallback={<></>}>
+            <ConnectedPageSidebar pathname={pathname} />
+          </Suspense>
           <DatabaseBackupModal>
             <div className="flex items-center gap-2">
               <Tooltip>
