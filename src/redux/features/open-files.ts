@@ -1,5 +1,5 @@
 import { FileType } from "@/types/file.type";
-import { createSlice } from "@reduxjs/toolkit";
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 const initialState: {
   openFiles: FileType[];
@@ -23,26 +23,53 @@ export const openFileSlice = createSlice({
     setOpenFiles: (state, action) => {
       state.openFiles = action.payload;
     },
-    addOpenFiles: (state) => {
-      const lastOpenFile = state.openFiles[state.openFiles.length - 1];
-      const lastOpenFileId = lastOpenFile ? parseInt(lastOpenFile.id) : 0;
-
-      const fileCount = state.openFiles.findLast(
-        (file: any) => file.type === "file" && file.name.startsWith("Query-"),
-      );
-      let lastNumber = 0;
-      if (fileCount) {
-        lastNumber = parseInt(fileCount.name.split("-")[1]);
+    addOpenFiles: (
+      state,
+      action: PayloadAction<Omit<FileType["type"], "table" | "structure">>,
+    ) => {
+      const fileType = action.payload;
+      const fileId: string = crypto.randomUUID();
+      let newFile: FileType | null = null;
+      switch (fileType) {
+        case "file":
+          const fileCount = state.openFiles.findLast(
+            (file: any) =>
+              file.type === "file" && file.name.startsWith("Query-"),
+          );
+          let lastNumber = 0;
+          if (fileCount) {
+            lastNumber = parseInt(fileCount.name.split("-")[1]);
+          }
+          const name = "Query-" + (lastNumber + 1).toString();
+          newFile = {
+            id: fileId,
+            name,
+            type: "file",
+            code: "",
+          };
+          break;
+        case "newTable":
+          // TODO: add the data also here
+          newFile = {
+            id: crypto.randomUUID(),
+            name: "New Table",
+            type: "newTable",
+          };
+          break;
+        case "visualizer":
+          newFile = {
+            id: crypto.randomUUID(),
+            name: "New Visualizer",
+            type: "visualizer",
+          };
+          break;
+        default:
+          break;
       }
-
-      const newFile: FileType = {
-        id: (lastOpenFileId + 1).toString(),
-        name: "Query-" + (lastNumber + 1).toString(),
-        type: "file",
-        code: "",
-      };
-      state.openFiles.push(newFile);
-      state.currentFile = newFile;
+      if (newFile) {
+        state.openFiles.push(newFile);
+        state.currentFile = newFile;
+      }
     },
     updateFile: (state, action) => {
       const currentFile = state.currentFile;
@@ -137,23 +164,6 @@ export const openFileSlice = createSlice({
       state.openFiles.push(newFile);
       state.currentFile = newFile;
     },
-    addNewTableFile: (state) => {
-      const file = state.openFiles.find(
-        (file: any) => file.type === "newTable",
-      );
-      if (file) {
-        state.currentFile = file;
-        return;
-      }
-      const newFile: FileType = {
-        id: (state.openFiles.length + 1).toString(),
-        name: "New Table",
-        tableName: "qwdfes", //unique just for make this file unique from other tables
-        type: "newTable",
-      };
-      state.openFiles.push(newFile);
-      state.currentFile = newFile;
-    },
     rearrangeOpenFiles: (state, action) => {
       const { dragIndex, dropIndex } = action.payload;
       const dragFile = state.openFiles[dragIndex];
@@ -172,7 +182,6 @@ export const {
   addTableFile,
   addTableStructureFile,
   resetOpenFiles,
-  addNewTableFile,
   rearrangeOpenFiles,
 } = openFileSlice.actions;
 

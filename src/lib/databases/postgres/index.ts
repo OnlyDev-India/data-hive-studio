@@ -1,17 +1,17 @@
-import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
+import { ConnectionDetailsType } from "@/types/db.type";
+import { DatabaseClient } from "@/lib/databases/database-client";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";
 import { Client, Pool, types } from "pg";
 import { SortColumn } from "react-data-grid";
 import { identify } from "sql-query-identifier";
 
-export class PostgresClient implements DatabaseClient {
+export class PostgresClient extends DatabaseClient {
   private pool: Pool | null = null;
-  connectionDetails: ConnectionDetailsType | null;
   currentSchema: string;
 
   constructor() {
-    this.connectionDetails = null;
+    super();
     this.currentSchema = "public";
   }
 
@@ -45,17 +45,12 @@ export class PostgresClient implements DatabaseClient {
       const client = await this.pool.connect();
       client.release();
 
-      this.connectionDetails = connectionDetails;
+      this.setConnectionDetails(connectionDetails);
+      this.isConnected = true;
 
-      return { success: true };
+      return this.createSuccessResponse();
     } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to connect to PostgreSQL",
-      };
+      return this.handleError(error, "connectDb");
     }
   }
 
@@ -63,11 +58,9 @@ export class PostgresClient implements DatabaseClient {
     if (this.pool) {
       await this.pool.end();
       this.pool = null;
+      this.isConnected = false;
+      this.connectionDetails = null;
     }
-  }
-
-  isConnectedToDb() {
-    return this.pool !== null;
   }
 
   async getTablesWithFieldsFromDb(
@@ -612,30 +605,33 @@ export class PostgresClient implements DatabaseClient {
 
       // Process values with default values
       const processedValues = values.map((row) => {
-        const processedRow = { ...row };
-        columns.forEach((col: any) => {
+        const processedRow: { [key: string]: any } = {};
+        columns.forEach((col: any, index: number) => {
           // Skip if the column has a function default value
           if (
             col.column_default &&
             col.column_default.includes("(") &&
             col.column_default.includes(")") &&
-            (processedRow[col.column_name] === null ||
-              processedRow[col.column_name] === undefined ||
-              processedRow[col.column_name] === "" ||
-              processedRow[col.column_name] === col.column_default)
+            (row[index] === null ||
+              row[index] === undefined ||
+              row[index] === "" ||
+              row[index] === col.column_default)
           ) {
             // Remove this field so it uses the default value
-            delete processedRow[col.column_name];
+            // delete processedRow[col.column_name];
+            return;
           }
           // Handle other default values
           else if (
             col.column_default &&
-            (processedRow[col.column_name] === null ||
-              processedRow[col.column_name] === undefined ||
-              processedRow[col.column_name] === "")
+            (row[index] === null ||
+              row[index] === undefined ||
+              row[index] === "")
           ) {
             const defaultValue = col.column_default.replace(/^'|'$/g, "");
             processedRow[col.column_name] = defaultValue;
+          } else {
+            processedRow[col.column_name] = row[index];
           }
         });
         return processedRow;
@@ -758,23 +754,23 @@ export class PostgresClient implements DatabaseClient {
     const primaryKeys: string[] = [];
     const uniqueColumns: string[] = [];
     const notNullColumns: string[] = [];
-    
+
     if (columns) {
       columns.forEach((col: any) => {
         columnTypes.set(col.column_name, col.data_type);
-        
+
         // Track primary keys
-        if (col.key_type === 'PRIMARY KEY') {
+        if (col.key_type === "PRIMARY KEY") {
           primaryKeys.push(col.column_name);
         }
-        
+
         // Track unique constraints
-        if (col.key_type === 'UNIQUE' || col.is_unique) {
+        if (col.key_type === "UNIQUE" || col.is_unique) {
           uniqueColumns.push(col.column_name);
         }
-        
+
         // Track NOT NULL columns for better identification
-        if (col.is_nullable === 'NO') {
+        if (col.is_nullable === "NO") {
           notNullColumns.push(col.column_name);
         }
       });
@@ -788,19 +784,23 @@ export class PostgresClient implements DatabaseClient {
 
       // Find what actually changed by comparing old and new values
       const changedFields: Record<string, any> = {};
-      Object.keys(oldValue).forEach(key => {
+      Object.keys(oldValue).forEach((key) => {
         // If the field exists in newValue and is different, include it
         if (key in newValue && newValue[key] !== oldValue[key]) {
           changedFields[key] = newValue[key];
         }
         // If the field doesn't exist in newValue but existed in oldValue, set to NULL
-        else if (!(key in newValue) && oldValue[key] !== null && oldValue[key] !== undefined) {
+        else if (
+          !(key in newValue) &&
+          oldValue[key] !== null &&
+          oldValue[key] !== undefined
+        ) {
           changedFields[key] = null;
         }
       });
 
       // Also include any new fields that didn't exist in oldValue
-      Object.keys(newValue).forEach(key => {
+      Object.keys(newValue).forEach((key) => {
         if (!(key in oldValue)) {
           changedFields[key] = newValue[key];
         }
@@ -820,16 +820,16 @@ export class PostgresClient implements DatabaseClient {
 
       // Generate WHERE clause using the best available identifier strategy
       let whereFields: string[] = [];
-      
+
       if (primaryKeys.length > 0) {
         // Strategy 1: Use primary keys (most reliable)
         whereFields = primaryKeys;
       } else if (uniqueColumns.length > 0) {
         // Strategy 2: Use unique constraints (good alternative)
         whereFields = uniqueColumns;
-      } else if (oldValue.id && notNullColumns.includes('id')) {
+      } else if (oldValue.id && notNullColumns.includes("id")) {
         // Strategy 3: Use 'id' field if it's NOT NULL (common convention)
-        whereFields = ['id'];
+        whereFields = ["id"];
       } else if (notNullColumns.length > 0) {
         // Strategy 4: Use NOT NULL columns as composite identifier
         // Limit to first 3 NOT NULL columns to avoid overly complex WHERE clauses
@@ -837,46 +837,57 @@ export class PostgresClient implements DatabaseClient {
       } else {
         // Strategy 5: Fallback to all non-null fields (least reliable)
         // This should be avoided when possible as it can cause unintended updates
-        const nonNullFields = Object.keys(oldValue).filter(key => 
-          oldValue[key] !== null && oldValue[key] !== undefined
+        const nonNullFields = Object.keys(oldValue).filter(
+          (key) => oldValue[key] !== null && oldValue[key] !== undefined,
         );
-        
+
         if (nonNullFields.length === 0) {
-          console.error(`No valid identifier fields found for table ${tableName}. Cannot safely generate UPDATE query.`);
+          console.error(
+            `No valid identifier fields found for table ${tableName}. Cannot safely generate UPDATE query.`,
+          );
           return null;
         }
-        
+
         // Limit to first 5 fields to prevent overly complex WHERE clauses
         whereFields = nonNullFields.slice(0, 5);
-        
-        console.warn(`Warning: Table ${tableName} has no primary key or unique constraints. Using fallback identifier strategy with fields: ${whereFields.join(', ')}. This may cause unintended updates.`);
+
+        console.warn(
+          `Warning: Table ${tableName} has no primary key or unique constraints. Using fallback identifier strategy with fields: ${whereFields.join(", ")}. This may cause unintended updates.`,
+        );
       }
 
       // Ensure we have valid values for all WHERE fields
-      const validWhereFields = whereFields.filter(key => 
-        oldValue[key] !== null && oldValue[key] !== undefined
+      const validWhereFields = whereFields.filter(
+        (key) => oldValue[key] !== null && oldValue[key] !== undefined,
       );
-      
+
       if (validWhereFields.length === 0) {
-        console.error(`No valid values found for WHERE fields: ${whereFields.join(', ')}. Cannot safely generate UPDATE query.`);
+        console.error(
+          `No valid values found for WHERE fields: ${whereFields.join(", ")}. Cannot safely generate UPDATE query.`,
+        );
         return null;
       }
-      
+
       // Safety check: Ensure we have enough identifying information
       if (validWhereFields.length < whereFields.length) {
-        console.warn(`Warning: Some WHERE fields have null/undefined values. Using only valid fields: ${validWhereFields.join(', ')}`);
+        console.warn(
+          `Warning: Some WHERE fields have null/undefined values. Using only valid fields: ${validWhereFields.join(", ")}`,
+        );
       }
-      
+
       const whereClauses = validWhereFields
         .map((key) => {
           const columnType = columnTypes.get(key);
           const value = this.formatValue(oldValue[key]);
-          
+
           // Fix date formatting for PostgreSQL
-          if (columnType && (columnType.includes('timestamp') || columnType.includes('date'))) {
+          if (
+            columnType &&
+            (columnType.includes("timestamp") || columnType.includes("date"))
+          ) {
             return `"${key}"::date = ${value}::date`;
           }
-          
+
           return `"${key}" = ${value}`;
         })
         .join(" AND ");
@@ -885,16 +896,18 @@ export class PostgresClient implements DatabaseClient {
         console.error("No valid WHERE conditions found for update");
         return null;
       }
-      
+
       // Additional safety check for tables without proper identifiers
       if (primaryKeys.length === 0 && uniqueColumns.length === 0) {
-        console.warn(`Warning: Table ${tableName} has no primary key or unique constraints. Update query may affect multiple rows: ${whereClauses}`);
+        console.warn(
+          `Warning: Table ${tableName} has no primary key or unique constraints. Update query may affect multiple rows: ${whereClauses}`,
+        );
       }
 
       return `UPDATE ${this.currentSchema}."${tableName}" SET ${setClauses} WHERE ${whereClauses};`;
     });
 
-    return queries.filter(query => query !== null).join("\n");
+    return queries.filter((query) => query !== null).join("\n");
   }
 
   async deleteTableData(tableName: string, data: any[]) {
@@ -964,9 +977,11 @@ export class PostgresClient implements DatabaseClient {
         .map((key) => {
           const columnType = columnTypes.get(key);
           const value = this.formatValue(entry[key]);
-          const keyFormat = columnType && (columnType.includes('timestamp') || columnType.includes('date')) 
-            ? `Date("${key}")` 
-            : `"${key}"`;
+          const keyFormat =
+            columnType &&
+            (columnType.includes("timestamp") || columnType.includes("date"))
+              ? `Date("${key}")`
+              : `"${key}"`;
           return `${keyFormat} = ${value}`;
         })
         .join(" AND ");
@@ -1114,141 +1129,177 @@ export class PostgresClient implements DatabaseClient {
     }
 
     const whereClauses = query
-      .map(({ column, compare, separator, value, isCustomQuery, customQuery }, index) => {
-        if (separator === undefined) {
-          return "";
-        }
+      .map(
+        (
+          { column, compare, separator, value, isCustomQuery, customQuery },
+          index,
+        ) => {
+          if (separator === undefined) {
+            return "";
+          }
 
-        // Handle custom SQL queries first
-        if (isCustomQuery && customQuery && customQuery.trim()) {
+          // Handle custom SQL queries first
+          if (isCustomQuery && customQuery && customQuery.trim()) {
+            const actualSeparator = index === 0 ? "WHERE" : separator;
+            return `${actualSeparator} ${customQuery.trim()}`;
+          }
+
+          // For regular filters, check required fields
+          if (column === undefined || compare === undefined) {
+            return "";
+          }
+
+          // Skip the first WHERE separator and use actual WHERE keyword
           const actualSeparator = index === 0 ? "WHERE" : separator;
-          return `${actualSeparator} ${customQuery.trim()}`;
-        }
+          const quotedColumn = `"${column}"`;
 
-        // For regular filters, check required fields
-        if (column === undefined || compare === undefined) {
-          return "";
-        }
-
-        // Skip the first WHERE separator and use actual WHERE keyword
-        const actualSeparator = index === 0 ? "WHERE" : separator;
-        const quotedColumn = `"${column}"`;
-        
-        // Handle operations that don't need a value
-        if (["is null", "is not null", "is true", "is false", "is empty", "is not empty"].includes(compare)) {
-          switch (compare) {
-            case "is null":
-              return `${actualSeparator} ${quotedColumn} IS NULL`;
-            case "is not null":
-              return `${actualSeparator} ${quotedColumn} IS NOT NULL`;
-            case "is true":
-              return `${actualSeparator} ${quotedColumn} = TRUE`;
-            case "is false":
-              return `${actualSeparator} ${quotedColumn} = FALSE`;
-            case "is empty":
-              return `${actualSeparator} (${quotedColumn} IS NULL OR ${quotedColumn} = '')`;
-            case "is not empty":
-              return `${actualSeparator} (${quotedColumn} IS NOT NULL AND ${quotedColumn} != '')`;
+          // Handle operations that don't need a value
+          if (
+            [
+              "is null",
+              "is not null",
+              "is true",
+              "is false",
+              "is empty",
+              "is not empty",
+            ].includes(compare)
+          ) {
+            switch (compare) {
+              case "is null":
+                return `${actualSeparator} ${quotedColumn} IS NULL`;
+              case "is not null":
+                return `${actualSeparator} ${quotedColumn} IS NOT NULL`;
+              case "is true":
+                return `${actualSeparator} ${quotedColumn} = TRUE`;
+              case "is false":
+                return `${actualSeparator} ${quotedColumn} = FALSE`;
+              case "is empty":
+                return `${actualSeparator} (${quotedColumn} IS NULL OR ${quotedColumn} = '')`;
+              case "is not empty":
+                return `${actualSeparator} (${quotedColumn} IS NOT NULL AND ${quotedColumn} != '')`;
+            }
           }
-        }
 
-        // Handle date-specific operations
-        if (["is today", "is this week", "is this month", "is this year"].includes(compare)) {
-          switch (compare) {
-            case "is today":
-              return `${actualSeparator} DATE(${quotedColumn}) = CURRENT_DATE`;
-            case "is this week":
-              return `${actualSeparator} DATE_TRUNC('week', ${quotedColumn}) = DATE_TRUNC('week', CURRENT_DATE)`;
-            case "is this month":
-              return `${actualSeparator} DATE_TRUNC('month', ${quotedColumn}) = DATE_TRUNC('month', CURRENT_DATE)`;
-            case "is this year":
-              return `${actualSeparator} DATE_TRUNC('year', ${quotedColumn}) = DATE_TRUNC('year', CURRENT_DATE)`;
+          // Handle date-specific operations
+          if (
+            [
+              "is today",
+              "is this week",
+              "is this month",
+              "is this year",
+            ].includes(compare)
+          ) {
+            switch (compare) {
+              case "is today":
+                return `${actualSeparator} DATE(${quotedColumn}) = CURRENT_DATE`;
+              case "is this week":
+                return `${actualSeparator} DATE_TRUNC('week', ${quotedColumn}) = DATE_TRUNC('week', CURRENT_DATE)`;
+              case "is this month":
+                return `${actualSeparator} DATE_TRUNC('month', ${quotedColumn}) = DATE_TRUNC('month', CURRENT_DATE)`;
+              case "is this year":
+                return `${actualSeparator} DATE_TRUNC('year', ${quotedColumn}) = DATE_TRUNC('year', CURRENT_DATE)`;
+            }
           }
-        }
 
-        // Handle BETWEEN operations (need value2)
-        if (["between", "not between"].includes(compare)) {
-          const filterObj = query[index] as FilterType & { value2?: any };
-          if (value === undefined || value === null || value === "" || 
-              filterObj.value2 === undefined || filterObj.value2 === null || filterObj.value2 === "") {
-            console.warn(`Filter values are incomplete for ${compare} operation on column ${column}`);
-            return "";
-          }
-          
-          const formattedValue = this.formatValue(value);
-          const formattedValue2 = this.formatValue(filterObj.value2);
-          
-          switch (compare) {
-            case "between":
-              return `${actualSeparator} ${quotedColumn} BETWEEN ${formattedValue} AND ${formattedValue2}`;
-            case "not between":
-              return `${actualSeparator} ${quotedColumn} NOT BETWEEN ${formattedValue} AND ${formattedValue2}`;
-          }
-        }
+          // Handle BETWEEN operations (need value2)
+          if (["between", "not between"].includes(compare)) {
+            const filterObj = query[index] as FilterType & { value2?: any };
+            if (
+              value === undefined ||
+              value === null ||
+              value === "" ||
+              filterObj.value2 === undefined ||
+              filterObj.value2 === null ||
+              filterObj.value2 === ""
+            ) {
+              console.warn(
+                `Filter values are incomplete for ${compare} operation on column ${column}`,
+              );
+              return "";
+            }
 
-        // Handle IN operations (value should be comma-separated)
-        if (["in", "not in"].includes(compare)) {
+            const formattedValue = this.formatValue(value);
+            const formattedValue2 = this.formatValue(filterObj.value2);
+
+            switch (compare) {
+              case "between":
+                return `${actualSeparator} ${quotedColumn} BETWEEN ${formattedValue} AND ${formattedValue2}`;
+              case "not between":
+                return `${actualSeparator} ${quotedColumn} NOT BETWEEN ${formattedValue} AND ${formattedValue2}`;
+            }
+          }
+
+          // Handle IN operations (value should be comma-separated)
+          if (["in", "not in"].includes(compare)) {
+            if (value === undefined || value === null || value === "") {
+              console.warn(
+                `Filter value is empty for ${compare} operation on column ${column}`,
+              );
+              return "";
+            }
+
+            // Split comma-separated values and format each one
+            const values = value
+              .toString()
+              .split(",")
+              .map((v: string) => this.formatValue(v.trim()));
+            const valuesList = values.join(", ");
+
+            switch (compare) {
+              case "in":
+                return `${actualSeparator} ${quotedColumn} IN (${valuesList})`;
+              case "not in":
+                return `${actualSeparator} ${quotedColumn} NOT IN (${valuesList})`;
+            }
+          }
+
+          // Operations that require a value
           if (value === undefined || value === null || value === "") {
-            console.warn(`Filter value is empty for ${compare} operation on column ${column}`);
+            console.warn(
+              `Filter value is empty for ${compare} operation on column ${column}`,
+            );
             return "";
           }
-          
-          // Split comma-separated values and format each one
-          const values = value.toString().split(',').map((v: string) => this.formatValue(v.trim()));
-          const valuesList = values.join(', ');
-          
+
+          const formattedValue = this.formatValue(value);
+
+          // Handle standard operations
           switch (compare) {
-            case "in":
-              return `${actualSeparator} ${quotedColumn} IN (${valuesList})`;
-            case "not in":
-              return `${actualSeparator} ${quotedColumn} NOT IN (${valuesList})`;
+            case "equals":
+              return `${actualSeparator} ${quotedColumn} = ${formattedValue}`;
+            case "not equals":
+              return `${actualSeparator} ${quotedColumn} != ${formattedValue}`;
+            case "greater than":
+              return `${actualSeparator} ${quotedColumn} > ${formattedValue}`;
+            case "less than":
+              return `${actualSeparator} ${quotedColumn} < ${formattedValue}`;
+            case "greater than or equal":
+              return `${actualSeparator} ${quotedColumn} >= ${formattedValue}`;
+            case "less than or equal":
+              return `${actualSeparator} ${quotedColumn} <= ${formattedValue}`;
+            case "contains":
+              return `${actualSeparator} ${quotedColumn} ILIKE '%' || ${formattedValue} || '%'`;
+            case "not contains":
+              return `${actualSeparator} ${quotedColumn} NOT ILIKE '%' || ${formattedValue} || '%'`;
+            case "starts with":
+              return `${actualSeparator} ${quotedColumn} ILIKE ${formattedValue} || '%'`;
+            case "ends with":
+              return `${actualSeparator} ${quotedColumn} ILIKE '%' || ${formattedValue}`;
+            case "like":
+              return `${actualSeparator} ${quotedColumn} LIKE ${formattedValue}`;
+            case "not like":
+              return `${actualSeparator} ${quotedColumn} NOT LIKE ${formattedValue}`;
+            case "regex":
+              return `${actualSeparator} ${quotedColumn} ~ ${formattedValue}`;
+            case "has length":
+              return `${actualSeparator} LENGTH(${quotedColumn}) = ${formattedValue}`;
+            default:
+              console.warn(`Unsupported filter operation: ${compare}`);
+              return "";
           }
-        }
-
-        // Operations that require a value
-        if (value === undefined || value === null || value === "") {
-          console.warn(`Filter value is empty for ${compare} operation on column ${column}`);
-          return "";
-        }
-
-        const formattedValue = this.formatValue(value);
-        
-        // Handle standard operations
-        switch (compare) {
-          case "equals":
-            return `${actualSeparator} ${quotedColumn} = ${formattedValue}`;
-          case "not equals":
-            return `${actualSeparator} ${quotedColumn} != ${formattedValue}`;
-          case "greater than":
-            return `${actualSeparator} ${quotedColumn} > ${formattedValue}`;
-          case "less than":
-            return `${actualSeparator} ${quotedColumn} < ${formattedValue}`;
-          case "greater than or equal":
-            return `${actualSeparator} ${quotedColumn} >= ${formattedValue}`;
-          case "less than or equal":
-            return `${actualSeparator} ${quotedColumn} <= ${formattedValue}`;
-          case "contains":
-            return `${actualSeparator} ${quotedColumn} ILIKE '%' || ${formattedValue} || '%'`;
-          case "not contains":
-            return `${actualSeparator} ${quotedColumn} NOT ILIKE '%' || ${formattedValue} || '%'`;
-          case "starts with":
-            return `${actualSeparator} ${quotedColumn} ILIKE ${formattedValue} || '%'`;
-          case "ends with":
-            return `${actualSeparator} ${quotedColumn} ILIKE '%' || ${formattedValue}`;
-          case "like":
-            return `${actualSeparator} ${quotedColumn} LIKE ${formattedValue}`;
-          case "not like":
-            return `${actualSeparator} ${quotedColumn} NOT LIKE ${formattedValue}`;
-          case "regex":
-            return `${actualSeparator} ${quotedColumn} ~ ${formattedValue}`;
-          case "has length":
-            return `${actualSeparator} LENGTH(${quotedColumn}) = ${formattedValue}`;
-          default:
-            console.warn(`Unsupported filter operation: ${compare}`);
-            return "";
-        }
-      })
-      .filter(clause => clause !== "")
+        },
+      )
+      .filter((clause) => clause !== "")
       .join(" ");
 
     return whereClauses;

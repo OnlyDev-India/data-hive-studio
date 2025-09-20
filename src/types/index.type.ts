@@ -1,3 +1,5 @@
+import { DatabaseClient } from "./db.type";
+
 declare global {
   interface Window {
     electron: {
@@ -15,6 +17,9 @@ declare global {
       ) => Promise<{ success: boolean; error: string }>;
     };
   }
+  var connectionManagerInstance: {[key: string]: DatabaseClient | null};
 }
+
+global.connectionManagerInstance = {};
 
 export {};

@@ -1,11 +1,13 @@
 import { SortColumn } from "react-data-grid";
 import { Row, TableFormColumn } from "./table.type";
+import { Viewport } from "@xyflow/react";
 
 export type FileType =
   | FileFileType
   | FileTableType
   | FileStructureType
-  | FileNewTableType;
+  | FileNewTableType
+  | VisualizerFileType;
 
 export interface FileFileType {
   id: string;
@@ -53,13 +55,24 @@ export interface FileNewTableType {
   id: string;
   name: string;
   type: "newTable";
-  tableName: string;
   tableForm?: NewTableInitialStateType;
 }
 
 export interface NewTableInitialStateType {
   name: string;
   columns?: TableFormColumn[];
+}
+
+export interface VisualizerFileType {
+  id: string;
+  name: string;
+  type: "visualizer";
+  
+  visualizerData?: {
+    tables: any[];
+    selectedTables?: any[];
+    viewport?: Viewport;
+  };
 }
 
 export interface PaginationType {
@@ -77,4 +90,3 @@ export type RefetchType =
   | "pagination:limit"
   | "pagination:page"
   | null;
-

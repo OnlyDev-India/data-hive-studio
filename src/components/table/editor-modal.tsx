@@ -15,6 +15,7 @@ import {
   CheckCircle,
   Code2,
   ChevronUp,
+  PencilIcon,
 } from "lucide-react";
 import {
   safeParseMongoJSON,
@@ -72,6 +73,7 @@ export const EditorModal = ({
   };
 
   const handleSave = async () => {
+    setIsSaving(true);
     try {
       // Use custom MongoDB parser instead of JSON.parse
       let parsed;
@@ -127,7 +129,7 @@ export const EditorModal = ({
       } else if (response.updateError) {
         toast.error(response.updateError);
       } else {
-        toast.error("Something went wrong");
+        toast.info("No changes made");
       }
 
       setLoading(false);
@@ -139,6 +141,8 @@ export const EditorModal = ({
         isValid: false,
         errorMessage: "Invalid JSON format. Please check your syntax.",
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -296,6 +300,7 @@ export const EditorModal = ({
                   scrollBeyondLastLine: false,
                   fontSize: 14,
                   lineNumbers: "on",
+                  glyphMargin: false,
                   roundedSelection: false,
                   automaticLayout: true,
                   wordWrap: "on",
@@ -305,6 +310,7 @@ export const EditorModal = ({
                   cursorBlinking: "smooth",
                   cursorSmoothCaretAnimation: "on",
                   readOnly: !isEditable,
+                  lineNumbersMinChars: 3,
                 }}
               />
             </div>
@@ -342,23 +348,24 @@ export const EditorModal = ({
                     variant="outline"
                     onClick={handleCancel}
                     disabled={isSaving}
+                    className="h-7 border-border px-2 text-xs"
                   >
                     Cancel
                   </Button>
                   <Button
                     onClick={handleSave}
                     disabled={!jsonValidation.isValid || isSaving}
-                    className="min-w-[120px]"
+                    className="h-7 px-2 text-xs text-white [&_svg]:size-3"
                   >
                     {isSaving ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Saving...
+                        <Loader2 className="animate-spin" />
+                        Updating...
                       </>
                     ) : (
                       <>
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Save Changes
+                        <PencilIcon />
+                        Update
                       </>
                     )}
                   </Button>

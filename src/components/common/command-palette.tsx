@@ -16,10 +16,8 @@ import {
 import {
   addTableFile,
   addTableStructureFile,
-  addOpenFiles,
-  addNewTableFile,
-  setCurrentFile,
-  removeFile,
+  addOpenFiles, setCurrentFile,
+  removeFile
 } from "@/redux/features/open-files";
 import { disconnectDb } from "@/lib/actions/fetch-data";
 import { resetOpenFiles } from "@/redux/features/open-files";
@@ -42,6 +40,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppData } from "@/hooks/useAppData";
+import { AppDispatch } from "@/redux/store";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -56,7 +55,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const { theme, setTheme } = useTheme();
   const isDark = theme === "dark";
   const { tables } = useSelector((state: any) => state.tables);
@@ -127,14 +126,6 @@ export function CommandPalette({
       action: () => router.push("/app/editor"),
       condition: !pathname.includes("/app/editor"),
     },
-    {
-      id: "nav-visualizer",
-      label: "Go to Schema Visualizer",
-      icon: WaypointsIcon,
-      shortcut: "Ctrl+Shift+V",
-      action: () => router.push("/app/visualizer"),
-      condition: !pathname.includes("/app/visualizer"),
-    },
   ];
 
   const allFileCommands = [
@@ -144,7 +135,7 @@ export function CommandPalette({
       icon: PlusIcon,
       shortcut: "Ctrl+N",
       action: () => {
-        dispatch(addOpenFiles());
+        dispatch(addOpenFiles("file"));
         if (!pathname.includes("/app/editor")) {
           router.push("/app/editor");
         }
@@ -157,10 +148,20 @@ export function CommandPalette({
       icon: Grid2X2PlusIcon,
       shortcut: "",
       action: () => {
-        dispatch(addNewTableFile());
+        dispatch(addOpenFiles("newTable"));
         if (!pathname.includes("/app/editor")) {
           router.push("/app/editor");
         }
+      },
+      condition: true,
+    },
+    {
+      id: "file-new-visualizer",
+      label: "New Visualizer",
+      icon: WaypointsIcon,
+      shortcut: "",
+      action: () => {
+        dispatch(addOpenFiles("visualizer"));
       },
       condition: true,
     },

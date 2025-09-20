@@ -1,9 +1,13 @@
 @layer {
   .react-flow {
-    @apply !bg-secondary;
+    @apply rounded-md !border border-border !bg-secondary;
   }
 
-  .react-flow .react-flow__controls button {
-    @apply !border-border !bg-popover;
+  .react-flow .react-flow__controls-button {
+    @apply !border-b-0 !border-r !border-border !bg-secondary;
+  }
+
+  .react-flow .react-flow__controls {
+    @apply !-translate-x-[150%];
   }
 }

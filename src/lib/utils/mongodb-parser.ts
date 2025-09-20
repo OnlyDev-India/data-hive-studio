@@ -65,99 +65,6 @@ export const parseMongoJSON = (text: string): any => {
   }
 };
 
-// /**
-//  * Parse data with MongoDB function call strings
-//  * @param data - Data object with function call strings
-//  * @returns Parsed data with evaluated functions
-//  */
-// export const parseMongoFunctionCalls = (data: any): any => {
-//   try {
-//     // Create context with MongoDB functions
-//     const mongoContext = createMongoContext();
-
-//     // Recursively process the data to evaluate function calls
-//     const processValue = (value: any): any => {
-//       if (typeof value === "string") {
-//         // Check if it's a function call
-//         if (value.startsWith("ObjectId(") && value.endsWith(")")) {
-//           // Extract the ID from ObjectId("...")
-//           const id = value.match(/ObjectId\("([^"]+)"\)/)?.[1];
-//           if (id) {
-//             return ObjectId(id);
-//           }
-//         } else if (value.startsWith("ISODate(") && value.endsWith(")")) {
-//           // Extract the date from ISODate("...")
-//           const date = value.match(/ISODate\("([^"]+)"\)/)?.[1];
-//           if (date) {
-//             return ISODate(date);
-//           }
-//         } else if (value.startsWith("NumberInt(") && value.endsWith(")")) {
-//           // Extract the number from NumberInt(...)
-//           const num = value.match(/NumberInt\(([^)]+)\)/)?.[1];
-//           if (num) {
-//             return NumberInt(num);
-//           }
-//         } else if (value.startsWith("NumberLong(") && value.endsWith(")")) {
-//           // Extract the number from NumberLong(...)
-//           const num = value.match(/NumberLong\(([^)]+)\)/)?.[1];
-//           if (num) {
-//             return NumberLong(num);
-//           }
-//         } else if (value.startsWith("NumberDouble(") && value.endsWith(")")) {
-//           // Extract the number from NumberDouble(...)
-//           const num = value.match(/NumberDouble\(([^)]+)\)/)?.[1];
-//           if (num) {
-//             return NumberDouble(num);
-//           }
-//         } else if (value.startsWith("NumberDecimal(") && value.endsWith(")")) {
-//           // Extract the number from NumberDecimal(...)
-//           const num = value.match(/NumberDecimal\(([^)]+)\)/)?.[1];
-//           if (num) {
-//             return NumberDecimal(num);
-//           }
-//         } else if (value.startsWith("Binary(") && value.endsWith(")")) {
-//           // Extract the argument from Binary(...)
-//           const arg = value.match(/Binary\("([^"]+)"\)/)?.[1];
-//           if (arg) {
-//             return Binary(arg);
-//           }
-//         } else if (value.startsWith("RegExp(") && value.endsWith(")")) {
-//           // Extract the arguments from RegExp(...)
-//           const match = value.match(/RegExp\("([^"]+)",\s*"([^"]*)"\)/);
-//           if (match) {
-//             return RegExp(match[1], match[2]);
-//           } else {
-//             // Try without options
-//             const arg = value.match(/RegExp\("([^"]+)"\)/)?.[1];
-//             if (arg) {
-//               return RegExp(arg);
-//             }
-//           }
-//         }
-//         // If not a function call, return as is
-//         return value;
-//       } else if (Array.isArray(value)) {
-//         return value.map(processValue);
-//       } else if (value && typeof value === "object") {
-//         const processed: any = {};
-//         for (const [key, val] of Object.entries(value)) {
-//           processed[key] = processValue(val);
-//         }
-//         return processed;
-//       }
-//       return value;
-//     };
-
-//     // Process the entire data object
-//     const processed = processValue(data);
-
-//     // Convert the processed result back to regular format
-//     return convertFromMongoFormat(processed);
-//   } catch (error) {
-//     throw new Error(`Failed to parse MongoDB function calls: ${error}`);
-//   }
-// };
-
 /**
  * Safely parse MongoDB JSON with error handling
  * @param text - The text to parse
@@ -198,8 +105,6 @@ export const convertDataToEditor = (
   data: any,
   columnMetadata?: Record<string, string>,
 ): any => {
-  console.log("🔄 convertDataToEditor called with:", { data, columnMetadata });
-
   if (!data || typeof data !== "object") return data;
 
   if (Array.isArray(data)) {
@@ -210,9 +115,6 @@ export const convertDataToEditor = (
 
   for (const [key, value] of Object.entries(data)) {
     const columnType = columnMetadata?.[key]?.toLowerCase() || "";
-    console.log(
-      `🔍 Processing key: "${key}", value: "${value}", columnType: "${columnType}"`,
-    );
 
     // Use column metadata to determine the appropriate MongoDB function
     if (columnType.includes("objectid")) {
@@ -223,7 +125,16 @@ export const convertDataToEditor = (
       columnType.includes("timestamp")
     ) {
       // Convert to ISODate function call string
-      converted[key] = `ISODate("${value}")`;
+      if (typeof value === "string" || value instanceof Date) {
+        const date = value instanceof Date ? value : new Date(value);
+        if (isNaN(date.getTime())) {
+          converted[key] = `ISODate("${value}")`;
+        }
+        converted[key] = `ISODate("${date.toISOString()}")`;
+      } else {
+        converted[key] = `ISODate("${value}")`;
+      }
+      console.log("converted[key]", converted[key]);
     } else if (columnType.includes("int") || columnType.includes("integer")) {
       // Convert to NumberInt function call string
       converted[key] = `NumberInt(${value})`;
@@ -249,14 +160,8 @@ export const convertDataToEditor = (
       // Keep other values as is
       converted[key] = value;
     }
-
-    console.log(
-      `✅ Converted "${key}": ${typeof converted[key]}`,
-      converted[key],
-    );
   }
 
-  console.log("🔄 Final editor format result:", converted);
   return converted;
 };
 
@@ -265,44 +170,47 @@ export const convertDataToEditor = (
  * @param data - Data with function call strings
  * @returns Formatted string with unquoted MongoDB functions
  */
-export const stringifyWithMongoFunctions = (data: any, indent: number = 0): string => {
-  const spaces = '  '.repeat(indent);
-  
-  if (data === null) return 'null';
-  if (data === undefined) return 'undefined';
-  if (typeof data === 'string') {
+export const stringifyWithMongoFunctions = (
+  data: any,
+  indent: number = 0,
+): string => {
+  const spaces = "  ".repeat(indent);
+
+  if (data === null) return "null";
+  if (data === undefined) return "undefined";
+  if (typeof data === "string") {
     // Check if it's a MongoDB function call string
-    if (data.startsWith('ObjectId(') && data.endsWith(')')) {
+    if (data.startsWith("ObjectId(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('ISODate(') && data.endsWith(')')) {
+    } else if (data.startsWith("ISODate(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('NumberInt(') && data.endsWith(')')) {
+    } else if (data.startsWith("NumberInt(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('NumberLong(') && data.endsWith(')')) {
+    } else if (data.startsWith("NumberLong(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('NumberDouble(') && data.endsWith(')')) {
+    } else if (data.startsWith("NumberDouble(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('NumberDecimal(') && data.endsWith(')')) {
+    } else if (data.startsWith("NumberDecimal(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('Binary(') && data.endsWith(')')) {
+    } else if (data.startsWith("Binary(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('RegExp(') && data.endsWith(')')) {
+    } else if (data.startsWith("RegExp(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('Timestamp(') && data.endsWith(')')) {
+    } else if (data.startsWith("Timestamp(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('Code(') && data.endsWith(')')) {
+    } else if (data.startsWith("Code(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
-    } else if (data.startsWith('DBRef(') && data.endsWith(')')) {
+    } else if (data.startsWith("DBRef(") && data.endsWith(")")) {
       // Return as unquoted function call
       return data;
     } else {
@@ -310,26 +218,28 @@ export const stringifyWithMongoFunctions = (data: any, indent: number = 0): stri
       return `"${data}"`;
     }
   }
-  if (typeof data === 'number') return data.toString();
-  if (typeof data === 'boolean') return data.toString();
-  
+  if (typeof data === "number") return data.toString();
+  if (typeof data === "boolean") return data.toString();
+
   if (Array.isArray(data)) {
-    if (data.length === 0) return '[]';
-    const items = data.map(item => stringifyWithMongoFunctions(item, indent + 1));
+    if (data.length === 0) return "[]";
+    const items = data.map((item) =>
+      stringifyWithMongoFunctions(item, indent + 1),
+    );
     return `[\n${spaces}  ${items.join(`,\n${spaces}  `)}\n${spaces}]`;
   }
-  
-  if (typeof data === 'object') {
+
+  if (typeof data === "object") {
     const keys = Object.keys(data);
-    if (keys.length === 0) return '{}';
-    
-    const items = keys.map(key => {
+    if (keys.length === 0) return "{}";
+
+    const items = keys.map((key) => {
       const value = stringifyWithMongoFunctions(data[key], indent + 1);
       return `${spaces}  "${key}": ${value}`;
     });
-    
-    return `{\n${items.join(',\n')}\n${spaces}}`;
+
+    return `{\n${items.join(",\n")}\n${spaces}}`;
   }
-  
+
   return String(data);
 };

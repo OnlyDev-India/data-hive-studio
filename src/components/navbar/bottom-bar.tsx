@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { RootState } from "@/redux/store";
 import { Task, removeTask, clearCompletedTasks } from "@/redux/features/tasks";
@@ -17,11 +17,14 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+// import ConnectionStatus from "../common/connection-status";
+import { usePathname } from "next/navigation";
 
 const statusIcons: any = {
-  pending: <LoaderCircleIcon className="size-3 animate-pulse text-muted-foreground" />,
+  pending: (
+    <LoaderCircleIcon className="size-3 animate-pulse text-muted-foreground" />
+  ),
   running: <LoaderCircleIcon className="size-3 animate-spin text-primary" />,
   completed: <CheckCheckIcon className="size-3 text-green-500" />,
   failed: <AlertTriangleIcon className="size-3 text-red-500" />,
@@ -30,6 +33,8 @@ const statusIcons: any = {
 const BottomBar = () => {
   const tasks = useSelector((state: RootState) => state.tasks.tasks);
   const dispatch = useDispatch();
+  const pathname = usePathname();
+  const isConnectedPage = pathname.startsWith("/app");
 
   const activeTasks = tasks.filter(
     (task: Task) => task.status === "pending" || task.status === "running",
@@ -48,7 +53,11 @@ const BottomBar = () => {
 
   return (
     <div className="flex h-[var(--bottom-nav-height)] items-center justify-between bg-secondary px-4 text-xs">
-      <div />
+      <div>
+        <div className="flex h-full items-center gap-2">
+          {/* {isConnectedPage && <ConnectionStatus />} */}
+        </div>
+      </div>
       <div className="h-full">
         {activeTasks.map((task: Task) => (
           <Button
@@ -72,7 +81,12 @@ const BottomBar = () => {
               variant="ghost"
               className="h-full gap-1 rounded-none p-0 px-2 text-xs font-light hover:bg-popover"
             >
-              <BellIcon className={cn("size-3", completedTasks.length > 0 && "fill-primary stroke-primary")} />
+              <BellIcon
+                className={cn(
+                  "size-3",
+                  completedTasks.length > 0 && "fill-primary stroke-primary",
+                )}
+              />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent

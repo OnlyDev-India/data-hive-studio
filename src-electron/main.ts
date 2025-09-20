@@ -18,6 +18,7 @@ import updatePkg from "electron-updater";
 
 const { autoUpdater } = updatePkg;
 import { parseConnectionString } from "./helpher/connection-details.js";
+import { LocalAppStorePath } from "./config/local-app-store-path.js";
 
 const isDev = process.env.NODE_ENV === "development";
 const appPath = app.getAppPath();
@@ -35,11 +36,11 @@ if (!fs.existsSync(configDirectory)) {
   fs.mkdirSync(configDirectory, { recursive: true });
 }
 
-const connectionsJsonPath = path.join(configDirectory, "connections.json");
+const connectionsJsonPath = path.join(configDirectory);
 
 // create connections.json file if it doesn't exist
-if (!fs.existsSync(connectionsJsonPath)) {
-  fs.writeFileSync(connectionsJsonPath, JSON.stringify([]));
+if (!fs.existsSync(connectionsJsonPath+LocalAppStorePath.connectionsJsonPath)) {
+  fs.writeFileSync(connectionsJsonPath+LocalAppStorePath.connectionsJsonPath, JSON.stringify([]));
 }
 
 process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
@@ -77,9 +78,9 @@ const createWindow = async () => {
   const ses = session.defaultSession;
 
   try {
-    const connectionsData = fs.readFileSync(connectionsJsonPath, "utf-8");
+    const connectionsData = fs.readFileSync(connectionsJsonPath+LocalAppStorePath.connectionsJsonPath, "utf-8");
     const connections = JSON.parse(connectionsData);
-    const currentConnection = connections.find((c: any) => c.is_current);
+    const currentConnection = connections.connections.find((c: any) => c.is_current);
 
     if (currentConnection) {
       // Set cookies that will be accessible by the renderer process
@@ -285,5 +286,5 @@ app.on("window-all-closed", () => app.quit()); // if (process.platform !== 'darw
 app.on(
   "activate",
   () =>
-    BrowserWindow.getAllWindows().length === 0 && !mainWindow && createWindow(),
+    BrowserWindow.getAllWindows().length === 0 && !mainWindow && createWindow()
 );
