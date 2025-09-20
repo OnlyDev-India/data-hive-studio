@@ -1,9 +1,11 @@
 import sqlite3 from "sqlite3";
 import { Database, open } from "sqlite";
-import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
+import { ConnectionDetailsType } from "@/types/db.type";
+import { DatabaseClient } from "@/lib/databases/database-client";
 import { TableForm } from "@/types/table.type";
 
-export class SqliteClient implements DatabaseClient {
+// TODO: Implement all the methods
+export class SqliteClient extends DatabaseClient {
   private db: Database | null = null;
 
   // Destructor to ensure connections are closed when object is garbage collected
@@ -22,12 +24,11 @@ export class SqliteClient implements DatabaseClient {
         filename: connectionDetails.connection_string,
         driver: sqlite3.Database
       });
-      return { success: true };
+      this.setConnectionDetails(connectionDetails);
+      this.isConnected = true;
+      return this.createSuccessResponse();
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to connect to SQLite",
-      };
+      return this.handleError(error, "connectDb");
     }
   }
 
@@ -35,21 +36,17 @@ export class SqliteClient implements DatabaseClient {
     if (this.db) {
       await this.db.close();
       this.db = null;
+      this.isConnected = false;
+      this.connectionDetails = null;
     }
-  }
-
-  isConnectedToDb() {
-    return this.db !== null;
   }
 
   async executeQuery(query: string, params?: any[]) {
     if (!this.db) {
-      return {
-        data: null,
-        message: null,
-        error: "No connection to the database",
-      };
+      return this.handleError("No connection to the database", "executeQuery");
     }
+    this.validateConnection();
+    this.validateQuery(query);
     try {
       const queries = query
         .split(";")

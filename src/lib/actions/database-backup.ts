@@ -1,10 +1,12 @@
 "use server";
 import { ConnectionDetailsType } from "@/types/db.type";
-import { EnhancedConnectionManager } from "@/lib/databases/connection-manager";
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { PostgresBackup } from "@/lib/databases/postgres/backup";
 import { SqliteBackup } from "@/lib/databases/sqlite/backup";
 import { MongoBackup } from "@/lib/databases/mongodb/backup";
+import { cookies } from "next/headers";
+import { handlers } from "../databases/db";
+import { getConnectionDetails } from "./fetch-data";
 
 export interface DatabaseBackupOptions {
   includeData: boolean;
@@ -33,10 +35,32 @@ export interface BackupCommand {
 
 export async function getCurrentConnectionDetails(): Promise<ConnectionDetailsType | null> {
   try {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    return connectionManager.getCurrentConnectionDetails();
+    const cookie = cookies();
+    const connectionDetails = await getConnectionDetails();
+    
+    // If connection details found from connection manager, return them
+    if (connectionDetails) {
+      return connectionDetails;
+    }
+    
+    // Fallback to cookies if connection manager doesn't have details
+    const connectionUrl = cookie.get("currentConnection");
+    
+    if (!connectionUrl?.value) {
+      console.log("No connection details found in connection manager or cookies");
+      return null;
+    }
+    
+    try {
+      const connectionDetailsFromCookie: ConnectionDetailsType = JSON.parse(connectionUrl.value);
+      console.log("Retrieved connection details from cookies");
+      return connectionDetailsFromCookie;
+    } catch (parseError) {
+      // console.error("Failed to parse connection details from cookie:", parseError);
+      return null;
+    }
   } catch (error) {
-    console.error("Failed to get current connection details:", error);
+    // console.error("Failed to get current connection details:", error);
     return null;
   }
 }
@@ -45,8 +69,9 @@ export async function generateDatabaseBackupCommands(
   connectionDetails: ConnectionDetailsType
 ): Promise<BackupCommand[]> {
   try {
-    const connectionManager = EnhancedConnectionManager.getInstance();
-    const connection = connectionManager.getCurrentConnection();
+    const cookie = cookies();
+    const dbType = cookie.get("dbType")?.value as keyof typeof handlers;
+    const connection = await getConnectionDetails();
     
     if (!connection) {
       throw new Error("No active database connection");
@@ -57,8 +82,6 @@ export async function generateDatabaseBackupCommands(
       throw new Error(config.error);
     }
 
-    const dbType = connectionDetails.connection_type;
-    
     switch (dbType) {
       case 'pgSql':
         const postgresBackup = new PostgresBackup(connection);

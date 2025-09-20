@@ -59,26 +59,6 @@ const TableView = ({ dbType }: { dbType: string }) => {
       }
     });
     return result;
-    // return columns
-    //   .filter((col) => !keys.includes(col.column_name))
-    //   .map((col) => {
-    //     return {
-    //     //   key: col.column_name,
-    //     //   name: col.column_name,
-    //     //   data_type: col.data_type,
-    //     //   key_type: col.key_type,
-    //     //   nullable: col.is_nullable === "YES",
-    //     //   default: col.column_default,
-    //     //   maxLength: col.character_maximum_length,
-    //     //   precision: col.numeric_precision,
-    //     //   scale: col.numeric_scale,
-    //     //   foreignTable: col.foreign_table_name,
-    //     //   foreignColumn: col.foreign_column_name,
-    //     //   enum_values: col.enum_values,
-    //     //   is_enum: col.is_enum,
-    //     //   tooltip: `${col.column_name} (${col.data_type})${col.is_nullable === "YES" ? " - Nullable" : ""}${col.column_default ? ` - Default: ${col.column_default}` : ""}${col.foreign_table_name ? ` - References: ${col.foreign_table_name}.${col.foreign_column_name}` : ""}`,
-    //     // };
-    //   });
   };
 
   const processRowData = (rows: any[]) => {

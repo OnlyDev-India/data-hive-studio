@@ -2,6 +2,26 @@ import { Node, NodeProps, Position, Handle } from "@xyflow/react";
 import { KeyIcon, LinkIcon, DatabaseIcon, HashIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Function to generate consistent colors based on table name
+const generateTableColor = (tableName: string) => {
+  // Create a simple hash from the table name
+  let hash = 0;
+  for (let i = 0; i < tableName.length; i++) {
+    const char = tableName.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Use absolute value and modulo to get positive numbers
+  const hue = Math.abs(hash) % 360;
+  
+  // Generate different saturation and lightness based on hash
+  const saturation = 60 + (Math.abs(hash) % 30); // 60-90%
+  const lightness = 45 + (Math.abs(hash >> 8) % 20); // 45-65%
+  
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+};
+
 type DatabaseSchemaNode = Node<{
   label: string;
   schema: { 
@@ -18,6 +38,8 @@ export function DatabaseSchemaNode({
   data,
   selected,
 }: NodeProps<DatabaseSchemaNode>) {
+  const headerColor = generateTableColor(data.label);
+  
   return (
     <div 
       className={cn(
@@ -29,19 +51,22 @@ export function DatabaseSchemaNode({
         selected && "ring-2 ring-ring ring-offset-2"
       )}
     >
-      {/* Clean Header */}
-      <div className="bg-primary px-4 py-3 rounded-t-xl">
+      {/* Clean Header with dynamic color */}
+      <div 
+        className="px-4 py-3 rounded-t-xl text-white"
+        style={{ backgroundColor: headerColor }}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-primary-foreground/20 rounded-lg">
-              <DatabaseIcon className="h-4 w-4 text-primary-foreground" />
+            <div className="p-1.5 bg-white/20 rounded-lg">
+              <DatabaseIcon className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-primary-foreground">{data.label}</h3>
-              <p className="text-xs text-primary-foreground/80">Table</p>
+              <h3 className="text-base font-semibold text-white">{data.label}</h3>
+              <p className="text-xs text-white/80">Table</p>
             </div>
           </div>
-          <div className="text-xs text-primary-foreground/80 bg-primary-foreground/10 px-2 py-1 rounded-md">
+          <div className="text-xs text-white/80 bg-white/10 px-2 py-1 rounded-md">
             {data.schema.length} fields
           </div>
         </div>
@@ -100,14 +125,14 @@ export function DatabaseSchemaNode({
                     </span>
                   )}
                 </div>
-                {entry.isForeign && entry.foreignTable && (
+                {/* {entry.isForeign && entry.foreignTable && (
                   <div className="flex items-center gap-1 mt-0.5">
                     <ChevronRightIcon className="h-3 w-3 text-muted-foreground" />
                     <span className="text-xs text-muted-foreground">
                       → {entry.foreignTable}.{entry.foreignColumn}
                     </span>
                   </div>
-                )}
+                )} */}
               </div>
             </div>
             
@@ -123,28 +148,8 @@ export function DatabaseSchemaNode({
       
       {/* Connection Handles */}
       {data.schema.map((entry, index) => {
-        // Calculate position based on actual field layout
-        // Header: ~60px, each field: ~52px (as adjusted), spacing: ~4px
-        const headerHeight = 60;
-        const fieldHeight = 52;
-        const fieldSpacing = 4;
-        
-        // Adjust for foreign key fields that have additional content (reference text)
-        let adjustedFieldHeight = fieldHeight;
-        if (entry.isForeign && entry.foreignTable) {
-          adjustedFieldHeight = 65; // Foreign keys with references are taller
-        }
-        
-        // Calculate cumulative height up to this field
-        let cumulativeHeight = headerHeight;
-        for (let i = 0; i < index; i++) {
-          const prevEntry = data.schema[i];
-          const prevFieldHeight = (prevEntry.isForeign && prevEntry.foreignTable) ? 65 : fieldHeight;
-          cumulativeHeight += prevFieldHeight + fieldSpacing;
-        }
-        
-        // Position handle at the center of the current field
-        const fieldTop = cumulativeHeight + (adjustedFieldHeight / 2);
+        const margin = entry.isForeign?70:50;
+        const fieldTop = 100+(index*50);
         
         return (
           <Handle

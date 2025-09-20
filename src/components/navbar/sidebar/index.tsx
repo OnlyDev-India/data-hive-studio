@@ -32,10 +32,12 @@ import { useAppData } from "@/hooks/useAppData";
 import { DatabaseBackupModal } from "@/components/modals/database-backup-modal";
 import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipTrigger } from "@/components/ui/tooltip";
+import { AppDispatch } from "@/redux/store";
+import { Suspense } from "react";
 
 const Sidebar = () => {
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const { connectionPath } = useAppData();
@@ -52,26 +54,30 @@ const Sidebar = () => {
     <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">
       {pathname === "/" && <ConnectionPageSidebar />}
       {pathname.startsWith("/app") && (
-        <ConnectedPageSidebar pathname={pathname} />
+        <>
+          <Suspense fallback={<></>}>
+            <ConnectedPageSidebar pathname={pathname} />
+          </Suspense>
+          <DatabaseBackupModal>
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={"ghost"}
+                    size={"icon"}
+                    className="hover:bg-secondary"
+                  >
+                    <Database size={12} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Database Backup</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </DatabaseBackupModal>
+        </>
       )}
-      <DatabaseBackupModal>
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={"ghost"}
-                size={"icon"}
-                className="hover:bg-secondary"
-              >
-                <Database size={12} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Database Backup</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </DatabaseBackupModal>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

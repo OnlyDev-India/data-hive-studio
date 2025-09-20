@@ -22,9 +22,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
 import ShortcutGrid from "@/components/common/shortcut-grids";
 import { Editor } from "@monaco-editor/react";
-import { getSchemas, getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
+import {
+  getSchemas,
+  getTablesWithFieldsFromDb,
+} from "@/lib/actions/fetch-data";
 import { pgSqlLanguageServer } from "@/lib/editor-language-servers/pgsql";
 import { mongodbLanguageServer } from "@/lib/editor-language-servers/mongodb";
+import { editorLanguages } from "@/types/db.type";
 
 interface CodeEditorProps {
   handleRunQuery: (editor: any) => Promise<void>;
@@ -98,9 +102,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
       if (response?.schemas) {
         schemas = response?.schemas;
         schemas.forEach(async (schema: any) => {
-          const response = await getTablesWithFieldsFromDb(
-            schema.schema_name,
-          );
+          const response = await getTablesWithFieldsFromDb(schema.schema_name);
           schemasWithTables[schema.schema_name] = response?.tables;
         });
       }
@@ -125,7 +127,10 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
 
   return (
     <div className="h-full w-full">
-      <ResizablePanelGroup direction="vertical">
+      <ResizablePanelGroup
+        direction="vertical"
+        autoSaveId={"editor-query-output"}
+      >
         <ResizablePanel
           defaultSize={50}
           minSize={10}
@@ -133,20 +138,31 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
         >
           <Editor
             height={"100%"}
-            language={dbType.toLowerCase()}
+            language={editorLanguages[dbType as keyof typeof editorLanguages]}
             value={currentFile?.code || ""}
             onMount={handleEditor}
             onChange={updateCode}
             path={currentFile?.id}
             theme={resolvedTheme === "dark" ? "github-dark" : "github-light"}
             options={{
-              minimap: {
-                enabled: false,
-              },
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              fontSize: 14,
+              lineNumbers: "on",
+              glyphMargin: false,
+              roundedSelection: false,
+              automaticLayout: true,
+              wordWrap: "on",
+              folding: true,
+              showFoldingControls: "always",
+              renderLineHighlight: "all",
+              cursorBlinking: "smooth",
+              cursorSmoothCaretAnimation: "on",
+              lineNumbersMinChars: 3,
             }}
           />
         </ResizablePanel>
-        <ResizableHandle className="!h-2 bg-background" />
+        <ResizableHandle className="!h-1 bg-background" />
         <ResizablePanel defaultSize={50} minSize={10} className="bg-background">
           <div className="h-[calc(100%-2.5rem)] w-full rounded-lg bg-secondary">
             <div className="mx-2 flex items-center justify-between border-b-2 border-border px-2 py-1">
@@ -168,10 +184,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
             </div>
             {executingQuery ? (
               <div className="flex h-full items-center justify-center overflow-auto p-4">
-                <QueryExecutingAnimation 
-                  className="h-full"
-                  size={64}
-                />
+                <QueryExecutingAnimation className="h-full" size={64} />
               </div>
             ) : columns.length > 0 ? (
               <div className="h-[calc(100%-2.7rem)]">

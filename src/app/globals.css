@@ -10,6 +10,10 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+  
+  .bg-dropdown-style {
+    @apply bg-[radial-gradient(circle_at_top_left,#21b45910_0%,transparent_50%),radial-gradient(circle_at_bottom_right,#21b45910_0%,transparent_50%)] backdrop-blur-xl bg-background/20 border-border/50;
+  }
 }
 
 @layer base {
@@ -106,12 +110,12 @@ body {
   
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
-    border-radius: 4px;
+    /* border-radius: 4px; */
   }
   
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: hsl(var(--muted-foreground) / 0.3);
-    border-radius: 4px;
+    /* border-radius: 2px; */
     transition: background 0.2s ease;
   }
   

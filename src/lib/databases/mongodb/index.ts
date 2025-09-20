@@ -1,23 +1,34 @@
-import { ConnectionDetailsType, DatabaseClient } from "@/types/db.type";
+import { ConnectionDetailsType } from "@/types/db.type";
+import { DatabaseClient } from "@/lib/databases/database-client";
 import { PaginationType } from "@/types/file.type";
 import { FilterType, TableForm } from "@/types/table.type";
-import { CollectionInfo, MongoClient, ObjectId } from "mongodb";
+import {
+  Binary,
+  Code,
+  CollectionInfo,
+  Db,
+  DBRef,
+  MaxKey,
+  MinKey,
+  MongoClient,
+  ObjectId,
+  Timestamp,
+} from "mongodb";
 import { SortColumn } from "react-data-grid";
-import { parseMongoDBSyntax } from "../../utils";
 
-export class MongoDbClient implements DatabaseClient {
+export class MongoDbClient extends DatabaseClient {
   private client: MongoClient | null = null;
-  private db: any = null;
+  private db: Db | null = null;
 
   // Destructor to ensure connections are closed when object is garbage collected
   public destroy() {
-    console.log('🔌 MongoDB client destroy() called');
+    console.log("🔌 MongoDB client destroy() called");
     this.disconnect();
   }
 
   // Finalizer for serverless environments
   public finalize() {
-    console.log('🔌 MongoDB client finalize() called');
+    console.log("🔌 MongoDB client finalize() called");
     this.disconnect();
   }
 
@@ -25,25 +36,27 @@ export class MongoDbClient implements DatabaseClient {
   async disconnect() {
     if (this.client) {
       try {
-        console.log('🔌 Closing MongoDB connection...');
-        
+        console.log("🔌 Closing MongoDB connection...");
+
         // Close the database connection
         if (this.db) {
           this.db = null;
         }
-        
+
         // Close the client connection
         await this.client.close();
-        console.log('✅ MongoDB connection closed successfully');
-        
+        console.log("✅ MongoDB connection closed successfully");
+
         // Force garbage collection hint
         this.client = null;
-        
       } catch (error) {
-        console.warn('⚠️ Error closing MongoDB connection:', error);
+        console.log("⚠️ Error closing MongoDB connection:", error);
       } finally {
         this.client = null;
         this.db = null;
+        // Update connection state
+        this.isConnected = false;
+        this.isConnecting = false;
       }
     }
   }
@@ -315,9 +328,19 @@ export class MongoDbClient implements DatabaseClient {
     connectionDetails: ConnectionDetailsType;
   }) {
     try {
+      // Close existing connection if it exists
+      if (this.client) {
+        console.log(
+          "🔌 Closing existing MongoDB connection before creating new one...",
+        );
+        await this.disconnect();
+      }
+
       const uri = connectionDetails.connection_string;
 
-      this.client = new MongoClient(uri);
+      this.client = new MongoClient(uri, {
+        maxIdleTimeMS: 15 * 60 * 1000, // 15 minutes
+      });
       await this.client.connect();
 
       // Try to get database from connection details or URI
@@ -346,8 +369,26 @@ export class MongoDbClient implements DatabaseClient {
         // Connection test failed, but continue anyway
       }
 
+      // Update connection state
+      this.isConnected = true;
+      this.isConnecting = false;
+
       return { success: true };
     } catch (error) {
+      // Clean up on error
+      if (this.client) {
+        try {
+          await this.client.close();
+        } catch (closeError) {
+          console.error(
+            "Error closing client after connection failure:",
+            closeError,
+          );
+        }
+        this.client = null;
+        this.db = null;
+      }
+
       return {
         success: false,
         error:
@@ -358,11 +399,58 @@ export class MongoDbClient implements DatabaseClient {
     }
   }
 
-
-
   isConnectedToDb() {
-    return !!this.db;
+    return !!this.db && !!this.client && this.isConnectionValid();
   }
+
+  createMongoContext = () => {
+    return {
+      ObjectId: (id?: string) => new ObjectId(id),
+      Binary: (data: any, subType?: number) => new Binary(data),
+      Timestamp: (seconds?: number, increment?: number) =>
+        new Timestamp({
+          t: seconds || Math.floor(Date.now() / 1000),
+          i: increment || 1,
+        }),
+      RegExp: (pattern: string, options?: string) =>
+        new RegExp(pattern, options),
+      MinKey: () => new MinKey(),
+      MaxKey: () => new MaxKey(),
+      Code: (code: string, scope?: any) => new Code(code, scope),
+      DBRef: (collection: string, id: any, database?: string) =>
+        new DBRef(collection, id, database),
+    };
+  };
+
+  parseMongoJSON = (text: string): any => {
+    try {
+      // Create context with MongoDB functions
+      const mongoContext = this.createMongoContext();
+
+      // Create a function that evaluates the text with MongoDB functions available
+      const parseFunction = new Function(
+        ...Object.keys(mongoContext),
+        `return ${text};`,
+      );
+
+      // Execute the function with MongoDB functions as parameters
+      const result = parseFunction(...Object.values(mongoContext));
+
+      // Return the raw MongoDB objects, don't convert them yet
+      return result;
+    } catch (error) {
+      throw new Error(`Failed to parse MongoDB JSON: ${error}`);
+    }
+  };
+
+  safeParseMongoJSON = (text: string) => {
+    try {
+      const data = this.parseMongoJSON(text);
+      return data;
+    } catch (error) {
+      return {};
+    }
+  };
 
   async executeQuery(query: string) {
     if (!this.db) {
@@ -380,26 +468,23 @@ export class MongoDbClient implements DatabaseClient {
       const cleanQuery = query.trim();
 
       if (cleanQuery.startsWith("db.")) {
-        const command = cleanQuery.replace("db.", ""); // Remove 'db.'
-        const [collectionName, operation] = command.split(".", 2);
+        // Parse the new format: db.collection("collectionName").operation(args)
+        // Updated regex to handle multiline queries and both quoted/unquoted property names
+        const collectionMatch = cleanQuery.match(
+          /db\.collection\s*\(\s*["']([^"']+)["']\s*\)\s*\.(\w+)\s*\(([\s\S]*)\)/,
+        );
 
-        if (!collectionName || !operation) {
+        if (!collectionMatch) {
           throw new Error(
-            "Invalid command format. Expected: db.collection.operation()",
+            "Invalid command format. Expected: db.collection('collectionName').operation(args)",
           );
         }
+
+        const collectionName = collectionMatch[1];
+        const operationName = collectionMatch[2];
+        const operationArgs = collectionMatch[3];
 
         const collection: any = this.db.collection(collectionName);
-        const operationMatch = operation.match(/(\w+)\((.*)\)/);
-
-        if (!operationMatch) {
-          throw new Error(
-            "Unsupported command format. Expected: operation(arguments)",
-          );
-        }
-
-        const operationName = operationMatch[1];
-        const operationArgs = operationMatch[2];
 
         let parsedArgs: any[] = [];
         if (operationArgs.trim()) {
@@ -411,7 +496,7 @@ export class MongoDbClient implements DatabaseClient {
             ) {
               // Array format - try flexible parsing first, then strict JSON
               try {
-                parsedArgs = parseMongoDBSyntax(operationArgs);
+                parsedArgs = this.safeParseMongoJSON(operationArgs);
               } catch {
                 parsedArgs = JSON.parse(operationArgs);
               }
@@ -421,7 +506,8 @@ export class MongoDbClient implements DatabaseClient {
             ) {
               // Single object format - try flexible parsing first, then strict JSON
               try {
-                parsedArgs = [parseMongoDBSyntax(operationArgs)];
+                const safeParse = this.safeParseMongoJSON(operationArgs);
+                parsedArgs = [safeParse];
               } catch {
                 parsedArgs = [JSON.parse(operationArgs)];
               }
@@ -699,7 +785,9 @@ export class MongoDbClient implements DatabaseClient {
           );
         }
       } else {
-        throw new Error("Invalid MongoDB query. Query must start with 'db.'");
+        throw new Error(
+          "Invalid MongoDB query. Query must start with 'db.' and use format: db.collection('collectionName').operation(args)",
+        );
       }
     } catch (error: any) {
       return {
@@ -757,10 +845,35 @@ export class MongoDbClient implements DatabaseClient {
         return { tables: [], error: "Invalid response from database" };
       }
 
-      const collections = result.map((collection) => ({
-        table_name: collection.name,
-        fields: [],
-      }));
+      // For each collection, get the field information to match PostgreSQL structure
+      const collections = await Promise.all(
+        result.map(async (collection) => {
+          try {
+            // Get column information for this collection
+            const { columns } = await this.getTableColumns(collection.name);
+            
+            // Transform columns to match PostgreSQL field structure
+            const fields = columns ? columns.map((col: any) => ({
+              name: col.column_name,
+              type: col.data_type,
+              key_type: col.column_name === '_id' ? 'PRIMARY' : null,
+              foreign_table_name: null,
+              foreign_column_name: null,
+            })) : [];
+
+            return {
+              table_name: collection.name,
+              fields,
+            };
+          } catch (error) {
+            // If we can't get columns, return empty fields array
+            return {
+              table_name: collection.name,
+              fields: [],
+            };
+          }
+        })
+      );
 
       return { tables: collections, error: null };
     } catch (error: any) {
@@ -864,7 +977,7 @@ export class MongoDbClient implements DatabaseClient {
         // Extract sortBy from the first filter if it exists
         if (filters[0]?.sortBy && filters[0].sortBy.trim()) {
           try {
-            customSortBy = parseMongoDBSyntax(filters[0].sortBy.trim());
+            customSortBy = this.safeParseMongoJSON(filters[0].sortBy.trim());
           } catch (error) {
             // Invalid sortBy format, continue with empty sort
           }
@@ -885,7 +998,7 @@ export class MongoDbClient implements DatabaseClient {
         ) {
           try {
             // Use custom query directly
-            filterQuery = parseMongoDBSyntax(
+            filterQuery = this.safeParseMongoJSON(
               customQueryFilter.customQuery.trim(),
             );
           } catch (error) {
@@ -1057,10 +1170,50 @@ export class MongoDbClient implements DatabaseClient {
             );
 
           if (mongoFilters.length > 0) {
-            filterQuery =
-              mongoFilters.length === 1
-                ? mongoFilters[0]
-                : { $and: mongoFilters };
+            if (mongoFilters.length === 1) {
+              filterQuery = mongoFilters[0];
+            } else {
+              // Group filters by separator logic
+              const groupedFilters = [];
+              let currentGroup = [];
+
+              for (let i = 0; i < filters.length; i++) {
+                const filter = filters[i];
+                const mongoFilter = mongoFilters[i];
+
+                if (!mongoFilter) continue;
+
+                // If this is the first filter or separator is WHERE, start a new group
+                if (i === 0 || filter.separator === "WHERE") {
+                  if (currentGroup.length > 0) {
+                    groupedFilters.push(currentGroup);
+                  }
+                  currentGroup = [mongoFilter];
+                } else if (filter.separator === "OR") {
+                  // For OR, add to current group
+                  currentGroup.push(mongoFilter);
+                } else {
+                  // For AND (default), add to current group
+                  currentGroup.push(mongoFilter);
+                }
+              }
+
+              // Add the last group
+              if (currentGroup.length > 0) {
+                groupedFilters.push(currentGroup);
+              }
+
+              // Combine groups with AND, and filters within each group with OR
+              if (groupedFilters.length === 1) {
+                const group = groupedFilters[0];
+                filterQuery = group.length === 1 ? group[0] : { $or: group };
+              } else {
+                const combinedGroups = groupedFilters.map((group) =>
+                  group.length === 1 ? group[0] : { $or: group },
+                );
+                filterQuery = { $and: combinedGroups };
+              }
+            }
           } else {
             // If no valid filters but we have sortBy, use empty filter to get all documents
             filterQuery = {};
@@ -1131,7 +1284,8 @@ export class MongoDbClient implements DatabaseClient {
 
     try {
       // Get collection schema to validate data types
-      const { columns: schemaColumns, error: schemaError } = await this.getTableColumns(tableName);
+      const { columns: schemaColumns, error: schemaError } =
+        await this.getTableColumns(tableName);
       if (schemaError) {
         return {
           data: null,
@@ -1149,8 +1303,15 @@ export class MongoDbClient implements DatabaseClient {
         });
       }
 
+      const parsedData = data.map((item) => ({
+        oldValue: this.safeParseMongoJSON(item.oldValue.toString()),
+        newValue: this.safeParseMongoJSON(item.newValue.toString()),
+      }));
+
+      console.log("parsedData", parsedData);
+
       let totalUpdated = 0;
-      for (const { oldValue, newValue } of data) {
+      for (const { oldValue, newValue } of parsedData) {
         // For MongoDB, we need to use the _id field for reliable updates
         if (!oldValue._id) {
           continue;
@@ -1178,7 +1339,11 @@ export class MongoDbClient implements DatabaseClient {
             const expectedType = fieldTypeMap.get(key);
             if (expectedType) {
               try {
-                updateDoc[key] = this.convertToMongoDBType(newValue[key], expectedType, key);
+                updateDoc[key] = this.convertToMongoDBType(
+                  newValue[key],
+                  expectedType,
+                  key,
+                );
               } catch (typeError: any) {
                 throw new Error(`Field '${key}': ${typeError.message}`);
               }
@@ -1254,89 +1419,115 @@ export class MongoDbClient implements DatabaseClient {
    * @returns The converted value in the appropriate MongoDB type
    * @throws Error if the value cannot be converted to the expected type
    */
-  private convertToMongoDBType(value: any, expectedType: string, fieldName: string): any {
+  private convertToMongoDBType(
+    value: any,
+    expectedType: string,
+    fieldName: string,
+  ): any {
     const type = expectedType.toLowerCase();
-    
+
     try {
       switch (type) {
-        case 'objectid':
-        case 'object id':
-          if (typeof value === 'string') {
+        case "objectid":
+        case "object id":
+          if (typeof value === "string") {
             if (/^[0-9a-fA-F]{24}$/.test(value)) {
               return ObjectId.createFromHexString(value);
             } else {
-              throw new Error(`Invalid ObjectId format: '${value}'. ObjectId must be a 24-character hex string.`);
+              throw new Error(
+                `Invalid ObjectId format: '${value}'. ObjectId must be a 24-character hex string.`,
+              );
             }
           } else if (value instanceof ObjectId) {
             return value;
           } else {
-            throw new Error(`Cannot convert ${typeof value} '${value}' to ObjectId. Expected string or ObjectId.`);
+            throw new Error(
+              `Cannot convert ${typeof value} '${value}' to ObjectId. Expected string or ObjectId.`,
+            );
           }
 
-        case 'date':
-        case 'datetime':
-        case 'timestamp':
-          if (typeof value === 'string') {
+        case "date":
+        case "datetime":
+        case "timestamp":
+          if (typeof value === "string") {
             const date = new Date(value);
             if (isNaN(date.getTime())) {
-              throw new Error(`Invalid date format: '${value}'. Expected ISO date string (e.g., '2024-01-01T00:00:00.000Z').`);
+              throw new Error(
+                `Invalid date format: '${value}'. Expected ISO date string (e.g., '2024-01-01T00:00:00.000Z').`,
+              );
             }
             return date;
           } else if (value instanceof Date) {
             return value;
           } else {
-            throw new Error(`Cannot convert ${typeof value} '${value}' to Date. Expected string or Date.`);
+            throw new Error(
+              `Cannot convert ${typeof value} '${value}' to Date. Expected string or Date.`,
+            );
           }
 
-        case 'number':
-        case 'int':
-        case 'integer':
-        case 'long':
-        case 'double':
-        case 'decimal':
-          if (typeof value === 'number') {
+        case "number":
+        case "int":
+        case "integer":
+        case "long":
+        case "double":
+        case "decimal":
+          if (typeof value === "number") {
             return value;
-          } else if (typeof value === 'string') {
+          } else if (typeof value === "string") {
             const num = Number(value);
             if (isNaN(num)) {
               throw new Error(`Cannot convert string '${value}' to number.`);
             }
             return num;
           } else {
-            throw new Error(`Cannot convert ${typeof value} '${value}' to number. Expected number or numeric string.`);
+            throw new Error(
+              `Cannot convert ${typeof value} '${value}' to number. Expected number or numeric string.`,
+            );
           }
 
-        case 'boolean':
-        case 'bool':
-          if (typeof value === 'boolean') {
+        case "boolean":
+        case "bool":
+          if (typeof value === "boolean") {
             return value;
-          } else if (typeof value === 'string') {
+          } else if (typeof value === "string") {
             const lowerValue = value.toLowerCase();
-            if (lowerValue === 'true') return true;
-            if (lowerValue === 'false') return false;
-            throw new Error(`Cannot convert string '${value}' to boolean. Expected 'true' or 'false'.`);
+            if (lowerValue === "true") return true;
+            if (lowerValue === "false") return false;
+            throw new Error(
+              `Cannot convert string '${value}' to boolean. Expected 'true' or 'false'.`,
+            );
           } else {
-            throw new Error(`Cannot convert ${typeof value} '${value}' to boolean. Expected boolean or string 'true'/'false'.`);
+            throw new Error(
+              `Cannot convert ${typeof value} '${value}' to boolean. Expected boolean or string 'true'/'false'.`,
+            );
           }
 
-        case 'string':
-        case 'varchar':
-        case 'text':
-        case 'char':
+        case "string":
+        case "varchar":
+        case "text":
+        case "char":
           return String(value);
 
-        case 'array':
+        case "array":
           if (Array.isArray(value)) {
             return value;
           } else {
-            throw new Error(`Cannot convert ${typeof value} '${value}' to array. Expected array.`);
+            throw new Error(
+              `Cannot convert ${typeof value} '${value}' to array. Expected array.`,
+            );
           }
 
-        case 'object':
-          if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        case "object":
+          if (
+            typeof value === "object" &&
+            value !== null &&
+            !Array.isArray(value)
+          ) {
             return value;
           } else {
-            throw new Error(`Cannot convert ${typeof value} '${value}' to object. Expected object.`);
+            throw new Error(
+              `Cannot convert ${typeof value} '${value}' to object. Expected object.`,
+            );
           }
 
         default:
@@ -1345,7 +1536,9 @@ export class MongoDbClient implements DatabaseClient {
       }
     } catch (error: any) {
       // Re-throw with more context
-      throw new Error(`Type conversion failed for field '${fieldName}': ${error.message}`);
+      throw new Error(
+        `Type conversion failed for field '${fieldName}': ${error.message}`,
+      );
     }
   }
 

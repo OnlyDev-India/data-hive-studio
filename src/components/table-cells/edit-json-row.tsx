@@ -55,7 +55,7 @@ const EditJsonRow = ({ data, index }: any) => {
     setLoading(false);
   }, [open]);
 
-  const handleEditor = async (editor: any, monaco: Monaco) => {
+  const handleEditor = async (editor: any, monaco: any) => {
     monaco.editor.defineTheme("github-dark", GithubDark);
     monaco.editor.defineTheme("github-light", GithubLight);
     monaco.editor.setTheme(

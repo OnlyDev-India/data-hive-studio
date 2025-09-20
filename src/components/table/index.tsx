@@ -60,6 +60,7 @@ interface TableProps {
 // Helper function to format NoSQL values for display
 const formatNoSqlValue = (value: any): string => {
   if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return `[${value.length} items]`;
   if (typeof value === "object") return JSON.stringify(value);
   if (typeof value === "boolean") return String(value);
@@ -252,7 +253,8 @@ const Table = ({
             const isObjectValue =
               typeof cellValue === "object" &&
               cellValue !== null &&
-              !Array.isArray(cellValue);
+              !Array.isArray(cellValue) &&
+              !(cellValue instanceof Date);
 
             return (
               <EditorModal

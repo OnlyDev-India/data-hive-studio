@@ -1,6 +1,4 @@
-import { BSONType } from "mongodb";
 import sqlite3 from "sqlite3";
-import { TableForm } from "./table.type";
 
 export interface DBType extends sqlite3.Database {}
 
@@ -9,7 +7,7 @@ export interface ConnectionsType {
   name: string;
   connection_type: string;
   host: string;
-  port: number;
+  port?: number;
   username: string;
   password: string;
   connection_string: string;
@@ -20,30 +18,16 @@ export interface ConnectionsType {
   is_current?: boolean;
 }
 
+export interface connectionsStoreType {
+  connections: ConnectionsType[];
+}
+
 export interface ConnectionDetailsType extends ConnectionsType {
   id: string;
 }
 
-export interface DatabaseClient {
-  connectDb: (params: { connectionDetails: ConnectionDetailsType }) => Promise<{ success: boolean; error?: string }>;
-  disconnect: () => Promise<void>;
-  isConnectedToDb: () => boolean;
-  executeQuery: (query: string) => Promise<any>;
-  testConnection: (params: { connectionDetails: ConnectionDetailsType }) => Promise<{ success: boolean; error?: string }>;
-  getTablesWithFieldsFromDb: (currentSchema: string, isUpdateSchema?: boolean) => Promise<any>;
-  getDatabases: () => Promise<any>;
-  getSchemas: () => Promise<any>;
-  getTableColumns: (tableName: string) => Promise<any>;
-  getTablesData: (tableName: string, options?: any) => Promise<any>;
-  getTableRelations: (tableName: string) => Promise<any>;
-  dropTable: (tableName: string) => Promise<any>;
-  updateTable: (tableName: string, data: Array<{ oldValue: Record<string, any>; newValue: Record<string, any> }>) => Promise<any>;
-  deleteTableData: (tableName: string, data: any[]) => Promise<any>;
-  insertRecord: (data: { tableName: string; values: any[][] }) => Promise<any>;
-  createTable: (data: TableForm) => Promise<any>;
-  destroy?: () => void;
-  finalize?: () => void;
-}
+// DatabaseClient is now an abstract class in lib/databases/database-client.ts
+export { DatabaseClient } from "@/lib/databases/database-client";
 
 export const DbConnectionsTypes = [
   { value: "pgSql", label: "Postgres" },
@@ -137,3 +121,9 @@ export const MongoDbTypes: string[] = [
   "Timestamp",
   "undefined",
 ];
+
+export const editorLanguages = {
+  pgSql: "pgsql" ,
+  mongodb: "javascript" ,
+  sqlite: "sqlite" ,
+};

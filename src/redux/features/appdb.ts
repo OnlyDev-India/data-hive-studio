@@ -1,18 +1,19 @@
 import { getConnections } from "@/lib/actions/app-data";
 import { ConnectionsType } from "@/types/db.type";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-
+import { LocalAppStorePath } from "@/config/local-app-store-path";
 export const initAppData = createAsyncThunk(
   "tables/connectToAppDB",
-  async (_, { rejectWithValue }) => {
+  async (_, { rejectWithValue, dispatch }) => {
     try {
       if (typeof window === "undefined" || !window.electron) {
         throw new Error("Electron environment not available.");
       }
-      const dbPath = await window.electron.getConnectionsJsonPath();
+      const dbPath = await window.electron.getConnectionsJsonPath()+LocalAppStorePath.connectionsJsonPath;
       const response = await getConnections(dbPath);
 
       if (response.success && response.data) {
+        // Initialize API details after connections are loaded
         return { connections: response.data.rows as ConnectionsType[] };
       } else {
         return rejectWithValue(response.error || "Failed to fetch connections.");

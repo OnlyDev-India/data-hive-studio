@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import * as appData from "@/lib/actions/app-data";
 import { ConnectionDetailsType, ConnectionsType } from "@/types/db.type";
 import { toast } from "sonner";
+import { LocalAppStorePath } from "@/config/local-app-store-path";
 
 export const useAppData = () => {
   const [connectionPath, setConnectionPath] = useState<string | null>(null);
@@ -15,7 +16,7 @@ export const useAppData = () => {
     const fetchDbPath = async () => {
       try {
         if (typeof window.electron !== "undefined") {
-          const path = await window.electron.getConnectionsJsonPath();
+          const path = await window.electron.getConnectionsJsonPath()+LocalAppStorePath.connectionsJsonPath;
           setConnectionPath(path);
           getConnections(path);
         } else {
@@ -55,6 +56,7 @@ export const useAppData = () => {
   }, [connectionPath]);
 
   return {
+    connections,
     loading,
     error,
     connectionPath,

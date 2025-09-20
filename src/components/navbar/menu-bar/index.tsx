@@ -11,8 +11,6 @@ import { menus } from "@/config/menu-bar.config";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import React, { useEffect } from "react";
-import { ConnectionStatus } from "@/components/common/connection-status";
-import { usePathname } from "next/navigation";
 
 const getOperatingSystem = () => {
   if (typeof window === "undefined") return "unknown";
@@ -49,8 +47,6 @@ const MenuNavbar = () => {
   const [title, setTitle] = React.useState<string>("Data Hive Studio");
   const [isDesktop, setIsDesktop] = React.useState<boolean>(false);
   const [os, setOs] = React.useState<string>("unknown");
-  const pathname = usePathname();
-  const isConnectedPage = pathname.startsWith("/app");
 
   useEffect(() => {
     // Only run client-side code inside useEffect
@@ -128,9 +124,6 @@ const MenuNavbar = () => {
           </p>
         </div>
         <div className="flex h-full items-center gap-2">
-          <div className="no-draggable-bar flex h-full items-center gap-2">
-            {isConnectedPage && <ConnectionStatus />}
-          </div>
           {os === "win32" && <div className="w-2"></div>}
         </div>
       </div>

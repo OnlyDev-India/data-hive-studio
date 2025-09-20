@@ -1,36 +1,30 @@
 "use client";
-import dynamic from 'next/dynamic';
+import dynamic from "next/dynamic";
 import React, { useEffect, useState } from "react";
-import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
-import TableView from "../views/table";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
+import TableView from "../../views/table";
 import { useDispatch, useSelector } from "react-redux";
-import { Button } from "../ui/button";
+import { Button } from "../../ui/button";
 import {
   ChevronDownIcon,
   CodeIcon,
   Grid2X2PlusIcon,
   PencilRulerIcon,
   PlayIcon,
-  PlusIcon,
   TableIcon,
   XIcon,
 } from "lucide-react";
 import {
-  addOpenFiles,
   rearrangeOpenFiles,
   removeFile,
   setCurrentFile,
 } from "@/redux/features/open-files";
 import { cn } from "@/lib/utils";
 import { setExecutingQuery, setQueryOutput } from "@/redux/features/query";
-import {
-  executeQuery,
-  getSchemas,
-  getTablesWithFieldsFromDb,
-} from "@/lib/actions/fetch-data";
-import StructureView from "../views/structure";
+import { executeQuery } from "@/lib/actions/fetch-data";
+import StructureView from "../../views/structure";
 import { fetchTables } from "@/redux/features/tables";
-import NewTableView from "../views/newTable";
+import NewTableView from "../../views/newTable";
 import { FileType } from "@/types/file.type";
 import { toast } from "sonner";
 import {
@@ -39,17 +33,17 @@ import {
   DropdownMenuItem,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
-import { Tooltip, TooltipContent } from "../ui/tooltip";
+} from "../../ui/dropdown-menu";
+import { Tooltip, TooltipContent } from "../../ui/tooltip";
 import { TooltipTrigger } from "@radix-ui/react-tooltip";
-import ShortcutGrid from "../common/shortcut-grids";
+import ShortcutGrid from "../../common/shortcut-grids";
 import { useMonaco } from "@monaco-editor/react";
-import { pgSqlLanguageServer } from "../../lib/editor-language-servers/pgsql";
-import { AppDispatch } from "@/redux/store";
-import { mongodbLanguageServer } from "../../lib/editor-language-servers/mongodb";
+import { AppDispatch, RootState } from "@/redux/store";
+import AddNewFile from "./add-new-button";
+import VisualizerView from "../../views/visualizer";
 
 // Dynamically import the CodeEditor component
-const CodeEditor = dynamic(() => import('../views/editor'), { ssr: false });
+const CodeEditor = dynamic(() => import("../../views/editor"), { ssr: false });
 
 const tabIcons = {
   table: TableIcon,
@@ -58,17 +52,27 @@ const tabIcons = {
   newTable: Grid2X2PlusIcon,
 };
 
+const TabsContentChild: Record<FileType["type"], React.ComponentType<any>> = {
+  file: CodeEditor,
+  table: TableView,
+  structure: StructureView,
+  newTable: NewTableView,
+  visualizer: VisualizerView,
+};
+
 const OpenedFiles = ({ dbType }: { dbType: string }) => {
   const [activeFileTab, setActiveFileTab] = useState("0");
   const [editor, setEditor] = useState<any>(null);
   const { openFiles, currentFile } = useSelector(
-    (state: any) => state.openFiles,
+    (state: RootState) => state.openFiles,
   );
-  const { currentSchema } = useSelector((state: any) => state.tables);
 
   const [dragOverIndex, setDragOverIndex] = useState(-1);
   const [dragIndex, setDragIndex] = useState(-1);
   const dispatch = useDispatch<AppDispatch>();
+
+  const TabsContentChildComponent =
+    TabsContentChild[currentFile?.type as FileType["type"]];
 
   const monaco = useMonaco();
 
@@ -96,15 +100,11 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
     // check if file is open
     if (openFiles[index] && monaco?.editor) {
       const currentModal = monaco.editor.getModel(
-        `file:///${openFiles[index].id}`,
+        monaco.Uri.parse(`file:///${openFiles[index].id}`),
       );
       if (currentModal) currentModal.dispose();
       dispatch(removeFile({ id: openFiles[index].id }));
     }
-  };
-
-  const handleAddNewFile = () => {
-    dispatch(addOpenFiles());
   };
 
   const handleRunQuery = async (edit?: any) => {
@@ -113,7 +113,9 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       if (!monaco?.editor) return;
       const editor1 = monaco.editor;
 
-      const currentModal = editor1.getModel(`file:///${currentFile?.id}`);
+      const currentModal = editor1.getModel(
+        monaco.Uri.parse(`file:///${currentFile?.id}`),
+      );
       const currentEditor = edit || editor;
       if (currentModal && currentEditor) {
         dispatch(setExecutingQuery(true));
@@ -218,15 +220,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
               </div>
             );
           })}
-          <div className="sticky right-0 flex h-full items-center bg-secondary px-2">
-            <Button
-              size="icon"
-              className="h-6 w-6 min-w-6"
-              onClick={handleAddNewFile}
-            >
-              <PlusIcon size={14} />
-            </Button>
-          </div>
+          <AddNewFile />
         </TabsList>
         <div className="flex h-10 items-center gap-2 bg-secondary px-2">
           {currentFile?.type === "file" && (
@@ -273,19 +267,15 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
           )}
         </div>
       </div>
-      {!currentFile?.type && <ShortcutGrid />}
-      {currentFile?.type === "file" && (
-        <CodeEditor
+      {currentFile?.type ? (
+        <TabsContentChildComponent
+          dbType={dbType}
           handleRunQuery={handleRunQuery}
           setEditor={setEditor}
-          dbType={dbType}
         />
+      ) : (
+        <ShortcutGrid />
       )}
-      {currentFile?.type === "table" && <TableView dbType={dbType} />}
-      {currentFile?.type === "structure" && (
-        <StructureView dbType={dbType as any} />
-      )}
-      {currentFile?.type === "newTable" && <NewTableView />}
     </Tabs>
   );
 };
