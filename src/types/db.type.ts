@@ -7,7 +7,7 @@ export interface ConnectionsType {
   name: string;
   connection_type: string;
   host: string;
-  port: number;
+  port?: number;
   username: string;
   password: string;
   connection_string: string;
@@ -121,3 +121,9 @@ export const MongoDbTypes: string[] = [
   "Timestamp",
   "undefined",
 ];
+
+export const editorLanguages = {
+  pgSql: "pgsql" ,
+  mongodb: "javascript" ,
+  sqlite: "sqlite" ,
+};

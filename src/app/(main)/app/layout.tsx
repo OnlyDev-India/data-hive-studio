@@ -8,10 +8,6 @@ import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { AppDispatch } from "@/redux/store";
-import {
-  getAPIsForConnection,
-  initAPIDetails,
-} from "@/features/custom-api/utils/data-thunk-func";
 import ResizableLayout from "@/components/common/resizable-layout";
 
 const MainLayout = ({ children }: { children: React.ReactNode }) => {
@@ -27,8 +23,6 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
         //   router.push("/");
         // }
         await dispatch(fetchTables());
-        await dispatch(initAPIDetails());
-        await dispatch(getAPIsForConnection());
       } catch (error) {
         router.push("/");
       } finally {

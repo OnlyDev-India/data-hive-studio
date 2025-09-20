@@ -7,8 +7,6 @@ interface ResizableConfig {
 
 interface ResizableConfigs {
   default: ResizableConfig;
-  endpointPage: ResizableConfig;
-  endpointPageComponents: ResizableConfig;
 }
 
 const resizableConfig: ResizableConfigs = {
@@ -17,17 +15,6 @@ const resizableConfig: ResizableConfigs = {
     minSizes: [10, 30],
     maxSizes: [70, 100],
     collapsedTo: [0, 0],
-  },
-  endpointPage: {
-    defaultSizes: [50, 50],
-    minSizes: [5.5, 5.5],
-    maxSizes: [100, 100],
-    collapsedTo: [5.5, 5.5],
-  },
-  endpointPageComponents: {
-    defaultSizes: [70, 30],
-    minSizes: [20, 20],
-    maxSizes: [100, 100],
   },
 };
 

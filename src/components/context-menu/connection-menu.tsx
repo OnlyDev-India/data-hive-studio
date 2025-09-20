@@ -47,11 +47,11 @@ const ConnectionMenu = ({
       id: connection.id,
       name: connection.name,
       connection_type: connection.connection_type,
-      host: config.host || '',
+      host: config.host || "",
       port: config.port || 5432,
-      username: config.user || '',
-      password: config.password || '',
-      database: config.database || '',
+      username: config.user || "",
+      password: config.password || "",
+      database: config.database || "",
       connection_string: connection.connection_string,
       save_password: connection.save_password,
       color: connection.color,
@@ -95,7 +95,7 @@ const ConnectionMenu = ({
           Copy Connection String
         </ContextMenuItem>
         <DeleteModal onConfirm={handleRemove}>
-          <div className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
+          <div className="relative flex cursor-default select-none items-center rounded-md px-2 py-1 text-sm text-destructive/70 outline-none hover:bg-destructive/20 hover:text-destructive data-[disabled]:pointer-events-none data-[disabled]:opacity-50" onClick={(e) => e.stopPropagation()}>
             remove
           </div>
         </DeleteModal>

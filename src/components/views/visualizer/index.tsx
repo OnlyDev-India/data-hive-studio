@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ReactFlow,
   Node,
@@ -11,109 +11,94 @@ import {
   Controls,
   Panel,
   useReactFlow,
+  Viewport,
 } from "@xyflow/react";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { DatabaseSchemaNode } from "@/components/views/visualizer/database-schema-node";
 import { Button } from "@/components/ui/button";
-import { RotateCcwIcon, Grid3X3Icon, SearchIcon, XIcon } from "lucide-react";
+import { RotateCcwIcon, Scale3DIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { updateFile } from "@/redux/features/open-files";
 
 import "@xyflow/react/dist/style.css";
 import "@/styles/visualizer.css";
-
-import ResizableLayout from "@/components/common/resizable-layout";
+import { AppDispatch, RootState } from "@/redux/store";
+import { VisualizerFileType } from "@/types/file.type";
+import AddTableToView from "./add-table-to-view";
 
 const nodeTypes = {
   databaseSchema: DatabaseSchemaNode,
 };
 const SchemaVisualizer = () => {
-  const { tables } = useSelector((state: any) => state.tables);
+  const dispatch = useDispatch<AppDispatch>();
+  // const { tables } = useSelector((state: RootState) => state.tables);
+  const { currentFile } = useSelector((state: RootState) => state.openFiles);
+  const cFile = currentFile as VisualizerFileType; //current file is of type VisualizerFileType
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const { fitView } = useReactFlow();
+  const [edges, setEdges] = useEdgesState<Edge>([]);
+  const { fitView, getViewport, setViewport } = useReactFlow();
   const [originalPositions, setOriginalPositions] = useState<{
     [key: string]: { x: number; y: number };
   }>({});
 
-  // Search state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [highlightedNode, setHighlightedNode] = useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-
-  // Search functionality
-  const filteredTables =
-    tables?.filter((table: any) =>
-      table.table_name?.toLowerCase().includes(searchQuery.toLowerCase()),
-    ) || [];
-
-  const handleNodeSelect = useCallback(
-    (tableName: string) => {
-      setSelectedNode(tableName);
-      setHighlightedNode(tableName);
-      setSelectedIndex(0);
-
-      // Find the node and zoom to it
-      const node = nodes.find((n) => n.id === tableName);
-      if (node) {
-        fitView({
-          nodes: [node],
-          padding: 0.5,
-          duration: 800,
-        });
-      }
-    },
-    [nodes, fitView],
-  );
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!searchQuery || filteredTables.length === 0) return;
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev < filteredTables.length - 1 ? prev + 1 : 0,
-        );
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredTables.length - 1,
-        );
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (filteredTables[selectedIndex]) {
-          handleNodeSelect(filteredTables[selectedIndex].table_name);
-        }
-        break;
-      case "Escape":
-        setSearchQuery("");
-        setSelectedIndex(0);
-        break;
-    }
-  };
-
-  const clearSearch = () => {
-    setSearchQuery("");
-    setSelectedNode(null);
-    setHighlightedNode(null);
-    setSelectedIndex(0);
-    handleResetView();
-  };
 
   // Update nodes to show highlighting
   const highlightedNodes = nodes.map((node) => ({
     ...node,
     selected: highlightedNode === node.id,
   }));
+
+  // Save viewport and node positions to file data
+  const saveViewportData = useCallback(
+    (viewport: Viewport) => {
+      if (!cFile) return;
+
+      // const viewport = getViewport();
+      // const nodePositions: { [key: string]: { x: number; y: number } } = {};
+
+      // nodes.forEach((node) => {
+      //   nodePositions[node.id] = { x: node.position.x, y: node.position.y };
+      // });
+
+      const updatedFile: VisualizerFileType = {
+        ...cFile,
+        visualizerData: {
+          ...cFile.visualizerData,
+          tables: cFile.visualizerData?.tables || [],
+          viewport: viewport,
+        },
+      };
+
+      dispatch(updateFile(updatedFile));
+    },
+    [cFile, nodes, getViewport, dispatch],
+  );
+
+  // Restore viewport and node positions from file data
+  // const restoreViewportData = useCallback(() => {
+  //   if (!cFile?.visualizerData?.viewport) return;
+
+  //   const { viewport } = cFile.visualizerData;
+
+  //   // Restore viewport
+  //   if (viewport) {
+  //     setViewport(viewport, { duration: 0 });
+  //   }
+
+  //   // Restore node positions
+  //   if (nodePositions) {
+  //     const updatedNodes = nodes.map((node) => ({
+  //       ...node,
+  //       position: nodePositions[node.id] || node.position,
+  //     }));
+  //     setNodes(updatedNodes);
+  //   }
+  // }, [cFile, nodes, setViewport, setNodes]);
 
   // Custom positioning algorithm for ER diagram with force-directed layout
   const calculateOptimalPositions = (tables: any[]) => {
@@ -416,9 +401,13 @@ const SchemaVisualizer = () => {
   };
 
   const resetPositions = useCallback(() => {
-    if (!tables || tables.length === 0) return;
+    if (
+      !cFile.visualizerData?.tables ||
+      cFile.visualizerData?.tables.length === 0
+    )
+      return;
 
-    const positions = calculateOptimalPositions(tables);
+    const positions = calculateOptimalPositions(cFile.visualizerData?.tables);
     setOriginalPositions(positions);
 
     const updatedNodes = nodes.map((node) => ({
@@ -427,7 +416,7 @@ const SchemaVisualizer = () => {
     }));
 
     setNodes(updatedNodes);
-  }, [tables, nodes]);
+  }, [cFile.visualizerData?.tables, nodes]);
 
   const handleResetView = useCallback(() => {
     fitView({
@@ -439,6 +428,7 @@ const SchemaVisualizer = () => {
   }, [fitView]);
 
   const createNodesAndEdges = (tables: any[]) => {
+    // Use saved positions if available, otherwise calculate new ones
     const positions = calculateOptimalPositions(tables);
     setOriginalPositions(positions);
 
@@ -474,8 +464,8 @@ const SchemaVisualizer = () => {
             type: "smoothstep",
             style: {
               stroke: "hsl(var(--primary))", // Use primary color from theme
-              strokeWidth: 3,
-              strokeDasharray: field.isForeign ? "12,6" : "none",
+              strokeWidth: 4,
+              strokeDasharray: "12,6",
             },
             label: `${field.name}`,
             labelStyle: {
@@ -492,213 +482,91 @@ const SchemaVisualizer = () => {
           });
         });
     });
+
     setNodes(nodes);
     setEdges(edges);
-    setTimeout(() => fitView(), 100);
-  };
-  useEffect(() => {
-    if (tables?.length > 0) {
-      createNodesAndEdges(tables);
+
+    // Restore viewport after nodes are created
+    if (cFile?.visualizerData?.viewport) {
+      setViewport(cFile.visualizerData.viewport, { duration: 0 });
+    } else {
       setTimeout(() => {
-        // onLayout("LR"); // Removed as per edit hint
-      }, 4000);
+        fitView();
+      }, 100);
     }
-  }, [tables]);
+  };
+
+  useEffect(() => {
+    if (cFile.visualizerData?.tables) {
+      createNodesAndEdges(cFile.visualizerData?.tables);
+    } else {
+      createNodesAndEdges([]);
+    }
+  }, [cFile.id, cFile.visualizerData?.tables]);
 
   return (
-    <ResizableLayout
-      child1={
-        <div className="group/collapsible h-full rounded-lg bg-secondary">
-          <div className="group sticky top-0 z-10 flex w-full flex-col items-center justify-between gap-2 rounded-t-lg bg-secondary pl-2 pt-2 text-xs font-semibold uppercase shadow-md">
-            <div className="flex w-full items-center justify-between px-3">
-              <div className="flex items-center gap-1">
-                <p className="flex items-center gap-2 truncate py-2">
-                  <SearchIcon className="h-3 w-3" />
-                  Table Search
-                  <span className="rounded-full bg-popover p-0 px-1 text-xs text-muted-foreground">
-                    {tables ? tables.length : 0}
-                  </span>
-                </p>
-              </div>
-              {selectedNode && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={clearSearch}
-                  className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                >
-                  <XIcon className="h-3 w-3" />
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="scrollable-container-gutter custom-scrollbar h-[calc(100%-42px)] overflow-auto rounded-b-lg">
-            <div className="px-3">
-              {/* Search Input */}
-              <div className="sticky top-0 z-10 space-y-2 bg-secondary pb-3 pt-1">
-                <div className="relative">
-                  <SearchIcon className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 transform text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Search tables..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                    onKeyDown={handleKeyDown}
-                  />
-                </div>
-              </div>
-              {/* Selected Table Info */}
-              {selectedNode && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-foreground">
-                    Selected Table
-                  </div>
-                  <div className="rounded-lg border border-border bg-background p-2">
-                    <div className="text-xs font-medium text-foreground">
-                      {selectedNode}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Click the X button to clear selection
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* Search Results */}
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-foreground">
-                  Search Results
-                </div>
-                <div className="h-full space-y-1 overflow-y-auto">
-                  {filteredTables.map((table: any, index: number) => (
-                    <div
-                      key={table.table_name}
-                      className={cn(
-                        "group cursor-pointer rounded-md border border-transparent p-2 transition-all duration-200 hover:border-border/50",
-                        selectedNode === table.table_name
-                          ? "border-primary/30 bg-primary/10 shadow-sm"
-                          : index === selectedIndex
-                            ? "border-border/50 bg-muted/30 shadow-sm"
-                            : "hover:bg-muted/30 hover:shadow-sm",
-                      )}
-                      onClick={() => handleNodeSelect(table.table_name)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full bg-primary/60 transition-colors group-hover:bg-primary/80" />
-                          <span className="text-xs font-medium text-foreground group-hover:text-foreground/90">
-                            {table.table_name}
-                          </span>
-                        </div>
-                        <Badge
-                          variant="secondary"
-                          className="border-0 bg-muted/50 text-xs text-muted-foreground"
-                        >
-                          {table.fields?.length || 0}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                  {filteredTables.length === 0 && (
-                    <div className="rounded-md border border-dashed border-muted-foreground/20 p-3 text-center">
-                      <div className="text-xs text-muted-foreground">
-                        No tables found
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      }
-      child2={
-        <ReactFlow
-          nodes={highlightedNodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          nodeTypes={nodeTypes}
-          fitView
-          minZoom={0.005}
-          maxZoom={1.5}
-          defaultViewport={{ x: 0, y: 0, zoom: 0.2 }}
-          fitViewOptions={{ padding: 0.8 }}
-          className="bg-transparent [&_.react-flow\_\_attribution]:hidden"
+    <div className="flex h-[calc(100%-var(--tabs-height))] flex-col p-2 pt-0">
+      <ReactFlow
+        nodes={highlightedNodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        nodeTypes={nodeTypes}
+        onViewportChange={saveViewportData}
+        fitView
+        minZoom={0.005}
+        maxZoom={1.5}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.2 }}
+        fitViewOptions={{ padding: 0.8 }}
+        className="bg-transparent [&_.react-flow\_\_attribution]:hidden"
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={50}
+          size={10}
+          className="opacity-20 dark:opacity-10"
+          color="hsl(var(--muted-foreground))"
+        />
+        {/* Clean Control Panel */}
+        <Panel
+          position="bottom-center"
+          className="!ml-1.5 !mt-1.5 flex !-translate-x-[30%] rounded-lg border border-border p-0 shadow-lg backdrop-blur-sm"
         >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={50}
-            size={10}
-            className="opacity-20 dark:opacity-10"
-            color="hsl(var(--muted-foreground))"
-          />
-
-          {/* Clean Control Panel */}
-          <Panel
-            position="top-left"
-            className="flex gap-2 rounded-lg border border-border/50 bg-background/95 px-4 py-1 shadow-lg backdrop-blur-sm"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={"ghost"}
-                  size={"icon"}
-                  className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
-                  onClick={handleResetView}
-                >
-                  <RotateCcwIcon className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Reset View</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={"ghost"}
-                  size={"icon"}
-                  className="h-6 w-6 bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
-                  onClick={resetPositions}
-                >
-                  <Grid3X3Icon className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Reset Positions</TooltipContent>
-            </Tooltip>
-          </Panel>
-
-          {/* Clean Legend */}
-          <Panel
-            position="top-right"
-            className="rounded-lg border border-border/50 bg-background/95 px-4 py-3 shadow-lg backdrop-blur-sm"
-          >
-            <div className="mb-3 text-sm font-semibold text-foreground">
-              Schema Legend
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-yellow-500"></div>
-                <span className="text-foreground">Primary Key</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-primary"></div>
-                <span className="text-foreground">Foreign Key</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-muted-foreground"></div>
-                <span className="text-foreground">Regular Field</span>
-              </div>
-            </div>
-          </Panel>
-
-          <Controls
-            showInteractive={false}
-            className="rounded-lg border border-border/50 bg-card/95 shadow-lg backdrop-blur-sm"
-          />
-        </ReactFlow>
-      }
-    />
+          <AddTableToView />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"ghost"}
+                size={"icon"}
+                className="h-[1.65rem] w-[1.65rem] rounded-r-none border-r bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
+                onClick={handleResetView}
+              >
+                <RotateCcwIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reset View</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"ghost"}
+                size={"icon"}
+                className="h-[1.65rem] w-[1.65rem] rounded-l-none bg-secondary/80 text-foreground transition-all duration-200 hover:bg-accent/80 [&_svg]:size-3"
+                onClick={resetPositions}
+              >
+                <Scale3DIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reset Positions</TooltipContent>
+          </Tooltip>
+        </Panel>
+        <Controls
+          showInteractive={false}
+          className="overflow-hidden rounded-lg border border-border bg-secondary shadow-lg backdrop-blur-sm"
+          position="bottom-center"
+          orientation="horizontal"
+        />
+      </ReactFlow>
+    </div>
   );
 };
 

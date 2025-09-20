@@ -1,18 +1,21 @@
 import { getTablesWithFieldsFromDb } from "@/lib/actions/fetch-data";
-import {
-  createAsyncThunk,
-  createSlice
-} from "@reduxjs/toolkit";
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 export const fetchAllTables = createAsyncThunk(
   "tables/fetchAllTables",
-  async (args: boolean, { getState }) => {
+  async (
+    { isUpdateSchema = false }: { isUpdateSchema?: boolean; loading?: string },
+    { getState },
+  ) => {
     // Access the current schema from the state
     try {
       const state: any = getState();
 
       const currentSchema = state.tables.currentSchema;
-      const result = await getTablesWithFieldsFromDb(currentSchema, args);
+      const result = await getTablesWithFieldsFromDb(
+        currentSchema,
+        isUpdateSchema,
+      );
       if (result?.error) {
         throw new Error(result?.error);
       }
@@ -22,14 +25,13 @@ export const fetchAllTables = createAsyncThunk(
       console.log("error", error);
       return [];
     }
-    
   },
 );
 
 export const fetchTables =
   (isUpdateSchema = false) =>
-  async (dispatch: any, payloadCreator: any, options?: any | undefined) => {    
-    fetchAllTables(isUpdateSchema)(dispatch, payloadCreator, options);
+  async (dispatch: any, payloadCreator: any, options?: any | undefined) => {
+    fetchAllTables({ isUpdateSchema })(dispatch, payloadCreator, options);
   };
 
 const initialState = {
@@ -56,8 +58,9 @@ export const tablesSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchAllTables.pending, (state) => {
-        state.loading = "fetching"; // Set loading to true when fetching starts
+      .addCase(fetchAllTables.pending, (state, action) => {
+        const loading = action.meta.arg.loading;
+        state.loading = loading || "fetching"; // Set loading to true when fetching starts
       })
       .addCase(fetchAllTables.fulfilled, (state, action) => {
         state.loading = null; // Set loading to false when fetching is done

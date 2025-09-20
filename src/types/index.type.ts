@@ -1,4 +1,3 @@
-import { CustomServer } from "@/features/custom-api/lib/custom-server";
 import { DatabaseClient } from "./db.type";
 
 declare global {
@@ -18,11 +17,9 @@ declare global {
       ) => Promise<{ success: boolean; error: string }>;
     };
   }
-  var customServer: {[key: string]: CustomServer | null};
   var connectionManagerInstance: {[key: string]: DatabaseClient | null};
 }
 
-global.customServer = {};
 global.connectionManagerInstance = {};
 
 export {};

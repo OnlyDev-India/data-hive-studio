@@ -28,6 +28,7 @@ import {
 } from "@/lib/actions/fetch-data";
 import { pgSqlLanguageServer } from "@/lib/editor-language-servers/pgsql";
 import { mongodbLanguageServer } from "@/lib/editor-language-servers/mongodb";
+import { editorLanguages } from "@/types/db.type";
 
 interface CodeEditorProps {
   handleRunQuery: (editor: any) => Promise<void>;
@@ -137,7 +138,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
         >
           <Editor
             height={"100%"}
-            language={dbType.toLowerCase()}
+            language={editorLanguages[dbType as keyof typeof editorLanguages]}
             value={currentFile?.code || ""}
             onMount={handleEditor}
             onChange={updateCode}

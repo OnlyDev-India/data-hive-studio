@@ -2,8 +2,6 @@ import { getConnections } from "@/lib/actions/app-data";
 import { ConnectionsType } from "@/types/db.type";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { LocalAppStorePath } from "@/config/local-app-store-path";
-import { initAPIDetails } from "@/features/custom-api/utils/data-thunk-func";
-
 export const initAppData = createAsyncThunk(
   "tables/connectToAppDB",
   async (_, { rejectWithValue, dispatch }) => {
@@ -16,7 +14,6 @@ export const initAppData = createAsyncThunk(
 
       if (response.success && response.data) {
         // Initialize API details after connections are loaded
-        dispatch(initAPIDetails());
         return { connections: response.data.rows as ConnectionsType[] };
       } else {
         return rejectWithValue(response.error || "Failed to fetch connections.");

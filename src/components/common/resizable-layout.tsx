@@ -5,12 +5,13 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import SubSideBar from "@/components/navbar/sub-sidebar";
+import SubSideBar from "@/components/navbar/sub-sidebar-layout";
 import { useResizable } from "@/providers/resizable-provider";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import resizableConfig from "@/config/resizableConfig";
 import { cn } from "@/lib/utils";
 import { cva } from "class-variance-authority";
+import { useSearchParams } from "next/navigation";
 
 type direction = "horizontal" | "vertical";
 
@@ -68,12 +69,14 @@ const ResizableLayout = ({
   const resizableState = getResizableState(currentActiveId);
   const { defaultSizes, minSizes, maxSizes, collapsedTo } =
     resizableConfig[config];
+  const searchParams = useSearchParams();
+  const sidebar = searchParams.get("sidebar");
 
   useEffect(() => {
     if (!isSubLayout) {
       toggleResizable(currentActiveId, "expanded");
     }
-  }, [isSubLayout]);
+  }, [isSubLayout, sidebar]);
 
   useEffect(() => {
     if (!child2 || !ref1.current || !ref2.current) {

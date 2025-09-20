@@ -1,9 +1,8 @@
 import { CommandMenu } from "@/components/common/search-button";
 import {
   DatabaseIcon,
-  SearchIcon,
-  Share2Icon,
-  WaypointsIcon,
+  HistoryIcon,
+  SearchIcon
 } from "lucide-react";
 
 type SideBadMenuType = {
@@ -14,6 +13,7 @@ type SideBadMenuType = {
   shortcut?: string;
   saveId?: string;
   disabled?: boolean;
+  sidebar?: string;
 };
 
 export const sideBadMenu: SideBadMenuType[] = [
@@ -23,6 +23,7 @@ export const sideBadMenu: SideBadMenuType[] = [
     link: "/app/editor",
     shortcut: "Ctrl+Shift+T",
     saveId: "editor-sidebar",
+    sidebar: "default",
   },
   {
     icon: SearchIcon,
@@ -31,17 +32,12 @@ export const sideBadMenu: SideBadMenuType[] = [
     shortcut: "Ctrl+Shift+P",
   },
   {
-    icon: WaypointsIcon,
-    title: "Schema Visualizer",
-    link: "/app/visualizer",
-    shortcut: "Ctrl+Shift+V",
+    icon: HistoryIcon,
+    title: "History",
+    link: "/app/editor?sidebar=history",
+    shortcut: "Ctrl+Shift+H",
     saveId: "editor-sidebar",
-  },
-  {
-    icon: Share2Icon,
-    title: "Custom API",
-    link: "/app/custom-api",
-    shortcut: "Ctrl+Shift+C",
-    saveId: "editor-sidebar", 
+    sidebar: "history",
+    disabled: true,
   },
 ];

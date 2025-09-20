@@ -13,7 +13,7 @@ import {
   addTableStructureFile,
 } from "@/redux/features/open-files";
 import { dropTable } from "@/lib/actions/fetch-data";
-import { fetchTables } from "@/redux/features/tables";
+import { fetchAllTables, fetchTables } from "@/redux/features/tables";
 import { AppDispatch } from "@/redux/store";
 import DeleteModal from "../modals/delete-modal";
 import { CopyIcon, EyeIcon, TableIcon, Trash2Icon } from "lucide-react";
@@ -39,7 +39,7 @@ const TablesMenu = ({
 
   const handleDropTable = async () => {
     await dropTable(table_name);
-    dispatch(fetchTables());
+    dispatch(fetchAllTables({loading:"refetchTables"}));
   };
 
   return (

@@ -7,15 +7,17 @@ import {
 import { sideBadMenu } from "@/config/menu";
 import { useResizable } from "@/providers/resizable-provider";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
   const { toggleResizable, getResizableState } = useResizable();
   const resizableState = getResizableState("editor-sidebar");
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sidebar = searchParams.get("sidebar") || "default";
 
   const handleClick = (item: any) => {
-    if (pathname.includes(item.link)) {
+    if (item.sidebar === sidebar) {
       toggleResizable(
         item.saveId,
         resizableState.state === "expanded" ? "collapsed" : "expanded",
@@ -38,7 +40,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
             return <item.btn key={index} />;
           }
           // Determine if this item should be highlighted
-          const isActive = item.link && pathname.includes(item.link);
+          const isActive = item.sidebar === sidebar;
           const resizableState = item.saveId
             ? getResizableState(item.saveId)
             : { state: "expanded" };

@@ -32,7 +32,6 @@ const DeleteModal = ({
     setLoading(true);
     await onConfirm();
     setIsOpen(false);
-    console.log("onConfirm");
     setLoading(false);
   };
   return (

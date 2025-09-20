@@ -1,7 +1,6 @@
 "use server";
 
 import { ConnectionDetailsType, connectionsStoreType, ConnectionsType } from "@/types/db.type";
-import { ConnectionsTypeWithAPIs } from "@/features/custom-api/types/custom-api.type";
 import { promises as fs } from "fs";
 
 async function readStoredData(connectionPath: string): Promise<connectionsStoreType> {
@@ -43,10 +42,9 @@ export const createConnection = async (connectionPath: string, connection: Omit<
   try {
     const connections = await readStoredData(connectionPath);
     // Simple ID generation for the new connection
-    const newConnection: ConnectionsTypeWithAPIs = { 
+    const newConnection: ConnectionsType = { 
       ...connection, 
       id: crypto.randomUUID(),
-      apis: [] // Initialize empty APIs array
     };
     connections.connections.push(newConnection);
     await writeConnections(connectionPath, connections);
@@ -93,31 +91,6 @@ export const getLastUsedConnection = async (connectionPath: string) => {
       return b_last_used - a_last_used;
     });
     return { success: true, data: { rows: [sortedConnections[0]] } };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
-};
-
-// Ensure all connections have APIs field
-export const ensureConnectionsHaveAPIs = async (connectionPath: string, connectionId: string, apiId: string): Promise<{ success: boolean; error?: string }> => {
-  try {
-    const connections = await readStoredData(connectionPath);
-    let needsUpdate = false;
-    
-    connections.connections = connections.connections.map(connection => {
-      const connWithAPIs = connection as ConnectionsTypeWithAPIs;
-      if (!connWithAPIs.apis) {
-        needsUpdate = true;
-        return { ...connWithAPIs, apis: apiId };
-      }
-      return connWithAPIs;
-    });
-    
-    if (needsUpdate) {
-      await writeConnections(connectionPath, connections);
-    }
-    
-    return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

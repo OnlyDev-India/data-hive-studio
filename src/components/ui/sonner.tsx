@@ -18,7 +18,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         },
         classNames: {
           toast:
-            "!border-0 !border-l-4 bg-background/70 backdrop-blur-xl text-foreground border-primary shadow-lg ",
+            "!border-0 !border-l-4 bg-background/70 backdrop-blur-xl text-foreground border-primary shadow-lg select-text",
           success: "!border-primary",
           error: "!text-destructive",
           warning: "!text-yellow-400",

@@ -3,6 +3,7 @@
  * These functions create proper MongoDB data types
  */
 
+
 export const ObjectId = (id?: string) => {
   if (id && typeof id === 'string') {
     // Validate ObjectId format (24 hex characters)

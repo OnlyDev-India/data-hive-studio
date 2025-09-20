@@ -78,7 +78,7 @@ const Branch = ({
             }}
           >
             <p className="flex items-center gap-2 truncate">
-              <Table className="text-primary" />
+              <Table className="text-muted-foreground" />
               {subItem.table_name}
             </p>
           </Button>

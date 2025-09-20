@@ -12,7 +12,6 @@ import { FileType } from "@/types/file.type";
 import { useMonaco } from "@monaco-editor/react";
 import { CommandPalette } from "@/components/common/command-palette";
 import { useAppData } from "@/hooks/useAppData";
-import { closeAPIServer } from "@/features/custom-api/utils/data-thunk-func";
 import { AppDispatch } from "@/redux/store";
 
 const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
@@ -57,7 +56,6 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
         dispatch(resetOpenFiles());
         dispatch(resetQuery());
         dispatch(resetTables());
-        dispatch(closeAPIServer());
         router.push("/");
         break;
       case "closeTab":
@@ -78,7 +76,7 @@ const ShortCutProvider = ({ children }: { children: React.ReactNode }) => {
         setCommandPaletteOpen(true);
         break;
       case "newFile":
-        dispatch(addOpenFiles());
+        dispatch(addOpenFiles("file"));
         break;
       default:
         console.warn("Unknown action:", action);
