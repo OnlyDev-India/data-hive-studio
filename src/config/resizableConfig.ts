@@ -7,6 +7,7 @@ interface ResizableConfig {
 
 interface ResizableConfigs {
   default: ResizableConfig;
+  editor: ResizableConfig;
 }
 
 const resizableConfig: ResizableConfigs = {
@@ -15,6 +16,11 @@ const resizableConfig: ResizableConfigs = {
     minSizes: [10, 30],
     maxSizes: [70, 100],
     collapsedTo: [0, 0],
+  },
+  editor: {
+    defaultSizes: [50, 50],
+    minSizes: [5.5, 6],
+    maxSizes: [94, 94.5],
   },
 };
 

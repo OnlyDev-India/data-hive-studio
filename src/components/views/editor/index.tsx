@@ -37,49 +37,12 @@ interface CodeEditorProps {
 }
 
 const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
-  // const [data, setData] = useState("");
-  const [data, setData] = useState<any[]>([]);
-  const [columns, setColumns] = useState<any[]>([]);
   const dispatch = useDispatch();
-  const { queryOutput, executingQuery } = useSelector(
-    (state: any) => state.query,
-  );
   const { currentFile }: { currentFile: FileFileType | null } = useSelector(
     (state: any) => state.openFiles,
   );
   const { resolvedTheme } = useTheme();
 
-  useEffect(() => {
-    if (queryOutput) {
-      const { data }: any = queryOutput;
-      if (data) {
-        setData(
-          data.rows?.map((item: any) => {
-            const copiedItem = JSON.parse(JSON.stringify(item));
-            Object.keys(item).forEach((key) => {
-              // if (typeof item[key] === "object")
-              //   copiedItem[key] = item[key]?.toString();
-            });
-            return copiedItem;
-          }),
-        );
-        setColumns(
-          data.columns?.map((col: { column_name: any; data_type: any }) => ({
-            key: col.column_name,
-            name: col.column_name,
-            data_type: col.data_type,
-          })),
-        );
-      }
-    } else {
-      setData([]);
-      setColumns([]);
-    }
-  }, [queryOutput]);
-
-  const handleClearOutput = () => {
-    dispatch(setQueryOutput(null));
-  };
 
   const debounce = useDebouncedCallback((value: string) => {
     dispatch(updateFile({ id: currentFile?.id, code: value }));
@@ -127,93 +90,31 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
 
   return (
     <div className="h-full w-full">
-      <ResizablePanelGroup
-        direction="vertical"
-        autoSaveId={"editor-query-output"}
-      >
-        <ResizablePanel
-          defaultSize={50}
-          minSize={10}
-          className="bg-background [&>section]:overflow-hidden [&>section]:rounded-b-lg"
-        >
-          <Editor
-            height={"100%"}
-            language={editorLanguages[dbType as keyof typeof editorLanguages]}
-            value={currentFile?.code || ""}
-            onMount={handleEditor}
-            onChange={updateCode}
-            path={currentFile?.id}
-            theme={resolvedTheme === "dark" ? "github-dark" : "github-light"}
-            options={{
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              fontSize: 14,
-              lineNumbers: "on",
-              glyphMargin: false,
-              roundedSelection: false,
-              automaticLayout: true,
-              wordWrap: "on",
-              folding: true,
-              showFoldingControls: "always",
-              renderLineHighlight: "all",
-              cursorBlinking: "smooth",
-              cursorSmoothCaretAnimation: "on",
-              lineNumbersMinChars: 3,
-            }}
-          />
-        </ResizablePanel>
-        <ResizableHandle className="!h-1 bg-background" />
-        <ResizablePanel defaultSize={50} minSize={10} className="bg-background">
-          <div className="h-[calc(100%-2.5rem)] w-full rounded-lg bg-secondary">
-            <div className="mx-2 flex items-center justify-between border-b-2 border-border px-2 py-1">
-              <p>output</p>
-              <div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={"ghost"}
-                      size={"icon"}
-                      onClick={handleClearOutput}
-                    >
-                      <ListXIcon />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Clear</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-            {executingQuery ? (
-              <div className="flex h-full items-center justify-center overflow-auto p-4">
-                <QueryExecutingAnimation className="h-full" size={64} />
-              </div>
-            ) : columns.length > 0 ? (
-              <div className="h-[calc(100%-2.7rem)]">
-                {/* TODO: */}
-                <Table data={data} columns={columns} dbType={dbType} />
-              </div>
-            ) : queryOutput?.error ? (
-              <div className="h-full overflow-auto p-4">
-                <Alert className="bg-secondary">
-                  <TriangleAlertIcon className="h-4 w-4 stroke-red-500" />
-                  <AlertTitle>Error!</AlertTitle>
-                  <AlertDescription>{queryOutput.error}</AlertDescription>
-                </Alert>
-              </div>
-            ) : queryOutput?.message ? (
-              <div className="h-full overflow-auto p-4">
-                <p className="rounded-lg border-2 bg-secondary/60 p-4">
-                  Message :{" "}
-                  <span className="text-primary">{queryOutput.message}</span>
-                </p>
-              </div>
-            ) : (
-              <div className="h-[calc(100%-2.7rem)] overflow-auto p-4">
-                <ShortcutGrid />
-              </div>
-            )}
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      <Editor
+        height={"100%"}
+        language={editorLanguages[dbType as keyof typeof editorLanguages]}
+        value={currentFile?.code || ""}
+        onMount={handleEditor}
+        onChange={updateCode}
+        path={currentFile?.id}
+        theme={resolvedTheme === "dark" ? "github-dark" : "github-light"}
+        options={{
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          fontSize: 14,
+          lineNumbers: "on",
+          glyphMargin: false,
+          roundedSelection: false,
+          automaticLayout: true,
+          wordWrap: "on",
+          folding: true,
+          showFoldingControls: "always",
+          renderLineHighlight: "all",
+          cursorBlinking: "smooth",
+          cursorSmoothCaretAnimation: "on",
+          lineNumbersMinChars: 3,
+        }}
+      />
     </div>
   );
 };

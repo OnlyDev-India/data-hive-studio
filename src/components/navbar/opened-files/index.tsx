@@ -8,11 +8,9 @@ import { Button } from "../../ui/button";
 import {
   ChevronDownIcon,
   CodeIcon,
-  Grid2X2PlusIcon,
-  PencilRulerIcon,
+  Grid2X2PlusIcon, PencilRulerIcon,
   PlayIcon,
-  TableIcon,
-  XIcon,
+  TableIcon, XIcon
 } from "lucide-react";
 import {
   rearrangeOpenFiles,
@@ -41,6 +39,8 @@ import { useMonaco } from "@monaco-editor/react";
 import { AppDispatch, RootState } from "@/redux/store";
 import AddNewFile from "./add-new-button";
 import VisualizerView from "../../views/visualizer";
+import ResizableLayout from "@/components/common/resizable-layout";
+import OutputTerminal from "@/components/views/editor/output-terminal";
 
 // Dynamically import the CodeEditor component
 const CodeEditor = dynamic(() => import("../../views/editor"), { ssr: false });
@@ -164,119 +164,134 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
   };
 
   return (
-    <Tabs
-      defaultValue="0"
-      value={activeFileTab}
-      onValueChange={handleOpenedFile}
-      className="relative h-full w-full rounded-lg bg-secondary"
-    >
-      <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg">
-        <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2 pr-0">
-          {openFiles?.map((item: any, index: number) => {
-            const Icon = tabIcons[item.type as "table" | "file" | "structure"];
-            return (
-              <div
-                key={index}
-                className={cn(
-                  "group flex h-full items-center justify-between rounded-md border border-transparent hover:bg-background active:cursor-grabbing",
-                  {
-                    "border-primary bg-primary/20 hover:bg-primary/40":
-                      item.id.toString() === activeFileTab,
-                  },
-                  {
-                    "rounded-l-none border-l-2 border-l-red-500":
-                      index === dragOverIndex,
-                  },
-                )}
-                draggable
-                onDragStart={() => {
-                  handleDragStart(index);
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOverIndex(index);
-                }}
-                onDrop={(e) => handleDrop(e, index)}
-                onDragEnd={handleDragEnd}
-              >
-                <TabsTrigger
-                  value={item.id.toString()}
-                  className="h-full rounded-md bg-transparent pr-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent"
-                >
-                  <span className="flex items-center gap-1 text-xs">
-                    {Icon && <Icon size={14} className="text-primary" />}
-                    {item.name}
-                  </span>
-                </TabsTrigger>
-                <p
-                  className="invisible flex h-6 w-6 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground group-hover:visible"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCloseFile(e, index);
-                  }}
-                >
-                  <XIcon size={14} />
-                </p>
-              </div>
-            );
-          })}
-          <AddNewFile />
-        </TabsList>
-        <div className="flex h-10 items-center gap-2 bg-secondary px-2">
-          {currentFile?.type === "file" && (
-            <div className="flex h-7 items-center rounded-md border border-border">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={"ghost"}
-                    size="icon"
-                    className="h-6 w-6 min-w-6 rounded-r-none hover:bg-popover"
-                    onClick={() => handleRunQuery()}
+    <ResizableLayout
+      child1={
+        <Tabs
+          defaultValue="0"
+          value={activeFileTab}
+          onValueChange={handleOpenedFile}
+          className="relative h-full w-full rounded-lg bg-secondary"
+        >
+          <div className="no-scrollbar flex w-full items-center justify-between overflow-auto rounded-t-lg">
+            <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2 pr-0">
+              {openFiles?.map((item: any, index: number) => {
+                const Icon =
+                  tabIcons[item.type as "table" | "file" | "structure"];
+                return (
+                  <div
+                    key={index}
+                    className={cn(
+                      "group flex h-full items-center justify-between rounded-md border border-transparent hover:bg-background active:cursor-grabbing",
+                      {
+                        "border-primary bg-primary/20 hover:bg-primary/40":
+                          item.id.toString() === activeFileTab,
+                      },
+                      {
+                        "rounded-l-none border-l-2 border-l-red-500":
+                          index === dragOverIndex,
+                      },
+                    )}
+                    draggable
+                    onDragStart={() => {
+                      handleDragStart(index);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverIndex(index);
+                    }}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragEnd={handleDragEnd}
                   >
-                    <PlayIcon size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="space-y-1">
-                  Run
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant={"ghost"}
-                    size="icon"
-                    className="h-6 w-6 min-w-6 rounded-l-none hover:bg-popover"
-                    onClick={() => handleRunQuery()}
-                  >
-                    <ChevronDownIcon size={14} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem
-                    className="text-xs"
-                    onSelect={() => handleRunQuery()}
-                  >
-                    Run query
-                    <DropdownMenuShortcut className="text-[10px]">
-                      ctrl + enter
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    <TabsTrigger
+                      value={item.id.toString()}
+                      className="h-full rounded-md bg-transparent pr-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-transparent"
+                    >
+                      <span className="flex items-center gap-1 text-xs">
+                        {Icon && <Icon size={14} className="text-primary" />}
+                        {item.name}
+                      </span>
+                    </TabsTrigger>
+                    <p
+                      className="invisible flex h-6 w-6 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground group-hover:visible"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCloseFile(e, index);
+                      }}
+                    >
+                      <XIcon size={14} />
+                    </p>
+                  </div>
+                );
+              })}
+              <AddNewFile />
+            </TabsList>
+            <div className="flex h-10 items-center gap-2 bg-secondary px-2">
+              {currentFile?.type === "file" && (
+                <div className="flex h-7 items-center rounded-md border border-border">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={"ghost"}
+                        size="icon"
+                        className="h-6 w-6 min-w-6 rounded-r-none hover:bg-popover"
+                        onClick={() => handleRunQuery()}
+                      >
+                        <PlayIcon size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="space-y-1">
+                      Run
+                    </TooltipContent>
+                  </Tooltip>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant={"ghost"}
+                        size="icon"
+                        className="h-6 w-6 min-w-6 rounded-l-none hover:bg-popover"
+                        onClick={() => handleRunQuery()}
+                      >
+                        <ChevronDownIcon size={14} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem
+                        className="text-xs"
+                        onSelect={() => handleRunQuery()}
+                      >
+                        Run query
+                        <DropdownMenuShortcut className="text-[10px]">
+                          ctrl + enter
+                        </DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
             </div>
+          </div>
+          {currentFile?.type ? (
+            <TabsContentChildComponent
+              dbType={dbType}
+              handleRunQuery={handleRunQuery}
+              setEditor={setEditor}
+            />
+          ) : (
+            <ShortcutGrid />
           )}
-        </div>
-      </div>
-      {currentFile?.type ? (
-        <TabsContentChildComponent
-          dbType={dbType}
-          handleRunQuery={handleRunQuery}
-          setEditor={setEditor}
-        />
-      ) : (
-        <ShortcutGrid />
-      )}
-    </Tabs>
+        </Tabs>
+      }
+      child2={
+        currentFile?.type === "file" ? (
+          <OutputTerminal dbType={dbType} />
+        ) : null
+      }
+      activeId="editor-query-output"
+      config="editor"
+      direction="vertical"
+      isSidebar={false}
+      isSubLayout={true}
+    />
   );
 };
 

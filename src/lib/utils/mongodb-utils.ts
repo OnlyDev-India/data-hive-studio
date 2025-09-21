@@ -12,11 +12,12 @@ export const ObjectId = (id?: string) => {
     }
     return id;
   }
+  return "";
   // Generate new ObjectId if none provided
-  const timestamp = Math.floor(Date.now() / 1000).toString(16);
-  const random = Math.random().toString(16).substring(2, 10);
-  const counter = Math.floor(Math.random() * 16777216).toString(16).padStart(6, '0');
-  return timestamp + random + counter;
+  // const timestamp = Math.floor(Date.now() / 1000).toString(16);
+  // const random = Math.random().toString(16).substring(2, 10);
+  // const counter = Math.floor(Math.random() * 16777216).toString(16).padStart(6, '0');
+  // return timestamp + random + counter;
 };
 
 export const ISODate = (dateString?: string) => {

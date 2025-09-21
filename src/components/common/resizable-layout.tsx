@@ -152,7 +152,7 @@ const ResizableLayout = ({
             collapsedSize={collapsedTo ? collapsedTo[1] : 0}
             collapsible={collapsible}
           >
-            <div className="h-full overflow-hidden rounded-lg bg-secondary">
+            <div className="h-full overflow-hidden rounded-lg">
               {child2}
             </div>
           </ResizablePanel>

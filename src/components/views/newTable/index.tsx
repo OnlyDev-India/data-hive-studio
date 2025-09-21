@@ -334,7 +334,7 @@ const NewTableView = () => {
                       onChange={(e) => {
                         setFormData({ ...formData, name: e.target.value });
                       }}
-                      className="bg-popover py-0 text-xs"
+                      className="bg-secondary py-0 text-xs border-border"
                     />
                     <div>
                       <Button

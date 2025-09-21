@@ -7,7 +7,7 @@ import GithubDark from "@/components/views/editor/github-dark.json";
 import GithubLight from "@/components/views/editor/github-light.json";
 import { updateFile } from "@/redux/features/open-files";
 import { useDispatch, useSelector } from "react-redux";
-import { updateTable } from "@/lib/actions/fetch-data";
+import { insertTableData, updateTable } from "@/lib/actions/fetch-data";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -15,7 +15,7 @@ import {
   CheckCircle,
   Code2,
   ChevronUp,
-  PencilIcon,
+  PencilIcon, UploadIcon
 } from "lucide-react";
 import {
   safeParseMongoJSON,
@@ -89,20 +89,37 @@ export const EditorModal = ({
       }
 
       if (data.isNew) {
-        dispatch(
-          updateFile({
-            id: currentFile?.id,
-            tableData: {
-              ...currentFile?.tableData,
-              rows: [
-                ...currentFile?.tableData?.rows.slice(0, index),
-                { ...parsed, isNew: true },
-                ...currentFile?.tableData?.rows.slice(index + 1),
-              ],
-            },
-          }),
-        );
-        setIsOpen(false);
+        delete parsed.isNew;
+        if (!parsed._id) {
+          delete parsed._id;
+        }
+        const response = await insertTableData({
+          tableName: currentFile.tableName,
+          values: [parsed],
+        });
+        const newRows = JSON.parse(response.data);
+        if (response.effectedRows && response.data) {
+          dispatch(
+            updateFile({
+              id: currentFile?.id,
+              tableData: {
+                ...currentFile?.tableData,
+                rows: [
+                  ...currentFile?.tableData?.rows.slice(0, index),
+                  ...newRows,
+                  ...currentFile?.tableData?.rows.slice(index + 1),
+                ],
+              },
+              tableOperations: {
+                ...currentFile?.tableOperations,
+                insertedRows: currentFile?.tableOperations?.insertedRows - 1,
+              },
+            }),
+          );
+          setIsOpen(false);
+        } else if (response.error) {
+          toast.error(response.error);
+        }
         return;
       }
 
@@ -202,9 +219,12 @@ export const EditorModal = ({
   useEffect(() => {
     if (isOpen) {
       // Convert data to executable functions for MongoDB editing
-      let displayData = data;
+      let displayData = JSON.parse(JSON.stringify(data));
+      if (data.isNew) {
+        delete displayData.isNew;
+      }
       if (dbType === "mongodb" && data) {
-        displayData = convertDataToEditor(data, columnMetadata);
+        displayData = convertDataToEditor(displayData, columnMetadata);
         displayData = stringifyWithMongoFunctions(displayData);
       } else {
         displayData = JSON.stringify(displayData, null, 2);
@@ -360,12 +380,12 @@ export const EditorModal = ({
                     {isSaving ? (
                       <>
                         <Loader2 className="animate-spin" />
-                        Updating...
+                        {data.isNew ? "Saving..." : "Updating..."}
                       </>
                     ) : (
                       <>
-                        <PencilIcon />
-                        Update
+                        {data.isNew ? <UploadIcon /> : <PencilIcon />}
+                        {data.isNew ? "Save" : "Update"}
                       </>
                     )}
                   </Button>
