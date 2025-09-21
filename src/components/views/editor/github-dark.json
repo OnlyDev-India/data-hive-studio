@@ -337,24 +337,25 @@
     "editor.foreground": "#f6f8fa",
     "editor.background": "#181a1e",
     "editor.selectionBackground": "#4c2889",
-    "editor.inactiveSelectionBackground": "#444d56",
-    "editor.lineHighlightBackground": "#444d56",
+    "editor.inactiveSelectionBackground": "#2B3036",
+    "editor.lineHighlightBackground": "#2B3036",
     "editorCursor.foreground": "#ffffff",
     "editorWhitespace.foreground": "#6a737d",
     "editorIndentGuide.background": "#6a737d",
     "editorIndentGuide.activeBackground": "#f6f8fa",
-    "editor.selectionHighlightBorder": "#444d56",
+    "editor.selectionHighlightBorder": "#2B3036",
 
-    "editorWidget.background": "#24292e",
+    "editorWidget.background": "#212328",
     "editorWidget.foreground": "#f6f8fa",
     "quickInputList.focusBackground": "#22c55e8f",
-    "menu.background": "#2f363d",
+    "menu.background": "#212328",
     "menu.foreground": "#f6f8fa",
-    "menu.selectionBackground": "#22c55e8f",
-    "menu.selectionForeground": "#ffffff",
+    "menu.border": "#3D444D",
+    "menu.selectionBackground": "#203E2D",
+    "menu.selectionForeground": "#22C55F",
     "menu.separatorBackground": "#6a737d",
 
-    "input.background": "#444d56",
+    "input.background": "#2B3036",
     "input.border": "#22c55e8f"
   }
 }

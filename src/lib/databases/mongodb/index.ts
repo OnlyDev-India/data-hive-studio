@@ -1626,6 +1626,12 @@ export class MongoDbClient extends DatabaseClient {
     }
 
     try {
+      // Check if collection already exists
+      const existingCollections = await this.db.listCollections({ name: data.name }).toArray();
+      if (existingCollections.length > 0) {
+        return { data: null, error: `Collection '${data.name}' already exists` };
+      }
+
       // In MongoDB, we don't need to explicitly create collections
       // They are created automatically when first document is inserted
       // However, we can create an empty collection to ensure it exists
