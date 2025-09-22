@@ -85,24 +85,23 @@ const OutputTerminal = ({ dbType }: { dbType: string }) => {
               className="border-none"
               onTabChange={handleTabChange}
               onTabClose={handleTabClose}
-              children={
-                <div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={"outline"}
-                        size={"icon"}
-                        onClick={handleClearOutput}
-                        className="h-7 w-7 border-border [&_svg]:size-3"
-                      >
-                        <ListXIcon />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Clear</TooltipContent>
-                  </Tooltip>
-                </div>
-              }
-            />
+            >
+              <div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      size={"icon"}
+                      onClick={handleClearOutput}
+                      className="h-7 w-7 border-border [&_svg]:size-3"
+                    >
+                      <ListXIcon />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Clear</TooltipContent>
+                </Tooltip>
+              </div>
+            </CustomTabList>
           </Tabs>
         ) : (
           <div className="flex h-[var(--tabs-height)] w-full items-center">

@@ -59,8 +59,7 @@ export const querySlice = createSlice({
       if (index !== -1) {
         state.outputTabs[index].executingQuery = action.payload.executingQuery;
       } else {
-        // TODO: fix the indexing
-        let currentOutputTab = {
+        const currentOutputTab = {
           id,
           name: "Output-" + (state.outputTabs.length + 1),
           type: "output",
