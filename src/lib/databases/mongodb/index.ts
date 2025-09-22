@@ -419,6 +419,7 @@ export class MongoDbClient extends DatabaseClient {
       Code: (code: string, scope?: any) => new Code(code, scope),
       DBRef: (collection: string, id: any, database?: string) =>
         new DBRef(collection, id, database),
+      ISODate: (date: string | Date) => new Date(date),
     };
   };
 

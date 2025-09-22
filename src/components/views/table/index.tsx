@@ -158,6 +158,12 @@ const TableView = ({ dbType }: { dbType: string }) => {
                 },
                 applyFilter: false,
               },
+              tableOperations: {
+                ...currentFile?.tableOperations,
+                changedRows: {},
+                insertedRows: 0,
+                selectedRows: [],
+              },
             }),
           );
         } else {
@@ -197,6 +203,12 @@ const TableView = ({ dbType }: { dbType: string }) => {
                   newFilter: [],
                 },
                 applyFilter: false,
+              },
+              tableOperations: {
+                ...currentFile?.tableOperations,
+                changedRows: {},
+                insertedRows: 0,
+                selectedRows: [],
               },
             }),
           );

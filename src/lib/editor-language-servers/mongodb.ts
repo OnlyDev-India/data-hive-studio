@@ -4,6 +4,19 @@ export const mongodbLanguageServer = (
   monaco: Monaco,
   databaseMetadata: any,
 ) => {
+
+  // Disable default JS/TS libs so only your definitions are used
+  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+    allowNonTsExtensions: true,
+    noLib: true, // <-- removes default JS/TS suggestions
+    allowJs: true,
+  });
+
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: false,
+  });
+
   // Add comprehensive MongoDB type definitions
   monaco.languages.typescript.javascriptDefaults.addExtraLib(
     `
@@ -332,31 +345,86 @@ export const mongodbLanguageServer = (
     "mongodb-suggestions.d.ts",
   );
 
-  // Disable default JavaScript suggestions
-  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-    noLib: true,
-    allowNonTsExtensions: true,
-  });
+  const collectionsSuggestions = databaseMetadata.collections.map((collection: any) => ({
+    label: collection.table_name,
+    kind: monaco.languages.CompletionItemKind.Class,
+    insertText: `${collection.table_name}`,
+    detail: `MongoDB Collection: ${collection.table_name}`,
+    documentation: `MongoDB Collection: ${collection.table_name}`,
+  }));
 
   // Register completion item provider for MongoDB
   monaco.languages.registerCompletionItemProvider("javascript", {
-    provideCompletionItems: () => {
+    triggerCharacters: ['"', "'", '`', '(', '.', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'],
+    provideCompletionItems: (model: any, position: any) => {
+      const lineText = model.getLineContent(position.lineNumber);
+      const textBeforeCursor = lineText.substring(0, position.column - 1);
+      
+      // Check if we're inside db.collection("") specifically
+      const isInsideDbCollectionString = isInsideDbCollectionCall(textBeforeCursor);
+      
+      const suggestions = [];
+
+      // Only add collection name suggestions when inside db.collection("")
+      if (isInsideDbCollectionString) {
+        // Check if we already have quotes or need to add them
+        const hasQuotes = textBeforeCursor.match(/db\.collection\(\s*["'`]/);
+        
+        // When inside db.collection(""), only insert the collection name
+        suggestions.push(...collectionsSuggestions.map((collection: any) => ({
+          ...collection,
+          insertText: hasQuotes ? collection.label : `"${collection.label}"`, // Add quotes if not present
+          detail: `MongoDB Collection: ${collection.label}`,
+        })));
+      }
+      // When outside db.collection(""), don't add collection suggestions at all
+
       return {
-        suggestions: [
-          // Collection methods
-          {
-            label: "db.collection",
-            kind: monaco.languages.CompletionItemKind.Method,
-            insertText: 'db.collection("${1:collectionName}")',
-            insertTextRules:
-              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: "Access a MongoDB collection",
-            detail: "MongoDB Collection",
-          },
-        ],
+        suggestions,
       };
     },
   });
+
+  // Helper function to check if we're inside db.collection("") call
+  function isInsideDbCollectionCall(text: string): boolean {
+    // Check for db.collection( with quotes
+    const dbCollectionWithQuotePattern = /db\.collection\(\s*["'`]/g;
+    let match;
+    let lastMatchIndex = -1;
+    let lastQuoteChar = '';
+    
+    // Find the last occurrence of db.collection(" with quotes
+    while ((match = dbCollectionWithQuotePattern.exec(text)) !== null) {
+      lastMatchIndex = match.index + match[0].length - 1; // Position of the opening quote
+      lastQuoteChar = match[0].slice(-1); // The quote character used
+    }
+    
+    if (lastMatchIndex !== -1) {
+      // Get the text after the opening quote
+      const afterQuote = text.substring(lastMatchIndex + 1);
+      
+      // Check if there's a closing quote of the same type
+      const closingQuoteIndex = afterQuote.indexOf(lastQuoteChar);
+      
+      // We're inside if there's no closing quote yet
+      return closingQuoteIndex === -1;
+    }
+    
+    // Check for db.collection( without quotes (like db.collection(t)
+    const dbCollectionWithoutQuotePattern = /db\.collection\(\s*[^"'`\s)]/;
+    const matchWithoutQuote = text.match(dbCollectionWithoutQuotePattern);
+    
+    if (matchWithoutQuote && matchWithoutQuote.index !== undefined) {
+      // Check if there's a closing parenthesis after the match
+      const afterMatch = text.substring(matchWithoutQuote.index + matchWithoutQuote[0].length - 1);
+      const hasClosingParen = afterMatch.includes(')');
+      
+      // We're inside if there's no closing parenthesis yet
+      return !hasClosingParen;
+    }
+    
+    return false;
+  }
 };
 
 export const mongoJsonLanguageServer = async (monaco: any) => {

@@ -1,14 +1,10 @@
 "use client";
-import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { ResizableHandle } from "@/components/ui/resizable";
 import { Skeleton } from "@/components/ui/skeleton";
-// import { connectDb } from "@/lib/actions/fetch-data";
 import { fetchTables } from "@/redux/features/tables";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { AppDispatch } from "@/redux/store";
-import ResizableLayout from "@/components/common/resizable-layout";
 
 const MainLayout = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
@@ -18,10 +14,6 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        // const { response } = await connectDb();
-        // if (!response?.success) {
-        //   router.push("/");
-        // }
         await dispatch(fetchTables());
       } catch (error) {
         router.push("/");

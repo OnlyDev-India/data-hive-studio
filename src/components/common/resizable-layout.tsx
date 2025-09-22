@@ -24,7 +24,7 @@ interface ResizableLayoutProps {
   collapsible?: boolean;
   isSidebar?: boolean;
   separatorVariant?: "noSeparatorHorizontal" | "noSeparatorVertical";
-  isSubLayout?: boolean;
+  hasSubLayout?: boolean;
 }
 
 const dividerClass = cva("bg-background", {
@@ -59,7 +59,7 @@ const ResizableLayout = ({
   collapsible = true,
   isSidebar = true,
   separatorVariant,
-  isSubLayout = false,
+  hasSubLayout = false,
 }: ResizableLayoutProps) => {
   const currentActiveId = activeId || "editor-sidebar";
   const { getResizableState, toggleResizable, handleResizeCollapse } =
@@ -73,10 +73,10 @@ const ResizableLayout = ({
   const sidebar = searchParams.get("sidebar");
 
   useEffect(() => {
-    if (!isSubLayout) {
-      toggleResizable(currentActiveId, "expanded");
-    }
-  }, [isSubLayout, sidebar]);
+    // if (!isSubLayout) {
+    toggleResizable(currentActiveId, "expanded");
+    // }
+  }, [sidebar]);
 
   useEffect(() => {
     if (!child2 || !ref1.current || !ref2.current) {
@@ -120,7 +120,7 @@ const ResizableLayout = ({
         maxSize={maxSizes[0]}
         className={cn(
           panelClass({
-            direction: isSubLayout ? "subLayoutVertical" : direction,
+            direction,
           }),
         )}
         onCollapse={() => handleResizeCollapse(currentActiveId, "collapsed")}
@@ -144,15 +144,21 @@ const ResizableLayout = ({
             minSize={minSizes[1]}
             maxSize={maxSizes[1]}
             className={cn("p-2 pl-0", {
-              "bg-background p-0": direction === "vertical" || isSubLayout,
+              "p-0": direction === "vertical",
             })}
             order={2}
-            onCollapse={() => handleResizeCollapse(currentActiveId, "collapsed:2")}
+            onCollapse={() =>
+              handleResizeCollapse(currentActiveId, "collapsed:2")
+            }
             onExpand={() => handleResizeCollapse(currentActiveId, "expanded:2")}
             collapsedSize={collapsedTo ? collapsedTo[1] : 0}
             collapsible={collapsible}
           >
-            <div className="h-full overflow-hidden rounded-lg">
+            <div
+              className={cn("h-full overflow-hidden rounded-lg bg-secondary", {
+                "bg-background": direction === "vertical" || hasSubLayout,
+              })}
+            >
               {child2}
             </div>
           </ResizablePanel>

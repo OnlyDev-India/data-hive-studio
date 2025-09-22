@@ -12,6 +12,7 @@ const EditorLayout = ({ children }: { children: React.ReactNode }) => {
           </Suspense>
         }
         child2={children}
+        hasSubLayout
       />
     </Suspense>
   );
