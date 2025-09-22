@@ -34,8 +34,8 @@ export interface FileTableType {
   tablePagination: PaginationType;
   tableRefetch?: RefetchType;
   tableOperations?: {
-    selectedRows: number[];
-    changedRows: { [key: number]: { old: Row; new: Row } };
+    selectedRows: string[];
+    changedRows: { [key: string]: { old: Row; new: Row } };
     insertedRows: number;
   };
 }

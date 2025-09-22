@@ -87,7 +87,7 @@ const Table = ({
   const { currentFile }: { currentFile: FileTableType } = useSelector(
     (state: any) => state.openFiles,
   );
-  const isEditable: boolean = !!currentFile?.tableName; //if we have opened table file then only we can edit the table
+  const isEditable: boolean = currentFile?.type === "table"; //if we have opened table file then only we can edit the table
   const { changedRows, insertedRows, selectedRows } =
     currentFile.tableOperations || {};
   const dispatch = useDispatch();
@@ -157,7 +157,7 @@ const Table = ({
     );
   };
 
-  const setSelectedRows = (selectRows: number[]) => {
+  const setSelectedRows = (selectRows: string[]) => {
     dispatch(
       updateFile({
         id: currentFile?.id,
@@ -345,7 +345,7 @@ const Table = ({
           data.length > 0;
         const handleCheckedChanges = (checked: boolean) => {
           if (checked) {
-            setSelectedRows(data.map((_, index) => index));
+            setSelectedRows(data.map((row) => JSON.stringify(row)));
           } else {
             setSelectedRows([]);
           }
@@ -368,10 +368,13 @@ const Table = ({
         const selectedRowsArray = Array.from(selectedRowsSet);
         const handleCheckedChanges = (checked: boolean) => {
           if (checked) {
-            selectedRowsArray.push(rowIdx);
+            selectedRowsArray.push(JSON.stringify(row));
             setSelectedRows(selectedRowsArray);
           } else {
-            selectedRowsArray.splice(selectedRowsArray.indexOf(rowIdx), 1);
+            selectedRowsArray.splice(
+              selectedRowsArray.indexOf(JSON.stringify(row)),
+              1,
+            );
             setSelectedRows(selectedRowsArray);
           }
         };
@@ -390,7 +393,7 @@ const Table = ({
             ) : (
               <>
                 <Checkbox
-                  checked={selectedRowsArray.includes(rowIdx)}
+                  checked={selectedRowsArray.includes(JSON.stringify(row))}
                   onCheckedChange={handleCheckedChanges}
                   className={cn("hidden group-hover:inline-block", {
                     "inline-block": selectedRowsArray.length > 0,
@@ -539,13 +542,13 @@ const Table = ({
 
     // Only track changes for non-new rows
     if (!sanitizedNewRow.isNew) {
-      if (changedData[rowIndex]?.old) {
-        changedData[rowIndex] = {
-          old: changedData[rowIndex].old,
+      if (changedData[JSON.stringify(newRow)]?.old) {
+        changedData[JSON.stringify(newRow)] = {
+          old: changedData[JSON.stringify(newRow)].old,
           new: sanitizedNewRow,
         };
       } else {
-        changedData[rowIndex] = {
+        changedData[JSON.stringify(newRow)] = {
           old: oldRow,
           new: sanitizedNewRow,
         };
@@ -553,10 +556,10 @@ const Table = ({
 
       // Only remove from tracking if the row is exactly the same (no changes)
       if (
-        JSON.stringify(changedData[rowIndex].old) ===
-        JSON.stringify(changedData[rowIndex].new)
+        JSON.stringify(changedData[JSON.stringify(newRow)].old) ===
+        JSON.stringify(changedData[JSON.stringify(newRow)].new)
       ) {
-        delete changedData[rowIndex];
+        delete changedData[JSON.stringify(newRow)];
       }
     }
   };
@@ -567,8 +570,8 @@ const Table = ({
     );
 
     if (changedRows) {
-      Object.entries(changedRows).forEach(([index, change]: [string, any]) => {
-        restoredRows[parseInt(index)] = change.old;
+      Object.entries(changedRows).forEach(([key, change]: [string, any]) => {
+        restoredRows[JSON.parse(key)] = change.old;
       });
     }
 
@@ -757,6 +760,7 @@ const Table = ({
               updatedRows={data}
               handleUpdateTableChanges={handleUpdateChanges}
               isFloatingActionsVisible={isFloatingActionsVisible}
+              dbType={dbType}
             />
             {/* )} */}
             {isNosql ? (
@@ -774,10 +778,13 @@ const Table = ({
                     }}
                     rowClass={(row, rowIndex) => {
                       let classNames = "bg-secondary ";
-                      if (changedRows?.[rowIndex]) {
+                      if (changedRows?.[JSON.stringify(row)]) {
                         classNames += "!bg-primary/10 ";
                       }
-                      if (selectedRows && selectedRows.includes(rowIndex)) {
+                      if (
+                        selectedRows &&
+                        selectedRows.includes(JSON.stringify(row))
+                      ) {
                         classNames += "!bg-destructive/20 ";
                       }
                       if (row.isNew) {
@@ -813,10 +820,13 @@ const Table = ({
                   }}
                   rowClass={(row, rowIndex) => {
                     let classNames = "bg-secondary ";
-                    if (changedRows?.[rowIndex]) {
+                    if (changedRows?.[JSON.stringify(row)]) {
                       classNames += "!bg-primary/10 ";
                     }
-                    if (selectedRows && selectedRows.includes(rowIndex)) {
+                    if (
+                      selectedRows &&
+                      selectedRows.includes(JSON.stringify(row))
+                    ) {
                       classNames += "!bg-destructive/20 ";
                     }
                     if (row.isNew) {
