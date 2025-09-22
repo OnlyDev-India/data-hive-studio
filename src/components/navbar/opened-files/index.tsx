@@ -8,9 +8,11 @@ import { Button } from "../../ui/button";
 import {
   ChevronDownIcon,
   CodeIcon,
-  Grid2X2PlusIcon, PencilRulerIcon,
+  Grid2X2PlusIcon,
+  PencilRulerIcon,
   PlayIcon,
-  TableIcon, XIcon
+  TableIcon,
+  XIcon,
 } from "lucide-react";
 import {
   rearrangeOpenFiles,
@@ -18,7 +20,7 @@ import {
   setCurrentFile,
 } from "@/redux/features/open-files";
 import { cn } from "@/lib/utils";
-import { setExecutingQuery, setQueryOutput } from "@/redux/features/query";
+import { setQueryExecution, updateQueryOutput } from "@/redux/features/query";
 import { executeQuery } from "@/lib/actions/fetch-data";
 import StructureView from "../../views/structure";
 import { fetchTables } from "@/redux/features/tables";
@@ -108,7 +110,6 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
   };
 
   const handleRunQuery = async (edit?: any) => {
-    // TODO: add logic to handle multiple query output
     try {
       if (!monaco?.editor) return;
       const editor1 = monaco.editor;
@@ -118,12 +119,48 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       );
       const currentEditor = edit || editor;
       if (currentModal && currentEditor) {
-        dispatch(setExecutingQuery(true));
         const selection = currentEditor.getSelection();
         const selectedText = currentModal.getValueInRange(selection);
         if (selectedText.trim() === "") return;
+
+        if (dbType === 'mongodb') {
+          const queries = selectedText
+            .split(';')
+            .map((query: string) => query.trim())
+            .filter((query: string) => query.length > 0);
+
+          if (queries.length > 1) {
+            // Handle multiple queries - create separate output tabs for each
+            for (const query of queries) {
+
+              const outputId = crypto.randomUUID();
+              try {
+                dispatch(setQueryExecution({ id: outputId, executingQuery: true }));
+                const data = await executeQuery(query);
+                dispatch(updateQueryOutput({ id: outputId, output: data }));
+                if (data && "isTableEffected" in data) {
+                  if (data.isTableEffected) {
+                    if (data && "effectedRows" in data) {
+                      toast.success(`Updated ${data.effectedRows} rows`);
+                    }
+                    dispatch(fetchTables());
+                  }
+                }
+              } catch (error) {
+                console.log(error);
+              } finally {
+                dispatch(setQueryExecution({ id: outputId, executingQuery: false }));
+              }
+            }
+            return;
+          }
+        }
+
+        // Handle single query (original behavior)
+        const outputId = crypto.randomUUID();
+        dispatch(setQueryExecution({ id: outputId, executingQuery: true }));
         const data = await executeQuery(selectedText);
-        dispatch(setQueryOutput(JSON.stringify(data)));
+        dispatch(updateQueryOutput({ id: outputId, output: data }));
         if (data && "isTableEffected" in data) {
           // Type guard to check if isTableEffected exists
           if (data.isTableEffected) {
@@ -136,8 +173,6 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       }
     } catch (error) {
       console.log(error);
-    } finally {
-      dispatch(setExecutingQuery(false));
     }
   };
 
@@ -282,15 +317,12 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
         </Tabs>
       }
       child2={
-        currentFile?.type === "file" ? (
-          <OutputTerminal dbType={dbType} />
-        ) : null
+        currentFile?.type === "file" ? <OutputTerminal dbType={dbType} /> : null
       }
       activeId="editor-query-output"
       config="editor"
       direction="vertical"
       isSidebar={false}
-      isSubLayout={true}
     />
   );
 };

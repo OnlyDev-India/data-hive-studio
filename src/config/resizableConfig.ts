@@ -19,8 +19,8 @@ const resizableConfig: ResizableConfigs = {
   },
   editor: {
     defaultSizes: [50, 50],
-    minSizes: [5.5, 6],
-    maxSizes: [94, 94.5],
+    minSizes: [5.5, 5.5],
+    maxSizes: [94.5, 94.5],
   },
 };
 

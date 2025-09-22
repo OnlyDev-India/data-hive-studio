@@ -24,12 +24,13 @@ interface Row {
   [key: string]: any; // Dynamic data rows
 }
 interface FloatingActionsProps {
-  selectedRows?: number[];
+  selectedRows?: string[];
   changedRows?: { [key: number]: { old: Row; new: Row } };
   tableName: string;
   updatedRows?: Row[];
   handleUpdateTableChanges?: (type: string) => void;
   isFloatingActionsVisible?: boolean;
+  dbType?: string;
 }
 
 const FloatingActions = ({
@@ -39,6 +40,7 @@ const FloatingActions = ({
   tableName,
   handleUpdateTableChanges,
   isFloatingActionsVisible = false,
+  dbType,
 }: FloatingActionsProps) => {
   const [loading, setLoading] = React.useState<
     "updating" | "adding" | "deleting" | null
@@ -75,8 +77,8 @@ const FloatingActions = ({
   const handleDeleteRows = async () => {
     if (!selectedRows) return;
     setLoading("deleting");
-    const deletingRows = updatedRows?.filter((_, index) =>
-      selectedRows.includes(index),
+    const deletingRows = updatedRows?.filter((row: any) =>
+      selectedRows.includes(JSON.stringify(row)),
     );
     if (!deletingRows) return;
     const response = await deleteTableData(tableName, deletingRows);
@@ -194,7 +196,7 @@ const FloatingActions = ({
                 </DeleteModal>
               </>
             )}
-            {changedRows && Object.keys(changedRows).length > 0 && (
+            {changedRows && Object.keys(changedRows).length > 0 && dbType !== "mongodb" && (
               <>
                 <p className="whitespace-nowrap text-sm text-muted-foreground">
                   {Object.keys(changedRows).length} Changed:
@@ -214,7 +216,7 @@ const FloatingActions = ({
                 </Button>
               </>
             )}
-            {newRows !== null && newRows !== undefined && newRows > 0 && (
+            {newRows !== null && newRows !== undefined && newRows > 0 && dbType !== "mongodb" && (
               <>
                 <p className="whitespace-nowrap text-sm text-muted-foreground">
                   {newRows} Added:

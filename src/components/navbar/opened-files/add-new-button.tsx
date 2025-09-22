@@ -27,7 +27,7 @@ const AddNewFile = () => {
       <Button
         variant="outline"
         size="icon"
-        className="h-6 w-6 min-w-6 rounded-r-none border-border text-white [&_svg]:size-4 hover:text-primary hover:border-primary"
+        className="h-6 w-6 min-w-6 rounded-r-none border-border text-foreground hover:border-primary hover:text-primary [&_svg]:size-4"
         onClick={() => handleAddNewFile()}
       >
         <PlusIcon size={14} />
@@ -37,7 +37,7 @@ const AddNewFile = () => {
           <Button
             variant="outline"
             size="icon"
-            className="h-6 w-5 min-w-4 rounded-l-none border-border p-0 text-white [&_svg]:size-3.5 hover:text-primary hover:border-primary"
+            className="h-6 w-5 min-w-4 rounded-l-none border-border p-0 text-foreground hover:border-primary hover:text-primary [&_svg]:size-3.5"
           >
             <ChevronDownIcon size={14} />
           </Button>

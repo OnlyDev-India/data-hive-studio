@@ -1,26 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
 import GithubDark from "./github-dark.json";
 import GithubLight from "./github-light.json";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "../../ui/resizable";
-import Table from "../../table";
 import { useDispatch, useSelector } from "react-redux";
-// import { setEditor } from "@/redux/features/editor";
-import { Button } from "../../ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
-import { ListXIcon, TriangleAlertIcon } from "lucide-react";
-import { setQueryOutput } from "@/redux/features/query";
 import { useDebouncedCallback } from "@/hooks/debounce";
 import { updateFile } from "@/redux/features/open-files";
-import QueryExecutingAnimation from "@/components/ui/query-executing-animation";
 import { FileFileType } from "@/types/file.type";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTheme } from "next-themes";
-import ShortcutGrid from "@/components/common/shortcut-grids";
 import { Editor } from "@monaco-editor/react";
 import {
   getSchemas,
@@ -51,6 +36,8 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
   const updateCode = (value: string | undefined) => {
     debounce(value || "");
   };
+
+  
 
   const handleEditor = async (editor: any, monaco: any) => {
     monaco.editor.defineTheme("github-dark", GithubDark);
@@ -89,7 +76,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
   };
 
   return (
-    <div className="h-full w-full">
+    <div className="h-[calc(100%-var(--tabs-height))] w-full">
       <Editor
         height={"100%"}
         language={editorLanguages[dbType as keyof typeof editorLanguages]}
