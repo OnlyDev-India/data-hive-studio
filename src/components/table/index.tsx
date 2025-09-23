@@ -494,6 +494,7 @@ const Table = ({
     oldRow: any,
     changedData: any,
   ) => {
+    if(currentFile?.type!=="table") return;
     // Additional safety check - handle the case where newRow might still be an array
     let processedNewRow = newRow;
     if (Array.isArray(newRow)) {

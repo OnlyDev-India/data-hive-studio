@@ -7,7 +7,13 @@ import {
   InitialFormDataTypes,
 } from "@/config/table-initial-form-data";
 import { TableForm } from "@/types/table.type";
-import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, CopyIcon, CheckIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  LoaderCircleIcon,
+  PlusIcon,
+  CopyIcon,
+  CheckIcon,
+} from "lucide-react";
 import React, { useEffect, useState } from "react";
 import ReactDataGrid, { Column, RenderCellProps } from "react-data-grid";
 import { columns } from "./column";
@@ -32,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AppDispatch } from "@/redux/store";
+import PostgreSQLTableCreator from "./postgres";
 
 const NewTableView = () => {
   const [formData, setFormData] = useState<TableForm | null>(null);
@@ -150,7 +157,7 @@ const NewTableView = () => {
   const handleCreateTable = async () => {
     setLoading(true);
     const { data, error } = await createQueryToCreateTable();
-    if (data!='null') {
+    if (data != "null") {
       // setInitialData(true);
       toast.success("Table created successfully");
       dispatch(fetchTables());
@@ -217,19 +224,23 @@ const NewTableView = () => {
   const handleCopyQuery = async () => {
     const { data, error } = await createQueryToCreateTable();
     if (error) return;
-    
+
     if (!formData?.columns) {
       toast.error("No columns defined");
       return;
     }
-    
+
     const query = `CREATE TABLE "${formData.name}" (\n  ${formData.columns
       .map((column) => {
         let columnDef = `"${column.name}" ${column.type}`;
         if (!column.isNull) columnDef += " NOT NULL";
         if (column.defaultValue) columnDef += ` DEFAULT ${column.defaultValue}`;
         if (column.keyType === "PRIMARY") columnDef += " PRIMARY KEY";
-        if (column.keyType === "FOREIGN KEY" && column.foreignTable && column.foreignTableColumn) {
+        if (
+          column.keyType === "FOREIGN KEY" &&
+          column.foreignTable &&
+          column.foreignTableColumn
+        ) {
           columnDef += ` REFERENCES "${column.foreignTable}"("${column.foreignTableColumn}")`;
         }
         return columnDef;
@@ -242,121 +253,160 @@ const NewTableView = () => {
     toast.success("Query copied to clipboard");
   };
 
-  return (
-    <div className="h-[calc(100%-var(--tabs-height))] bg-secondary px-4 py-6">
-      {formData &&
-        (dbType && ["pgSql"].includes(dbType) ? (
-          <div className="h-full space-y-4">
-            <div className="flex h-7 items-center gap-2">
+  return dbType === "pgSql" ? (
+    <PostgreSQLTableCreator />
+  ) : (
+    formData && (
+      <div className="flex h-full w-full items-center justify-center">
+        <Card className="bg-background">
+          <CardHeader>
+            <CardTitle>Create Collection</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-7 items-center space-y-2">
               <Label htmlFor="name" className="whitespace-nowrap">
-                Table Name
+                Collection Name
               </Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => {
-                  setFormData({ ...formData, name: e.target.value });
-                }}
-                className="bg-popover py-0 text-xs"
-              />
-              <div className="flex gap-0.5">
-                <Button
-                  className="h-7 rounded-r-none text-white"
-                  onClick={handleCreateTable}
-                  disabled={loading}
-                >
-                  {loading && <LoaderCircleIcon className="animate-spin" />}
-                  Create Table
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      disabled={loading}
-                      className="h-7 rounded-l-none px-1 text-white"
-                    >
-                      <ChevronDownIcon />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-[200px]">
-                    <DropdownMenuItem onClick={handleCopyQuery}>
-                      <div className="flex items-center gap-2">
-                        {copied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
-                        <span>Copy Create Query</span>
-                      </div>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => {
+                    setFormData({ ...formData, name: e.target.value });
+                  }}
+                  className="border-border bg-secondary py-0 text-xs"
+                />
+                <div>
+                  <Button
+                    className="h-7 text-white"
+                    onClick={handleCreateTable}
+                    disabled={loading}
+                  >
+                    {loading && <LoaderCircleIcon className="animate-spin" />}
+                    Create Table
+                  </Button>
+                </div>
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <h2>Columns</h2>
-              <Button
-                className="h-7 w-7 rounded-full px-1 text-white"
-                onClick={addNewColumn}
-                disabled={loading}
-              >
-                <PlusIcon />
-              </Button>
-            </div>
-            <div className="h-[calc(100%-4rem)]">
-              <ReactDataGrid
-                columns={updatedColumns as any}
-                rows={formData.columns!}
-                rowHeight={40} // Row height
-                headerRowHeight={50} // Header row height
-                onRowsChange={(newRows) => handleDataChange(newRows)} // Handling row changes
-                rowClass={(_, rowInd) => {
-                  let outputClass = "bg-background";
-                  if (invalidData.includes(rowInd)) {
-                    outputClass += "!bg-destructive/10 ";
-                  }
-                  return outputClass;
-                }}
-                className="react-data-grid-new-table h-full bg-transparent"
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Card className="bg-background">
-              <CardHeader>
-                <CardTitle>Create Collection</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-7 items-center space-y-2">
-                  <Label htmlFor="name" className="whitespace-nowrap">
-                    Collection Name
-                  </Label>
-                  <div className="flex gap-2 items-center">
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => {
-                        setFormData({ ...formData, name: e.target.value });
-                      }}
-                      className="bg-secondary py-0 text-xs border-border"
-                    />
-                    <div>
-                      <Button
-                        className="h-7 text-white"
-                        onClick={handleCreateTable}
-                        disabled={loading}
-                      >
-                        {loading && (
-                          <LoaderCircleIcon className="animate-spin" />
-                        )}
-                        Create Table
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter></CardFooter>
-            </Card>
-          </div>
-        ))}
-    </div>
+          </CardContent>
+          <CardFooter></CardFooter>
+        </Card>
+      </div>
+    )
   );
+  // <div className="h-[calc(100%-var(--tabs-height))] bg-secondary px-4 py-6">
+  //   {formData &&
+  //     (dbType && ["pgSql"].includes(dbType) ? (
+  //       <div className="h-full space-y-4">
+  //         <div className="flex h-7 items-center gap-2">
+  //           <Label htmlFor="name" className="whitespace-nowrap">
+  //             Table Name
+  //           </Label>
+  //           <Input
+  //             id="name"
+  //             value={formData.name}
+  //             onChange={(e) => {
+  //               setFormData({ ...formData, name: e.target.value });
+  //             }}
+  //             className="bg-background py-0 text-xs border-border"
+  //           />
+  //           <div className="flex gap-0.5">
+  //             <Button
+  //               className="h-7 rounded-r-none text-white"
+  //               onClick={handleCreateTable}
+  //               disabled={loading}
+  //             >
+  //               {loading && <LoaderCircleIcon className="animate-spin" />}
+  //               Create Table
+  //             </Button>
+  //             <DropdownMenu>
+  //               <DropdownMenuTrigger asChild>
+  //                 <Button
+  //                   disabled={loading}
+  //                   className="h-7 rounded-l-none px-1 text-white"
+  //                 >
+  //                   <ChevronDownIcon />
+  //                 </Button>
+  //               </DropdownMenuTrigger>
+  //               <DropdownMenuContent align="end" className="w-[200px]">
+  //                 <DropdownMenuItem onClick={handleCopyQuery}>
+  //                   <div className="flex items-center gap-2">
+  //                     {copied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+  //                     <span>Copy Create Query</span>
+  //                   </div>
+  //                 </DropdownMenuItem>
+  //               </DropdownMenuContent>
+  //             </DropdownMenu>
+  //           </div>
+  //         </div>
+  //         <div className="flex items-center justify-between">
+  //           <h2>Columns</h2>
+  //           <Button
+  //             className="h-7 w-7 rounded-full px-1 text-white"
+  //             onClick={addNewColumn}
+  //             disabled={loading}
+  //           >
+  //             <PlusIcon />
+  //           </Button>
+  //         </div>
+  //         <div className="h-[calc(100%-4rem)]">
+  //           <ReactDataGrid
+  //             columns={updatedColumns as any}
+  //             rows={formData.columns!}
+  //             rowHeight={40} // Row height
+  //             headerRowHeight={50} // Header row height
+  //             onRowsChange={(newRows) => handleDataChange(newRows)} // Handling row changes
+  //             rowClass={(_, rowInd) => {
+  //               let outputClass = "bg-background";
+  //               if (invalidData.includes(rowInd)) {
+  //                 outputClass += "!bg-destructive/10 ";
+  //               }
+  //               return outputClass;
+  //             }}
+  //             className="react-data-grid-new-table h-full bg-transparent"
+  //           />
+  //         </div>
+  //       </div>
+  //     ) : (
+  //       <div className="flex h-full w-full items-center justify-center">
+  //         <Card className="bg-background">
+  //           <CardHeader>
+  //             <CardTitle>Create Collection</CardTitle>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="h-7 items-center space-y-2">
+  //               <Label htmlFor="name" className="whitespace-nowrap">
+  //                 Collection Name
+  //               </Label>
+  //               <div className="flex gap-2 items-center">
+  //                 <Input
+  //                   id="name"
+  //                   value={formData.name}
+  //                   onChange={(e) => {
+  //                     setFormData({ ...formData, name: e.target.value });
+  //                   }}
+  //                   className="bg-secondary py-0 text-xs border-border"
+  //                 />
+  //                 <div>
+  //                   <Button
+  //                     className="h-7 text-white"
+  //                     onClick={handleCreateTable}
+  //                     disabled={loading}
+  //                   >
+  //                     {loading && (
+  //                       <LoaderCircleIcon className="animate-spin" />
+  //                     )}
+  //                     Create Table
+  //                   </Button>
+  //                 </div>
+  //               </div>
+  //             </div>
+  //           </CardContent>
+  //           <CardFooter></CardFooter>
+  //         </Card>
+  //       </div>
+  //     ))}
+  // </div>
 };
 
 export default NewTableView;

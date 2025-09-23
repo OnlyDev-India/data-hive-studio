@@ -992,7 +992,7 @@ export class PostgresClient extends DatabaseClient {
     return queries.join("\n");
   }
 
-  async createTable(formData: TableForm) {
+  async createTable(formData: any) {
     if (!this.pool)
       return {
         data: null,
@@ -1047,6 +1047,8 @@ export class PostgresClient extends DatabaseClient {
             TEXT: ["TEXT", "VARCHAR", "CHAR", "CHARACTER VARYING"],
             INTEGER: ["INTEGER", "BIGINT", "SMALLINT"],
             BIGINT: ["BIGINT", "INTEGER"],
+            SERIAL: ["INTEGER"],
+            BIGSERIAL: ["BIGINT"],
             "CHARACTER VARYING": [
               "CHARACTER VARYING",
               "TEXT",
@@ -1054,6 +1056,12 @@ export class PostgresClient extends DatabaseClient {
               "CHAR",
             ],
             VARCHAR: ["VARCHAR", "TEXT", "CHARACTER VARYING", "CHAR"],
+            DECIMAL: ["DECIMAL", "NUMERIC"],
+            NUMERIC: ["NUMERIC", "DECIMAL"],
+            REAL: ["REAL", "DOUBLE PRECISION"],
+            "DOUBLE PRECISION": ["DOUBLE PRECISION", "REAL"],
+            TIMESTAMP: ["TIMESTAMP", "TIMESTAMPTZ"],
+            TIMESTAMPTZ: ["TIMESTAMPTZ", "TIMESTAMP"],
           };
 
           if (!compatibleTypes[currentType]?.includes(referencedType)) {
@@ -1065,54 +1073,161 @@ export class PostgresClient extends DatabaseClient {
         }
       }
 
+      // Build column definitions
+      const columnDefinitions: string[] = [];
+      const primaryKeys: string[] = [];
+      const foreignKeys: string[] = [];
+      const uniqueColumns: string[] = [];
+
+      formData.columns.forEach((column: any) => {
+        const {
+          name,
+          type,
+          isNull,
+          defaultValue,
+          keyType,
+          foreignTable,
+          foreignTableColumn,
+          length,
+          isPrimaryKey,
+          isUnique,
+          isForeignKey,
+        } = column;
+
+        if (!name || !type) {
+          throw new Error(
+            `Invalid column definition: ${JSON.stringify(column)}`,
+          );
+        }
+
+        // Build column type with length if specified
+        let columnType = type;
+        if (
+          length &&
+          ["VARCHAR", "CHAR", "DECIMAL", "NUMERIC"].includes(type.toUpperCase())
+        ) {
+          columnType = `${type}(${length})`;
+        }
+
+        // Build column definition
+        let columnDef = `"${name}" ${columnType}`;
+
+        // Add NOT NULL constraint
+        if (!isNull) {
+          columnDef += " NOT NULL";
+        }
+
+        // Add default value
+        if (defaultValue) {
+          if (
+            type.toUpperCase() === "UUID" &&
+            (defaultValue.includes("gen_random_uuid") ||
+              defaultValue === "gen_random_uuid()")
+          ) {
+            columnDef += " DEFAULT gen_random_uuid()";
+          } else if (
+            type.toUpperCase() === "TIMESTAMP" &&
+            (defaultValue.includes("now") ||
+              defaultValue === "CURRENT_TIMESTAMP")
+          ) {
+            columnDef += " DEFAULT CURRENT_TIMESTAMP";
+          } else if (
+            ["VARCHAR", "CHAR", "TEXT"].includes(type.toUpperCase()) &&
+            !defaultValue.startsWith("'") &&
+            !defaultValue.toLowerCase().includes("null")
+          ) {
+            columnDef += ` DEFAULT '${defaultValue}'`;
+          } else {
+            columnDef += ` DEFAULT ${defaultValue}`;
+          }
+        }
+
+        columnDefinitions.push(columnDef);
+
+        // Track constraints for separate handling
+        if (keyType === "PRIMARY" || isPrimaryKey) {
+          primaryKeys.push(name);
+        }
+
+        if (isUnique && keyType !== "PRIMARY" && !isPrimaryKey) {
+          uniqueColumns.push(name);
+        }
+
+        if (
+          (keyType === "FOREIGN KEY" || isForeignKey) &&
+          foreignTable &&
+          foreignTableColumn
+        ) {
+          foreignKeys.push(
+            `FOREIGN KEY ("${name}") REFERENCES ${currentSchema}."${foreignTable}"("${foreignTableColumn}")`,
+          );
+        }
+      });
+
+      // Add constraints
+      if (primaryKeys.length > 0) {
+        const pkColumns = primaryKeys.map((name) => `"${name}"`).join(", ");
+        columnDefinitions.push(`PRIMARY KEY (${pkColumns})`);
+      }
+
+      // Add unique constraints
+      uniqueColumns.forEach((name) => {
+        columnDefinitions.push(`UNIQUE ("${name}")`);
+      });
+
+      // Add foreign key constraints
+      columnDefinitions.push(...foreignKeys);
+
       const query = `CREATE TABLE ${currentSchema}."${formData.name}" (
-        ${formData.columns
-          .map((column: any) => {
-            const {
-              name,
-              type,
-              isNull,
-              defaultValue,
-              keyType,
-              foreignTable,
-              foreignTableColumn,
-            } = column;
-
-            if (!name || !type) {
-              throw new Error(
-                `Invalid column definition: ${JSON.stringify(column)}`,
-              );
-            }
-
-            const nullConstraint = isNull ? "NULL" : "NOT NULL";
-            let defaultConstraint = "";
-
-            if (defaultValue) {
-              if (
-                type.toUpperCase() === "UUID" &&
-                defaultValue.includes("gen_random_uuid")
-              ) {
-                defaultConstraint = "DEFAULT gen_random_uuid()";
-              } else {
-                defaultConstraint = `DEFAULT ${defaultValue}`;
-              }
-            }
-
-            const keyConstraint =
-              keyType === "PRIMARY"
-                ? "PRIMARY KEY"
-                : keyType === "FOREIGN" && foreignTableColumn && foreignTable
-                  ? `REFERENCES ${currentSchema}."${foreignTable}"("${foreignTableColumn}")`
-                  : "";
-
-            return `"${name}" ${type} ${nullConstraint} ${defaultConstraint} ${keyConstraint}`.trim();
-          })
-          .join(",\n    ")}
+        ${columnDefinitions.join(",\n    ")}
       )`;
 
-      console.log(query);
+      console.log("Generated SQL:", query);
 
+      // Execute CREATE TABLE
       await this.executeQuery(query);
+
+      // Add table-level constraints if any
+      if (formData.constraints && formData.constraints.length > 0) {
+        for (const constraint of formData.constraints) {
+          if (constraint.name && constraint.definition) {
+            let constraintSQL = "";
+            if (constraint.type === "CHECK") {
+              constraintSQL = `ALTER TABLE ${currentSchema}."${formData.name}" ADD CONSTRAINT "${constraint.name}" CHECK ${constraint.definition}`;
+            } else if (constraint.type === "UNIQUE") {
+              constraintSQL = `ALTER TABLE ${currentSchema}."${formData.name}" ADD CONSTRAINT "${constraint.name}" UNIQUE ${constraint.definition}`;
+            } else if (constraint.type === "FOREIGN KEY") {
+              constraintSQL = `ALTER TABLE ${currentSchema}."${formData.name}" ADD CONSTRAINT "${constraint.name}" FOREIGN KEY ${constraint.definition}`;
+            } else if (constraint.type === "EXCLUDE") {
+              constraintSQL = `ALTER TABLE ${currentSchema}."${formData.name}" ADD CONSTRAINT "${constraint.name}" EXCLUDE ${constraint.definition}`;
+            }
+
+            if (constraintSQL) {
+              console.log("Adding constraint:", constraintSQL);
+              await this.executeQuery(constraintSQL);
+            }
+          }
+        }
+      }
+
+      // Add indexes if any
+      if (formData.indexes && formData.indexes.length > 0) {
+        for (const index of formData.indexes) {
+          if (index.name && index.columns && index.columns.length > 0) {
+            const uniqueKeyword = index.unique ? "UNIQUE " : "";
+            const whereClause = index.where ? ` WHERE ${index.where}` : "";
+            const columnsStr = index.columns
+              .map((col: any) => `"${col}"`)
+              .join(", ");
+
+            const indexSQL = `CREATE ${uniqueKeyword}INDEX "${index.name}" ON ${currentSchema}."${formData.name}" USING ${index.type || "BTREE"} (${columnsStr})${whereClause}`;
+
+            console.log("Adding index:", indexSQL);
+            await this.executeQuery(indexSQL);
+          }
+        }
+      }
+
       return { data: [], error: null };
     } catch (e) {
       console.error("Error creating table:", e);
