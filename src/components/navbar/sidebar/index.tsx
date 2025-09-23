@@ -5,6 +5,7 @@ import { disconnectDb } from "@/lib/actions/fetch-data";
 import {
   CirclePowerIcon,
   Database,
+  MessageCircleQuestionIcon,
   MonitorIcon,
   MoonIcon,
   SettingsIcon,
@@ -34,6 +35,7 @@ import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipTrigger } from "@/components/ui/tooltip";
 import { AppDispatch } from "@/redux/store";
 import { Suspense } from "react";
+import Link from "next/link";
 
 const Sidebar = () => {
   const router = useRouter();
@@ -53,7 +55,7 @@ const Sidebar = () => {
   return (
     <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">
       {pathname === "/" && <ConnectionPageSidebar />}
-      {pathname.startsWith("/app") && (
+      {pathname.startsWith("/app/editor") && (
         <>
           <Suspense fallback={<></>}>
             <ConnectedPageSidebar pathname={pathname} />
@@ -78,6 +80,26 @@ const Sidebar = () => {
           </DatabaseBackupModal>
         </>
       )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={"ghost"}
+            size={"icon"}
+            className="hover:bg-secondary"
+            asChild
+          >
+            <Link
+              href="https://dh-studio-frontend.vercel.app/feedback"
+              target="_blank"
+            >
+              <MessageCircleQuestionIcon />
+            </Link>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <p>Feedback</p>
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
