@@ -15,11 +15,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  changeDataBase,
-  currentConnectionDetails,
+  changeDataBase, getConnectionDetails,
   getCurrentDatabaseType,
   getDatabases,
-  getSchemas,
+  getSchemas
 } from "@/lib/actions/fetch-data";
 import { handlers } from "@/lib/databases/db";
 import { cn } from "@/lib/utils";
@@ -27,7 +26,6 @@ import { addOpenFiles, resetOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
 import { fetchTables, setCurrentSchema } from "@/redux/features/tables";
 import { AppDispatch } from "@/redux/store";
-import { ConnectionDetailsType } from "@/types/db.type";
 import { CommandSeparator } from "cmdk";
 import {
   AtomIcon,
@@ -90,9 +88,8 @@ const TablesList = () => {
   };
 
   const handleFetchCurrentDatabase = async () => {
-    const connectionDetails: ConnectionDetailsType =
-      await currentConnectionDetails();
-    setCurrentDatabase(connectionDetails.database || null);
+    const { connectionDetails } = await getConnectionDetails();
+    setCurrentDatabase(connectionDetails?.database || null);
   };
 
   const handleDatabaseChange = async (database: string) => {
@@ -150,7 +147,7 @@ const TablesList = () => {
             </Button>
           </PopoverTrigger>
           <PopoverContent
-            className="min-w-[200px] w-full bg-popover/60 p-0 backdrop-blur-md"
+            className="w-full min-w-[200px] bg-popover/60 p-0 backdrop-blur-md"
             align="center"
           >
             <Command className="bg-transparent">
@@ -222,7 +219,7 @@ const TablesList = () => {
               </Button>
             </PopoverTrigger>
             <PopoverContent
-              className="min-w-[200px] w-full bg-popover/60 p-0 backdrop-blur-md"
+              className="w-full min-w-[200px] bg-popover/60 p-0 backdrop-blur-md"
               align="center"
             >
               <Command className="bg-transparent">

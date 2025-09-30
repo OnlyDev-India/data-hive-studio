@@ -1,8 +1,8 @@
 "use client";
 import {
-  initAppData,
+  initConnectedConnection,
   setConnectionLoading,
-  setCurrentConnection,
+  setCurrentConnection
 } from "@/redux/features/appdb";
 import { ConnectionsType } from "@/types/db.type";
 import { useDispatch, useSelector } from "react-redux";
@@ -18,18 +18,14 @@ import { RotateCwIcon, Plus, Search } from "lucide-react";
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { Badge } from "@/components/ui/badge";
 import { useAppData } from "@/hooks/useAppData";
-import { AppDispatch } from "@/redux/store";
+import { AppDispatch, RootState } from "@/redux/store";
 
 const ConnectionSidebar = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const {
-    connections,
-    loading,
-  }: {
-    connections: ConnectionsType[];
-    loading: boolean;
-  } = useSelector((state: any) => state.appDB);
+  const { connections, loading } = useSelector(
+    (state: RootState) => state.appDB,
+  );
 
   const dispatch = useDispatch<AppDispatch>();
   const router = useRouter();
@@ -86,7 +82,7 @@ const ConnectionSidebar = () => {
   };
 
   const handleRefreshConnections = () => {
-    dispatch(initAppData());
+    dispatch(initConnectedConnection());
   };
 
   return (
@@ -109,75 +105,73 @@ const ConnectionSidebar = () => {
           />
         </div>
       </div>
-          <div className="h-full space-y-2 overflow-y-auto px-2 pb-1 relative">
-            <div className="group flex items-center justify-between sticky top-0 bg-secondary z-10">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Connections
-                </h3>
-                <Badge variant={"secondary"} className="rounded-full">
-                  {connections?.length || 0}
-                </Badge>
-              </div>
-              <Button
-                variant={"ghost"}
-                size={"icon"}
-                onClick={handleRefreshConnections}
-                className="h-6 w-6 text-muted-foreground opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-              >
-                <RotateCwIcon
-                  className={cn("h-3.5 w-3.5", { "animate-spin": loading })}
-                />
-              </Button>
-            </div>
-            <div className="flex flex-col gap-1">
-              {connections
-                ?.filter((connection) =>
-                  connection.name
-                    .toLowerCase()
-                    .includes(searchQuery.toLowerCase()),
-                )
-                .map((connection, index) => (
-                  <ConnectionMenu connection={connection} key={index}>
-                    <div
-                      className="group flex cursor-pointer items-center justify-between rounded-md bg-white/5 px-2 py-1.5 transition-colors hover:bg-white/10"
-                      onClick={() => handleCurrentConnection(connection)}
-                      onDoubleClick={() =>
-                        handleCurrentConnectionConnect(connection)
-                      }
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{
-                            backgroundColor: connection.color || "transparent",
-                          }}
-                        />
-                        <div className="flex flex-col">
-                          <span className="truncate text-xs font-medium text-foreground">
-                            {connection.name}
-                          </span>
-                          <span className="truncate text-[11px] text-muted-foreground/60">
-                            {connection.connection_type || "N/A"}
-                          </span>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 px-1.5 text-[11px] opacity-0 transition-opacity group-hover:opacity-100"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCurrentConnectionConnect(connection);
-                        }}
-                      >
-                        Connect
-                      </Button>
-                    </div>
-                  </ConnectionMenu>
-                ))}
-            </div>
+      <div className="relative h-full space-y-2 overflow-y-auto px-2 pb-1">
+        <div className="group sticky top-0 z-10 flex items-center justify-between bg-secondary">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Connections
+            </h3>
+            <Badge variant={"secondary"} className="rounded-full">
+              {connections?.length || 0}
+            </Badge>
           </div>
+          <Button
+            variant={"ghost"}
+            size={"icon"}
+            onClick={handleRefreshConnections}
+            className="h-6 w-6 text-muted-foreground opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          >
+            <RotateCwIcon
+              className={cn("h-3.5 w-3.5", { "animate-spin": loading==='initial' })}
+            />
+          </Button>
+        </div>
+        <div className="flex flex-col gap-1">
+          {connections
+            ?.filter((connection) =>
+              connection.name.toLowerCase().includes(searchQuery.toLowerCase()),
+            )
+            .map((connection, index) => (
+              <ConnectionMenu connection={connection} key={index}>
+                <div
+                  className="group flex cursor-pointer items-center justify-between rounded-md bg-white/5 px-2 py-1.5 transition-colors hover:bg-white/10"
+                  onClick={() => handleCurrentConnection(connection)}
+                  onDoubleClick={() =>
+                    handleCurrentConnectionConnect(connection)
+                  }
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{
+                        backgroundColor: connection.color || "transparent",
+                      }}
+                    />
+                    <div className="flex flex-col">
+                      <span className="truncate text-xs font-medium text-foreground">
+                        {connection.name}
+                      </span>
+                      <span className="truncate text-[11px] text-muted-foreground/60">
+                        {connection.connection_type || "N/A"}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1.5 text-[11px] opacity-0 transition-opacity group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCurrentConnectionConnect(connection);
+                    }}
+                  >
+                    Connect
+                  </Button>
+                </div>
+              </ConnectionMenu>
+            ))}
+        </div>
+      </div>
     </div>
   );
 };

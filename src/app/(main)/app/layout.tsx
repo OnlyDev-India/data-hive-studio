@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { AppDispatch } from "@/redux/store";
+import { initConnectedConnection } from "@/redux/features/appdb";
 
 const MainLayout = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
@@ -15,6 +16,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
     const checkConnection = async () => {
       try {
         await dispatch(fetchTables());
+        dispatch(initConnectedConnection());
       } catch (error) {
         router.push("/");
       } finally {
@@ -27,7 +29,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
 
   if (isLoading) {
     return (
-      <div className="h-full w-full flex-1 flex p-2 pl-0">
+      <div className="flex h-full w-full flex-1 p-2 pl-0">
         <div className="h-full w-full flex-1 rounded-lg bg-secondary">
           {/* Content Area with Database Fetching Animation */}
           <div className="flex-1 p-8">

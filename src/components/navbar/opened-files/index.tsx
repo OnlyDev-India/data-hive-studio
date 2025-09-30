@@ -43,6 +43,8 @@ import AddNewFile from "./add-new-button";
 import VisualizerView from "../../views/visualizer";
 import ResizableLayout from "@/components/common/resizable-layout";
 import OutputTerminal from "@/components/views/editor/output-terminal";
+import { useAppData } from "@/hooks/useAppData";
+import { initConnectedConnection } from "@/redux/features/appdb";
 
 // Dynamically import the CodeEditor component
 const CodeEditor = dynamic(() => import("../../views/editor"), { ssr: false });
@@ -71,6 +73,10 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
 
   const [dragOverIndex, setDragOverIndex] = useState(-1);
   const [dragIndex, setDragIndex] = useState(-1);
+  const { updateConnection } = useAppData();
+  const { queryHistory, connectedConnection } = useSelector(
+    (state: RootState) => state.appDB,
+  );
   const dispatch = useDispatch<AppDispatch>();
 
   const TabsContentChildComponent =
@@ -123,19 +129,33 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
         const selectedText = currentModal.getValueInRange(selection);
         if (selectedText.trim() === "") return;
 
-        if (dbType === 'mongodb') {
+        if (dbType === "mongodb") {
           const queries = selectedText
-            .split(';')
+            .split(";")
             .map((query: string) => query.trim())
             .filter((query: string) => query.length > 0);
+          if (connectedConnection) {
+            const updatedQueryHistory = JSON.parse(
+              JSON.stringify(queryHistory),
+            );
+            queries.forEach((query: string) => {
+              updatedQueryHistory.push(query);
+            });
+            updateConnection({
+              ...connectedConnection,
+              queryHistory: updatedQueryHistory,
+            });
+            dispatch(initConnectedConnection());
+          }
 
           if (queries.length > 1) {
             // Handle multiple queries - create separate output tabs for each
             for (const query of queries) {
-
               const outputId = crypto.randomUUID();
               try {
-                dispatch(setQueryExecution({ id: outputId, executingQuery: true }));
+                dispatch(
+                  setQueryExecution({ id: outputId, executingQuery: true }),
+                );
                 const data = await executeQuery(query);
                 dispatch(updateQueryOutput({ id: outputId, output: data }));
                 if (data && "isTableEffected" in data) {
@@ -149,7 +169,9 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
               } catch (error) {
                 console.log(error);
               } finally {
-                dispatch(setQueryExecution({ id: outputId, executingQuery: false }));
+                dispatch(
+                  setQueryExecution({ id: outputId, executingQuery: false }),
+                );
               }
             }
             return;

@@ -115,7 +115,6 @@ const OutputTerminal = ({ dbType }: { dbType: string }) => {
         </div>
       ) : columns.length > 0 ? (
         <div className="h-[calc(100%-2.8rem)]">
-          {/* TODO: */}
           <Table data={data} columns={columns} dbType={dbType} />
         </div>
       ) : currentOutputTab?.output?.error ? (

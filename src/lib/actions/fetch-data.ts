@@ -16,14 +16,18 @@ export const getDbInstance = async (): Promise<DatabaseClient | null> => {
   if (!global.connectionManagerInstance) {
     global.connectionManagerInstance = {};
   }
-  const cookie = await getCookie();
-  const connectionUrl = cookie.get("currentConnection");
-  const parsedConnectionUrl = JSON.parse(connectionUrl?.value || "");
+  // const cookie = await getCookie();
+  // const connectionUrl = cookie.get("currentConnection");
+  // const parsedConnectionUrl = JSON.parse(connectionUrl?.value || "");
+  const { connectionDetails: parsedConnectionUrl, dbType } =
+    await getConnectionDetails();
+  if (!parsedConnectionUrl) {
+    return null;
+  }
   let currentInstance =
     global.connectionManagerInstance[parsedConnectionUrl.id as any];
   if (!currentInstance) {
-    const dbType = cookie.get("dbType")?.value as keyof typeof handlers;
-    const newInstance = new handlers[dbType]();
+    const newInstance = new handlers[dbType as keyof typeof handlers]();
     global.connectionManagerInstance[parsedConnectionUrl.id as any] =
       newInstance as any;
     currentInstance = newInstance;
@@ -32,40 +36,57 @@ export const getDbInstance = async (): Promise<DatabaseClient | null> => {
   if (isConnected) {
     return currentInstance;
   }
-  const result = await currentInstance.getConnectionDetailsFromCookies();
-  if (!result.connectionDetails) {
+  const result = await currentInstance.ensureConnected();
+  // if (!result.connectionDetails) {
+  //   return null;
+  // }
+  // await currentInstance.connectDb({
+  //   connectionDetails: result.connectionDetails,
+  // });
+  if (!result.success) {
     return null;
   }
-  await currentInstance.connectDb({
-    connectionDetails: result.connectionDetails,
-  });
   return currentInstance;
 };
 
-export const getConnectionDetails =
-  async (): Promise<ConnectionDetailsType | null> => {
-    if (!global.connectionManagerInstance) {
-      global.connectionManagerInstance = {};
-    }
-    try {
-    const cookie = await getCookie();
+export const getConnectionDetails = async (): Promise<{
+  connectionDetails: ConnectionDetailsType | null;
+  dbType: string | null;
+  error?: string | null;
+}> => {
+  if (!global.connectionManagerInstance) {
+    global.connectionManagerInstance = {};
+  }
+  try {
+    const cookie = cookies();
     const connectionUrl = cookie.get("currentConnection");
-      const parsedConnectionUrl = JSON.parse(connectionUrl?.value || "");
-      return parsedConnectionUrl;
-    } catch (error) {
-      console.error("Failed to get connection details:", error);
-      return null;
-    }
-  };
+    const dbType = cookie.get("dbType")?.value;
+    const parsedConnectionUrl = JSON.parse(connectionUrl?.value || "");
+    return {
+      connectionDetails: parsedConnectionUrl,
+      dbType: dbType || null,
+      error: null,
+    };
+  } catch (error: any) {
+    return {
+      connectionDetails: null,
+      dbType: null,
+      error: error.message as string,
+    };
+  }
+};
 
 export const resetDbInstance = async (): Promise<void> => {
   if (!global.connectionManagerInstance) {
     global.connectionManagerInstance = {};
   }
-  const cookie = await getCookie();
-  const connectionUrl = cookie.get("currentConnection");
-  const parsedConnectionUrl = JSON.parse(connectionUrl?.value || "");
-  const currentInstance = global.connectionManagerInstance[parsedConnectionUrl.id as any];
+  const { connectionDetails: parsedConnectionUrl } =
+    await getConnectionDetails();
+  if (!parsedConnectionUrl) {
+    return;
+  }
+  const currentInstance =
+    global.connectionManagerInstance[parsedConnectionUrl.id as any];
   if (currentInstance) {
     await currentInstance.disconnectDb();
     global.connectionManagerInstance[parsedConnectionUrl.id as any] = null;
@@ -78,14 +99,11 @@ export async function changeDataBase({
   newConnectionDetails: Partial<ConnectionDetailsType>;
 }) {
   const cookie = cookies();
-  const connectionUrl = cookie.get("currentConnection");
-  if (!connectionUrl) {
+  const { connectionDetails: oldConnectionDetails } =
+    await getConnectionDetails();
+  if (!oldConnectionDetails) {
     return { success: false, error: "No connection to the database" };
   }
-
-  const oldConnectionDetails: ConnectionDetailsType = JSON.parse(
-    connectionUrl?.value || "",
-  );
   const updatedConnectionDetails = {
     ...oldConnectionDetails,
     ...newConnectionDetails,
@@ -100,15 +118,6 @@ export async function changeDataBase({
     connectionDetails: updatedConnectionDetails,
   });
   return { success: true };
-}
-
-export async function currentConnectionDetails() {
-  const cookie = cookies();
-  const connectionUrl = cookie.get("currentConnection");
-  const connectionDetails: ConnectionDetailsType = JSON.parse(
-    connectionUrl?.value || "",
-  );
-  return connectionDetails;
 }
 
 export async function getCurrentDatabaseType() {
@@ -264,12 +273,15 @@ export async function testConnection({
 
 export async function disconnectDb(connectionPath: string | null) {
   const cookie = cookies();
-  const connectionUrl = cookie.get("currentConnection");
-  if (!connectionUrl) return false;
+  // const connectionUrl = cookie.get("currentConnection");
+  // if (!connectionUrl) return false;
 
-  const connectionDetails: ConnectionDetailsType = JSON.parse(
-    connectionUrl.value,
-  );
+  // const connectionDetails: ConnectionDetailsType = JSON.parse(
+  //   connectionUrl.value,
+  // );
+  const { connectionDetails } = await getConnectionDetails();
+  console.log(connectionDetails);
+  if (!connectionDetails) return false;
 
   // Use resetInstance to ensure complete cleanup
   await resetDbInstance();

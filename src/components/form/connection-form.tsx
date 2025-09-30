@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,15 +35,19 @@ import {
   DbConnectionsTypes,
 } from "@/types/db.type";
 import { useDispatch, useSelector } from "react-redux";
-import { initAppData, setCurrentConnection } from "@/redux/features/appdb";
+import {
+  initConnectedConnection,
+  setCurrentConnection,
+} from "@/redux/features/appdb";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { cn } from "@/lib/utils";
 import { useAppData } from "@/hooks/useAppData";
-import { AppDispatch } from "@/redux/store";
+import { AppDispatch, RootState } from "@/redux/store";
 import { parseConnectionString } from "@/lib/helper/connection-details";
 import { Label } from "../ui/label";
 
 const ConnectionForm = () => {
+  // TODO: when connecting from connection sub sidebar one more entry get added to the redux store
   const { createConnection, updateConnection } = useAppData();
   const [loading, setLoading] = React.useState<
     "connecting" | "testing" | "saving" | null
@@ -52,12 +56,10 @@ const ConnectionForm = () => {
   const [isExportModalOpen, setIsExportModalOpen] = React.useState(false);
   // const [exportedUrl, setExportedUrl] = React.useState("");
   const [isCopied, setIsCopied] = React.useState(false);
-  const {
-    currentConnection,
-    loading: appLoading,
-  }: { currentConnection: ConnectionsType; loading: boolean } = useSelector(
-    (state: any) => state.appDB,
+  const { currentConnection, loading: appLoading1= "idle" } = useSelector(
+    (state: RootState) => state.appDB,
   );
+  const appLoading = typeof window !== "undefined" && !window.electron ? "idle" : appLoading1;
 
   const dispatch = useDispatch<AppDispatch>();
 
@@ -315,7 +317,7 @@ const ConnectionForm = () => {
       }
 
       if (response?.success) {
-        dispatch(initAppData());
+        dispatch(initConnectedConnection());
       }
     } catch (error: any) {
       toast.error("An unexpected error occurred", {
@@ -502,6 +504,7 @@ const ConnectionForm = () => {
                             }
                             className="bg-secondary"
                             {...field}
+                            value={field.value || ""}
                           />
                         </FormControl>
                         <FormMessage />
@@ -697,7 +700,7 @@ const ConnectionForm = () => {
               <div className="flex justify-end gap-2 pt-4">
                 <Button
                   type="button"
-                  disabled={appLoading || loading !== null}
+                  disabled={appLoading!== "idle" || loading !== null}
                   variant="secondary"
                   onClick={onTest}
                   className="h-9 border border-border px-4"
@@ -709,7 +712,7 @@ const ConnectionForm = () => {
                 </Button>
                 <Button
                   type="button"
-                  disabled={appLoading || loading !== null}
+                  disabled={appLoading!== "idle" || loading !== null}
                   variant="outline"
                   onClick={saveConnection}
                   className="h-9 border-border px-4"
@@ -721,10 +724,10 @@ const ConnectionForm = () => {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={appLoading || loading !== null}
+                  disabled={appLoading!== "idle" || loading !== null}
                   className="h-9 px-4 text-white"
                 >
-                  {(appLoading || loading === "connecting") && (
+                  {(loading === "connecting") && (
                     <LoaderCircleIcon className="mr-2 h-4 w-4 animate-spin" />
                   )}
                   Connect

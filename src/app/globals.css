@@ -85,6 +85,7 @@ body {
 @layer base {
   * {
     @apply border-border;
+    overscroll-behavior: none;
   }
   body {
     @apply select-none bg-background text-foreground;
