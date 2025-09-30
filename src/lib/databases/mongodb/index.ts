@@ -444,7 +444,7 @@ export class MongoDbClient extends DatabaseClient {
     }
   };
 
-  safeParseMongoJSON = (text: string) => {
+  safeParseMongoJSON = (text: any) => {
     try {
       const data = this.parseMongoJSON(text);
       return data;
@@ -852,15 +852,17 @@ export class MongoDbClient extends DatabaseClient {
           try {
             // Get column information for this collection
             const { columns } = await this.getTableColumns(collection.name);
-            
+
             // Transform columns to match PostgreSQL field structure
-            const fields = columns ? columns.map((col: any) => ({
-              name: col.column_name,
-              type: col.data_type,
-              key_type: col.column_name === '_id' ? 'PRIMARY' : null,
-              foreign_table_name: null,
-              foreign_column_name: null,
-            })) : [];
+            const fields = columns
+              ? columns.map((col: any) => ({
+                  name: col.column_name,
+                  type: col.data_type,
+                  key_type: col.column_name === "_id" ? "PRIMARY" : null,
+                  foreign_table_name: null,
+                  foreign_column_name: null,
+                }))
+              : [];
 
             return {
               table_name: collection.name,
@@ -873,7 +875,7 @@ export class MongoDbClient extends DatabaseClient {
               fields: [],
             };
           }
-        })
+        }),
       );
 
       return { tables: collections, error: null };
@@ -1304,15 +1306,19 @@ export class MongoDbClient extends DatabaseClient {
         });
       }
 
-      const parsedData = data.map((item) => ({
-        oldValue: this.safeParseMongoJSON(item.oldValue.toString()),
-        newValue: this.safeParseMongoJSON(item.newValue.toString()),
-      }));
+      // NO need to parse again
+      // const parsedData = data.map((item) => {
+      //   console.log("item", this.safeParseMongoJSON(item.oldValue));
+      //   return {
+      //     oldValue: this.safeParseMongoJSON(item.oldValue),
+      //     newValue: this.safeParseMongoJSON(item.newValue),
+      //   };
+      // });
 
-      console.log("parsedData", parsedData);
+      // console.log("parsedData", parsedData);
 
       let totalUpdated = 0;
-      for (const { oldValue, newValue } of parsedData) {
+      for (const { oldValue, newValue } of data) {
         // For MongoDB, we need to use the _id field for reliable updates
         if (!oldValue._id) {
           continue;
@@ -1628,9 +1634,14 @@ export class MongoDbClient extends DatabaseClient {
 
     try {
       // Check if collection already exists
-      const existingCollections = await this.db.listCollections({ name: data.name }).toArray();
+      const existingCollections = await this.db
+        .listCollections({ name: data.name })
+        .toArray();
       if (existingCollections.length > 0) {
-        return { data: null, error: `Collection '${data.name}' already exists` };
+        return {
+          data: null,
+          error: `Collection '${data.name}' already exists`,
+        };
       }
 
       // In MongoDB, we don't need to explicitly create collections
