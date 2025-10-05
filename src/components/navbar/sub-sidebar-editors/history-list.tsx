@@ -226,7 +226,7 @@ const HistoryList = () => {
         <div className="py-6 text-center">
           <Search className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">
-            No queries found matching "{searchTerm}"
+            {`No queries found matching "${searchTerm}"`}
           </p>
         </div>
       )}

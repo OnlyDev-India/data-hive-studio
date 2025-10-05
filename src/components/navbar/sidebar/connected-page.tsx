@@ -62,7 +62,7 @@ const ConnectedPageSidebar = ({ pathname }: { pathname: string }) => {
                       },
                     )}
                   >
-                    <item.icon size={20} />
+                    <item.icon selected={shouldHighlight} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={10}>

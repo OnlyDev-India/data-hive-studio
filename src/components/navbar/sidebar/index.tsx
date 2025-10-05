@@ -3,13 +3,11 @@ import { Button } from "../../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import { disconnectDb } from "@/lib/actions/fetch-data";
 import {
-  CirclePowerIcon,
-  Database,
-  MessageCircleQuestionIcon,
+  CirclePowerIcon, MessageCircleQuestionIcon,
   MonitorIcon,
   MoonIcon,
   SettingsIcon,
-  SunIcon,
+  SunIcon
 } from "lucide-react";
 import { useDispatch } from "react-redux";
 import { resetOpenFiles } from "@/redux/features/open-files";
@@ -60,24 +58,7 @@ const Sidebar = () => {
           <Suspense fallback={<></>}>
             <ConnectedPageSidebar pathname={pathname} />
           </Suspense>
-          <DatabaseBackupModal>
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={"ghost"}
-                    size={"icon"}
-                    className="hover:bg-secondary"
-                  >
-                    <Database size={12} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>Database Backup</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          </DatabaseBackupModal>
+          <DatabaseBackupModal />
         </>
       )}
       <Tooltip>
@@ -85,7 +66,7 @@ const Sidebar = () => {
           <Button
             variant={"ghost"}
             size={"icon"}
-            className="hover:bg-secondary"
+            className="hover:bg-secondary text-muted-foreground"
             asChild
           >
             <Link
@@ -105,7 +86,7 @@ const Sidebar = () => {
           <Button
             variant={"ghost"}
             size={"icon"}
-            className="hover:bg-secondary"
+            className="hover:bg-secondary text-muted-foreground"
           >
             <SettingsIcon />
           </Button>

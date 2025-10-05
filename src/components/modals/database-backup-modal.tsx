@@ -22,6 +22,7 @@ import {
   FileText,
   HelpCircle,
   RefreshCw,
+  DatabaseIcon,
 } from "lucide-react";
 import { getConnectionDetails } from "@/lib/actions/fetch-data";
 import {
@@ -29,21 +30,19 @@ import {
   generateDatabaseBackupCommands,
 } from "@/lib/actions/database-backup";
 import { ConnectionDetailsType } from "@/types/db.type";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
-interface DatabaseBackupModalProps {
-  children: React.ReactNode;
-}
-
-export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
+export function DatabaseBackupModal() {
   const [open, setOpen] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
   const [showInstructions, setShowInstructions] = useState(false);
   const [backupCommands, setBackupCommands] = useState<BackupCommand[]>([]);
-  const [selectedCommand, setSelectedCommand] = useState<BackupCommand | null>(null);
+  const [selectedCommand, setSelectedCommand] = useState<BackupCommand | null>(
+    null,
+  );
 
   const [currentConnection, setCurrentConnection] = useState<any>(null);
   const [connectionDetails, setConnectionDetails] = useState<any>(null);
-
 
   useEffect(() => {
     const fetchConnectionDetails = async () => {
@@ -88,7 +87,24 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogTrigger asChild>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"ghost"}
+                size={"icon"}
+                className="hover:bg-secondary text-muted-foreground"
+              >
+                <DatabaseIcon size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Database Backup</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </DialogTrigger>
       <DialogContent className="flex max-h-[90vh] min-h-[400px] flex-col overflow-hidden sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -115,14 +131,15 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
             </Badge>
           </div>
 
-
           {/* Backup Commands */}
           {backupCommands.length > 0 ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Terminal className="h-4 w-4" />
-                  <Label className="text-sm font-medium">Available Commands</Label>
+                  <Label className="text-sm font-medium">
+                    Available Commands
+                  </Label>
                 </div>
                 <Button
                   variant="ghost"
@@ -140,7 +157,7 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
                 {backupCommands.map((command, index) => (
                   <div
                     key={index}
-                    className={`rounded-lg border p-3 cursor-pointer transition-colors ${
+                    className={`cursor-pointer rounded-lg border p-3 transition-colors ${
                       selectedCommand === command
                         ? "border-primary bg-primary/5"
                         : "border-border hover:border-primary/50"
@@ -148,12 +165,18 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
                     onClick={() => setSelectedCommand(command)}
                   >
                     <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            selectedCommand === command ? "bg-primary" : "bg-muted-foreground"
-                          }`} />
-                          <span className="text-sm font-medium">{command.description}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex items-center gap-2">
+                          <div
+                            className={`h-2 w-2 rounded-full ${
+                              selectedCommand === command
+                                ? "bg-primary"
+                                : "bg-muted-foreground"
+                            }`}
+                          />
+                          <span className="text-sm font-medium">
+                            {command.description}
+                          </span>
                         </div>
                         <div className="rounded bg-muted/50 p-2 font-mono text-xs">
                           <code className="break-all">{command.command}</code>
@@ -184,7 +207,9 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
-                    <Label className="text-sm font-medium">Selected Command</Label>
+                    <Label className="text-sm font-medium">
+                      Selected Command
+                    </Label>
                   </div>
 
                   <div className="relative">
@@ -206,36 +231,48 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
                   </div>
 
                   {/* Additional Commands */}
-                  {selectedCommand.additionalCommands && selectedCommand.additionalCommands.length > 0 && (
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Related Commands</Label>
-                      {selectedCommand.additionalCommands.map((additionalCommand, index) => (
-                        <div key={index} className="rounded-lg border bg-muted/30 p-3">
-                          <div className="mb-2 text-xs font-medium text-muted-foreground">
-                            {additionalCommand.description}
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <code className="break-all text-xs flex-1">{additionalCommand.command}</code>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="ml-2 h-6 w-6 p-0"
-                              onClick={() => handleCopyCommand(additionalCommand.command)}
+                  {selectedCommand.additionalCommands &&
+                    selectedCommand.additionalCommands.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">
+                          Related Commands
+                        </Label>
+                        {selectedCommand.additionalCommands.map(
+                          (additionalCommand, index) => (
+                            <div
+                              key={index}
+                              className="rounded-lg border bg-muted/30 p-3"
                             >
-                              {copiedCommand === additionalCommand.command ? (
-                                <CheckCircle className="h-3 w-3 text-green-600" />
-                              ) : (
-                                <Copy className="h-3 w-3" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                                {additionalCommand.description}
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <code className="flex-1 break-all text-xs">
+                                  {additionalCommand.command}
+                                </code>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="ml-2 h-6 w-6 p-0"
+                                  onClick={() =>
+                                    handleCopyCommand(additionalCommand.command)
+                                  }
+                                >
+                                  {copiedCommand ===
+                                  additionalCommand.command ? (
+                                    <CheckCircle className="h-3 w-3 text-green-600" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
                 </div>
               )}
-
 
               {/* Instructions Toggle */}
               <div className="flex justify-center">
