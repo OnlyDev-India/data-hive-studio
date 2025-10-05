@@ -8,7 +8,7 @@ import { PaginationType } from "@/types/file.type";
 import { updateConnection } from "./app-data";
 
 export async function getCookie() {
-  const cookie = cookies();
+  const cookie = await cookies();
   return cookie;
 }
 
@@ -58,7 +58,7 @@ export const getConnectionDetails = async (): Promise<{
     global.connectionManagerInstance = {};
   }
   try {
-    const cookie = cookies();
+    const cookie = await cookies();
     const connectionUrl = cookie.get("currentConnection");
     const dbType = cookie.get("dbType")?.value;
     const parsedConnectionUrl = JSON.parse(connectionUrl?.value || "");
@@ -98,7 +98,7 @@ export async function changeDataBase({
 }: {
   newConnectionDetails: Partial<ConnectionDetailsType>;
 }) {
-  const cookie = cookies();
+  const cookie = await cookies();
   const { connectionDetails: oldConnectionDetails } =
     await getConnectionDetails();
   if (!oldConnectionDetails) {
@@ -121,7 +121,7 @@ export async function changeDataBase({
 }
 
 export async function getCurrentDatabaseType() {
-  const cookie = cookies();
+  const cookie = await cookies();
   const dbType = cookie.get("dbType")?.value;
   return dbType;
 }
@@ -263,7 +263,7 @@ export async function testConnection({
     connectionDetails,
   });
 
-  const cookie = cookies();
+  const cookie = await cookies();
   if (success && isConnect) {
     cookie.set("currentConnection", JSON.stringify(connectionDetails));
     cookie.set("dbType", dbType as string);
@@ -272,7 +272,7 @@ export async function testConnection({
 }
 
 export async function disconnectDb(connectionPath: string | null) {
-  const cookie = cookies();
+  const cookie = await cookies();
   // const connectionUrl = cookie.get("currentConnection");
   // if (!connectionUrl) return false;
 

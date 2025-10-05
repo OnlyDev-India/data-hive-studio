@@ -115,7 +115,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
     }
   };
 
-  const handleRunQuery = async (edit?: any) => {
+  const handleRunQuery = async () => {
     try {
       if (!monaco?.editor) return;
       const editor1 = monaco.editor;
@@ -123,7 +123,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       const currentModal = editor1.getModel(
         monaco.Uri.parse(`file:///${currentFile?.id}`),
       );
-      const currentEditor = edit || editor;
+      const currentEditor = editor;
       if (currentModal && currentEditor) {
         const selection = currentEditor.getSelection();
         const selectedText = currentModal.getValueInRange(selection);
