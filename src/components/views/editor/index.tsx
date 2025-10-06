@@ -15,7 +15,9 @@ import { pgSqlLanguageServer } from "@/lib/editor-language-servers/pgsql";
 import { mongodbLanguageServer } from "@/lib/editor-language-servers/mongodb";
 import { editorLanguages } from "@/types/db.type";
 import { RootState } from "@/redux/store";
-import { useMonaco } from "@monaco-editor/react";
+import { createRoot } from "react-dom/client";
+import InlineEditor from "./inline-editor";
+import LinePlusButton from "./line-plus-button";
 
 interface CodeEditorProps {
   handleRunQuery: () => Promise<void>;
@@ -31,7 +33,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const actionRef = useRef<any>(null);
-  const monaco = useMonaco();
+  const inlineEditorWidgetRef = useRef<any>(null);
 
   const debounce = useDebouncedCallback((value: string) => {
     dispatch(updateFile({ id: currentFile?.id, code: value }));
@@ -39,6 +41,71 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
 
   const updateCode = (value: string | undefined) => {
     debounce(value || "");
+  };
+
+  const createInlineEditorWidget = (editor: any, monaco: any, lineNumber: number) => {
+    // Remove existing view zone if any
+    if (inlineEditorWidgetRef.current) {
+      editor.changeViewZones((changeAccessor: any) => {
+        changeAccessor.removeZone(inlineEditorWidgetRef.current);
+      });
+    }
+
+    // Create view zone above the target line
+    editor.changeViewZones((changeAccessor: any) => {
+      const domNode = document.createElement("div");
+      
+      // Create React root and render the component
+      const root = createRoot(domNode);
+      
+      const handleSubmit = (value: string) => {
+        if (value) {
+          // Insert the new line above the target line
+          const range = new monaco.Range(lineNumber, 1, lineNumber, 1);
+          editor.executeEdits("insert-line", [{
+            range: range,
+            text: value + "\n"
+          }]);
+        }
+        // Remove the view zone
+        editor.changeViewZones((changeAccessor: any) => {
+          changeAccessor.removeZone(inlineEditorWidgetRef.current);
+        });
+        inlineEditorWidgetRef.current = null;
+        root.unmount();
+        editor.focus();
+      };
+      
+      const handleCancel = () => {
+        // Remove the view zone
+        editor.changeViewZones((changeAccessor: any) => {
+          changeAccessor.removeZone(inlineEditorWidgetRef.current);
+        });
+        inlineEditorWidgetRef.current = null;
+        root.unmount();
+        editor.focus();
+      };
+      
+      root.render(
+        <InlineEditor
+          onSubmit={handleSubmit}
+          onCancel={handleCancel}
+        />
+      );
+      
+      // Create the view zone
+      const zoneId = changeAccessor.addZone({
+        afterLineNumber: lineNumber - 1,
+        heightInPx: 90,
+        domNode: domNode,
+        // Allow height to be updated dynamically
+        onDomNodeTop: (top: number) => {
+          // This callback can be used to update position if needed
+        }
+      });
+      
+      inlineEditorWidgetRef.current = zoneId;
+    });
   };
 
   // Update the addAction whenever queryHistory changes
@@ -105,7 +172,9 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) {
         const lineNumber = e.target.position.lineNumber;
         console.log("Plus button clicked on line:", lineNumber);
-        // TODO: Add inline editor implementation
+        
+        // Create inline editor widget using the separate function
+        createInlineEditorWidget(editor, monaco, lineNumber);
       }
     });
 
@@ -122,60 +191,43 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
         // Skip if already has button
         if (lineElement.querySelector(".line-plus-button")) return;
 
-        // Create plus button
-        const button: HTMLButtonElement = document.createElement("button");
-        button.className = "line-plus-button";
-        button.innerHTML = "+";
-        button.style.cssText = `
+        // Add group class to line element for CSS hover
+        lineElement.classList.add("group");
+
+        // Create container for React component
+        const buttonContainer = document.createElement("div");
+        buttonContainer.className = "line-plus-button-container";
+        buttonContainer.style.cssText = `
           position: absolute;
-          top: 50%;
-          left: 80%;
-          transform: translate(-50%, -50%);
-          width: 18px;
-          height: 18px;
-          background: var(--background);
-          border: 1px solid var(--border);
-          border-radius: 32%;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
           display: flex;
+          justify-content: end;
           align-items: center;
-          justify-content: center;
-          font-size: 14px;
-          font-weight: bold;
-          color: var(--primary);
-          cursor: pointer;
-          opacity: 0;
-          transition: all 0.2s ease;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
           z-index: 100;
         `;
 
-        // Add hover effects
-        lineElement.addEventListener("mouseenter", () => {
-          button.style.opacity = "1";
-          button.style.backgroundColor = "hsl(var(--primary))";
-          button.style.color = "hsl(var(--foreground))";
-        });
+        // Create button wrapper that allows pointer events
+        const buttonWrapper = document.createElement("div");
+        buttonWrapper.style.cssText = `
+          pointer-events: auto;
+          position: relative;
+        `;
 
-        lineElement.addEventListener("mouseleave", () => {
-          button.style.opacity = "0";
-        });
+        // Create React root and render the component
+        const root = createRoot(buttonWrapper);
+        
 
-        // Add click handler
-        // button.addEventListener("click", (e) => {
-        //   console.log("button clicked");
-        //   e.stopPropagation();
-        //   const rect = lineElement.getBoundingClientRect();
-        //   const position = editor.getPositionAt?.(rect.top);
-        //   console.log("position", position);
-        //   if (position) {
-        //     editor.setPosition({ lineNumber: position.lineNumber, column: 1 });
-        //     editor.focus();
-        //     console.log("position", position);
-        //     // handleRunQuery(editor);
-        //   }
-        // });
+        root.render(
+          <LinePlusButton
+          />
+        );
 
-        lineElement.appendChild(button);
+        buttonContainer.appendChild(buttonWrapper);
+        lineElement.appendChild(buttonContainer);
       });
     };
 
@@ -195,6 +247,7 @@ const CodeEditor = ({ handleRunQuery, setEditor, dbType }: CodeEditorProps) => {
       setTimeout(addHoverButtons, 50);
     });
   };
+
 
   return (
     currentFile?.type === "file" && (

@@ -1,5 +1,4 @@
 "use client";
-import { Skeleton } from "@/components/ui/skeleton";
 import { fetchTables } from "@/redux/features/tables";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
@@ -29,7 +28,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
   }, [router, dispatch]);
 
   if (isLoading) {
-    return <Loader />;
+    return <Loader/>;
   }
 
   return <>{children}</>;
