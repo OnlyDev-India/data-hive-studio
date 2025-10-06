@@ -11,6 +11,7 @@ import {
   TitleBarOverlayOptions,
   session,
 } from "electron";
+import dotenv from "dotenv";
 // import { createHandler } from "./handler/index.js";
 import { createHandler } from "next-electron-rsc";
 import { registerIPCHandlers } from "./customization/menu.js";
@@ -20,6 +21,8 @@ const { autoUpdater } = updatePkg;
 import { parseConnectionString } from "./helpher/connection-details.js";
 import { LocalAppStorePath } from "./config/local-app-store-path.js";
 
+// Load environment variables from .env file
+dotenv.config();
 const isDev = process.env.NODE_ENV === "development";
 const appPath = app.getAppPath();
 const localhostUrl = "http://localhost:4080"; // must match Next.js dev server

@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev:next": "next dev -p 4080",
-    "dev": "cross-env NODE_ENV=development concurrently -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"next dev --turbopack -p 4080\" \"electron .\"",
+    "dev": "concurrently -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"next dev --turbopack -p 4080\" \"electron .\"",
     "clean": "rm -rf build dist .tscache .next out",
     "build": "yarn clean && yarn build:next && yarn build:ts && yarn build:electron",
     "build:next": "next build",
@@ -16,7 +16,7 @@
     "start:next": "next start -p 4080",
     "start:ts": "tsc-watch --noClear --onFirstSuccess \"yarn start:electron\" --project tsconfig-electron.json",
     "start:electron": "electron .",
-    "start:dev": "cross-env NODE_ENV=development concurrently -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"yarn dev:next\" \"yarn start:ts\"",
+    "start:dev": "concurrently -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"yarn dev:next\" \"yarn start:ts\"",
     "open": "./dist/mac-arm64/Next\\ Electron\\ RSC.app/Contents/MacOS/Next\\ Electron\\ RSC",
     "format": "prettier --write ."
   },
@@ -50,6 +50,7 @@
     "cmdk": "1.0.0",
     "cobe": "^0.6.4",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
     "electron-is-dev": "^3.0.1",
     "electron-updater": "^6.6.2",
     "elkjs": "^0.11.0",
