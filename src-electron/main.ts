@@ -49,6 +49,12 @@ if (!fs.existsSync(connectionsJsonPath+LocalAppStorePath.connectionsJsonPath)) {
 process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
 process.env["ELECTRON_ENABLE_LOGGING"] = "true";
 
+if(isDev) {
+// Enable remote debugging for Chrome DevTools Protocol
+app.commandLine.appendSwitch('remote-debugging-port', '9222');
+app.commandLine.appendSwitch('remote-allow-origins', '*');
+}
+
 process.on("SIGTERM", () => process.exit(0));
 process.on("SIGINT", () => process.exit(0));
 

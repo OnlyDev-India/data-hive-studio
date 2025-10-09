@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { menus } from "@/config/menu-bar.config";
+import useOsType from "@/hooks/useOsType";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import React, { useEffect } from "react";
@@ -46,14 +47,13 @@ const closeWindow = () => {
 const MenuNavbar = () => {
   const [title, setTitle] = React.useState<string>("Data Hive Studio");
   const [isDesktop, setIsDesktop] = React.useState<boolean>(false);
-  const [os, setOs] = React.useState<string>("unknown");
+  const { osType: os } = useOsType();
 
   useEffect(() => {
     // Only run client-side code inside useEffect
     if (typeof window !== "undefined") {
       setTitle(document.title);
       setIsDesktop(!!window.electron);
-      setOs(getOperatingSystem());
     }
   }, []);
 

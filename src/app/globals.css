@@ -160,4 +160,13 @@ body {
   .no-draggable-bar {
     -webkit-app-region: no-drag;
   }
+
+  /* Monaco Editor Placeholder */
+  .editor-placeholder {
+    color: hsl(var(--muted-foreground)) !important;
+    opacity: 0.5;
+    font-style: italic;
+    pointer-events: none;
+    user-select: none;
+  }
 }

@@ -469,15 +469,207 @@ export class MongoDbClient extends DatabaseClient {
       const cleanQuery = query.trim();
 
       if (cleanQuery.startsWith("db.")) {
-        // Parse the new format: db.collection("collectionName").operation(args)
-        // Updated regex to handle multiline queries and both quoted/unquoted property names
+        // Check for database-level operations first (e.g., db.aggregate(), db.listCollections())
+        const dbLevelMatch = cleanQuery.match(/^db\.(\w+)\s*\(([\s\S]*)\);?$/);
+
+        if (dbLevelMatch && !cleanQuery.includes("db.collection(")) {
+          // Database-level operation (e.g., db.aggregate([...]))
+          const operationName = dbLevelMatch[1];
+          const operationArgs = dbLevelMatch[2];
+
+          // Validate that this is a database-level operation
+          const supportedDbOperations = [
+            "aggregate",
+            "listCollections",
+            "stats",
+            "runCommand",
+            "createCollection",
+            "dropDatabase",
+            "dropCollection",
+          ];
+
+          // Note: aggregate is in the list to provide a helpful error message
+          // It will throw an error suggesting to use collection-level aggregate instead
+
+          if (!supportedDbOperations.includes(operationName)) {
+            throw new Error(
+              `Database-level operation '${operationName}' is not supported. Did you mean db.collection("collectionName").${operationName}()?`,
+            );
+          }
+
+          // Check if operation exists on db (skip for known operations)
+          const knownOperations = [
+            "listCollections",
+            "dropCollection",
+            "stats",
+          ];
+          if (
+            !knownOperations.includes(operationName) &&
+            typeof (this.db as any)[operationName] !== "function"
+          ) {
+            throw new Error(`Unsupported database operation: ${operationName}`);
+          }
+
+          let parsedArgs: any[] = [];
+          if (operationArgs.trim()) {
+            try {
+              // Handle different argument formats
+              if (
+                operationArgs.trim().startsWith("[") &&
+                operationArgs.trim().endsWith("]")
+              ) {
+                // Array format
+                try {
+                  parsedArgs = this.safeParseMongoJSON(operationArgs);
+                } catch {
+                  parsedArgs = JSON.parse(operationArgs);
+                }
+              } else if (
+                operationArgs.trim().startsWith("{") &&
+                operationArgs.trim().endsWith("}")
+              ) {
+                // Single object format
+                try {
+                  const safeParse = this.safeParseMongoJSON(operationArgs);
+                  parsedArgs = [safeParse];
+                } catch {
+                  parsedArgs = [JSON.parse(operationArgs)];
+                }
+              } else {
+                // Try to parse as comma-separated arguments or single value
+                const trimmedArgs = operationArgs.trim();
+                
+                // If it's a quoted string, remove quotes manually
+                if (
+                  (trimmedArgs.startsWith('"') && trimmedArgs.endsWith('"')) ||
+                  (trimmedArgs.startsWith("'") && trimmedArgs.endsWith("'"))
+                ) {
+                  // Remove leading and trailing quotes
+                  parsedArgs = [trimmedArgs.slice(1, -1)];
+                } else {
+                  // Try to parse as JSON array
+                  try {
+                    parsedArgs = JSON.parse(`[${trimmedArgs}]`);
+                  } catch {
+                    // If parsing fails, treat as raw string
+                    parsedArgs = [trimmedArgs];
+                  }
+                }
+              }
+            } catch (parseError: any) {
+              throw new Error(
+                `Invalid argument format for ${operationName}: ${operationArgs}. Error: ${parseError.message}`,
+              );
+            }
+          }
+
+          // Execute database-level operation
+          let result: any;
+          let isTableEffected: boolean = false;
+          let message: string = "";
+
+          try {
+            if (operationName === "aggregate") {
+              // Database-level aggregate
+              // Prefer using collection-level aggregates, but support db.aggregate() for admin operations
+              if (parsedArgs.length === 0 || !Array.isArray(parsedArgs[0])) {
+                throw new Error(
+                  'Database-level aggregate requires a pipeline array. Use: db.aggregate([{ $match: {...} }]) or better: db.collection("collectionName").aggregate([...])',
+                );
+              }
+
+              // For database-level aggregates, we'll suggest using collection-level instead
+              // as it's more commonly supported and reliable
+              throw new Error(
+                'Database-level aggregate (db.aggregate) is not commonly used. Please use collection-level aggregate instead: db.collection("collectionName").aggregate([{ $match: {...} }]). If you need to aggregate across multiple collections, use $lookup in a collection-level aggregate.',
+              );
+            } else if (operationName === "listCollections") {
+              // List collections - call directly on db
+              const filter = parsedArgs.length > 0 ? parsedArgs[0] : {};
+              result = await this.db.listCollections(filter).toArray();
+              if (result) {
+                const columns = [
+                  { column_name: "id", data_type: "string" },
+                  { column_name: "name", data_type: "string" },
+                  { column_name: "type", data_type: "string" },
+                ];
+                const data = result.map((col: any) => {
+                  const obj: any = {};
+                  for (const column of columns) {
+                    obj[column.column_name] = col[column.column_name];
+                    if (column.column_name === "id") {
+                      obj[column.column_name] = col.info.uuid.toString();
+                    }
+                  }
+                  return obj;
+                });
+                result = { columns, rows: data };
+              }
+            } else if (operationName === "dropCollection") {
+              console.log("parsedArgs", parsedArgs[0]);
+              const collection = await this.db.dropCollection(parsedArgs[0]);
+              console.log("collection", collection);
+              result = { columns: [], rows: [] };
+              message = `Successfully dropped collection ${parsedArgs[0]}`;
+              isTableEffected = true;
+            } else if (operationName === "stats") {
+              // Get database stats
+              result = await this.db.stats();
+            } else if (operationName === "runCommand") {
+              // Run a database command
+              if (parsedArgs.length === 0) {
+                throw new Error("runCommand requires a command object");
+              }
+              result = await this.db.command(parsedArgs[0]);
+            } else if (operationName === "createCollection") {
+              // Create a collection
+              if (parsedArgs.length === 0) {
+                throw new Error("createCollection requires a collection name");
+              }
+              const collectionName =
+                typeof parsedArgs[0] === "string"
+                  ? parsedArgs[0]
+                  : parsedArgs[0].name;
+              const options = parsedArgs[1] || {};
+              const collection = await this.db.createCollection(collectionName, options);
+              message = `Successfully created collection ${collectionName}`;
+              result = { columns: [], rows: [] };
+              isTableEffected = true;
+            } else {
+              // Generic database operation - try to call it
+              const method = (this.db as any)[operationName];
+              if (typeof method === "function") {
+                result = await method.apply(this.db, parsedArgs);
+              } else {
+                throw new Error(
+                  `Operation '${operationName}' is not available on the database object`,
+                );
+              }
+            }
+
+            return {
+              success: true,
+              data: result,
+              message: message,
+              isTableEffected: isTableEffected,
+              rowsAffected: Array.isArray(result) ? result.length : 0,
+            };
+          } catch (execError: any) {
+            throw new Error(
+              `Failed to execute database operation '${operationName}': ${execError.message}`,
+            );
+          }
+        }
+
+        // Parse collection-level operations: db.collection("collectionName").operation(args)
+        // Handle optional semicolon at the end
         const collectionMatch = cleanQuery.match(
-          /db\.collection\s*\(\s*["']([^"']+)["']\s*\)\s*\.(\w+)\s*\(([\s\S]*)\)/,
+          /db\.collection\s*\(\s*["']([^"']+)["']\s*\)\s*\.(\w+)\s*\(([\s\S]*)\);?$/,
         );
 
         if (!collectionMatch) {
           throw new Error(
-            "Invalid command format. Expected: db.collection('collectionName').operation(args)",
+            "Invalid command format. Expected: db.collection('collectionName').operation(args) or db.operation(args)",
           );
         }
 
@@ -513,8 +705,25 @@ export class MongoDbClient extends DatabaseClient {
                 parsedArgs = [JSON.parse(operationArgs)];
               }
             } else {
-              // Try to parse as comma-separated arguments
-              parsedArgs = JSON.parse(`[${operationArgs}]`);
+              // Try to parse as comma-separated arguments or single value
+              const trimmedArgs = operationArgs.trim();
+              
+              // If it's a quoted string, remove quotes manually
+              if (
+                (trimmedArgs.startsWith('"') && trimmedArgs.endsWith('"')) ||
+                (trimmedArgs.startsWith("'") && trimmedArgs.endsWith("'"))
+              ) {
+                // Remove leading and trailing quotes
+                parsedArgs = [trimmedArgs.slice(1, -1)];
+              } else {
+                // Try to parse as JSON array
+                try {
+                  parsedArgs = JSON.parse(`[${trimmedArgs}]`);
+                } catch {
+                  // If parsing fails, treat as raw string
+                  parsedArgs = [trimmedArgs];
+                }
+              }
             }
           } catch (parseError: any) {
             throw new Error(
@@ -535,7 +744,10 @@ export class MongoDbClient extends DatabaseClient {
         try {
           if (operationName === "aggregate") {
             // Handle aggregation pipeline
-            result = await method.apply(collection, parsedArgs).toArray();
+            // The aggregate method expects a single array argument (the pipeline)
+            // parsedArgs is already the pipeline array: [{ $match: ... }, { $group: ... }]
+            // So we pass it directly, not spread it
+            result = await collection.aggregate(parsedArgs).toArray();
           } else if (operationName === "find" || operationName === "findOne") {
             // Handle find operations
             result = await method.apply(collection, parsedArgs);
