@@ -9,7 +9,7 @@
 
 export const openRouterConfig = {
   apiKey:
-    "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",
+    "",
   baseUrl: "https://openrouter.ai/api/v1",
   defaultModel:
     process.env.NEXT_PUBLIC_OPENROUTER_MODEL || "meta-llama/llama-3.2-3b-instruct:free",
@@ -25,7 +25,7 @@ export const openRouterConfig = {
 
   // Check if API key is configured
   isConfigured: () => {
-    return "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";
+    return "";
   },
 };
 
