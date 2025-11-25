@@ -7,7 +7,8 @@ export type FileType =
   | FileTableType
   | FileStructureType
   | FileNewTableType
-  | VisualizerFileType;
+  | VisualizerFileType
+  | FileSettingsType;
 
 export interface FileFileType {
   id: string;
@@ -73,6 +74,12 @@ export interface VisualizerFileType {
     selectedTables?: any[];
     viewport?: Viewport;
   };
+}
+
+export interface FileSettingsType {
+  id: string;
+  name: string;
+  type: "settings";
 }
 
 export interface PaginationType {

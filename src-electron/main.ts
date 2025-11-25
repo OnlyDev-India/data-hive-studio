@@ -11,6 +11,7 @@ import {
   TitleBarOverlayOptions,
   session,
 } from "electron";
+import dotenv from "dotenv";
 // import { createHandler } from "./handler/index.js";
 import { createHandler } from "next-electron-rsc";
 import { registerIPCHandlers } from "./customization/menu.js";
@@ -20,6 +21,8 @@ const { autoUpdater } = updatePkg;
 import { parseConnectionString } from "./helpher/connection-details.js";
 import { LocalAppStorePath } from "./config/local-app-store-path.js";
 
+// Load environment variables from .env file
+dotenv.config();
 const isDev = process.env.NODE_ENV === "development";
 const appPath = app.getAppPath();
 const localhostUrl = "http://localhost:4080"; // must match Next.js dev server
@@ -43,8 +46,37 @@ if (!fs.existsSync(connectionsJsonPath+LocalAppStorePath.connectionsJsonPath)) {
   fs.writeFileSync(connectionsJsonPath+LocalAppStorePath.connectionsJsonPath, JSON.stringify([]));
 }
 
+// create settings.json file if it doesn't exist
+const settingsJsonPath = path.join(configDirectory, "settings.json");
+if (!fs.existsSync(settingsJsonPath)) {
+  const defaultSettings = {
+    provider: "openrouter",
+    providers: {
+      openrouter: {
+        apiKey: "",
+        model: "meta-llama/llama-3.2-3b-instruct:free",
+      },
+      openai: {
+        apiKey: "",
+        model: "gpt-4",
+      },
+      claude: {
+        apiKey: "",
+        model: "claude-3-5-sonnet-20241022",
+      },
+    },
+  };
+  fs.writeFileSync(settingsJsonPath, JSON.stringify(defaultSettings, null, 2));
+}
+
 process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
 process.env["ELECTRON_ENABLE_LOGGING"] = "true";
+
+if(isDev) {
+// Enable remote debugging for Chrome DevTools Protocol
+app.commandLine.appendSwitch('remote-debugging-port', '9222');
+app.commandLine.appendSwitch('remote-allow-origins', '*');
+}
 
 process.on("SIGTERM", () => process.exit(0));
 process.on("SIGINT", () => process.exit(0));
@@ -223,6 +255,70 @@ ipcMain.handle("app-db-path", () => {
 
 ipcMain.handle("get-connections-json-path", () => {
   return connectionsJsonPath;
+});
+
+ipcMain.handle("get-settings-json-path", () => {
+  return settingsJsonPath;
+});
+
+ipcMain.handle("read-settings", async () => {
+  try {
+    const data = await fs.promises.readFile(settingsJsonPath, "utf-8");
+    const parsed = JSON.parse(data);
+    // Migrate old settings format to new format if needed
+    if (parsed.aiApiKey !== undefined || parsed.selectedModel !== undefined) {
+      const migrated = {
+        provider: "openrouter",
+        providers: {
+          openrouter: {
+            apiKey: parsed.aiApiKey || "",
+            model: parsed.selectedModel || "meta-llama/llama-3.2-3b-instruct:free",
+          },
+          openai: {
+            apiKey: "",
+            model: "gpt-4",
+          },
+          claude: {
+            apiKey: "",
+            model: "claude-3-5-sonnet-20241022",
+          },
+        },
+      };
+      // Save migrated settings
+      await fs.promises.writeFile(settingsJsonPath, JSON.stringify(migrated, null, 2));
+      return { success: true, data: migrated };
+    }
+    return { success: true, data: parsed };
+  } catch (error: any) {
+    // If file doesn't exist, return default settings
+    const defaultSettings = {
+      provider: "openrouter",
+      providers: {
+        openrouter: {
+          apiKey: "",
+          model: "meta-llama/llama-3.2-3b-instruct:free",
+        },
+        openai: {
+          apiKey: "",
+          model: "gpt-4",
+        },
+        claude: {
+          apiKey: "",
+          model: "claude-3-5-sonnet-20241022",
+        },
+      },
+    };
+    return { success: true, data: defaultSettings };
+  }
+});
+
+ipcMain.handle("write-settings", async (_: any, settings: any) => {
+  try {
+    await fs.promises.writeFile(settingsJsonPath, JSON.stringify(settings, null, 2));
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle("update-theme", (_: any, theme: string) => {

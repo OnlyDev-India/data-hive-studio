@@ -1,9 +1,5 @@
 import { CommandMenu } from "@/components/common/search-button";
-import {
-  DatabaseIcon,
-  HistoryIcon,
-  SearchIcon
-} from "lucide-react";
+import { DatabaseIcon, HistoryIcon, SearchIcon } from "lucide-react";
 
 type SideBadMenuType = {
   icon: React.ElementType;
@@ -38,6 +34,5 @@ export const sideBadMenu: SideBadMenuType[] = [
     shortcut: "Ctrl+Shift+H",
     saveId: "editor-sidebar",
     sidebar: "history",
-    disabled: true,
   },
 ];

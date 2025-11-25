@@ -73,8 +73,9 @@ export function CommandPalette({
 
   // Clear search when dialog opens/closes
   React.useEffect(() => {
+    if (!open) return;
     setSearchValue(startSearchValue);
-  }, [startSearchValue]);
+  }, [startSearchValue, open]);
 
   // Highlight matching text in label
   function highlightMatch(label: string, query: string) {

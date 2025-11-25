@@ -72,7 +72,7 @@ const OutputTerminal = ({ dbType }: { dbType: string }) => {
   };
 
   return (
-    <div className="h-full w-full rounded-lg bg-secondary">
+    <div className="h-full w-full rounded-lg bg-secondary select-text">
       <div className="no-scrollbar mx-2 flex items-center justify-between border-b border-border">
         {outputTabs.length > 0 ? (
           <Tabs className="w-full">
@@ -115,7 +115,6 @@ const OutputTerminal = ({ dbType }: { dbType: string }) => {
         </div>
       ) : columns.length > 0 ? (
         <div className="h-[calc(100%-2.8rem)]">
-          {/* TODO: */}
           <Table data={data} columns={columns} dbType={dbType} />
         </div>
       ) : currentOutputTab?.output?.error ? (

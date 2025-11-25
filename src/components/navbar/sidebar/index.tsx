@@ -3,15 +3,14 @@ import { Button } from "../../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import { disconnectDb } from "@/lib/actions/fetch-data";
 import {
-  CirclePowerIcon,
-  Database,
+  CirclePowerIcon, MessageCircleQuestionIcon,
   MonitorIcon,
   MoonIcon,
   SettingsIcon,
-  SunIcon,
+  SunIcon
 } from "lucide-react";
 import { useDispatch } from "react-redux";
-import { resetOpenFiles } from "@/redux/features/open-files";
+import { resetOpenFiles, addOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
 import { resetTables } from "@/redux/features/tables";
 import {
@@ -34,6 +33,7 @@ import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipTrigger } from "@/components/ui/tooltip";
 import { AppDispatch } from "@/redux/store";
 import { Suspense } from "react";
+import Link from "next/link";
 
 const Sidebar = () => {
   const router = useRouter();
@@ -53,37 +53,40 @@ const Sidebar = () => {
   return (
     <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">
       {pathname === "/" && <ConnectionPageSidebar />}
-      {pathname.startsWith("/app") && (
+      {pathname.startsWith("/app/editor") && (
         <>
           <Suspense fallback={<></>}>
             <ConnectedPageSidebar pathname={pathname} />
           </Suspense>
-          <DatabaseBackupModal>
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={"ghost"}
-                    size={"icon"}
-                    className="hover:bg-secondary"
-                  >
-                    <Database size={12} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>Database Backup</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          </DatabaseBackupModal>
+          <DatabaseBackupModal />
         </>
       )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={"ghost"}
+            size={"icon"}
+            className="hover:bg-secondary text-muted-foreground"
+            asChild
+          >
+            <Link
+              href="https://dh-studio-frontend.vercel.app/feedback"
+              target="_blank"
+            >
+              <MessageCircleQuestionIcon />
+            </Link>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <p>Feedback</p>
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant={"ghost"}
             size={"icon"}
-            className="hover:bg-secondary"
+            className="hover:bg-secondary text-muted-foreground"
           >
             <SettingsIcon />
           </Button>
@@ -125,10 +128,23 @@ const Sidebar = () => {
             </DropdownMenuPortal>
           </DropdownMenuSub>
           {pathname.startsWith("/app") && (
-            <DropdownMenuItem className="text-xs" onSelect={handleDisconnect}>
-              <CirclePowerIcon size={12} /> Disconnect
-              <DropdownMenuShortcut>ctrl + q</DropdownMenuShortcut>
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem
+                className="text-xs"
+                onSelect={() => {
+                  dispatch(addOpenFiles("settings"));
+                  if (!pathname.includes("/app/editor")) {
+                    router.push("/app/editor");
+                  }
+                }}
+              >
+                <SettingsIcon size={12} /> Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-xs" onSelect={handleDisconnect}>
+                <CirclePowerIcon size={12} /> Disconnect
+                <DropdownMenuShortcut>ctrl + q</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

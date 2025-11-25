@@ -11,6 +11,8 @@ import {
   Grid2X2PlusIcon,
   PencilRulerIcon,
   PlayIcon,
+  SettingsIcon,
+  SlidersHorizontalIcon,
   TableIcon,
   XIcon,
 } from "lucide-react";
@@ -41,8 +43,11 @@ import { useMonaco } from "@monaco-editor/react";
 import { AppDispatch, RootState } from "@/redux/store";
 import AddNewFile from "./add-new-button";
 import VisualizerView from "../../views/visualizer";
+import SettingsView from "../../views/settings";
 import ResizableLayout from "@/components/common/resizable-layout";
 import OutputTerminal from "@/components/views/editor/output-terminal";
+import { useAppData } from "@/hooks/useAppData";
+import { initConnectedConnection } from "@/redux/features/appdb";
 
 // Dynamically import the CodeEditor component
 const CodeEditor = dynamic(() => import("../../views/editor"), { ssr: false });
@@ -52,6 +57,8 @@ const tabIcons = {
   file: CodeIcon,
   structure: PencilRulerIcon,
   newTable: Grid2X2PlusIcon,
+  settings: SlidersHorizontalIcon,
+  visualizer: Grid2X2PlusIcon, // Using Grid2X2PlusIcon as placeholder, can be changed later
 };
 
 const TabsContentChild: Record<FileType["type"], React.ComponentType<any>> = {
@@ -60,6 +67,7 @@ const TabsContentChild: Record<FileType["type"], React.ComponentType<any>> = {
   structure: StructureView,
   newTable: NewTableView,
   visualizer: VisualizerView,
+  settings: SettingsView,
 };
 
 const OpenedFiles = ({ dbType }: { dbType: string }) => {
@@ -71,6 +79,10 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
 
   const [dragOverIndex, setDragOverIndex] = useState(-1);
   const [dragIndex, setDragIndex] = useState(-1);
+  const { updateConnection } = useAppData();
+  const { queryHistory, connectedConnection } = useSelector(
+    (state: RootState) => state.appDB,
+  );
   const dispatch = useDispatch<AppDispatch>();
 
   const TabsContentChildComponent =
@@ -109,7 +121,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
     }
   };
 
-  const handleRunQuery = async (edit?: any) => {
+  const handleRunQuery = async () => {
     try {
       if (!monaco?.editor) return;
       const editor1 = monaco.editor;
@@ -117,25 +129,53 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
       const currentModal = editor1.getModel(
         monaco.Uri.parse(`file:///${currentFile?.id}`),
       );
-      const currentEditor = edit || editor;
+      const currentEditor = editor;
       if (currentModal && currentEditor) {
         const selection = currentEditor.getSelection();
         const selectedText = currentModal.getValueInRange(selection);
         if (selectedText.trim() === "") return;
 
-        if (dbType === 'mongodb') {
+        // Update query history for all database types
+        if (connectedConnection) {
+          const updatedQueryHistory = JSON.parse(
+            JSON.stringify(queryHistory),
+          );
+          
+          if (dbType === "mongodb") {
+            // For MongoDB, split by semicolon and add each query
+            const queries = selectedText
+              .split(";")
+              .map((query: string) => query.trim())
+              .filter((query: string) => query.length > 0);
+            queries.forEach((query: string) => {
+              updatedQueryHistory.push(query);
+            });
+          } else {
+            // For other DB types, add the single query
+            updatedQueryHistory.push(selectedText.trim());
+          }
+          
+          updateConnection({
+            ...connectedConnection,
+            queryHistory: updatedQueryHistory,
+          });
+          dispatch(initConnectedConnection());
+        }
+
+        if (dbType === "mongodb") {
           const queries = selectedText
-            .split(';')
+            .split(";")
             .map((query: string) => query.trim())
             .filter((query: string) => query.length > 0);
 
           if (queries.length > 1) {
             // Handle multiple queries - create separate output tabs for each
             for (const query of queries) {
-
               const outputId = crypto.randomUUID();
               try {
-                dispatch(setQueryExecution({ id: outputId, executingQuery: true }));
+                dispatch(
+                  setQueryExecution({ id: outputId, executingQuery: true }),
+                );
                 const data = await executeQuery(query);
                 dispatch(updateQueryOutput({ id: outputId, output: data }));
                 if (data && "isTableEffected" in data) {
@@ -149,7 +189,9 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
               } catch (error) {
                 console.log(error);
               } finally {
-                dispatch(setQueryExecution({ id: outputId, executingQuery: false }));
+                dispatch(
+                  setQueryExecution({ id: outputId, executingQuery: false }),
+                );
               }
             }
             return;
@@ -211,7 +253,7 @@ const OpenedFiles = ({ dbType }: { dbType: string }) => {
             <TabsList className="no-scrollbar h-[var(--tabs-height)] w-full justify-start overflow-auto rounded-none bg-secondary p-2 pr-0">
               {openFiles?.map((item: any, index: number) => {
                 const Icon =
-                  tabIcons[item.type as "table" | "file" | "structure"];
+                  tabIcons[item.type as keyof typeof tabIcons];
                 return (
                   <div
                     key={index}

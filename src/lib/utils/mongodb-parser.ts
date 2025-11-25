@@ -126,15 +126,15 @@ export const convertDataToEditor = (
     ) {
       // Convert to ISODate function call string
       if (typeof value === "string" || value instanceof Date) {
-        const date = value instanceof Date ? value : new Date(value);
+        const date = value instanceof Date ? value : value ? new Date(value) : new Date();
         if (isNaN(date.getTime())) {
           converted[key] = `ISODate("${value}")`;
+        } else {
+          converted[key] = `ISODate("${date.toISOString()}")`;
         }
-        converted[key] = `ISODate("${date.toISOString()}")`;
       } else {
         converted[key] = `ISODate("${value}")`;
       }
-      console.log("converted[key]", converted[key]);
     } else if (columnType.includes("int") || columnType.includes("integer")) {
       // Convert to NumberInt function call string
       converted[key] = `NumberInt(${value})`;
