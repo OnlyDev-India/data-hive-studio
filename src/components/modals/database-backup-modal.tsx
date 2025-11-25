@@ -11,67 +11,44 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
   Database,
   Copy,
   Terminal,
   CheckCircle,
-  ExternalLink,
   AlertCircle,
-  Settings,
-  Server,
   FileText,
-  Download,
   HelpCircle,
+  RefreshCw,
+  DatabaseIcon,
 } from "lucide-react";
-import { getCurrentConnectionDetails } from "@/lib/actions/database-backup";
+import { getConnectionDetails } from "@/lib/actions/fetch-data";
+import {
+  BackupCommand,
+  generateDatabaseBackupCommands,
+} from "@/lib/actions/database-backup";
+import { ConnectionDetailsType } from "@/types/db.type";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
-interface DatabaseBackupModalProps {
-  children: React.ReactNode;
-}
-
-export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
+export function DatabaseBackupModal() {
   const [open, setOpen] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+  const [backupCommands, setBackupCommands] = useState<BackupCommand[]>([]);
+  const [selectedCommand, setSelectedCommand] = useState<BackupCommand | null>(
+    null,
+  );
 
   const [currentConnection, setCurrentConnection] = useState<any>(null);
   const [connectionDetails, setConnectionDetails] = useState<any>(null);
 
-  // Backup options state
-  const [backupOptions, setBackupOptions] = useState({
-    backupType: "file", // 'file' or 'server'
-    outputFormat: "default", // 'default', 'compressed', 'custom'
-    includeSchema: true,
-    includeData: true,
-    includeIndexes: true,
-    customOutputPath: "",
-    targetServer: {
-      host: "",
-      port: "",
-      username: "",
-      database: "",
-      password: "",
-    },
-    compression: false,
-    timestamp: true,
-  });
-
   useEffect(() => {
     const fetchConnectionDetails = async () => {
-      const details = await getCurrentConnectionDetails();
+      const { connectionDetails: details } = await getConnectionDetails();
+      if (!details) return;
+      await generateBackupCommand();
       setCurrentConnection(details ? true : false);
       setConnectionDetails(details);
     };
@@ -79,185 +56,17 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
     if (open) fetchConnectionDetails();
   }, [open]);
 
-  const generateBackupCommand = () => {
-    if (!connectionDetails) return null;
-
-    const { connection_type, connection_string } = connectionDetails;
-
-    switch (connection_type) {
-      case "mongodb":
-        return generateMongoDBBackupCommand(connection_string);
-      case "pgSql":
-        return generatePostgreSQLBackupCommand(connection_string);
-      case "sqlite":
-        return generateSQLiteBackupCommand(connection_string);
-      default:
-        return null;
-    }
-  };
-
-  const generateMongoDBBackupCommand = (connectionString: string) => {
-    const timestamp = backupOptions.timestamp
-      ? `-${new Date().toISOString().split("T")[0]}`
-      : "";
-    const dbName =
-      connectionString.split("/").pop()?.split("?")[0] || "database";
-
-    if (backupOptions.backupType === "server") {
-      const { host, port, username, database, password } =
-        backupOptions.targetServer;
-      const targetUri = `mongodb://${username}:${password}@${host}:${port}/${database}`;
-      return `mongodump --uri="${connectionString}" --out=./temp-backup && mongorestore --uri="${targetUri}" ./temp-backup/${dbName}`;
-    }
-
-    let command = `mongodump --uri="${connectionString}"`;
-
-    // Handle output format
-    if (
-      backupOptions.outputFormat === "compressed" ||
-      backupOptions.compression
-    ) {
-      command += " --gzip";
-    }
-
-    // Handle output path based on format
-    if (
-      backupOptions.outputFormat === "custom" &&
-      backupOptions.customOutputPath
-    ) {
-      command += ` --out="${backupOptions.customOutputPath}"`;
-    } else {
-      const outputPath =
-        backupOptions.outputFormat === "compressed"
-          ? `./backup${timestamp}-compressed`
-          : `./backup${timestamp}`;
-      command += ` --out=${outputPath}`;
-    }
-
-    // Handle data inclusion
-    if (!backupOptions.includeData) {
-      command += " --dryRun";
-    }
-
-    // Handle schema-only for MongoDB (collection list)
-    if (!backupOptions.includeSchema && backupOptions.includeData) {
-      command += " --excludeCollection=schema";
-    }
-
-    return command;
-  };
-
-  const generatePostgreSQLBackupCommand = (connectionString: string) => {
-    const timestamp = backupOptions.timestamp
-      ? `-${new Date().toISOString().split("T")[0]}`
-      : "";
-    const url = new URL(connectionString);
-    const dbName = url.pathname.slice(1);
-    const host = url.hostname;
-    const port = url.port || "5432";
-    const username = url.username;
-
-    if (backupOptions.backupType === "server") {
-      const {
-        host: targetHost,
-        port: targetPort,
-        username: targetUser,
-        database: targetDb,
-        password: targetPass,
-      } = backupOptions.targetServer;
-      return `pg_dump -h ${host} -p ${port} -U ${username} -d ${dbName} | psql -h ${targetHost} -p ${targetPort} -U ${targetUser} -d ${targetDb}`;
-    }
-
-    let command = `pg_dump -h ${host} -p ${port} -U ${username} -d ${dbName}`;
-
-    // Handle schema/data inclusion
-    if (!backupOptions.includeSchema) {
-      command += " --data-only";
-    } else if (!backupOptions.includeData) {
-      command += " --schema-only";
-    }
-
-    if (!backupOptions.includeIndexes) {
-      command += " --no-indexes";
-    }
-
-    // Handle output format
-    const isCompressed =
-      backupOptions.compression || backupOptions.outputFormat === "compressed";
-    if (isCompressed) {
-      command += " -Fc";
-    }
-
-    // Handle output path and file extension based on format
-    if (
-      backupOptions.outputFormat === "custom" &&
-      backupOptions.customOutputPath
-    ) {
-      command += ` > "${backupOptions.customOutputPath}"`;
-    } else {
-      let fileName;
-      switch (backupOptions.outputFormat) {
-        case "compressed":
-          fileName = `backup${timestamp}-compressed.dump`;
-          break;
-        case "default":
-        default:
-          fileName = isCompressed
-            ? `backup${timestamp}.dump`
-            : `backup${timestamp}.sql`;
-          break;
+  const generateBackupCommand = async () => {
+    try {
+      const commands = await generateDatabaseBackupCommands();
+      setBackupCommands(commands);
+      // Set the first command as selected by default
+      if (commands.length > 0) {
+        setSelectedCommand(commands[0]);
       }
-      command += ` > ${fileName}`;
-    }
-
-    return command;
-  };
-
-  const generateSQLiteBackupCommand = (connectionString: string) => {
-    const timestamp = backupOptions.timestamp
-      ? `-${new Date().toISOString().split("T")[0]}`
-      : "";
-    const dbPath = connectionString.replace("file:", "");
-
-    if (backupOptions.backupType === "server") {
-      const { host, port, username, database, password } =
-        backupOptions.targetServer;
-      // For SQLite, we'll create a SQL dump and then import to target
-      return `sqlite3 "${dbPath}" ".dump" > temp-backup.sql && psql -h ${host} -p ${port} -U ${username} -d ${database} < temp-backup.sql`;
-    }
-
-    // Handle output format and path
-    if (
-      backupOptions.outputFormat === "custom" &&
-      backupOptions.customOutputPath
-    ) {
-      if (backupOptions.compression) {
-        return `sqlite3 "${dbPath}" ".dump" | gzip > "${backupOptions.customOutputPath}"`;
-      } else {
-        return `cp "${dbPath}" "${backupOptions.customOutputPath}"`;
-      }
-    } else {
-      let fileName;
-      let command;
-
-      switch (backupOptions.outputFormat) {
-        case "compressed":
-          fileName = `backup${timestamp}-compressed.sql.gz`;
-          command = `sqlite3 "${dbPath}" ".dump" | gzip > ${fileName}`;
-          break;
-        case "default":
-        default:
-          if (backupOptions.compression) {
-            fileName = `backup${timestamp}.sql.gz`;
-            command = `sqlite3 "${dbPath}" ".dump" | gzip > ${fileName}`;
-          } else {
-            fileName = `backup${timestamp}.db`;
-            command = `cp "${dbPath}" "./${fileName}"`;
-          }
-          break;
-      }
-
-      return command;
+    } catch (error) {
+      console.error("Failed to generate backup commands:", error);
+      toast.error("Failed to generate backup commands");
     }
   };
 
@@ -274,11 +83,28 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
     }
   };
 
-  const backupCommand = generateBackupCommand();
+  const currentCommand = selectedCommand?.command || "";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogTrigger asChild>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={"ghost"}
+                size={"icon"}
+                className="hover:bg-secondary text-muted-foreground"
+              >
+                <DatabaseIcon size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Database Backup</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </DialogTrigger>
       <DialogContent className="flex max-h-[90vh] min-h-[400px] flex-col overflow-hidden sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -305,407 +131,148 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
             </Badge>
           </div>
 
-          {/* Advanced Options Toggle */}
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-              className="gap-2"
-            >
-              <Settings className="h-4 w-4" />
-              {showAdvancedOptions ? "Hide" : "Show"} Advanced Options
-            </Button>
-          </div>
-
-          {/* Advanced Options */}
-          {showAdvancedOptions && (
-            <div className="space-y-4 rounded-lg border p-4">
-              <div className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                <Label className="text-sm font-medium">
-                  Backup Configuration
-                </Label>
-              </div>
-
-              {/* Backup Type Selection */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-xs">Backup Type</Label>
-                  <Select
-                    value={backupOptions.backupType}
-                    onValueChange={(value: "file" | "server") =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        backupType: value,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="file">
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-3 w-3" />
-                          Save to File
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="server">
-                        <div className="flex items-center gap-2">
-                          <Server className="h-3 w-3" />
-                          Transfer to Server
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs">Output Format</Label>
-                  <Select
-                    value={backupOptions.outputFormat}
-                    onValueChange={(
-                      value: "default" | "compressed" | "custom",
-                    ) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        outputFormat: value,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="default">Default</SelectItem>
-                      <SelectItem value="compressed">Compressed</SelectItem>
-                      <SelectItem value="custom">Custom</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Include Options */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="includeSchema"
-                    checked={backupOptions.includeSchema}
-                    onCheckedChange={(checked) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        includeSchema: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="includeSchema" className="text-xs">
-                    Schema
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="includeData"
-                    checked={backupOptions.includeData}
-                    onCheckedChange={(checked) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        includeData: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="includeData" className="text-xs">
-                    Data
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="includeIndexes"
-                    checked={backupOptions.includeIndexes}
-                    onCheckedChange={(checked) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        includeIndexes: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="includeIndexes" className="text-xs">
-                    Indexes
-                  </Label>
-                </div>
-              </div>
-
-              {/* Custom Output Path */}
-              {backupOptions.outputFormat === "custom" && (
-                <div className="space-y-2">
-                  <Label className="text-xs">Custom Output Path</Label>
-                  <Input
-                    placeholder="/path/to/backup/file"
-                    value={backupOptions.customOutputPath}
-                    onChange={(e) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        customOutputPath: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              )}
-
-              {/* Target Server Configuration */}
-              {backupOptions.backupType === "server" && (
-                <div className="space-y-4 rounded-lg border bg-muted/30 p-3">
-                  <div className="flex items-center gap-2">
-                    <Server className="h-4 w-4" />
-                    <Label className="text-sm font-medium">Target Server</Label>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Host</Label>
-                      <Input
-                        placeholder="localhost"
-                        value={backupOptions.targetServer.host}
-                        onChange={(e) =>
-                          setBackupOptions((prev) => ({
-                            ...prev,
-                            targetServer: {
-                              ...prev.targetServer,
-                              host: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Port</Label>
-                      <Input
-                        placeholder="5432"
-                        value={backupOptions.targetServer.port}
-                        onChange={(e) =>
-                          setBackupOptions((prev) => ({
-                            ...prev,
-                            targetServer: {
-                              ...prev.targetServer,
-                              port: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Username</Label>
-                      <Input
-                        placeholder="username"
-                        value={backupOptions.targetServer.username}
-                        onChange={(e) =>
-                          setBackupOptions((prev) => ({
-                            ...prev,
-                            targetServer: {
-                              ...prev.targetServer,
-                              username: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Database</Label>
-                      <Input
-                        placeholder="database_name"
-                        value={backupOptions.targetServer.database}
-                        onChange={(e) =>
-                          setBackupOptions((prev) => ({
-                            ...prev,
-                            targetServer: {
-                              ...prev.targetServer,
-                              database: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs">Password</Label>
-                      <Input
-                        type="password"
-                        placeholder="password"
-                        value={backupOptions.targetServer.password}
-                        onChange={(e) =>
-                          setBackupOptions((prev) => ({
-                            ...prev,
-                            targetServer: {
-                              ...prev.targetServer,
-                              password: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Additional Options */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="compression"
-                    checked={backupOptions.compression}
-                    onCheckedChange={(checked) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        compression: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="compression" className="text-xs">
-                    Enable Compression
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="timestamp"
-                    checked={backupOptions.timestamp}
-                    onCheckedChange={(checked) =>
-                      setBackupOptions((prev) => ({
-                        ...prev,
-                        timestamp: checked as boolean,
-                      }))
-                    }
-                  />
-                  <Label htmlFor="timestamp" className="text-xs">
-                    Add Timestamp
-                  </Label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Backup Command */}
-          {backupCommand ? (
+          {/* Backup Commands */}
+          {backupCommands.length > 0 ? (
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4" />
-                <Label className="text-sm font-medium">Backup Command</Label>
-              </div>
-
-              <div className="relative">
-                <div className="rounded-lg border bg-muted p-3 font-mono text-sm">
-                  <code className="break-all">{backupCommand}</code>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4" />
+                  <Label className="text-sm font-medium">
+                    Available Commands
+                  </Label>
                 </div>
                 <Button
+                  variant="ghost"
                   size="sm"
-                  variant="outline"
-                  className="absolute right-2 top-2 h-8 w-8 p-0"
-                  onClick={() => handleCopyCommand(backupCommand)}
+                  onClick={generateBackupCommand}
+                  className="gap-2"
                 >
-                  {copiedCommand === backupCommand ? (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
                 </Button>
               </div>
 
-              {/* Related Commands */}
-              {(backupOptions.backupType === "file" ||
-                backupOptions.outputFormat !== "default") && (
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium">Related Commands:</h4>
-
-                  {/* File backup related commands */}
-                  {backupOptions.backupType === "file" && (
-                    <div className="space-y-2">
-                      {/* Restore command based on current options */}
-                      <div className="rounded-lg border bg-muted/30 p-3">
-                        <div className="mb-2 text-xs font-medium text-muted-foreground">
-                          Restore this backup:
-                        </div>
-                        <code className="break-all text-xs">
-                          {connectionDetails?.connection_type === "mongodb" &&
-                            `mongorestore --uri="${connectionDetails.connection_string}" ${backupOptions.customOutputPath || `./backup${backupOptions.timestamp ? `-${new Date().toISOString().split("T")[0]}` : ""}`}${backupOptions.compression ? " --gzip" : ""}`}
-                          {connectionDetails?.connection_type === "pgSql" &&
-                            `${
-                              backupOptions.compression ||
-                              backupOptions.outputFormat === "compressed"
-                                ? `pg_restore -h ${new URL(connectionDetails.connection_string).hostname} -U ${new URL(connectionDetails.connection_string).username} -d ${new URL(connectionDetails.connection_string).pathname.slice(1)} ${backupOptions.customOutputPath || `backup${backupOptions.timestamp ? `-${new Date().toISOString().split("T")[0]}` : ""}.dump`}`
-                                : `psql -h ${new URL(connectionDetails.connection_string).hostname} -U ${new URL(connectionDetails.connection_string).username} -d ${new URL(connectionDetails.connection_string).pathname.slice(1)} < ${backupOptions.customOutputPath || `backup${backupOptions.timestamp ? `-${new Date().toISOString().split("T")[0]}` : ""}.sql`}`
+              {/* Command Selection */}
+              <div className="space-y-3">
+                {backupCommands.map((command, index) => (
+                  <div
+                    key={index}
+                    className={`cursor-pointer rounded-lg border p-3 transition-colors ${
+                      selectedCommand === command
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                    onClick={() => setSelectedCommand(command)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex items-center gap-2">
+                          <div
+                            className={`h-2 w-2 rounded-full ${
+                              selectedCommand === command
+                                ? "bg-primary"
+                                : "bg-muted-foreground"
                             }`}
-                          {connectionDetails?.connection_type === "sqlite" &&
-                            `cp "${backupOptions.customOutputPath || `./backup${backupOptions.timestamp ? `-${new Date().toISOString().split("T")[0]}` : ""}.db`}" "${connectionDetails.connection_string.replace("file:", "")}"`}
-                        </code>
-                      </div>
-
-                      {/* Verify backup command */}
-                      {connectionDetails?.connection_type === "mongodb" && (
-                        <div className="rounded-lg border bg-muted/30 p-3">
-                          <div className="mb-2 text-xs font-medium text-muted-foreground">
-                            Verify backup integrity:
-                          </div>
-                          <code className="break-all text-xs">
-                            {`ls -la ${backupOptions.customOutputPath || `./backup${backupOptions.timestamp ? `-${new Date().toISOString().split("T")[0]}` : ""}`} && echo "Backup files found"`}
-                          </code>
+                          />
+                          <span className="text-sm font-medium">
+                            {command.description}
+                          </span>
                         </div>
-                      )}
-
-                      {/* Compress existing backup */}
-                      {!backupOptions.compression &&
-                        backupOptions.backupType === "file" &&
-                        connectionDetails?.connection_type === "pgSql" && (
-                          <div className="rounded-lg border bg-muted/30 p-3">
-                            <div className="mb-2 text-xs font-medium text-muted-foreground">
-                              Compress existing backup:
-                            </div>
-                            <code className="break-all text-xs">
-                              gzip $
-                              {backupOptions.customOutputPath ||
-                                `backup${backupOptions.timestamp ? `-${new Date().toISOString().split("T")[0]}` : ""}.sql`}
-                            </code>
-                          </div>
+                        <div className="rounded bg-muted/50 p-2 font-mono text-xs">
+                          <code className="break-all">{command.command}</code>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-2 h-8 w-8 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyCommand(command.command);
+                        }}
+                      >
+                        {copiedCommand === command.command ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
                         )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Server transfer validation commands */}
-              {backupOptions.backupType === "server" &&
-                backupOptions.targetServer.host && (
-                  <div className="space-y-3">
-                    <h4 className="text-sm font-medium">
-                      Validation Commands:
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="rounded-lg border bg-muted/30 p-3">
-                        <div className="mb-2 text-xs font-medium text-muted-foreground">
-                          Test target server connection:
-                        </div>
-                        <code className="break-all text-xs">
-                          {connectionDetails?.connection_type === "mongodb" &&
-                            `mongosh "mongodb://${backupOptions.targetServer.username}:${backupOptions.targetServer.password}@${backupOptions.targetServer.host}:${backupOptions.targetServer.port}/${backupOptions.targetServer.database}" --eval "db.runCommand({ping: 1})"`}
-                          {connectionDetails?.connection_type === "pgSql" &&
-                            `psql -h ${backupOptions.targetServer.host} -p ${backupOptions.targetServer.port} -U ${backupOptions.targetServer.username} -d ${backupOptions.targetServer.database} -c "SELECT 1;"`}
-                          {connectionDetails?.connection_type === "sqlite" &&
-                            `psql -h ${backupOptions.targetServer.host} -p ${backupOptions.targetServer.port} -U ${backupOptions.targetServer.username} -d ${backupOptions.targetServer.database} -c "SELECT 1;"`}
-                        </code>
-                      </div>
-
-                      <div className="rounded-lg border bg-muted/30 p-3">
-                        <div className="mb-2 text-xs font-medium text-muted-foreground">
-                          Verify transfer completion:
-                        </div>
-                        <code className="break-all text-xs">
-                          {connectionDetails?.connection_type === "mongodb" &&
-                            `mongosh "mongodb://${backupOptions.targetServer.username}:${backupOptions.targetServer.password}@${backupOptions.targetServer.host}:${backupOptions.targetServer.port}/${backupOptions.targetServer.database}" --eval "db.stats()"`}
-                          {(connectionDetails?.connection_type === "pgSql" ||
-                            connectionDetails?.connection_type === "sqlite") &&
-                            `psql -h ${backupOptions.targetServer.host} -p ${backupOptions.targetServer.port} -U ${backupOptions.targetServer.username} -d ${backupOptions.targetServer.database} -c "\\dt"`}
-                        </code>
-                      </div>
+                      </Button>
                     </div>
                   </div>
-                )}
+                ))}
+              </div>
+
+              {/* Selected Command Details */}
+              {selectedCommand && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    <Label className="text-sm font-medium">
+                      Selected Command
+                    </Label>
+                  </div>
+
+                  <div className="relative">
+                    <div className="rounded-lg border bg-muted p-3 font-mono text-sm">
+                      <code className="break-all">{currentCommand}</code>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="absolute right-2 top-2 h-8 w-8 p-0"
+                      onClick={() => handleCopyCommand(currentCommand)}
+                    >
+                      {copiedCommand === currentCommand ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Additional Commands */}
+                  {selectedCommand.additionalCommands &&
+                    selectedCommand.additionalCommands.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">
+                          Related Commands
+                        </Label>
+                        {selectedCommand.additionalCommands.map(
+                          (additionalCommand, index) => (
+                            <div
+                              key={index}
+                              className="rounded-lg border bg-muted/30 p-3"
+                            >
+                              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                                {additionalCommand.description}
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <code className="flex-1 break-all text-xs">
+                                  {additionalCommand.command}
+                                </code>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="ml-2 h-6 w-6 p-0"
+                                  onClick={() =>
+                                    handleCopyCommand(additionalCommand.command)
+                                  }
+                                >
+                                  {copiedCommand ===
+                                  additionalCommand.command ? (
+                                    <CheckCircle className="h-3 w-3 text-green-600" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+                </div>
+              )}
 
               {/* Instructions Toggle */}
               <div className="flex justify-center">
@@ -814,7 +381,7 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-yellow-600" />
                 <span className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                  No backup command available
+                  No backup commands available
                 </span>
               </div>
               <p className="mt-1 text-xs text-yellow-700 dark:text-yellow-300">
@@ -832,12 +399,12 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
           <Button variant="outline" onClick={() => setOpen(false)}>
             Close
           </Button>
-          {backupCommand && (
+          {currentCommand && (
             <Button
-              onClick={() => handleCopyCommand(backupCommand)}
+              onClick={() => handleCopyCommand(currentCommand)}
               className="gap-2"
             >
-              {copiedCommand === backupCommand ? (
+              {copiedCommand === currentCommand ? (
                 <>
                   <CheckCircle className="h-4 w-4" />
                   Copied!
@@ -845,7 +412,7 @@ export function DatabaseBackupModal({ children }: DatabaseBackupModalProps) {
               ) : (
                 <>
                   <Copy className="h-4 w-4" />
-                  Copy Command
+                  Copy Selected Command
                 </>
               )}
             </Button>

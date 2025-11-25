@@ -34,6 +34,7 @@ const InputCell = ({ row, onRowChange, name, className }: InputCellProps) => {
         "rounded-none border-0 border-primary p-0 hover:border-b-2 focus-visible:border-b-2 focus-visible:outline-none focus-visible:ring-0",
         className,
       )}
+      variant="secondary"
     />
   );
 };

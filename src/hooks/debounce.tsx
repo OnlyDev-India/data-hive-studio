@@ -5,8 +5,8 @@ export function useDebouncedCallback<A extends any[]>(
   wait: number,
 ) {
   // track args & timeout handle between calls
-  const argsRef = useRef<A>();
-  const timeout = useRef<ReturnType<typeof setTimeout>>();
+  const argsRef = useRef<A>(null);
+  const timeout = useRef<ReturnType<typeof setTimeout>>(null);
 
   function cleanup() {
     if (timeout.current) {

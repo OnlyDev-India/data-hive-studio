@@ -1,7 +1,7 @@
 import { ConnectionDetailsType } from "@/types/db.type";
 import { TableForm } from "@/types/table.type";
 import { redirect } from "next/navigation";
-import { getCookie } from "../actions/fetch-data";
+import { getConnectionDetails } from "../actions/fetch-data";
 
 export abstract class DatabaseClient {
   protected connectionDetails: ConnectionDetailsType | null = null;
@@ -68,7 +68,9 @@ export abstract class DatabaseClient {
 
   // Method to check if connection is in a valid state
   public isConnectionValid(): boolean {
-    return this.isConnected && !this.isConnecting && this.connectionDetails !== null;
+    return (
+      this.isConnected && !this.isConnecting && this.connectionDetails !== null
+    );
   }
 
   // Common validation methods
@@ -84,7 +86,9 @@ export abstract class DatabaseClient {
           connectionDetails: this.connectionDetails,
         });
         if (!connectResult.success) {
-          throw new Error(connectResult.error || "Failed to connect to database");
+          throw new Error(
+            connectResult.error || "Failed to connect to database",
+          );
         }
         this.isConnected = true;
       }
@@ -129,27 +133,34 @@ export abstract class DatabaseClient {
     connectionDetails: ConnectionDetailsType | null;
     dbType: string | null;
   }> {
-    const cookie = await getCookie();
-    const connectionUrl = cookie.get("currentConnection");
-    if (!connectionUrl) {
+    // const cookie = await getCookie();
+    const { connectionDetails, dbType } = await getConnectionDetails();
+    if (!connectionDetails) {
       return {
         response: { success: false, error: "No connection to the database" },
         connectionDetails: null,
         dbType: null,
       };
     }
-    if (!connectionUrl.value) {
-      return {
-        response: { success: false, error: "No connection to the database" },
-        connectionDetails: null,
-        dbType: null,
-      };
-    }
+    // if (!connectionUrl) {
+    //   return {
+    //     response: { success: false, error: "No connection to the database" },
+    //     connectionDetails: null,
+    //     dbType: null,
+    //   };
+    // }
+    // if (!connectionUrl.value) {
+    //   return {
+    //     response: { success: false, error: "No connection to the database" },
+    //     connectionDetails: null,
+    //     dbType: null,
+    //   };
+    // }
 
-    const connectionDetails: ConnectionDetailsType = JSON.parse(
-      connectionUrl?.value || "",
-    );
-    const dbType = (cookie.get("dbType")?.value as string) || null;
+    // const connectionDetails: ConnectionDetailsType = JSON.parse(
+    //   connectionUrl?.value || "",
+    // );
+    // const dbType = (cookie.get("dbType")?.value as string) || null;
 
     if (!dbType) {
       return {
@@ -169,7 +180,7 @@ export abstract class DatabaseClient {
   }
 
   // Protected function to connect to database with validation and error handling
-  protected async ensureConnected(): Promise<{
+  async ensureConnected(): Promise<{
     success: boolean;
     error?: string;
   }> {

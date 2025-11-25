@@ -17,6 +17,9 @@ const handler = {
     return ipcRenderer.invoke("save-file", data, path);
   },
   getConnectionsJsonPath: () => ipcRenderer.invoke("get-connections-json-path"),
+  getSettingsJsonPath: () => ipcRenderer.invoke("get-settings-json-path"),
+  readSettings: () => ipcRenderer.invoke("read-settings"),
+  writeSettings: (settings: any) => ipcRenderer.invoke("write-settings", settings),
   updateTheme(theme: string) {
     ipcRenderer.invoke("update-theme", theme);
   },

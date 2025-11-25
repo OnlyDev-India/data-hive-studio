@@ -16,6 +16,7 @@ export interface ConnectionsType {
   color: string;
   ssl?: boolean | { rejectUnauthorized: boolean };
   is_current?: boolean;
+  queryHistory?: string[];
 }
 
 export interface connectionsStoreType {

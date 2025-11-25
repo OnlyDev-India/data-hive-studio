@@ -10,15 +10,22 @@ import {
   FileTextIcon,
   CodeIcon,
   PercentIcon,
+  CurlyBracesIcon,
+  CircleOffIcon,
 } from "lucide-react";
 
 export const TypeIcons = {
+  // JSON types
+  objectid: CurlyBracesIcon,
+  object: CurlyBracesIcon,
+  null: CircleOffIcon,
+
   // Text types
   text: WholeWordIcon,
   varchar: WholeWordIcon,
   char: WholeWordIcon,
   string: WholeWordIcon,
-  
+
   // Numeric types
   integer: HashIcon,
   int: HashIcon,
@@ -29,7 +36,7 @@ export const TypeIcons = {
   float: PercentIcon,
   double: PercentIcon,
   real: PercentIcon,
-  
+
   // Date/Time types
   timestamp: ClockIcon,
   "timestamp without time zone": ClockIcon,
@@ -37,16 +44,16 @@ export const TypeIcons = {
   date: CalendarIcon,
   time: ClockIcon,
   datetime: ClockIcon,
-  
+
   // Boolean types
   boolean: BinaryIcon,
   bool: BinaryIcon,
-  
+
   // Complex types
   array: Brackets,
   json: CodeIcon,
   jsonb: CodeIcon,
-  
+
   // Other types
   "user-defined": UserIcon,
   blob: DatabaseIcon,

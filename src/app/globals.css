@@ -14,6 +14,15 @@ body {
   .bg-dropdown-style {
     @apply bg-[radial-gradient(circle_at_top_left,#21b45910_0%,transparent_50%),radial-gradient(circle_at_bottom_right,#21b45910_0%,transparent_50%)] backdrop-blur-xl bg-background/20 border-border/50;
   }
+  
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
 }
 
 @layer base {
@@ -85,6 +94,7 @@ body {
 @layer base {
   * {
     @apply border-border;
+    overscroll-behavior: none;
   }
   body {
     @apply select-none bg-background text-foreground;
@@ -149,5 +159,14 @@ body {
   }
   .no-draggable-bar {
     -webkit-app-region: no-drag;
+  }
+
+  /* Monaco Editor Placeholder */
+  .editor-placeholder {
+    color: hsl(var(--muted-foreground)) !important;
+    opacity: 0.5;
+    font-style: italic;
+    pointer-events: none;
+    user-select: none;
   }
 }
