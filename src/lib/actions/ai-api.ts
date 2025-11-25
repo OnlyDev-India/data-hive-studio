@@ -7,6 +7,8 @@ export interface GenerateQueryInput {
   dbType: "mongodb" | "pgSql" | "sqlite";
   context?: string;
   model?: string;
+  apiKey?: string; // Settings from client
+  selectedModel?: string; // Settings from client
 }
 
 export interface AIQueryResult {
@@ -38,12 +40,21 @@ export async function generateQueryAction(
       };
     }
 
-    // Check if query generator is configured
-    if (!queryGenerator.isConfigured()) {
+    // Check if API key is provided from settings
+    if (!input.apiKey || input.apiKey.trim() === "") {
       return {
         success: false,
         error:
-          "AI query generator not configured. Please add NEXT_PUBLIC_OPENROUTER_API_KEY to your environment variables.",
+          "AI query generator not configured. Please configure your API key in settings.",
+      };
+    }
+
+    // Check if model is provided
+    if (!input.selectedModel || input.selectedModel.trim() === "") {
+      return {
+        success: false,
+        error:
+          "Model not configured. Please select a model in settings.",
       };
     }
 
@@ -53,6 +64,8 @@ export async function generateQueryAction(
       dbType: input.dbType,
       context: input.context,
       model: input.model,
+      apiKey: input.apiKey,
+      selectedModel: input.selectedModel,
     });
 
     return {
@@ -83,13 +96,8 @@ export async function optimizeQueryAction(
       };
     }
 
-    if (!queryGenerator.isConfigured()) {
-      return {
-        success: false,
-        error: "AI query generator not configured",
-      };
-    }
-
+    // Note: optimizeQuery, explainQuery, and fixQuery should also accept settings
+    // For now, they'll use the default config
     const optimizedQuery = await queryGenerator.optimizeQuery(
       query.trim(),
       dbType
@@ -123,13 +131,8 @@ export async function explainQueryAction(
       };
     }
 
-    if (!queryGenerator.isConfigured()) {
-      return {
-        success: false,
-        error: "AI query generator not configured",
-      };
-    }
-
+    // Note: explainQuery requires API key and model to be passed
+    // These should come from settings when called from the client
     const explanation = await queryGenerator.explainQuery(query.trim(), dbType);
 
     return {
@@ -168,13 +171,8 @@ export async function fixQueryAction(
       };
     }
 
-    if (!queryGenerator.isConfigured()) {
-      return {
-        success: false,
-        error: "AI query generator not configured",
-      };
-    }
-
+    // Note: fixQuery requires API key and model to be passed
+    // These should come from settings when called from the client
     const fixedQuery = await queryGenerator.fixQuery(
       query.trim(),
       error.trim(),

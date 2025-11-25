@@ -8,9 +8,7 @@ import {
 } from "../ui/collapsible";
 import {
   Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+  TooltipContent, TooltipTrigger
 } from "../ui/tooltip";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -51,7 +49,7 @@ const Branch = ({
     >
       <div
         className={cn(
-          "ml-2 flex items-center rounded-md pl-2 hover:bg-background",
+          "mx-2 flex items-center rounded-md pl-2 hover:bg-background",
           {
             "bg-background": open,
           },

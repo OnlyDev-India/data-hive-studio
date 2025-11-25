@@ -3,7 +3,10 @@ import { DatabaseClient } from "./db.type";
 declare global {
   interface Window {
     electron: {
-      getConnectionsJsonPath: () => string;
+      getConnectionsJsonPath: () => Promise<string>;
+      getSettingsJsonPath: () => Promise<string>;
+      readSettings: () => Promise<{ success: boolean; data?: any; error?: string }>;
+      writeSettings: (settings: any) => Promise<{ success: boolean; error?: string }>;
       updateTheme: (theme: string) => void;
       openSelectDir: (path: any) => Promise<any>;
       reloadWindow: () => void;

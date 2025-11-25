@@ -63,6 +63,21 @@ export const openFileSlice = createSlice({
             type: "visualizer",
           };
           break;
+        case "settings":
+          // Check if settings is already open
+          const existingSettings = state.openFiles.find(
+            (file: any) => file.type === "settings",
+          );
+          if (existingSettings) {
+            state.currentFile = existingSettings;
+            return;
+          }
+          newFile = {
+            id: crypto.randomUUID(),
+            name: "Settings",
+            type: "settings",
+          };
+          break;
         default:
           break;
       }

@@ -2,6 +2,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles, AlertCircle } from "lucide-react";
+import { useSettings } from "@/hooks/useSettings";
+import { encrypt } from "@/lib/utils/encryption";
 
 interface InlineEditorProps {
   onSubmit: (value: string) => void;
@@ -27,6 +29,7 @@ const InlineEditor: React.FC<InlineEditorProps> = ({
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
 
   const handleFocus = () => {
     if (textareaRef.current) {
@@ -74,6 +77,25 @@ const InlineEditor: React.FC<InlineEditorProps> = ({
       try {
         let fullQuery = "";
 
+        // Get current provider settings
+        const currentProvider = settings?.provider || "openrouter";
+        const providerSettings = settings?.providers?.[currentProvider] || {
+          apiKey: "",
+          model: "",
+        };
+
+        // Prepare request data
+        const requestData = {
+          prompt: value.trim(),
+          dbType: dbType as "mongodb" | "pgSql" | "sqlite",
+          context: schemaContext,
+          apiKey: providerSettings.apiKey || "",
+          selectedModel: providerSettings.model || "",
+        };
+
+        // Encrypt the request body
+        const encryptedBody = await encrypt(JSON.stringify(requestData));
+
         // Call streaming API endpoint
         const response = await fetch("/api/ai/generate-query", {
           method: "POST",
@@ -81,9 +103,7 @@ const InlineEditor: React.FC<InlineEditorProps> = ({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            prompt: value.trim(),
-            dbType: dbType as "mongodb" | "pgSql" | "sqlite",
-            context: schemaContext,
+            encrypted: encryptedBody,
           }),
         });
 
@@ -284,7 +304,7 @@ const InlineEditor: React.FC<InlineEditorProps> = ({
                           style={{ height: "auto", overflowY: "hidden" }}
                         />
                         {error && (
-                          <div className="mx-2 mt-1 flex items-start gap-2 rounded border border-destructive/30 bg-destructive/10 p-2 text-[10px] text-destructive">
+                          <div className="mx-2 mt-1 flex items-center gap-2 rounded border border-destructive/30 bg-destructive/10 p-2 text-[10px] text-destructive">
                             <AlertCircle className="mt-0.5 h-3 w-3 flex-shrink-0" />
                             <span>{error}</span>
                           </div>

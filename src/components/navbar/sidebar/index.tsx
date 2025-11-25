@@ -10,7 +10,7 @@ import {
   SunIcon
 } from "lucide-react";
 import { useDispatch } from "react-redux";
-import { resetOpenFiles } from "@/redux/features/open-files";
+import { resetOpenFiles, addOpenFiles } from "@/redux/features/open-files";
 import { resetQuery } from "@/redux/features/query";
 import { resetTables } from "@/redux/features/tables";
 import {
@@ -128,10 +128,23 @@ const Sidebar = () => {
             </DropdownMenuPortal>
           </DropdownMenuSub>
           {pathname.startsWith("/app") && (
-            <DropdownMenuItem className="text-xs" onSelect={handleDisconnect}>
-              <CirclePowerIcon size={12} /> Disconnect
-              <DropdownMenuShortcut>ctrl + q</DropdownMenuShortcut>
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem
+                className="text-xs"
+                onSelect={() => {
+                  dispatch(addOpenFiles("settings"));
+                  if (!pathname.includes("/app/editor")) {
+                    router.push("/app/editor");
+                  }
+                }}
+              >
+                <SettingsIcon size={12} /> Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-xs" onSelect={handleDisconnect}>
+                <CirclePowerIcon size={12} /> Disconnect
+                <DropdownMenuShortcut>ctrl + q</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

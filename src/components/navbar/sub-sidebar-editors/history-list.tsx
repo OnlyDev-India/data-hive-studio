@@ -124,13 +124,13 @@ const HistoryList = () => {
   return (
     <div className="flex h-full flex-col gap-3">
       {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 transform text-muted-foreground" />
+      <div className="relative p-2">
+        <Search className="absolute left-4 top-1/2 h-3 w-3 -translate-y-1/2 transform text-muted-foreground" />
         <Input
           placeholder="Search queries..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="h-8 pl-7 text-xs focus-visible:ring-0 focus-visible:border-b-primary rounded-none"
+          className="h-8 pl-7 text-xs focus-visible:border-primary focus-visible:ring-0"
         />
       </div>
 
@@ -152,8 +152,8 @@ const HistoryList = () => {
       </div>
 
       {/* History List */}
-      <div className="custom-scrollbar h-full space-y-1 overflow-y-auto">
-        {filteredHistory.map((item, index) => {
+      <div className="custom-scrollbar flex space-y-1 overflow-y-auto">
+        {filteredHistory.reverse().map((item, index) => {
           const queryType = getQueryType(item.query);
           const isCopied = copiedId === item.id;
 
@@ -187,22 +187,22 @@ const HistoryList = () => {
                     </div>
 
                     {/* Query Text */}
-                    <div className="relative group/query">
-                      <div className="rounded-md bg-muted/10 p-2 font-mono text-xs leading-relaxed transition-colors group-hover:bg-muted/20">
-                        <code className="break-all text-foreground">
+                    <div className="group/query relative">
+                      <div className="overflow-hidden rounded-md bg-muted/10 p-2 font-mono text-xs leading-relaxed transition-colors group-hover:bg-muted/20">
+                        <code className="w-full truncate break-all text-foreground">
                           {item.query}
                         </code>
                       </div>
 
                       {/* Hover overlay with copy button */}
-                      <div className="absolute inset-0 flex items-center justify-end rounded-md bg-gradient-to-l from-background/90 via-background/60 to-transparent opacity-0 transition-all duration-200 group-hover:opacity-100 group-hover/query:opacity-100">
+                      <div className="absolute inset-0 flex items-center justify-end rounded-md bg-gradient-to-l from-background/90 via-background/60 to-transparent opacity-0 transition-all duration-200 group-hover/query:opacity-100 group-hover:opacity-100">
                         <div className="pr-2">
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleCopyQuery(item.query, item.id)}
-                            className={`h-6 w-6 p-0 hover:bg-primary/10 transition-colors ${
-                              isCopied ? "opacity-100 bg-primary/10" : ""
+                            className={`h-6 w-6 p-0 transition-colors hover:bg-primary/10 ${
+                              isCopied ? "bg-primary/10 opacity-100" : ""
                             }`}
                           >
                             {isCopied ? (

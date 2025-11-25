@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as appData from "@/lib/actions/app-data";
 import { ConnectionDetailsType, ConnectionsType } from "@/types/db.type";
 import { useDispatch, useSelector } from "react-redux";
@@ -10,15 +10,17 @@ import { LocalAppStorePath } from "@/config/local-app-store-path";
 
 export const useAppData = () => {
   const [connectionPath, setConnectionPath] = useState<string | null>(null);
-  // const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // const [connections, setConnections] = useState<ConnectionsType[]>([]);
+  const hasInitialized = useRef(false);
   const dispatch = useDispatch<AppDispatch>();
   const { connections, loading } = useSelector(
     (state: RootState) => state.appDB,
   );
 
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+    
     const fetchDbPath = async () => {
       try {
         if (typeof window.electron !== "undefined") {
@@ -31,12 +33,10 @@ export const useAppData = () => {
         dispatch(initConnectedConnection());
       } catch (err: any) {
         setError(err.message);
-      } finally {
-        // setLoading(false);
       }
     };
     fetchDbPath();
-  }, []);
+  }, [dispatch]);
 
   const createConnection = useCallback(
     async (connection: Omit<ConnectionDetailsType, "id">) => {

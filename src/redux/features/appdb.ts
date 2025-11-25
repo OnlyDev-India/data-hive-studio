@@ -7,7 +7,7 @@ export const initAppData = createAsyncThunk(
   "tables/connectToAppDB",
   async (_, { rejectWithValue }) => {
     try {
-      if (typeof window === "undefined" || !window.electron) {
+      if (!window.electron) {
         const connections = localStorage.getItem("connections");
         if (connections) {
           return { connections: JSON.parse(connections) as ConnectionsType[] };
@@ -39,10 +39,9 @@ export const initConnectedConnection = createAsyncThunk(
   async (_, { rejectWithValue, dispatch }) => {
     try {
       const response: any = await dispatch(initAppData());
-      let connections: ConnectionsType[] | null = null;
+      let connections: ConnectionsType[] = [];
       if (!response.error && response.payload) {
         connections = response.payload.connections;
-        dispatch(setConnections(connections));
       } else {
         return rejectWithValue(response.payload);
       }
@@ -53,15 +52,15 @@ export const initConnectedConnection = createAsyncThunk(
 
       const { connectionDetails } = await getConnectionDetails();
       if (!connectionDetails) {
-        return rejectWithValue("No connections found.");
+        return { connectedConnection: null, connections: connections };
       }
       const connection = connections.find(
         (connection: ConnectionsType) => connection.id === connectionDetails.id,
       );
       if (connection) {
-        return { connectedConnection: connection };
+        return { connectedConnection: connection, connections: connections };
       } else {
-        return rejectWithValue("No current connection found.");
+        return { connectedConnection: null, connections: connections };
       }
     } catch (error: any) {
       return rejectWithValue(error.message);
@@ -70,14 +69,14 @@ export const initConnectedConnection = createAsyncThunk(
 );
 
 const initialState: {
-  connections: ConnectionsType[] | null;
+  connections: ConnectionsType[];
   currentConnection: ConnectionsType | null;
   connectedConnection: ConnectionDetailsType | null;
   connectionMessage: { success: boolean; error: string | null } | null;
   queryHistory: string[];
   loading: "initial" | "loading" | "idle";
 } = {
-  connections: null,
+  connections: [],
   currentConnection: null,
   connectedConnection: null,
   connectionMessage: null,
@@ -157,7 +156,8 @@ export const appDBSlice = createSlice({
         state.loading = "idle";
         state.connectedConnection = action.payload.connectedConnection;
         state.queryHistory =
-          action.payload.connectedConnection.queryHistory || [];
+          action.payload.connectedConnection?.queryHistory || [];
+        state.connections = action.payload.connections;
       })
       .addCase(initConnectedConnection.rejected, (state, action) => {
         state.loading = "idle";

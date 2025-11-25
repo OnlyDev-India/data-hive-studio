@@ -661,12 +661,13 @@ const ConnectionForm = () => {
                             </FormControl>
                             <Label
                               className={cn(
-                                `h-4 w-4 rounded-sm border-2 border-transparent bg-secondary font-normal`,
+                                `h-4 w-4 cursor-pointer rounded-sm border-2 border-transparent bg-secondary font-normal`,
                                 {
                                   "border-white":
                                     !field.value || field.value === "",
                                 },
                               )}
+                              onClick={() => field.onChange("")}
                             />
                             {DbConnectionColors.map((color) => (
                               <FormItem
@@ -678,12 +679,13 @@ const ConnectionForm = () => {
                                 </FormControl>
                                 <Label
                                   className={cn(
-                                    `h-4 w-4 rounded-sm border-2 border-transparent font-normal`,
+                                    `h-4 w-4 cursor-pointer rounded-sm border-2 border-transparent font-normal`,
                                     {
                                       "border-white": field.value === color,
                                     },
                                   )}
                                   style={{ backgroundColor: color }}
+                                  onClick={() => field.onChange(color)}
                                 />
                               </FormItem>
                             ))}

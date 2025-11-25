@@ -1,22 +1,54 @@
 import { queryGenerator } from "@/lib/ai-agents/query-generator";
 import { NextRequest } from "next/server";
+import { decrypt } from "@/lib/utils/encryption";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export interface GenerateQueryRequest {
+  encrypted: string;
+}
+
+export interface DecryptedRequest {
   prompt: string;
   dbType: "mongodb" | "pgSql" | "sqlite";
   context?: string;
   model?: string;
+  apiKey: string;
+  selectedModel: string;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: GenerateQueryRequest = await request.json();
 
+    // Decrypt the request body
+    if (!body.encrypted) {
+      return new Response(
+        JSON.stringify({ error: "Encrypted data is required" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    let decryptedBody: DecryptedRequest;
+    try {
+      const decrypted = await decrypt(body.encrypted);
+      decryptedBody = JSON.parse(decrypted);
+    } catch (error: any) {
+      return new Response(
+        JSON.stringify({ error: "Failed to decrypt request data" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
     // Validate input
-    if (!body.prompt || !body.prompt.trim()) {
+    if (!decryptedBody.prompt || !decryptedBody.prompt.trim()) {
       return new Response(
         JSON.stringify({ error: "Prompt cannot be empty" }),
         {
@@ -26,7 +58,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!body.dbType) {
+    if (!decryptedBody.dbType) {
       return new Response(
         JSON.stringify({ error: "Database type is required" }),
         {
@@ -36,12 +68,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if query generator is configured
-    if (!queryGenerator.isConfigured()) {
+    // Check if API key is provided from settings
+    if (!decryptedBody.apiKey || decryptedBody.apiKey.trim() === "") {
       return new Response(
         JSON.stringify({
           error:
-            "AI query generator not configured. Please add NEXT_PUBLIC_OPENROUTER_API_KEY to your environment variables.",
+            "AI query generator not configured. Please configure your API key in settings.",
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Check if model is provided
+    if (!decryptedBody.selectedModel || decryptedBody.selectedModel.trim() === "") {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Model not configured. Please select a model in settings.",
         }),
         {
           status: 500,
@@ -57,10 +103,12 @@ export async function POST(request: NextRequest) {
         try {
           // Stream the query generation
           for await (const chunk of queryGenerator.generateQueryStream({
-            prompt: body.prompt.trim(),
-            dbType: body.dbType,
-            context: body.context,
-            model: body.model,
+            prompt: decryptedBody.prompt.trim(),
+            dbType: decryptedBody.dbType,
+            context: decryptedBody.context,
+            model: decryptedBody.model,
+            apiKey: decryptedBody.apiKey,
+            selectedModel: decryptedBody.selectedModel,
           })) {
             // Send chunk as SSE
             const data = JSON.stringify({ type: "chunk", content: chunk });

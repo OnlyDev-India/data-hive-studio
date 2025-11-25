@@ -29,26 +29,26 @@ export interface GenerateQueryOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  apiKey?: string; // Optional: override from settings
+  selectedModel?: string; // Optional: override from settings
 }
 
 export class QueryGenerator {
-  private apiKey: string;
   private baseUrl: string;
-  private defaultModel: string;
   private appName: string;
 
   constructor() {
-    this.apiKey = openRouterConfig.apiKey;
+    // Only use baseUrl and appName from config (these are constants)
     this.baseUrl = openRouterConfig.baseUrl;
-    this.defaultModel = openRouterConfig.defaultModel;
     this.appName = openRouterConfig.appName;
   }
 
   /**
    * Check if OpenRouter is properly configured
+   * Now checks if API key is provided in settings
    */
-  isConfigured(): boolean {
-    return !!this.apiKey;
+  isConfigured(apiKey?: string): boolean {
+    return !!(apiKey && apiKey.trim() !== "");
   }
 
   /**
@@ -58,17 +58,26 @@ export class QueryGenerator {
     messages: OpenRouterMessage[],
     model?: string,
     temperature: number = 0.7,
-    maxTokens: number = 1000
+    maxTokens: number = 1000,
+    apiKey?: string,
+    selectedModel?: string
   ): Promise<OpenRouterResponse> {
-    if (!this.isConfigured()) {
+    if (!apiKey || apiKey.trim() === "") {
       throw new Error(
-        'OpenRouter API key not configured. Please add NEXT_PUBLIC_OPENROUTER_API_KEY to your environment variables.'
+        'OpenRouter API key not configured. Please configure your API key in settings.'
+      );
+    }
+
+    const effectiveModel = model || selectedModel;
+    if (!effectiveModel) {
+      throw new Error(
+        'Model not configured. Please select a model in settings.'
       );
     }
 
     try {
       const requestBody = {
-        model: model || this.defaultModel,
+        model: effectiveModel,
         messages,
         temperature,
         max_tokens: maxTokens,
@@ -84,7 +93,7 @@ export class QueryGenerator {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : '',
           'X-Title': this.appName,
@@ -142,7 +151,7 @@ export class QueryGenerator {
    * Generate a database query based on natural language input
    */
   async generateQuery(options: GenerateQueryOptions): Promise<string> {
-    const { prompt, dbType, context, model, temperature = 0.3, maxTokens = 1000 } = options;
+    const { prompt, dbType, context, model, temperature = 0.3, maxTokens = 1000, apiKey, selectedModel } = options;
 
     const systemPrompt = this.getSystemPrompt(dbType, context);
     
@@ -152,7 +161,7 @@ export class QueryGenerator {
     ];
 
     try {
-      const response = await this.makeRequest(messages, model, temperature, maxTokens);
+      const response = await this.makeRequest(messages, model, temperature, maxTokens, apiKey, selectedModel);
       
       if (!response || typeof response !== 'object') {
         console.error('Invalid response from OpenRouter:', response);
@@ -184,11 +193,18 @@ export class QueryGenerator {
    * Generate a database query with streaming support
    */
   async *generateQueryStream(options: GenerateQueryOptions): AsyncGenerator<string, void, unknown> {
-    const { prompt, dbType, context, model, temperature = 0.3, maxTokens = 1000 } = options;
+    const { prompt, dbType, context, model, temperature = 0.3, maxTokens = 1000, apiKey, selectedModel } = options;
 
-    if (!this.isConfigured()) {
+    if (!apiKey || apiKey.trim() === "") {
       throw new Error(
-        'OpenRouter API key not configured. Please add NEXT_PUBLIC_OPENROUTER_API_KEY to your environment variables.'
+        'OpenRouter API key not configured. Please configure your API key in settings.'
+      );
+    }
+
+    const effectiveModel = model || selectedModel;
+    if (!effectiveModel) {
+      throw new Error(
+        'Model not configured. Please select a model in settings.'
       );
     }
 
@@ -201,7 +217,7 @@ export class QueryGenerator {
 
     try {
       const requestBody = {
-        model: model || this.defaultModel,
+        model: effectiveModel,
         messages,
         temperature,
         max_tokens: maxTokens,
@@ -218,7 +234,7 @@ export class QueryGenerator {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : '',
           'X-Title': this.appName,
@@ -312,7 +328,7 @@ export class QueryGenerator {
   /**
    * Optimize an existing query
    */
-  async optimizeQuery(query: string, dbType: string): Promise<string> {
+  async optimizeQuery(query: string, dbType: string, apiKey?: string, selectedModel?: string): Promise<string> {
     const systemPrompt = `You are a database query optimization expert for ${dbType}. 
 Analyze the provided query and suggest optimizations for better performance. 
 Return ONLY the optimized query without explanations.`;
@@ -322,14 +338,14 @@ Return ONLY the optimized query without explanations.`;
       { role: 'user', content: `Optimize this query:\n\n${query}` },
     ];
 
-    const response = await this.makeRequest(messages, undefined, 0.3, 1500);
+    const response = await this.makeRequest(messages, undefined, 0.3, 1500, apiKey, selectedModel);
     return response.choices[0].message.content.trim();
   }
 
   /**
    * Explain what a query does
    */
-  async explainQuery(query: string, dbType: string): Promise<string> {
+  async explainQuery(query: string, dbType: string, apiKey?: string, selectedModel?: string): Promise<string> {
     const systemPrompt = `You are a database expert for ${dbType}. 
 Explain what the provided query does in simple, clear language.`;
 
@@ -338,14 +354,14 @@ Explain what the provided query does in simple, clear language.`;
       { role: 'user', content: `Explain this query:\n\n${query}` },
     ];
 
-    const response = await this.makeRequest(messages, undefined, 0.5, 800);
+    const response = await this.makeRequest(messages, undefined, 0.5, 800, apiKey, selectedModel);
     return response.choices[0].message.content.trim();
   }
 
   /**
    * Fix a query that has an error
    */
-  async fixQuery(query: string, error: string, dbType: string): Promise<string> {
+  async fixQuery(query: string, error: string, dbType: string, apiKey?: string, selectedModel?: string): Promise<string> {
     const systemPrompt = `You are a database expert for ${dbType}. 
 Fix the provided query based on the error message. 
 Return ONLY the fixed query without explanations.`;
@@ -358,7 +374,7 @@ Return ONLY the fixed query without explanations.`;
       },
     ];
 
-    const response = await this.makeRequest(messages, undefined, 0.3, 1500);
+    const response = await this.makeRequest(messages, undefined, 0.3, 1500, apiKey, selectedModel);
     return response.choices[0].message.content.trim();
   }
 
