@@ -12,7 +12,11 @@ const ENCRYPTION_KEY = process.env.NEXT_PUBLIC_ENCRYPTION_KEY || "data-hive-stud
  */
 function stringToArrayBuffer(str: string): ArrayBuffer {
   const encoder = new TextEncoder();
-  return encoder.encode(str).buffer;
+  const uint8Array = encoder.encode(str);
+  // Create a new ArrayBuffer and copy the data to ensure type compatibility
+  const buffer = new ArrayBuffer(uint8Array.length);
+  new Uint8Array(buffer).set(uint8Array);
+  return buffer;
 }
 
 /**
