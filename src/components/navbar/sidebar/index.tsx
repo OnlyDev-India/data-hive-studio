@@ -3,11 +3,13 @@ import { Button } from "../../ui/button";
 import { usePathname, useRouter } from "next/navigation";
 import { disconnectDb } from "@/lib/actions/fetch-data";
 import {
-  CirclePowerIcon, MessageCircleQuestionIcon,
+  CirclePowerIcon,
+  MessageCircleQuestionIcon,
   MonitorIcon,
   MoonIcon,
   SettingsIcon,
-  SunIcon
+  SlidersHorizontalIcon,
+  SunIcon,
 } from "lucide-react";
 import { useDispatch } from "react-redux";
 import { resetOpenFiles, addOpenFiles } from "@/redux/features/open-files";
@@ -50,6 +52,17 @@ const Sidebar = () => {
       router.push("/");
     }
   };
+
+  const handleSettings = () => {
+    if(pathname.startsWith("/app")) {
+      dispatch(addOpenFiles("settings"));
+      if (!pathname.includes("/app/editor")) {
+        router.push("/app/editor");
+      }
+    } else {
+      router.push("?homePage=settings");
+    }
+  };
   return (
     <div className="flex w-[var(--sidebar-width)] flex-col items-center pb-2">
       {pathname === "/" && <ConnectionPageSidebar />}
@@ -66,7 +79,7 @@ const Sidebar = () => {
           <Button
             variant={"ghost"}
             size={"icon"}
-            className="hover:bg-secondary text-muted-foreground"
+            className="text-muted-foreground hover:bg-secondary"
             asChild
           >
             <Link
@@ -86,7 +99,7 @@ const Sidebar = () => {
           <Button
             variant={"ghost"}
             size={"icon"}
-            className="hover:bg-secondary text-muted-foreground"
+            className="text-muted-foreground hover:bg-secondary"
           >
             <SettingsIcon />
           </Button>
@@ -127,19 +140,14 @@ const Sidebar = () => {
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
+          <DropdownMenuItem
+            className="text-xs"
+            onSelect={handleSettings}
+          >
+            <SlidersHorizontalIcon size={12} /> Settings
+          </DropdownMenuItem>
           {pathname.startsWith("/app") && (
             <>
-              <DropdownMenuItem
-                className="text-xs"
-                onSelect={() => {
-                  dispatch(addOpenFiles("settings"));
-                  if (!pathname.includes("/app/editor")) {
-                    router.push("/app/editor");
-                  }
-                }}
-              >
-                <SettingsIcon size={12} /> Settings
-              </DropdownMenuItem>
               <DropdownMenuItem className="text-xs" onSelect={handleDisconnect}>
                 <CirclePowerIcon size={12} /> Disconnect
                 <DropdownMenuShortcut>ctrl + q</DropdownMenuShortcut>
