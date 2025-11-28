@@ -32,12 +32,14 @@ const ConnectionSidebar = () => {
   const { updateConnection } = useAppData();
 
   const handleCurrentConnection = async (connection: ConnectionsType) => {
+    router.push("?homePage=connectionForm");
     dispatch(setCurrentConnection(connection));
   };
 
   const handleCurrentConnectionConnect = async (
     connection: ConnectionsType,
   ) => {
+    router.push("?homePage=connectionForm");
     dispatch(setConnectionLoading(true));
     const config = parseConnectionString(connection.connection_string);
     if (config.error) {
@@ -78,6 +80,7 @@ const ConnectionSidebar = () => {
   };
 
   const handleNewConnection = () => {
+    router.push("?homePage=connectionForm");
     dispatch(setCurrentConnection(null));
   };
 

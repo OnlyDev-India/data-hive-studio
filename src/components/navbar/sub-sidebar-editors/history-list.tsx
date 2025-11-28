@@ -152,7 +152,7 @@ const HistoryList = () => {
       </div>
 
       {/* History List */}
-      <div className="custom-scrollbar flex space-y-1 overflow-y-auto">
+      <div className="custom-scrollbar space-y-1 overflow-y-auto">
         {filteredHistory.reverse().map((item, index) => {
           const queryType = getQueryType(item.query);
           const isCopied = copiedId === item.id;
