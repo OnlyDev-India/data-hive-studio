@@ -1,0 +1,361 @@
+import type {
+  ActivityEntry,
+  ConnectionInfo,
+  ExportPayload,
+  QueryOp,
+} from "../api/types";
+import type { GridFilter } from "@/shared/components/data-grid/types";
+import type { StudioTab } from "./tab-utils";
+
+/** Which top-level screen fills the workspace area. */
+export type StudioView = "home" | "workspace" | "admin";
+
+/** Handle a grid exposes to the status bar so it can show tab info and drive
+ * the active table's limit/pagination/actions from the bottom bar. */
+export interface GridBridge {
+  rows: number;
+  total: number;
+  /** True while the page query (count + rows) is in flight — the action bar
+   *  spins/disables Refresh and the grid blocks edits. */
+  loading: boolean;
+  total_pages: number;
+  page: number;
+  set_page: (p: number) => void;
+  page_size: number;
+  set_page_size: (n: number) => void;
+  has_full_row: boolean;
+  selected_count: number;
+  editable: boolean;
+  elapsed_ms: number | null;
+  delete_rows: () => void;
+  /** True while not-yet-inserted "pending" rows are being drafted. */
+  pending_exists: boolean;
+  /** Number of pending rows currently drafted. */
+  pending_count: number;
+  /** Begin drafting a new row: pins a blank pending row to the top of the grid. */
+  start_pending: () => void;
+  /** Commit all drafted pending rows as real records. */
+  apply_pending: () => void;
+  /** Discard all drafted pending rows. */
+  cancel_pending: () => void;
+  /** Render every pending change (insert drafts, cell edits, row deletions)
+   *  as runnable SQL statements, or null when nothing is staged. */
+  get_pending_sql: () => string | null;
+  refresh: () => void;
+  /** Snapshot of the loaded result for exports (null when nothing loaded).
+   *  Reflects the last fetched page as stored in the database — buffered,
+   *  not-yet-applied edits are excluded. */
+  get_export: () => ExportPayload | null;
+  /** Structured SELECT matching the grid's current filters and sort, WITHOUT
+   *  pagination — run it to fetch every matching row (used by exports). */
+  get_filtered_op: () => Extract<QueryOp, { kind: "select" }>;
+}
+
+/** A single data-grid row captured for the right-side JSON viewer. */
+export interface JsonRow {
+  conn_id: string;
+  table: string;
+  row_number: number;
+  data: Record<string, unknown>;
+}
+
+/** Per-connection tab/workspace state. */
+export interface WorkspaceTabs {
+  tabs: StudioTab[];
+  active: StudioTab | null;
+  nextSqlId: number;
+  nextNewTableId: number;
+  nextTableId: number;
+  /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
+  paneModes: Record<string, "data" | "schema">;
+}
+
+/** Live handle from an open Schema tab with unsaved DDL drafts; the status
+ *  bar renders Apply/Discard from it (mirrors GridBridge for data edits). */
+export interface SchemaEditHandle {
+  /** Number of DDL statements the next Apply would run. */
+  count: number;
+  /** True while an Apply is in flight — the status bar disables the buttons
+   *  and shows a spinner on Apply. */
+  busy: boolean;
+  /** Runs the batch; resolves when the transaction finished (success or
+   *  rolled-back failure), so close-guards can await it. */
+  apply: () => void | Promise<void>;
+  discard: () => void;
+}
+
+/** Registered while a table pane's Schema editor is open; lets the status bar
+ *  trigger the pane-level Refresh and the destructive Drop-table flow. */
+export interface SchemaPaneHandle {
+  /** True while an Apply is in flight — pane-level tools are disabled so a
+   *  refresh/drop cannot race the running batch. */
+  busy: boolean;
+  /** Reload the schema from the database (discards nothing — drafts are
+   *  reset only when the reloaded schema differs). */
+  refresh: () => void;
+  /** Ask the pane to open its confirm dialog for dropping the table. */
+  drop: () => void;
+}
+
+/** One entry in the action-bar notification popover. */
+export interface StudioNotification {
+  id: string;
+  kind: "success" | "error" | "info";
+  title: string;
+  /** Optional longer body (SQL, error text…), truncated in the list with the
+   *  full text available via tooltip. */
+  detail?: string;
+  /** Epoch ms — used to sort and to display a time. */
+  at: number;
+  /** Whether this notification has been seen by the user. */
+  read: boolean;
+  /** Optional action button label (e.g. "Retry", "View details"). */
+  actionLabel?: string;
+  /** Callback invoked when the action button is clicked. Not serialized. */
+  actionFn?: () => void;
+  /** Longer description shown in a detail dialog when the user clicks "View". */
+  description?: string;
+}
+
+// Connection parameters for one PostgreSQL recent entry (persisted in
+// localStorage so double-click reconnect works across restarts).
+export interface SavedConnParams {
+  /** Optional display name (saved/pinned connections). */
+  name?: string;
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+  ssl_mode?: string;
+}
+
+/** What the landing form is editing (when prefill carries an edit target). */
+export type LandingEditTarget =
+  | { source: "server"; profileId: string; remoteId: string; name: string }
+  | { source: "local"; oldName: string; name: string };
+
+export interface StudioStore {
+  // Connections
+  open: ConnectionInfo[];
+  activeId: string | null;
+  recent: ConnectionInfo[];
+  openConn: (conn: ConnectionInfo) => void;
+  setActive: (id: string) => void;
+  closeConn: (id: string) => void;
+  updateConn: (id: string, patch: Partial<ConnectionInfo>) => void;
+
+  // View
+  view: StudioView;
+  setView: (view: StudioView) => void;
+
+  // Sidebar chrome
+  sidebarOpen: boolean;
+  sidebarWidth: number;
+  toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
+  setSidebarWidth: (px: number) => void;
+
+  // Right sidebar (JSON row viewer)
+  rightSidebarOpen: boolean;
+  rightSidebarWidth: number;
+  toggleRightSidebar: () => void;
+  setRightSidebarOpen: (open: boolean) => void;
+  setRightSidebarWidth: (px: number) => void;
+  jsonRow: JsonRow | null;
+  setJsonRow: (row: JsonRow | null) => void;
+
+  // Grid bridges (active table grid -> status bar controls)
+  gridBridges: Record<string, GridBridge | null>;
+  setGridBridge: (key: string, bridge: GridBridge | null) => void;
+  clearGridBridge: (key: string) => void;
+
+  // Schema edit handles (active schema tab -> status bar Apply/Discard)
+  schemaEdits: Record<string, SchemaEditHandle | null>;
+  setSchemaEdit: (key: string, handle: SchemaEditHandle) => void;
+  clearSchemaEdit: (key: string) => void;
+
+  // Schema pane handles (open schema editor -> status bar Refresh/Drop table)
+  schemaPanes: Record<string, SchemaPaneHandle | null>;
+  setSchemaPane: (key: string, handle: SchemaPaneHandle) => void;
+  clearSchemaPane: (key: string) => void;
+
+  /** Registered by each New-table tab under its tab key; the action bar
+   *  shows the Create button of whichever new-table tab is ACTIVE, enabled
+   *  only while its generated SQL is valid. */
+  newTables: Record<
+    string,
+    {
+      create: () => void;
+      creating: boolean;
+      valid: boolean;
+      has_draft: boolean;
+    }
+  >;
+  setNewTable: (
+    key: string,
+    handle: {
+      create: () => void;
+      creating: boolean;
+      valid: boolean;
+      has_draft: boolean;
+    },
+  ) => void;
+  clearNewTable: (key: string) => void;
+
+  /** Registered by every SQL editor tab while mounted: `has_text` marks the
+   *  tab dirty (dot in the strip); `save` writes the queries to a file the
+   *  user picks, resolving false when cancelled. */
+  sqlTabs: Record<string, { has_text: boolean; save: () => Promise<boolean> }>;
+  setSqlTab: (
+    key: string,
+    handle: { has_text: boolean; save: () => Promise<boolean> },
+  ) => void;
+  clearSqlTab: (key: string) => void;
+
+  /** Initial text handed to a freshly opened SQL tab, keyed by its tab key.
+   *  openSql(connId, text) stashes it here; the tab reads it once on mount
+   *  and closeTab deletes the entry. */
+  sqlSeeds: Record<string, string>;
+
+  /** Generic notification center (action-bar bell). Any feature can push a
+   *  notification — e.g. applied schema changes, export results, failed
+   *  operations. Newest first, capped, session-only. */
+  notifications: StudioNotification[];
+  pushNotification: (n: {
+    kind: StudioNotification["kind"];
+    title: string;
+    detail?: string;
+    actionLabel?: string;
+    actionFn?: () => void;
+    description?: string;
+  }) => void;
+  dismissNotification: (id: string) => void;
+  clearNotifications: () => void;
+  markRead: (id: string) => void;
+  markAllRead: () => void;
+  unreadCount: () => number;
+
+  /** Floating toast queue — items appear near the bell icon, auto-dismiss
+   *  after a short delay, and are removed from the queue. Separate from the
+   *  persisted notification list (bell popover). */
+  toastQueue: StudioNotification[];
+  dismissToast: (id: string) => void;
+
+  /** Live feed of backend commands (Activity sidebar). Fed by the
+   *  `activity://entry` Tauri event; newest first, capped, session-only. */
+  activityOpen: boolean;
+  toggleActivityOpen: () => void;
+  setActivityOpen: (open: boolean) => void;
+  activity: ActivityEntry[];
+  pushActivity: (entry: ActivityEntry) => void;
+  /** Replace the whole list (hydration from get_activity on startup). */
+  setActivity: (entries: ActivityEntry[]) => void;
+  clearActivityEntries: () => void;
+
+  /** The entry shown in the (singleton) Activity details tab. Tagged with its
+   *  connection so a tab on connection A never shows B's entry. */
+  activityDetail: { conn_id: string; entry: ActivityEntry } | null;
+  setActivityDetail: (
+    d: { conn_id: string; entry: ActivityEntry } | null,
+  ) => void;
+
+  /** Saved PostgreSQL connection params per connection id (recents). */
+  recentParams: Record<string, SavedConnParams>;
+  pushRecentParams: (connId: string, params: SavedConnParams) => void;
+  /** Locally saved connections keyed by display name ('pg.saved'). */
+  savedLocal: Record<string, SavedConnParams>;
+  saveLocalPg: (name: string, params: SavedConnParams) => void;
+  updateSavedLocalPg: (
+    oldName: string,
+    name: string,
+    params: SavedConnParams,
+  ) => void;
+  deleteSavedLocalPg: (name: string) => void;
+  /** Pinned ids across sources: 'local:<name>' or 'srv:<profile>:<conn>' ('pg.pins'). */
+  pins: string[];
+  togglePin: (id: string) => void;
+  /** Landing-page prefill request: sidebar click hands PG details to the
+   *  connect form. `n` increments so repeat requests re-trigger; `connect`
+   *  additionally starts connecting right after the fields are filled.
+   *  `edit` puts the form in edit mode — Save updates that connection
+   *  (server-shared or local) instead of creating a new one. */
+  landingPrefill: {
+    params: SavedConnParams;
+    n: number;
+    connect: boolean;
+    edit?: LandingEditTarget;
+  } | null;
+  requestLandingPrefill: (
+    params: SavedConnParams,
+    connect?: boolean,
+    edit?: LandingEditTarget,
+  ) => void;
+  /** Consume the prefill after applying it — prevents replay on remount. */
+  clearLandingPrefill: () => void;
+  /** Global Postgres connect-in-flight flag (survives page switches). */
+  pgConnecting: boolean;
+  setPgConnecting: (v: boolean) => void;
+
+  // Per-connection workspaces (tabs)
+  workspaces: Record<string, WorkspaceTabs>;
+  openTable: (
+    connId: string,
+    name: string,
+    initialFilters?: GridFilter[],
+  ) => void;
+  openStructure: (connId: string, name: string) => void;
+  openSql: (connId: string, seedText?: string) => void;
+  openNewTable: (connId: string) => void;
+  /** Open (or focus — it is a singleton per connection) the Activity tab. */
+  openActivityTab: (connId: string) => void;
+  selectTab: (connId: string, tab: StudioTab) => void;
+  closeTab: (connId: string, tab: StudioTab) => void;
+  /** Move `tab` so it ends up at index `toIndex` of the tab strip. */
+  moveTab: (connId: string, tab: StudioTab, toIndex: number) => void;
+  closeAllTabs: (connId: string) => void;
+  closeToLeft: (connId: string, tab: StudioTab) => void;
+  closeToRight: (connId: string, tab: StudioTab) => void;
+  setPaneMode: (
+    connId: string,
+    tabKey: string,
+    mode: "data" | "schema",
+  ) => void;
+
+  // Team servers (dh-server profiles)
+  /** One entry per CONNECTED server profile; keyed by profile id. */
+  serverSessions: Record<
+    string,
+    {
+      profile: { id: string; name: string; url: string };
+      me: { device_id: string; is_admin: boolean };
+      /** Granted connections as namespaced ids (`srv:<profile>:<conn>`). */
+      connIds: string[];
+      /** Full shared-connection entries incl. this device's access level. */
+      connections: {
+        id: string;
+        name: string;
+        host: string;
+        port: number;
+        user: string;
+        database: string;
+        ssl_mode?: string | null;
+        data_access: "readonly" | "readwrite";
+        can_edit: boolean;
+        can_delete: boolean;
+      }[];
+    }
+  >;
+  serverBusy: boolean;
+  connectServer: (profileId: string) => Promise<void>;
+  disconnectServer: (profileId: string) => Promise<void>;
+  /** Re-fetch every connected server's shared-connection catalog (keeps
+   *  open tabs intact). */
+  refreshServers: () => Promise<void>;
+  /** Delete a shared connection on this profile and drop its local entry. */
+  deleteServerConnection: (
+    profileId: string,
+    connId: string,
+    srvId: string,
+  ) => Promise<void>;
+}

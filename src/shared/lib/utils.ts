@@ -1,0 +1,67 @@
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+/** Split raw SQL into statement ranges, ignoring `;` inside string literals
+ * and `--` / `/* *&#47;` comments. Offsets are in the input string. */
+export function statementRanges(sql: string): { start: number; end: number }[] {
+  const ranges: { start: number; end: number }[] = [];
+  let i = 0;
+  let start = 0;
+  const n = sql.length;
+  let inStr: string | null = null;
+  let inLine = false;
+  let inBlock = false;
+  while (i < n) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (inLine) {
+      if (ch === "\n") inLine = false;
+      i++;
+      continue;
+    }
+    if (inBlock) {
+      if (ch === "*" && next === "/") {
+        inBlock = false;
+        i += 2;
+      } else i++;
+      continue;
+    }
+    if (inStr) {
+      if (ch === inStr) {
+        if (next === inStr) {
+          i += 2;
+          continue;
+        }
+        inStr = null;
+      }
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      inStr = ch;
+      i++;
+      continue;
+    }
+    if (ch === "-" && next === "-") {
+      inLine = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlock = true;
+      i += 2;
+      continue;
+    }
+    if (ch === ";") {
+      ranges.push({ start, end: i });
+      start = i + 1;
+    }
+    i++;
+  }
+  ranges.push({ start, end: n });
+  return ranges;
+}

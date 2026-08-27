@@ -1,0 +1,23 @@
+# Build context hygiene — keep the image build fast and small.
+node_modules
+target
+.git
+graphify-out
+data
+dist
+
+# Frontend sources are not needed for the server image (the built UI ships
+# from dist-web/).
+src
+public
+index.html
+vite.config.ts
+tsconfig*.json
+eslint.config.js
+components.json
+*.md
+!README.md
+
+# Desktop-app assets unrelated to the server binary.
+src-tauri/gen
+src-tauri/target
