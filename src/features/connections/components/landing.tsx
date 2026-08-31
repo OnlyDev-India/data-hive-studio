@@ -17,8 +17,8 @@ import { useStudioStore } from "@/shared/store";
 import type { LandingEditTarget } from "@/shared/store";
 
 import { EditBanner } from "./edit-banner";
-import { MongoPanel } from "./mongo-panel";
-import { PgPanel } from "./pg-panel";
+import { MongoPanel, type MongoFormValues } from "./mongo-panel";
+import { PgPanel, type PgFormValues } from "./pg-panel";
 import { SqlitePanel } from "./sqlite-panel";
 
 type DbKindChoice = "sqlite" | "postgres" | "mongodb";
@@ -67,6 +67,8 @@ export function Landing() {
 
   const [kind, setKind] = useState<DbKindChoice>("sqlite");
   const [opening, setOpening] = useState(false);
+  /** Path of a recent SQLite file prefilled into the form (single-click). */
+  const [sqlite_path, setSqlitePath] = useState<string | null>(null);
 
   // Pick a file and open it right away — no second "Open" step.
   const open_file_click = async () => {
@@ -89,13 +91,15 @@ export function Landing() {
   };
 
   // ---- PostgreSQL connect form ----
-  const [pg_name, setPgName] = useState("");
-  const [pg_host, setPgHost] = useState("localhost");
-  const [pg_port, setPgPort] = useState("5432");
-  const [pg_user, setPgUser] = useState("postgres");
-  const [pg_password, setPgPassword] = useState("");
-  const [pg_database, setPgDatabase] = useState("");
-  const [pg_ssl, setPgSsl] = useState("prefer");
+  const [pg, setPg] = useState<PgFormValues>({
+    name: "",
+    host: "localhost",
+    port: "5432",
+    user: "postgres",
+    password: "",
+    database: "",
+    ssl_mode: "prefer",
+  });
   /** GLOBAL connect flag — navigating home mid-connect keeps the spinner
    *  truthful and blocks a second auto-connect from the replayed prefill. */
   const pg_connecting = useStudioStore((st) => st.pgConnecting);
@@ -114,14 +118,16 @@ export function Landing() {
   const [test_error, setTestError] = useState<string | null>(null);
 
   // ---- MongoDB connect form ----
-  const [mongo_name, setMongoName] = useState("");
-  const [mongo_host, setMongoHost] = useState("localhost");
-  const [mongo_port, setMongoPort] = useState("27017");
-  const [mongo_user, setMongoUser] = useState("");
-  const [mongo_password, setMongoPassword] = useState("");
-  const [mongo_database, setMongoDatabase] = useState("");
-  const [mongo_auth_db, setMongoAuthDb] = useState("admin");
-  const [mongo_srv, setMongoSrv] = useState(false);
+  const [mongo, setMongo] = useState<MongoFormValues>({
+    name: "",
+    host: "localhost",
+    port: "27017",
+    user: "",
+    password: "",
+    database: "",
+    auth_db: "admin",
+    srv: false,
+  });
   const [mongo_testing, setMongoTesting] = useState(false);
   const [mongo_test_ok, setMongoTestOk] = useState<boolean | null>(null);
   const [mongo_test_error, setMongoTestError] = useState<string | null>(null);
@@ -132,18 +138,18 @@ export function Landing() {
   const [mongo_copied, setMongoCopied] = useState(false);
 
   const build_params = () => ({
-    host: pg_host.trim() || "localhost",
-    port: Number(pg_port) || 5432,
-    user: pg_user.trim(),
-    password: pg_password,
-    database: pg_database.trim(),
-    ssl_mode: pg_ssl,
+    host: pg.host.trim() || "localhost",
+    port: Number(pg.port) || 5432,
+    user: pg.user.trim(),
+    password: pg.password,
+    database: pg.database.trim(),
+    ssl_mode: pg.ssl_mode,
   });
 
   const display_name = () =>
-    pg_name.trim() ||
-    pg_database.trim() ||
-    `${pg_user.trim()}@${pg_host.trim() || "localhost"}`;
+    pg.name.trim() ||
+    pg.database.trim() ||
+    `${pg.user.trim()}@${pg.host.trim() || "localhost"}`;
 
   // Latest form values, readable from effects without stale-closure races.
   const form_ref = useRef(build_params());
@@ -152,7 +158,7 @@ export function Landing() {
   });
 
   const test_click = async () => {
-    if (testing || !pg_database.trim()) return;
+    if (testing || !pg.database.trim()) return;
     setTesting(true);
     setTestOk(null);
     setTestError(null);
@@ -178,13 +184,15 @@ export function Landing() {
     if (!raw) return;
     try {
       const u = new URL(raw);
-      setPgUser(decodeURIComponent(u.username));
-      setPgPassword(decodeURIComponent(u.password));
-      setPgHost(u.hostname);
-      if (u.port) setPgPort(u.port);
-      setPgDatabase(u.pathname.replace(/^\/+/, ""));
-      const sm = u.searchParams.get("sslmode");
-      if (sm) setPgSsl(sm);
+      setPg((p) => ({
+        ...p,
+        user: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+        host: u.hostname,
+        port: u.port || p.port,
+        database: u.pathname.replace(/^\/+/, ""),
+        ssl_mode: u.searchParams.get("sslmode") ?? p.ssl_mode,
+      }));
       setUrlError(null);
     } catch {
       setUrlError("Could not parse that connection URL.");
@@ -192,9 +200,9 @@ export function Landing() {
   };
 
   const export_url = async () => {
-    const auth = `${encodeURIComponent(pg_user.trim())}:${encodeURIComponent(pg_password)}`;
-    const ssl = pg_ssl === "prefer" ? "" : `?sslmode=${pg_ssl}`;
-    const url = `postgres://${auth}@${pg_host.trim() || "localhost"}:${Number(pg_port) || 5432}/${pg_database.trim()}${ssl}`;
+    const auth = `${encodeURIComponent(pg.user.trim())}:${encodeURIComponent(pg.password)}`;
+    const ssl = pg.ssl_mode === "prefer" ? "" : `?sslmode=${pg.ssl_mode}`;
+    const url = `postgres://${auth}@${pg.host.trim() || "localhost"}:${Number(pg.port) || 5432}/${pg.database.trim()}${ssl}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -212,14 +220,16 @@ export function Landing() {
       const u = new URL(raw);
       // Detect mongodb+srv:// vs mongodb://
       const isSrv = u.protocol === "mongodb+srv:";
-      setMongoSrv(isSrv);
-      setMongoUser(decodeURIComponent(u.username));
-      setMongoPassword(decodeURIComponent(u.password));
-      setMongoHost(u.hostname);
-      if (u.port && !isSrv) setMongoPort(u.port);
-      setMongoDatabase(u.pathname.replace(/^\/+/, ""));
-      const authSource = u.searchParams.get("authSource");
-      if (authSource) setMongoAuthDb(authSource);
+      setMongo((m) => ({
+        ...m,
+        srv: isSrv,
+        user: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+        host: u.hostname,
+        port: u.port && !isSrv ? u.port : m.port,
+        database: u.pathname.replace(/^\/+/, ""),
+        auth_db: u.searchParams.get("authSource") ?? m.auth_db,
+      }));
       setMongoUrlError(null);
     } catch {
       setMongoUrlError("Could not parse that connection URL.");
@@ -227,11 +237,11 @@ export function Landing() {
   };
 
   const export_mongo_url = async () => {
-    const auth = `${encodeURIComponent(mongo_user.trim())}:${encodeURIComponent(mongo_password)}`;
-    const authSource = mongo_auth_db.trim() ? `?authSource=${encodeURIComponent(mongo_auth_db)}` : "";
-    const url = mongo_srv
-      ? `mongodb+srv://${auth}@${mongo_host.trim() || "localhost"}/${mongo_database.trim()}${authSource}`
-      : `mongodb://${auth}@${mongo_host.trim() || "localhost"}:${Number(mongo_port) || 27017}/${mongo_database.trim()}${authSource}`;
+    const auth = `${encodeURIComponent(mongo.user.trim())}:${encodeURIComponent(mongo.password)}`;
+    const authSource = mongo.auth_db.trim() ? `?authSource=${encodeURIComponent(mongo.auth_db)}` : "";
+    const url = mongo.srv
+      ? `mongodb+srv://${auth}@${mongo.host.trim() || "localhost"}/${mongo.database.trim()}${authSource}`
+      : `mongodb://${auth}@${mongo.host.trim() || "localhost"}:${Number(mongo.port) || 27017}/${mongo.database.trim()}${authSource}`;
     try {
       await navigator.clipboard.writeText(url);
       setMongoCopied(true);
@@ -251,7 +261,7 @@ export function Landing() {
   const want_kind = useRef<"postgres" | "mongodb" | null>(null);
 
   const pg_connect_click = async () => {
-    if (pg_connecting || !pg_database.trim()) return;
+    if (pg_connecting || !pg.database.trim()) return;
     setPgConnecting(true);
     try {
       if (WEB) {
@@ -292,7 +302,7 @@ export function Landing() {
       push_recent_params(conn.id, {
         ...form_ref.current,
         kind: "postgres",
-        name: pg_name.trim() || undefined,
+        name: pg.name.trim() || undefined,
       });
       openConn(conn);
     } catch (e) {
@@ -307,17 +317,17 @@ export function Landing() {
   };
 
   const mongo_build_params = () => ({
-    host: mongo_host.trim() || "localhost",
-    port: Number(mongo_port) || 27017,
-    user: mongo_user.trim(),
-    password: mongo_password,
-    database: mongo_database.trim(),
-    auth_db: mongo_auth_db.trim() || "admin",
-    srv: mongo_srv,
+    host: mongo.host.trim() || "localhost",
+    port: Number(mongo.port) || 27017,
+    user: mongo.user.trim(),
+    password: mongo.password,
+    database: mongo.database.trim(),
+    auth_db: mongo.auth_db.trim() || "admin",
+    srv: mongo.srv,
   });
 
   const mongo_test_click = async () => {
-    if (mongo_testing || !mongo_database.trim()) return;
+    if (mongo_testing || !mongo.database.trim()) return;
     setMongoTesting(true);
     setMongoTestOk(null);
     setMongoTestError(null);
@@ -339,7 +349,7 @@ export function Landing() {
   };
 
   const mongo_connect_click = async () => {
-    if (mongo_connecting || !mongo_database.trim()) return;
+    if (mongo_connecting || !mongo.database.trim()) return;
     setMongoConnecting(true);
     try {
       const conn: ConnectionInfo = await connectMongo(mongo_build_params());
@@ -390,9 +400,9 @@ export function Landing() {
   };
 
   const mongo_display_name = () =>
-    mongo_name.trim() ||
-    mongo_database.trim() ||
-    `${mongo_user.trim()}@${mongo_host.trim() || "localhost"}`;
+    mongo.name.trim() ||
+    mongo.database.trim() ||
+    `${mongo.user.trim()}@${mongo.host.trim() || "localhost"}`;
 
   /** Full saved record for the Mongo form — `kind` routes it on reopen. */
   const mongo_saved_params = () => ({
@@ -511,7 +521,9 @@ export function Landing() {
     const p = landing_prefill.params;
     setEditing(landing_prefill.edit ?? null);
     want_connect.current = landing_prefill.connect;
-    want_kind.current = kind;
+    if (kind === "postgres" || kind === "mongodb") {
+      want_kind.current = kind;
+    }
     // Consume immediately: navigating home and back must NOT replay this
     // (that used to auto-open a duplicate connection on every visit).
     clearLandingPrefill();
@@ -520,23 +532,32 @@ export function Landing() {
       if (kind === "mongodb") {
         const m = p;
         setKind("mongodb");
-        setMongoName(m.name ?? "");
-        setMongoHost(m.host);
-        setMongoPort(String(m.port));
-        setMongoUser(m.user);
-        setMongoPassword(m.password);
-        setMongoDatabase(m.database);
-        setMongoAuthDb(m.auth_db || "admin");
-        setMongoSrv(m.srv ?? false);
+        setMongo((prev) => ({
+          ...prev,
+          name: m.name ?? "",
+          host: m.host,
+          port: String(m.port),
+          user: m.user,
+          password: m.password,
+          database: m.database,
+          auth_db: m.auth_db || "admin",
+          srv: m.srv ?? false,
+        }));
+      } else if (kind === "sqlite") {
+        setKind("sqlite");
+        setSqlitePath(p.source_path ?? null);
       } else {
-        const pg = p;
+        const pgv = p;
         setKind("postgres");
-        setPgHost(pg.host);
-        setPgPort(String(pg.port));
-        setPgUser(pg.user);
-        setPgPassword(pg.password);
-        setPgDatabase(pg.database);
-        if (pg.ssl_mode) setPgSsl(pg.ssl_mode);
+        setPg((prev) => ({
+          ...prev,
+          host: pgv.host,
+          port: String(pgv.port),
+          user: pgv.user,
+          password: pgv.password,
+          database: pgv.database,
+          ssl_mode: pgv.ssl_mode ?? prev.ssl_mode,
+        }));
       }
     });
   }, [landing_prefill, clearLandingPrefill]);
@@ -545,8 +566,8 @@ export function Landing() {
   // spinner/state drives from the form itself. The global connecting flags
   // keep this safe across home/studio navigation.
   useEffect(() => {
-    if (want_kind.current !== "postgres") return;
-    if (!pg_database.trim() || pg_connecting) return;
+    if (want_kind.current !== "postgres" || !want_connect.current) return;
+    if (!pg.database.trim() || pg_connecting) return;
     want_kind.current = null;
     want_connect.current = false;
     // Microtask keeps setState out of the effect body itself.
@@ -554,8 +575,8 @@ export function Landing() {
   });
 
   useEffect(() => {
-    if (want_kind.current !== "mongodb") return;
-    if (!mongo_database.trim() || mongo_connecting) return;
+    if (want_kind.current !== "mongodb" || !want_connect.current) return;
+    if (!mongo.database.trim() || mongo_connecting) return;
     want_kind.current = null;
     want_connect.current = false;
     // Microtask keeps setState out of the effect body itself.
@@ -563,17 +584,8 @@ export function Landing() {
   });
 
   // PG form field setter — keeps form_ref in sync via the effect above.
-  const setPgField = (key: string, value: string) => {
-    const setters: Record<string, (v: string) => void> = {
-      host: setPgHost,
-      port: setPgPort,
-      user: setPgUser,
-      password: setPgPassword,
-      database: setPgDatabase,
-      name: setPgName,
-      ssl_mode: setPgSsl,
-    };
-    setters[key]?.(value);
+  const setPgField = (key: keyof PgFormValues, value: string) => {
+    setPg((p) => ({ ...p, [key]: value }));
   };
 
   return (
@@ -596,31 +608,13 @@ export function Landing() {
                   <SqlitePanel
                     opening={opening}
                     onOpen={() => void open_file_click()}
+                    path={sqlite_path}
                   />
                 ) : kind === "mongodb" ? (
                   <MongoPanel
-                    form={{
-                      name: mongo_name,
-                      host: mongo_host,
-                      port: mongo_port,
-                      user: mongo_user,
-                      password: mongo_password,
-                      database: mongo_database,
-                      auth_db: mongo_auth_db,
-                      srv: mongo_srv,
-                    }}
+                    form={mongo}
                     setField={(key, value) => {
-                      const setters: Record<string, (v: string | boolean) => void> = {
-                        name: setMongoName,
-                        host: setMongoHost,
-                        port: setMongoPort,
-                        user: setMongoUser,
-                        password: setMongoPassword,
-                        database: setMongoDatabase,
-                        auth_db: setMongoAuthDb,
-                        srv: setMongoSrv,
-                      };
-                      setters[key]?.(value);
+                      setMongo((m) => ({ ...m, [key]: value }));
                     }}
                     testing={mongo_testing}
                     test_ok={mongo_test_ok}
@@ -641,15 +635,7 @@ export function Landing() {
                   />
                 ) : (
                   <PgPanel
-                    form={{
-                      name: pg_name,
-                      host: pg_host,
-                      port: pg_port,
-                      user: pg_user,
-                      password: pg_password,
-                      database: pg_database,
-                      ssl_mode: pg_ssl,
-                    }}
+                    form={pg}
                     setField={setPgField}
                     url_text={url_text}
                     setUrlText={setUrlText}

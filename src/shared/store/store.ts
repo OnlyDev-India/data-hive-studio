@@ -15,6 +15,11 @@ import type {
 import { workspaceActions } from "./workspace";
 
 let notif_seq = 0;
+/** Monotonic id for landing prefill requests — never resets, so rapid
+ *  consecutive sidebar clicks each get a distinct `n` (the prefill is
+ *  cleared after applying, which would otherwise recycle counter values and
+ *  make the landing form's dedupe drop the next click). */
+let prefill_seq = 0;
 
 type ServerSessionPayload = Awaited<ReturnType<typeof apiServersConnect>>;
 
@@ -321,11 +326,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ mongoConnecting: v });
         },
         requestLandingPrefill(kind, params, connect = false, edit) {
-          set((s) => ({
+          set(() => ({
             landingPrefill: {
               kind,
               params,
-              n: (s.landingPrefill?.n ?? 0) + 1,
+              n: ++prefill_seq,
               connect,
               edit,
             },

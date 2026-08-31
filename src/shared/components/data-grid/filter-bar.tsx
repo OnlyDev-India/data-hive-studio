@@ -169,7 +169,7 @@ export function FilterBar({
                       onChange={(c) => on_set_conjunction(f.id, c)}
                     />
                   )}
-                  <Badge variant="secondary" size="sm" className="max-w-full">
+                  <Badge variant="secondary" className="max-w-full">
                     <span className="truncate">{f.column}</span>
                     <span className="text-muted-foreground mx-1">
                       {OP_LABEL[f.op]}

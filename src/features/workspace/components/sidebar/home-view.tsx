@@ -127,7 +127,7 @@ export function HomeView({
   type SavedRow = {
     id: string;
     name: string;
-    kind: "postgres" | "mongodb";
+    kind: SavedConnParams["kind"];
     params: SavedConnParams;
   };
   const saved_rows = useMemo<SavedRow[]>(() => {
@@ -539,6 +539,17 @@ export function HomeView({
                         request_prefill("postgres", {
                           ...params,
                           kind: "postgres",
+                        });
+                      } else if (conn.source_path) {
+                        request_prefill("sqlite", {
+                          name: conn.name,
+                          kind: "sqlite",
+                          host: "",
+                          port: 0,
+                          user: "",
+                          password: "",
+                          database: "",
+                          source_path: conn.source_path,
                         });
                       } else {
                         void reopenRecent(conn);

@@ -128,7 +128,7 @@ export interface SavedConnParams {
   /** Optional display name (saved/pinned connections). */
   name?: string;
   /** Which database kind this connection reopens. */
-  kind: "postgres" | "mongodb";
+  kind: "postgres" | "mongodb" | "sqlite";
   host: string;
   port: number;
   user: string;
@@ -140,6 +140,8 @@ export interface SavedConnParams {
   auth_db?: string;
   /** MongoDB only: use mongodb+srv:// (DNS seedlist) instead of mongodb://. */
   srv?: boolean;
+  /** SQLite only: real file path prefilled into the connect form. */
+  source_path?: string | null;
 }
 
 /** What the landing form is editing (when prefill carries an edit target). */
@@ -325,14 +327,14 @@ export interface StudioStore {
    *  the fields are filled. `edit` puts the form in edit mode — Save updates
    *  that connection (server-shared or local) instead of creating a new one. */
   landingPrefill: {
-    kind: "postgres" | "mongodb";
+    kind: "postgres" | "mongodb" | "sqlite";
     params: SavedConnParams;
     n: number;
     connect: boolean;
     edit?: LandingEditTarget;
   } | null;
   requestLandingPrefill: (
-    kind: "postgres" | "mongodb",
+    kind: "postgres" | "mongodb" | "sqlite",
     params: SavedConnParams,
     connect?: boolean,
     edit?: LandingEditTarget,
