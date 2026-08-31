@@ -12,6 +12,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
 import {
+  listDatabases,
   listTables,
   type ActivityEntry,
   type ConnectionInfo,
@@ -27,7 +28,7 @@ import {
 } from "@/shared/store";
 import { Sidebar, TabBar } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
-import { TablePane } from "@/features/table-explorer";
+import { TablePane, MongoCollectionPane, MongoConsolePane } from "@/features/table-explorer";
 import { ActivityBar } from "./activity-bar";
 import { LeftPanelSlot } from "./left-panel";
 import { ConnectionTabs, Landing } from "@/features/connections";
@@ -119,6 +120,7 @@ export default function Workspace({
   const open_table = useStudioStore((s) => s.openTable);
   const open_sql = useStudioStore((s) => s.openSql);
   const open_new_table = useStudioStore((s) => s.openNewTable);
+  const open_mongo_console = useStudioStore((s) => s.openMongoConsole);
   const select_tab = useStudioStore((s) => s.selectTab);
   const close_tab = useStudioStore((s) => s.closeTab);
   const move_tab = useStudioStore((s) => s.moveTab);
@@ -183,6 +185,24 @@ export default function Workspace({
   const openNewTableTab = useCallback(
     () => open_new_table(conn_id),
     [open_new_table, conn_id],
+  );
+  const openMongoConsoleTab = useCallback(
+    () => {
+      void (async () => {
+        const s = useStudioStore.getState();
+        let database = s.recentParams[conn_id]?.database ?? "";
+        if (!database) {
+          try {
+            const dbs = await listDatabases(conn_id);
+            database = dbs[0] ?? "";
+          } catch {
+            /* console still opens — `use <db>` sets context */
+          }
+        }
+        open_mongo_console(conn_id, database);
+      })();
+    },
+    [open_mongo_console, conn_id],
   );
   const selectTab = useCallback(
     (tab: StudioTab) => select_tab(conn_id, tab),
@@ -387,6 +407,7 @@ export default function Workspace({
                     }
                     on_new_sql={openNewSql}
                     on_new_table={openNewTableTab}
+                    on_new_mongo_console={openMongoConsoleTab}
                     dirty_keys={
                       new Set(dirty_keys.split("\u0000").filter(Boolean))
                     }
@@ -424,6 +445,22 @@ export default function Workspace({
                                   tab_key={tabKey(tab)}
                                   tables={tables?.map((t) => t.name)}
                                   on_modified={bumpTables}
+                                />
+                              </Suspense>
+                            ) : tab.kind === "mongo" ? (
+                              <MongoCollectionPane
+                                conn_id={conn_id}
+                                tab_key={tabKey(tab)}
+                                database={tab.database}
+                                collection={tab.collection}
+                                on_modified={bumpTables}
+                              />
+                            ) : tab.kind === "mongo-console" ? (
+                              <Suspense fallback={<TabFallback />}>
+                                <MongoConsolePane
+                                  conn_id={conn_id}
+                                  tab_key={tabKey(tab)}
+                                  database={tab.database}
                                 />
                               </Suspense>
                             ) : tab.kind === "activity" ? (

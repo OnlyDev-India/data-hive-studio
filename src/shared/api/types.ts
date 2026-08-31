@@ -1,4 +1,4 @@
-export type DbKind = "sqlite" | "postgres" | "mysql";
+export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb";
 
 export interface ConnectionInfo {
   id: string;
@@ -22,6 +22,8 @@ export interface ColumnInfo {
   default: string | null;
   /** Postgres native enums: allowed labels. */
   enum_values?: string[];
+  /** Postgres only: true when the column is an array type. */
+  is_array?: boolean;
 }
 
 export interface ForeignKeyInfo {
@@ -126,6 +128,8 @@ export function prettyKind(kind: DbKind): string {
       return "PostgreSQL";
     case "mysql":
       return "MySQL";
+    case "mongodb":
+      return "MongoDB";
   }
 }
 

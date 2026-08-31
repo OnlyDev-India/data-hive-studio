@@ -102,7 +102,7 @@ function GrantPanel({
       setGrants([]);
       setDraft({});
     }
-  }, [profileId, token.token]);
+  }, [profileId, token.token, onDirtyChange]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount

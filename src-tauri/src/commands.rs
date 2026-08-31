@@ -1,5 +1,6 @@
 use crate::api::{
-    ConnectionInfo, DbKind, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
+    ConnectionInfo, DbKind, MongoDocumentsResult, MongoRunResult, QueryChunk, QueryOp, QueryResult,
+    SchemaOp, TableInfo, TableSchema,
 };
 use crate::db::CatalogOverview;
 
@@ -26,6 +27,15 @@ pub async fn connect_postgres(
 ) -> Result<ConnectionInfo, String> {
     log::info!("connecting to postgres {}:{}/{}", params.host, params.port, params.database);
     crate::db::connect_postgres(params).await.map_err(to_err)
+}
+
+/// Connect to a MongoDB server and register the connection.
+#[tauri::command]
+pub async fn connect_mongodb(
+    params: crate::db::MongoParams,
+) -> Result<ConnectionInfo, String> {
+    log::info!("connecting to mongodb {}:{}/{}", params.host, params.port, params.database);
+    crate::db::connect_mongodb(params).await.map_err(to_err)
 }
 
 #[tauri::command]
@@ -74,6 +84,45 @@ pub async fn list_schemas(conn_id: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn list_databases(conn_id: String) -> Result<Vec<String>, String> {
     crate::db::list_databases(&conn_id).await.map_err(to_err)
+}
+
+/// Fetch a page of documents from a MongoDB collection.
+#[tauri::command]
+pub async fn list_documents(
+    conn_id: String,
+    collection: String,
+    filter: Option<serde_json::Value>,
+    skip: u64,
+    limit: u64,
+) -> Result<MongoDocumentsResult, String> {
+    let (docs, total) = crate::db::list_documents(&conn_id, &collection, filter, skip, limit).await.map_err(to_err)?;
+    Ok(MongoDocumentsResult { documents: docs, total })
+}
+
+/// Replace a single MongoDB document (matched by `_id` ObjectId hex).
+#[tauri::command]
+pub async fn save_document(
+    conn_id: String,
+    collection: String,
+    id: String,
+    document: serde_json::Value,
+) -> Result<bool, String> {
+    crate::db::save_document(&conn_id, &collection, &id, document).await.map_err(to_err)
+}
+
+/// Run a MongoDB console command (JSON find/aggregate or a shell-subset
+/// statement) against `database`. `collection` is the console's current
+/// collection, used only for bare JSON query/pipeline input.
+#[tauri::command]
+pub async fn run_mongo(
+    conn_id: String,
+    database: String,
+    collection: Option<String>,
+    script: String,
+) -> Result<MongoRunResult, String> {
+    crate::db::run_mongo(&conn_id, &database, collection.as_deref(), &script)
+        .await
+        .map_err(to_err)
 }
 
 /// Schemas + databases + active schema in one round trip (Postgres).

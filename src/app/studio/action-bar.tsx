@@ -1,13 +1,18 @@
 import { useState } from "react";
 import {
+  Braces,
   Check,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
   FileCode2,
   Loader2,
+  Play,
   Plus,
   RefreshCw,
+  Search,
+  Table2,
+  TextCursorInput,
   Trash2,
   Unplug,
   X,
@@ -40,8 +45,13 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { ExportMenu } from "@/features/data-export";
 import { NotificationBell } from "@/features/notifications";
+import { ApplyChangesDialog } from "@/shared/components/data-grid/apply-changes-dialog";
+import type { PendingChange } from "@/shared/components/data-grid/grid-context";
 
 export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
+  const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
+    null,
+  );
   const conn = useActiveConnection();
   const ws = useWorkspace(conn?.id ?? "");
   const active = ws.active;
@@ -49,6 +59,15 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
   const bridge = useStudioStore((s) =>
     active_key ? s.gridBridges[active_key] : null,
   );
+  // Mongo collection + console tabs expose a Grid/JSON toggle here.
+  const mongoView = useStudioStore((s) =>
+    active?.kind === "mongo" || active?.kind === "mongo-console"
+      ? active_key
+        ? (s.mongoViews[active_key] ?? "grid")
+        : null
+      : null,
+  );
+  const setMongoView = useStudioStore((s) => s.setMongoView);
   const schemaEdit = useStudioStore((s) =>
     active_key ? (s.schemaEdits[active_key] ?? null) : null,
   );
@@ -71,6 +90,13 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
   const newTable = useStudioStore((s) =>
     active?.kind === "new-table" && active_key
       ? (s.newTables[active_key] ?? null)
+      : null,
+  );
+  // A SQL / Mongo-console tab registers a handle here; the action bar surfaces
+  // the Run-all / Run-selection buttons while that tab is active.
+  const sqlConsole = useStudioStore((s) =>
+    (active?.kind === "sql" || active?.kind === "mongo-console") && active_key
+      ? (s.sqlTabs[active_key] ?? null)
       : null,
   );
 
@@ -139,6 +165,40 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
             <span className="truncate">No tab open</span>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            {mongoView && (
+              <div className="mr-1 flex items-center rounded-md border">
+                <Button
+                  variant="ghost"
+                  size="iconXs"
+                  className={
+                    "rounded-r-none " +
+                    (mongoView === "grid"
+                      ? "bg-background text-foreground"
+                      : "text-muted-foreground")
+                  }
+                  title="Grid view"
+                  aria-label="Grid view"
+                  onClick={() => active_key && setMongoView(active_key, "grid")}
+                >
+                  <Table2 className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="iconXs"
+                  className={
+                    "rounded-l-none " +
+                    (mongoView === "json"
+                      ? "bg-background text-foreground"
+                      : "text-muted-foreground")
+                  }
+                  title="JSON view"
+                  aria-label="JSON view"
+                  onClick={() => active_key && setMongoView(active_key, "json")}
+                >
+                  <Braces className="size-3.5" />
+                </Button>
+              </div>
+            )}
             {bridge && paneMode === "data" && (
               <>
                 <LimitInput
@@ -168,15 +228,15 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
                       size="sm"
                       className="h-6 rounded-r-none px-2 text-xs"
                       disabled={bridge.loading}
-                      title="Insert the new rows"
-                      onClick={() => bridge.apply_pending()}
+                      title="Review and apply the pending changes"
+                      onClick={() => setApplyChanges(bridge.get_pending_changes())}
                     >
                       {bridge.loading ? (
                         <Loader2 className="size-3.5 animate-spin" />
                       ) : (
                         <Check className="size-3.5" />
                       )}
-                      Apply
+                      Review &amp; Apply
                       {bridge.pending_count > 1
                         ? ` (${bridge.pending_count})`
                         : ""}
@@ -196,6 +256,13 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
                         <ChevronUp className="size-3.5" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => bridge.apply_pending()}
+                          disabled={bridge.loading}
+                        >
+                          <Check className="size-3.5" />
+                          Apply
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => {
                             const sql = bridge.get_pending_sql();
@@ -340,12 +407,56 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
                 </Button>
               </ActionBarTooltip>
             )}
+            {sqlConsole?.mongo_collections !== undefined && (
+              <MongoCollectionPicker
+                collections={sqlConsole.mongo_collections ?? []}
+                value={sqlConsole.mongo_collection ?? ""}
+                on_change={(v) => sqlConsole.set_mongo_collection?.(v)}
+              />
+            )}
+            {sqlConsole && (
+              <ActionBarTooltip label="Run all statements">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs bg-transparent"
+                  disabled={!sqlConsole.has_text || !sqlConsole.run_all}
+                  title="Run all statements"
+                  onClick={() => sqlConsole.run_all?.()}
+                >
+                  <Play className="size-3.5" />
+                  Run all
+                </Button>
+              </ActionBarTooltip>
+            )}
+            {sqlConsole && (
+              <ActionBarTooltip label="Run the selection, or the statement under the cursor">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs bg-transparent"
+                  disabled={!sqlConsole.can_run_target || !sqlConsole.run_target}
+                  title="Run the selected text, or the statement under the cursor"
+                  onClick={() => sqlConsole.run_target?.()}
+                >
+                  <TextCursorInput className="size-3.5" />
+                  Run selection
+                </Button>
+              </ActionBarTooltip>
+            )}
             <ActionBarTooltip label="Notifications">
               <NotificationBell />
             </ActionBarTooltip>
           </div>
         </div>
       </footer>
+      {apply_changes && bridge && (
+        <ApplyChangesDialog
+          changes={apply_changes}
+          on_apply={(keepIds) => bridge.apply_pending(keepIds)}
+          on_close={() => setApplyChanges(null)}
+        />
+      )}
     </TooltipProvider>
   );
 }
@@ -435,5 +546,70 @@ function ActionBarTooltip({
       </TooltipTrigger>
       <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Collection picker (with a search box) for the active MongoDB console. */
+function MongoCollectionPicker({
+  collections,
+  value,
+  on_change,
+}: {
+  collections: string[];
+  value: string;
+  on_change: (name: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = collections.filter((c) =>
+    c.toLowerCase().includes(query.toLowerCase()),
+  );
+  return (
+    <DropdownMenu
+      onOpenChange={() => setQuery("")}
+    >
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 max-w-44 gap-1 px-2 text-xs bg-transparent"
+            title="Collection (bare JSON queries)"
+          >
+            <Table2 className="size-3.5 shrink-0" />
+            <span className="truncate">{value || "Collection"}</span>
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-56">
+        <div className="px-2 pt-1.5 pb-1">
+          <div className="flex h-7 items-center gap-1.5 rounded-md border px-2">
+            <Search className="text-muted-foreground size-3.5 shrink-0" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search collections…"
+              className="h-full w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+        <DropdownMenuItem onClick={() => on_change("")}>
+          <span className="text-muted-foreground">‹ no collection ›</span>
+        </DropdownMenuItem>
+        {filtered.map((c) => (
+          <DropdownMenuItem key={c} onClick={() => on_change(c)}>
+            <span className="flex min-w-0 items-center gap-1.5">
+              {c === value && <Check className="size-3.5 shrink-0" />}
+              <span className="truncate font-mono">{c}</span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+        {filtered.length === 0 && (
+          <div className="text-muted-foreground px-3 py-2 text-xs">
+            No matching collections.
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

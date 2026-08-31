@@ -29,7 +29,7 @@ import {
   type GridFilter,
 } from "./types";
 
-interface FilterColumn {
+export interface FilterColumn {
   name: string;
   data_type: string;
 }

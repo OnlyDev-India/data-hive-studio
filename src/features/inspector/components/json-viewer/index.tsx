@@ -7,7 +7,7 @@ import { buildLines, collectMatches } from "./json-lines";
 import { TreeControls } from "./tree-controls";
 import { TreeBody } from "./tree-body";
 
-const sidebarTransition: Transition = { duration: 0.22, ease: "easeOut" };
+const layoutTransition: Transition = { duration: 0.3, ease: "easeInOut" };
 
 /** Right-hand inspector: pretty-printed JSON of the selected grid row with
  *  search, collapse and an expanded-dialog mode. Resizable by its left edge. */
@@ -39,7 +39,6 @@ export function JsonViewer() {
     };
   }, [dragging, setWidth]);
 
-  // Which nodes are collapsed, keyed by their JSON path (e.g. `$.meta`).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = useCallback((id: string) => {
     setCollapsed((prev) => {
@@ -50,7 +49,6 @@ export function JsonViewer() {
     });
   }, []);
 
-  // Search: while active, everything is expanded so matches are visible.
   const [query, setQuery] = useState("");
   const [activeMatch, setActiveMatch] = useState(0);
   const searching = query.trim().length > 0;
@@ -77,11 +75,8 @@ export function JsonViewer() {
     void navigator.clipboard.writeText(JSON.stringify(jsonRow.data, null, 2));
   };
 
-  // Long lines wrap onto the next line when enabled; off keeps one token per line.
   const [wrap, setWrap] = useState(true);
 
-  // The dialog reuses the exact same content via a shared `layoutId`, so
-  // opening/closing morphs the sidebar viewer into the dialog and back.
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => {
     if (!dialogOpen) return;
@@ -114,81 +109,18 @@ export function JsonViewer() {
   };
 
   return (
-    <>
-      <motion.aside
-        initial={{ width: 0, opacity: 0 }}
-        animate={{ width, opacity: 1 }}
-        exit={{ width: 0, opacity: 0 }}
-        transition={dragging ? { width: { duration: 0 } } : sidebarTransition}
-        className="bg-background relative flex min-h-0 shrink-0 flex-col overflow-hidden border-l"
-      >
-        <motion.div
+    <AnimatePresence>
+      {!dialogOpen && (
+        <motion.aside
+          key="json-sidebar"
           layoutId="json-panel"
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          transition={layoutTransition}
+          className="bg-background relative flex min-h-0 shrink-0 flex-col border-l"
           style={{ width }}
         >
-          <TreeControls {...headerProps} onExpand={() => setDialogOpen(true)} />
-          {jsonRow ? (
-            <TreeBody
-              lines={lines}
-              collapsed={collapsed}
-              toggle={toggle}
-              searching={searching}
-              activeLineId={activeLineId}
-              wrap={wrap}
-              query={query}
-            />
-          ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-              <Braces className="text-muted-foreground/40 size-8" />
-              <p className="text-muted-foreground text-sm">
-                No row selected. Right-click any grid cell and choose “View
-                JSON” to inspect its row here.
-              </p>
-            </div>
-          )}
-        </motion.div>
-
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          title="Drag to resize"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.currentTarget.setPointerCapture(e.pointerId);
-            drag_ref.current = { start_x: e.clientX, start_w: width };
-            setDragging(true);
-          }}
-          className={cn(
-            "absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize",
-            dragging ? "bg-primary/60" : "hover:bg-accent bg-transparent",
-          )}
-        />
-      </motion.aside>
-
-      <AnimatePresence>
-        {dialogOpen && jsonRow && (
-          <motion.div
-            key="json-dialog"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            onClick={() => setDialogOpen(false)}
-          >
-            <motion.div
-              layoutId="json-panel"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Row JSON"
-              className="bg-background pointer-events-auto flex h-[80vh] w-[min(760px,92vw)] min-w-0 flex-col overflow-hidden rounded-xl border shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <TreeControls
-                {...headerProps}
-                onClose={() => setDialogOpen(false)}
-              />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <TreeControls {...headerProps} onExpand={() => setDialogOpen(true)} />
+            {jsonRow ? (
               <TreeBody
                 lines={lines}
                 collapsed={collapsed}
@@ -198,10 +130,68 @@ export function JsonViewer() {
                 wrap={wrap}
                 query={query}
               />
-            </motion.div>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+                <Braces className="text-muted-foreground/40 size-8" />
+                <p className="text-muted-foreground text-sm">
+                  No row selected. Right-click any grid cell and choose "View
+                  JSON" to inspect its row here.
+                </p>
+              </div>
+            )}
+          </div>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            title="Drag to resize"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              drag_ref.current = { start_x: e.clientX, start_w: width };
+              setDragging(true);
+            }}
+            className={cn(
+              "absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize",
+              dragging ? "bg-primary/60" : "hover:bg-accent bg-transparent",
+            )}
+          />
+        </motion.aside>
+      )}
+      {dialogOpen && jsonRow && (
+        <motion.div
+          key="json-dialog"
+          className="fixed inset-0 z-100 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          onClick={() => setDialogOpen(false)}
+        >
+          <motion.div
+            layoutId="json-panel"
+            transition={layoutTransition}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Row JSON"
+            className="bg-background pointer-events-auto flex h-[80vh] w-[min(760px,92vw)] min-w-0 flex-col overflow-hidden rounded-xl border shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TreeControls
+              {...headerProps}
+              onClose={() => setDialogOpen(false)}
+            />
+            <TreeBody
+              lines={lines}
+              collapsed={collapsed}
+              toggle={toggle}
+              searching={searching}
+              activeLineId={activeLineId}
+              wrap={wrap}
+              query={query}
+            />
           </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

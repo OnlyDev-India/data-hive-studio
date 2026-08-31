@@ -4,9 +4,11 @@
 //! serialized back for download. Connections are held in a process-wide
 //! registry keyed by a connection id.
 
+mod mongodb;
 mod postgres;
 mod sqlite;
 
+pub use mongodb::{MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
 
 use std::collections::HashMap;
@@ -15,8 +17,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 
 use crate::api::{
-    ConnectionInfo, DbKind, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
+    ConnectionInfo, DbKind, MongoRunResult, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo,
+    TableSchema,
 };
+use serde_json;
 
 pub use self::sqlite::SqliteAdapter;
 
@@ -112,6 +116,43 @@ pub trait DbAdapter: Send + Sync {
             "database listing is not supported by this adapter".into(),
         ))
     }
+    /// Fetch a page of documents from a collection (MongoDB).
+    async fn list_documents(
+        &self,
+        _collection: &str,
+        _filter: Option<serde_json::Value>,
+        _skip: u64,
+        _limit: u64,
+    ) -> DbResult<(Vec<serde_json::Value>, u64)> {
+        Err(DbError::InvalidOperation(
+            "document listing is not supported by this adapter".into(),
+        ))
+    }
+    /// Replace the document matching `id` (an ObjectId hex string) with the
+    /// given document (MongoDB).
+    async fn save_document(
+        &self,
+        _collection: &str,
+        _id: &str,
+        _document: serde_json::Value,
+    ) -> DbResult<bool> {
+        Err(DbError::InvalidOperation(
+            "document editing is not supported by this adapter".into(),
+        ))
+    }
+    /// Run a MongoDB console command (a JSON find/aggregate or a shell-subset
+    /// statement) against database `db`, with an optional current `collection`
+    /// for bare JSON queries. Non-Mongo adapters reject it.
+    async fn run_mongo(
+        &self,
+        _db: &str,
+        _collection: Option<&str>,
+        _script: &str,
+    ) -> DbResult<MongoRunResult> {
+        Err(DbError::InvalidOperation(
+            "Mongo console commands are only available on MongoDB connections".into(),
+        ))
+    }
     /// Schemas + databases + active schema in ONE round trip — the sidebar
     /// opens with a single catalog wait instead of three back-to-back ones
     /// (which on remote servers queued every later query behind them).
@@ -198,6 +239,7 @@ pub async fn open_database(
         DbKind::Sqlite => Arc::new(SqliteAdapter::open(name, bytes).await?),
         DbKind::Postgres => return Err(DbError::Unsupported(*kind)),
         DbKind::Mysql => return Err(DbError::Unsupported(*kind)),
+        DbKind::Mongodb => return Err(DbError::Unsupported(*kind)),
     };
     let info = ConnectionInfo {
         id: uuid::Uuid::new_v4().to_string(),
@@ -396,6 +438,48 @@ pub async fn list_schemas(conn_id: &str) -> DbResult<Vec<String>> {
 /// Databases reachable with this connection's server credentials.
 pub async fn list_databases(conn_id: &str) -> DbResult<Vec<String>> {
     with_connection(conn_id, |a| async move { a.list_databases().await }).await
+}
+
+/// Fetch a page of documents from a MongoDB collection.
+pub async fn list_documents(
+    conn_id: &str,
+    collection: &str,
+    filter: Option<serde_json::Value>,
+    skip: u64,
+    limit: u64,
+) -> DbResult<(Vec<serde_json::Value>, u64)> {
+    with_connection(conn_id, |a| async move {
+        a.list_documents(collection, filter, skip, limit).await
+    })
+    .await
+}
+
+/// Replace a single MongoDB document by its `_id` (ObjectId hex string).
+pub async fn save_document(
+    conn_id: &str,
+    collection: &str,
+    id: &str,
+    document: serde_json::Value,
+) -> DbResult<bool> {
+    with_connection(conn_id, |a| async move {
+        a.save_document(collection, id, document).await
+    })
+    .await
+}
+
+/// Run a MongoDB console command (JSON find/aggregate or a shell-subset
+/// statement) against database `db`. `collection` is the console's current
+/// collection, used only for bare JSON query/pipeline input.
+pub async fn run_mongo(
+    conn_id: &str,
+    db: &str,
+    collection: Option<&str>,
+    script: &str,
+) -> DbResult<MongoRunResult> {
+    with_connection(conn_id, |a| async move {
+        a.run_mongo(db, collection, script).await
+    })
+    .await
 }
 
 /// Schemas + databases + active schema in ONE catalog round trip.
@@ -727,6 +811,30 @@ pub async fn connect_postgres(params: PgParams) -> DbResult<ConnectionInfo> {
                 id: conn_id,
                 name: params.database.clone(),
                 kind: DbKind::Postgres,
+                source_path: None,
+            };
+            insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);
+            Ok(info)
+        }
+        Err(e) => {
+            crate::activity::log_err(&conn_id, "connect", &label, t, &e);
+            Err(e)
+        }
+    }
+}
+
+/// Connect to a MongoDB server and register the connection.
+pub async fn connect_mongodb(params: MongoParams) -> DbResult<ConnectionInfo> {
+    let t = std::time::Instant::now();
+    let conn_id = uuid::Uuid::new_v4().to_string();
+    let label = format!("{}@{}/{}", params.user, params.host, params.database);
+    match MongoAdapter::connect(&params).await {
+        Ok(adapter) => {
+            crate::activity::log_ok(&conn_id, "connect", &label, t, 0);
+            let info = ConnectionInfo {
+                id: conn_id,
+                name: params.database.clone(),
+                kind: DbKind::Mongodb,
                 source_path: None,
             };
             insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);

@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
-import { Button } from "@/shared/components/ui/button";
 import {
   executeOp,
   executeOpStream,
@@ -11,6 +9,7 @@ import {
 import { useStudioStore, type GridBridge, type JsonRow } from "@/shared/store";
 import { GridBody } from "./grid-body";
 import { GridProvider } from "./grid-context";
+import type { PendingChange } from "./grid-context";
 import { useGridController } from "./grid-controller";
 import {
   classify,
@@ -38,8 +37,10 @@ interface GridProps {
   ) => void;
   /** True while a schema Apply is in flight for this pane — blocks the grid. */
   props_busy?: boolean;
-  /** False when this tab is hidden — pauses the row virtualizer so hidden
-   *  grids don't measure garbage or keep stale rows mounted. */
+  /** False while the grid stays mounted but another view (e.g. the JSON view)
+   *  owns the tab's action-bar bridge. The grid re-registers its bridge when
+   *  it becomes active again. */
+  active?: boolean;
 }
 
 // Render one cell value as a SQL literal. Values are always single-quoted —
@@ -66,6 +67,7 @@ export function Grid({
   on_refresh,
   on_open_reference,
   props_busy = false,
+  active = true,
 }: GridProps) {
   const [page, setPage] = useState(0);
   const [page_size, setPageSize] = useState(50);
@@ -113,7 +115,16 @@ export function Grid({
       .catch((e) => setOpError(e instanceof Error ? e.message : String(e)))
       .finally(() => setOpRunning(false));
   }, []);
-  const clear_error = useCallback(() => setOpError(null), []);
+
+  // Surface operation errors via the notification center instead of an inline
+  // banner. Cleared automatically whenever a new op starts/succeeds.
+  useEffect(() => {
+    if (op_error) {
+      useStudioStore
+        .getState()
+        .pushNotification({ kind: "error", title: "Operation failed", detail: op_error });
+    }
+  }, [op_error]);
 
   const setGridBridge = useStudioStore((s) => s.setGridBridge);
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
@@ -194,7 +205,12 @@ export function Grid({
       Object.fromEntries(
         schema.columns.map((c) => [
           c.name,
-          classify(c.data_type.toLowerCase()),
+          // Arrays of a native enum (e.g. `permission[]`) get a tag-based
+          // multi-select editor populated from `enum_values`/distinct values.
+          // Other arrays fall through to plain text editing.
+          c.is_array && (c.enum_values?.length ?? 0) > 0
+            ? ("array" as CellKind)
+            : classify(c.data_type.toLowerCase()),
         ]),
       ),
     [schema],
@@ -286,18 +302,28 @@ export function Grid({
 
   // Delete a single row (context menu). Buffered: the row is marked for
   // deletion and only removed from the DB when Apply is hit.
+  // Rows are keyed by their GLOBAL (offset-inclusive) index so buffered edits
+  // and deletions stay attached to the same physical row across page changes
+  // instead of bleeding onto whatever row now happens to sit at the same
+  // page-relative position.
+  const global_row = useCallback(
+    (pageRow: number) => offset + pageRow,
+    [offset],
+  );
+
   const delete_row = useCallback(
     (ri: number) => {
       const real = ri - pending.length;
       if (real < 0) return;
+      const g = global_row(real);
       setDeletedRows((cur) => {
-        if (cur.has(real)) return cur;
+        if (cur.has(g)) return cur;
         const next = new Set(cur);
-        next.add(real);
+        next.add(g);
         return next;
       });
     },
-    [pending.length],
+    [pending.length, global_row],
   );
 
   // Duplicate the clicked row as a draft (context menu). Rather than inserting
@@ -327,11 +353,11 @@ export function Grid({
       if (real < 0) return;
       setDirtyCells((cur) => {
         const next = new Map(cur);
-        next.set(`${col}\u0000${real}`, null);
+        next.set(`${col}\u0000${global_row(real)}`, null);
         return next;
       });
     },
-    [pending.length],
+    [pending.length, global_row],
   );
 
   // Buffer a cell edit on a real row. The grid shows the new value immediately
@@ -346,7 +372,7 @@ export function Grid({
         result?.rows[real]?.[result.columns.indexOf(col)] ?? null;
       const norm = (v: string | null) => (v === null || v === "" ? "" : v);
       setDirtyCells((cur) => {
-        const key = `${col}\u0000${real}`;
+        const key = `${col}\u0000${global_row(real)}`;
         const next = new Map(cur);
         if (norm(value) === norm(original)) {
           next.delete(key);
@@ -356,7 +382,7 @@ export function Grid({
         return next;
       });
     },
-    [pending.length, result],
+    [pending.length, result, global_row],
   );
 
   // Start drafting a new row: pin a blank pending row to the top of the grid
@@ -408,13 +434,27 @@ export function Grid({
   // refetch SELECT is needed. Inserts still refetch (the database assigns
   // defaults/autoincrement we can't know locally), and so does any write that
   // reports zero affected rows, meaning the page no longer matches the DB.
-  const apply_pending = useCallback(() => {
+  const apply_pending = useCallback((keepIds?: Set<string>) => {
     if (!result) return;
     const cols = result.columns;
     if (cols.length === 0) return;
+
+    // When the diff dialog confirmed only a subset of the buffered changes,
+    // restrict each buffer to that subset; anything deselected is discarded.
+    const ins = keepIds
+      ? pending.filter((p) => keepIds.has(`ins:${p.id}`))
+      : pending;
+    const edits = keepIds
+      ? new Map([...dirty_cells].filter(([k]) => keepIds.has(k)))
+      : dirty_cells;
+    const dels = keepIds
+      ? new Set([...deleted_rows].filter((g) => keepIds.has(`del:${g}`)))
+      : deleted_rows;
+    const ins_len = ins.length;
+
     const patches: { real: number; col: string; value: string | null }[] = [];
     const ops: Promise<unknown>[] = [];
-    for (const p of pending) {
+    for (const p of ins) {
       // Columns with no value are left out of the INSERT so the database can
       // apply its defaults/autoincrement.
       const values = Object.fromEntries(
@@ -424,13 +464,17 @@ export function Grid({
         executeOp(conn_id, { kind: "insert", table, values, skip_empty: true }),
       );
     }
-    for (const [key, value] of dirty_cells) {
+    for (const [key, value] of edits) {
       const sep = key.indexOf("\u0000");
       if (sep < 0) continue;
       const col = key.slice(0, sep);
-      const real = Number(key.slice(sep + 1));
-      if (deleted_rows.has(real)) continue;
-      const match_row = match_for(real + pending.length);
+      const g = Number(key.slice(sep + 1));
+      // Only edits targeting a row on the currently rendered page are applied;
+      // edits buffered for rows on other pages are left untouched.
+      const real = g - offset;
+      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
+      if (dels.has(g)) continue;
+      const match_row = match_for(real + ins_len);
       if (!match_row) continue;
       patches.push({ real, col, value });
       ops.push(
@@ -442,14 +486,19 @@ export function Grid({
         }),
       );
     }
-    for (const real of deleted_rows) {
-      const op = row_delete_op(real + pending.length);
+    for (const g of dels) {
+      const real = g - offset;
+      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
+      const op = row_delete_op(real + ins_len);
       if (op) ops.push(executeOp(conn_id, op));
     }
     if (ops.length === 0) return;
-    const inserted = pending.length;
+    const inserted = ins_len;
     // Highest index first so splices don't shift pending targets.
-    const deleted_sorted = [...deleted_rows].sort((a, b) => b - a);
+    const deleted_sorted = [...dels]
+      .map((g) => g - offset)
+      .filter((ri) => ri >= 0 && ri < (result?.rows.length ?? 0))
+      .sort((a, b) => b - a);
     let outcomes: QueryResult[] = [];
     run_op(
       Promise.all(ops).then((rs) => {
@@ -477,7 +526,7 @@ export function Grid({
           for (const ri of deleted_sorted) rows.splice(ri, 1);
           return { ...cur, rows };
         });
-        setTotal((t) => Math.max(0, t - deleted_rows.size));
+        setTotal((t) => Math.max(0, t - dels.size));
       },
     );
   }, [
@@ -493,6 +542,7 @@ export function Grid({
     refresh,
     match_for,
     row_delete_op,
+    offset,
   ]);
 
   const cancel_pending = useCallback(() => {
@@ -501,6 +551,48 @@ export function Grid({
     setDeletedRows(new Set());
     setOpError(null);
   }, []);
+
+  // Structured summary of every buffered change for the apply diff dialog.
+  // Only changes targeting the currently rendered page are listed (edits for
+  // rows on other pages are left out, matching what Apply would execute).
+  const build_pending_changes = useCallback((): PendingChange[] => {
+    if (!result) return [];
+    const cols = result.columns;
+    const changes: PendingChange[] = [];
+    for (const p of pending) {
+      changes.push({ id: `ins:${p.id}`, kind: "insert", row: -1, values: p.values, value_columns: cols });
+    }
+    for (const [key, value] of dirty_cells) {
+      const sep = key.indexOf("\u0000");
+      if (sep < 0) continue;
+      const col = key.slice(0, sep);
+      const g = Number(key.slice(sep + 1));
+      const real = g - offset;
+      if (real < 0 || real >= result.rows.length) continue;
+      if (deleted_rows.has(g)) continue;
+      const ci = cols.indexOf(col);
+      changes.push({
+        id: key,
+        kind: "update",
+        row: g + 1,
+        column: col,
+        before: ci >= 0 ? (result.rows[real][ci] ?? null) : null,
+        after: value,
+      });
+    }
+    for (const g of deleted_rows) {
+      const real = g - offset;
+      if (real < 0 || real >= result.rows.length) continue;
+      changes.push({
+        id: `del:${g}`,
+        kind: "delete",
+        row: g + 1,
+        values: result.rows[real],
+        value_columns: cols,
+      });
+    }
+    return changes;
+  }, [result, pending, dirty_cells, deleted_rows, offset]);
 
   // Render every staged change as runnable SQL — INSERT per drafted row
   // (empty columns omitted so defaults apply), UPDATE per buffered cell edit,
@@ -531,15 +623,19 @@ export function Grid({
       const sep = key.indexOf("\u0000");
       if (sep < 0) continue;
       const col = key.slice(0, sep);
-      const real = Number(key.slice(sep + 1));
-      if (deleted_rows.has(real)) continue;
+      const g = Number(key.slice(sep + 1));
+      const real = g - offset;
+      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
+      if (deleted_rows.has(g)) continue;
       const match_row = match_for(real + pending.length);
       if (!match_row) continue;
       stmts.push(
         `UPDATE ${sql_ident(table)}\nSET ${sql_ident(col)} = ${sql_literal(value)}\nWHERE ${where_of(match_row)};`,
       );
     }
-    for (const real of deleted_rows) {
+    for (const g of deleted_rows) {
+      const real = g - offset;
+      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
       const match_row = match_for(real + pending.length);
       if (!match_row) continue;
       stmts.push(
@@ -547,7 +643,7 @@ export function Grid({
       );
     }
     return stmts.length > 0 ? stmts.join("\n\n") : null;
-  }, [result, pending, dirty_cells, deleted_rows, match_for, table]);
+  }, [result, pending, dirty_cells, deleted_rows, match_for, table, offset]);
 
   // Sort state + selection live in the controller; we read the sort cursor out
   // of it for the SQL below and a sort change restarts from page 0.
@@ -765,6 +861,7 @@ export function Grid({
       apply_pending,
       cancel_pending,
       get_pending_sql: build_pending_sql,
+      get_pending_changes: build_pending_changes,
       delete_rows: () => {
         do_delete();
       },
@@ -800,7 +897,6 @@ export function Grid({
       selected_row_count,
       editable,
       show_loading,
-      op_running,
       do_delete,
       refresh,
       on_refresh,
@@ -811,6 +907,7 @@ export function Grid({
       apply_pending,
       cancel_pending,
       build_pending_sql,
+      build_pending_changes,
       table,
       column_types,
       filters,
@@ -821,26 +918,13 @@ export function Grid({
   );
 
   useEffect(() => {
+    if (!active) return;
     setGridBridge(tab_key, bridge);
     return () => clearGridBridge(tab_key);
-  }, [tab_key, bridge, setGridBridge, clearGridBridge]);
+  }, [tab_key, bridge, active, setGridBridge, clearGridBridge]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {op_error && (
-        <div className="border-destructive/30 bg-destructive/5 text-destructive flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1 truncate">{op_error}</span>
-          <Button
-            variant="ghost"
-            size="iconXs"
-            className="hover:bg-destructive/10 size-5"
-            aria-label="Dismiss error"
-            onClick={clear_error}
-          >
-            <X className="size-3.5" />
-          </Button>
-        </div>
-      )}
       {/* GridBody owns scrolling (it hosts the row virtualizer). */}
       <div
         className="relative min-h-0 flex-1 rounded-md border"

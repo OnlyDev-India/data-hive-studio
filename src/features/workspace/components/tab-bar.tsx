@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Code, Plus, SquarePlus, X } from "lucide-react";
+import { ChevronDown, Code, Plus, SquarePlus, Terminal, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -33,6 +33,7 @@ interface TabBarProps {
   on_close_to_right: (tab: StudioTab) => void;
   on_new_sql: () => void;
   on_new_table: () => void;
+  on_new_mongo_console: () => void;
 }
 
 export function TabBar({
@@ -47,6 +48,7 @@ export function TabBar({
   on_close_to_right,
   on_new_sql,
   on_new_table,
+  on_new_mongo_console,
 }: TabBarProps) {
   // ---- Drag to rearrange (pointer-based; HTML5 DnD is flaky in WebViews) --
   // pointerdown records a candidate; after >4px the drag activates and tabs
@@ -136,7 +138,7 @@ export function TabBar({
 
   return (
     <div
-      className="bg-background flex w-full shrink-0 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
+      className="bg-background min-h-8.5 flex w-full shrink-0 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
       onPointerDown={on_strip_pointer_down}
       // A real drag suppresses the follow-up click so tabs don't get selected.
       onClickCapture={(e) => {
@@ -193,6 +195,10 @@ export function TabBar({
             <DropdownMenuItem onClick={on_new_sql}>
               <Code className="text-muted-foreground size-4" />
               SQL editor
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={on_new_mongo_console}>
+              <Terminal className="text-muted-foreground size-4" />
+              NoSQL console
             </DropdownMenuItem>
             <DropdownMenuItem onClick={on_new_table}>
               <SquarePlus className="text-muted-foreground size-4" />

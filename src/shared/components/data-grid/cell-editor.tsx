@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { Button } from "@/shared/components/ui/button";
 import { DatePicker } from "./date-picker";
 import { useGrid } from "./grid-context";
 import type { CellKind } from "./types";
@@ -66,6 +67,7 @@ export function CellEditor() {
   useEffect(() => {
     if (multiline || is_json_kind(sql_type)) area_ref.current?.focus();
     else ref.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus once on mount only
   }, []);
 
   // Transform back when committing.
@@ -107,6 +109,7 @@ export function CellEditor() {
   // Escape discards: flag it so the unmount flush doesn't write the draft.
   const cancelled = useRef(false);
   const cancel = () => {
+    // eslint-disable-next-line react-hooks/immutability -- event handler, not render
     cancelled.current = true;
     close_editor();
   };
@@ -141,9 +144,11 @@ export function CellEditor() {
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
+                  // eslint-disable-next-line react-hooks/refs -- event handler
                   cancel();
                 } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
+                  // eslint-disable-next-line react-hooks/refs -- event handler
                   commit();
                 }
               }}
@@ -274,7 +279,16 @@ export function CellEditor() {
   );
 
   let editor;
-  if (options.length > 0 && kind !== "datetime" && kind !== "bool")
+  if (kind === "array")
+    editor = (
+      <ArrayCellEditor
+        value={value}
+        options={options}
+        onCommit={(text) => commit(text)}
+        onCancel={cancel}
+      />
+    );
+  else if (options.length > 0 && kind !== "datetime" && kind !== "bool")
     editor = enum_editor();
   else if (multiline || is_json_kind(sql_type)) editor = multiline_editor();
   else if (kind === "bool") editor = bool_editor();
@@ -285,8 +299,160 @@ export function CellEditor() {
   return <div className="relative flex min-w-0 items-center">{editor}</div>;
 }
 
+/** Array-of-enum (e.g. `permission[]`) tag multi-select editor. The value is a
+ *  Postgres array literal like `{read,write,admin}`; each element is a removable
+ *  chip, and the add control is restricted to the enum's allowed values. Done
+ *  (or Enter) commits; Escape cancels. */
+function ArrayCellEditor({
+  value,
+  options,
+  onCommit,
+  onCancel,
+}: {
+  value: string | null;
+  options: (string | null)[];
+  onCommit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const initial = value == null ? [] : parsePgArray(value);
+  const [sel, setSel] = useState<string[]>(initial);
+  const available = (options.filter((o) => o !== null) as string[]).filter(
+    (o) => !sel.includes(o),
+  );
+  const commitNow = () => onCommit(toPgArray(sel));
+  return (
+    <div
+      className="bg-background z-40! absolute -top-3 left-1 flex w-72 flex-col gap-2 rounded-md border p-2 shadow-lg"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onCancel();
+        } else if (e.key === "Enter" && !e.shiftKey) {
+          e.stopPropagation();
+          e.preventDefault();
+          commitNow();
+        }
+      }}
+    >
+      {value === null && (
+        <div className="text-muted-foreground text-[11px]">(set NULL)</div>
+      )}
+      <div className="flex min-h-6 flex-wrap items-center gap-1">
+        {sel.map((v) => (
+          <span
+            key={v}
+            className="bg-primary/10 text-primary inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs"
+          >
+            {v}
+            <button
+              type="button"
+              aria-label={`Remove ${v}`}
+              onClick={() => setSel((s) => s.filter((x) => x !== v))}
+              className="text-primary/50 hover:text-primary cursor-pointer"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {sel.length === 0 && (
+          <span className="text-muted-foreground px-1 text-xs italic">
+            empty
+          </span>
+        )}
+      </div>
+      <Select
+        value=""
+        onValueChange={(o) => {
+          if (o && !sel.includes(o)) setSel((s) => [...s, o]);
+        }}
+      >
+        <SelectTrigger className="h-7 w-full" size="sm" aria-label="Add value">
+          <SelectValue placeholder="+ Add value…" />
+        </SelectTrigger>
+        <SelectContent className="bg-background max-h-40 overflow-y-auto border">
+          {available.length === 0 ? (
+            <div className="text-muted-foreground px-2 py-1 text-xs">
+              All values added
+            </div>
+          ) : (
+            available.map((o) => (
+              <SelectItem key={o} value={o}>
+                {o}
+              </SelectItem>
+            ))
+          )}
+        </SelectContent>
+      </Select>
+      <div className="flex items-center justify-end gap-1">
+        <Button
+          size="sm"
+          className="h-6 px-2 text-xs"
+          onClick={() => commitNow()}
+        >
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function is_json_kind(sql_type: string): boolean {
   return sql_type.includes("json");
+}
+
+/** Parse a Postgres array literal like `{a,b,c}` or `{"a, b","c"}` into its
+ *  elements. Quoted elements and doubled quotes/backslashes are honored. */
+export function parsePgArray(src: string): string[] {
+  const s = src.trim();
+  if (s.length < 2 || s[0] !== "{" || s[s.length - 1] !== "}") {
+    // Not an array literal — treat the raw text as a single element so nothing
+    // is silently dropped when round-tripping.
+    return src === "" ? [] : [src];
+  }
+  const out: string[] = [];
+  let cur = "";
+  let quote = false;
+  let started = false;
+  for (let i = 1; i < s.length - 1; i++) {
+    const ch = s[i];
+    if (quote) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          quote = false;
+        }
+      } else if (ch === "\\") {
+        cur += s[i + 1] ?? "";
+        i++;
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      quote = true;
+      started = true;
+    } else if (ch === "\\") {
+      cur += s[i + 1] ?? "";
+      i++;
+      started = true;
+    } else if (ch === ",") {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+      started = true;
+    }
+  }
+  if (started) out.push(cur);
+  return out;
+}
+
+/** Serialize an element array back to a Postgres array literal `{a,b,c}`. */
+function toPgArray(vals: string[]): string {
+  const quoted = (v: string) =>
+    /[",\\{}]|\s/.test(v) ? `"${v.replaceAll("\\", "\\\\").replaceAll('"', '""')}"` : v;
+  return `{${vals.map(quoted).join(",")}}`;
 }
 
 /** Minimal JSON syntax highlighter for the editor backdrop: keys, strings,

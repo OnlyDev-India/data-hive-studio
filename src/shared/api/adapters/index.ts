@@ -2,6 +2,7 @@ import type { DbKind } from "../types";
 import type { SqlAdapter } from "./types";
 import { sqliteAdapter } from "./sqlite";
 import { postgresAdapter } from "./postgres";
+import { mongoAdapter } from "./mongodb";
 
 export type {
   BuiltQuery,
@@ -14,6 +15,7 @@ export type {
 const ADAPTERS: Partial<Record<DbKind, SqlAdapter>> = {
   sqlite: sqliteAdapter,
   postgres: postgresAdapter,
+  mongodb: mongoAdapter,
 };
 
 /** Get the query builder for a connection's database kind. */

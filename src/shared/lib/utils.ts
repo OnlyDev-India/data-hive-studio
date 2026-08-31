@@ -5,8 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Split raw SQL into statement ranges, ignoring `;` inside string literals
- * and `--` / `/* *&#47;` comments. Offsets are in the input string. */
+/** Split raw SQL (or console commands) into statement ranges, ignoring `;`
+ * inside string literals and `--` / `//` / `/* *&#47;` comments. Offsets are
+ * in the input string. `//` is valid JS/console syntax (MongoDB shell); it is
+ * never valid SQL, so accepting it here is safe for both. */
 export function statementRanges(sql: string): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
   let i = 0;
@@ -47,6 +49,11 @@ export function statementRanges(sql: string): { start: number; end: number }[] {
       continue;
     }
     if (ch === "-" && next === "-") {
+      inLine = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
       inLine = true;
       i += 2;
       continue;

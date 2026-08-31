@@ -551,6 +551,25 @@ export async function connectPostgres(
   return invoke("connect_postgres", { params });
 }
 
+/** Parameters for connecting to a MongoDB server. */
+export interface MongoConnectParams {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+  /** Auth source database (defaults to "admin" when omitted). */
+  auth_db?: string;
+  tls?: boolean;
+}
+
+/** Connect to a MongoDB server and register the connection. */
+export async function connectMongo(
+  params: MongoConnectParams,
+): Promise<ConnectionInfo> {
+  return invoke("connect_mongodb", { params });
+}
+
 /**
  * Collapse near-simultaneous identical READ calls into ONE IPC round trip.
  *
@@ -654,6 +673,76 @@ export async function catalogOverview(
 export async function listDatabases(connId: string): Promise<string[]> {
   if (isServerConn(connId) || WEB) return [];
   return invoke("list_databases", { connId });
+}
+
+/** Fetch a page of documents from a MongoDB collection. */
+export interface ListDocumentsParams {
+  filter?: Record<string, unknown>;
+  skip?: number;
+  limit?: number;
+}
+
+export interface MongoDocumentsResult {
+  documents: unknown[];
+  total: number;
+}
+
+export async function listDocuments(
+  connId: string,
+  collection: string,
+  params?: ListDocumentsParams,
+): Promise<MongoDocumentsResult> {
+  if (isServerConn(connId) || WEB) return { documents: [], total: 0 };
+  return invoke("list_documents", {
+    connId,
+    collection,
+    filter: params?.filter ?? null,
+    skip: params?.skip ?? 0,
+    limit: params?.limit ?? 50,
+  });
+}
+
+/** Replace a single MongoDB document by its ObjectId hex `_id`. */
+export async function saveDocument(
+  connId: string,
+  collection: string,
+  id: string,
+  document: unknown,
+): Promise<boolean> {
+  if (isServerConn(connId) || WEB) return false;
+  return invoke("save_document", {
+    connId,
+    collection,
+    id,
+    document,
+  });
+}
+
+export interface MongoRunResult {
+  command: string;
+  columns: string[];
+  rows: (string | null)[][];
+  documents: unknown[];
+  rows_affected: number;
+  is_select: boolean;
+  message: string | null;
+  error: string | null;
+  /** Set by `use <db>` so the console updates its current-database context. */
+  switch_db: string | null;
+  elapsed_ms: number;
+}
+
+/** Run a MongoDB console command (JSON find/aggregate or a shell-subset
+ *  statement) against `database`. `collection` is the console's current
+ *  collection, used only for bare JSON query/pipeline input. */
+export async function runMongo(
+  connId: string,
+  database: string,
+  collection: string | null,
+  script: string,
+): Promise<MongoRunResult> {
+  serverUnsupported(connId);
+  return invoke("run_mongo", { connId, database, collection, script });
 }
 
 /** Point every unqualified operation at `schema` (Postgres). */

@@ -106,6 +106,7 @@ export function TablesBrowser({
   const [dupe_error, setDupeError] = useState<string | null>(null);
 
   const store_open_table = useStudioStore((s) => s.openTable);
+  const store_open_mongo = useStudioStore((s) => s.openMongo);
   const open_structure = useStudioStore((s) => s.openStructure);
   const push_notification = useStudioStore((s) => s.pushNotification);
 
@@ -114,6 +115,7 @@ export function TablesBrowser({
     (s: StudioStore) => s.open.find((c) => c.id === conn_id)?.kind,
   );
   const is_pg = conn_kind === "postgres";
+  const is_mongo = conn_kind === "mongodb";
   const [pg_schemas, setPgSchemas] = useState<string[] | null>(null);
   const [pg_active_schema, setPgActiveSchema] = useState("public");
   const [pg_databases, setPgDatabases] = useState<string[]>([]);
@@ -351,8 +353,15 @@ export function TablesBrowser({
 
   const open_selected = useCallback(() => {
     const name = selected_name ?? filtered_tables[0]?.name;
-    if (name) on_open_table(name);
-  }, [filtered_tables, selected_name, on_open_table]);
+    if (!name) return;
+    if (is_mongo) {
+      // For MongoDB, we need to know which database the collection belongs to.
+      // The tables list comes from the active database.
+      store_open_mongo(conn_id, pg_current_db, name);
+    } else {
+      on_open_table(name);
+    }
+  }, [filtered_tables, selected_name, on_open_table, is_mongo, store_open_mongo, conn_id, pg_current_db]);
 
   const handle_nav_keys = useCallback(
     (e: ReactKeyboardEvent) => {
@@ -592,51 +601,57 @@ export function TablesBrowser({
           </p>
         ) : (
           filtered_tables.map((t) => (
-            <TableListItem
-              key={t.name}
-              name={t.name}
-              kind={t.kind}
-              is_selected={t.name === (selected_name ?? active_table)}
-              disabled={dupe_submitting}
-              on_select={() => {
-                setSelectedName(t.name);
-                // Focus the list so arrow keys / Enter work right away
-                // (WebKit does not focus buttons on click).
-                list_ref.current?.focus();
-              }}
-              on_open={() => on_open_table(t.name)}
-              on_view_structure={() => open_structure(conn_id, t.name)}
-              on_copy={() => void copy_name(t.name)}
-              on_duplicate={() => ask_duplicate(t)}
-              on_drop={() => setConfirmDrop({ name: t.name, kind: t.kind })}
-              on_view_grants={() => {
-                setGrantsRows(null);
-                setGrantsFor(t.name);
-              }}
-              on_refresh_matview={
-                t.kind === "matview"
-                  ? () =>
-                      void (async () => {
-                        try {
-                          await refreshMatview(conn_id, t.name);
-                          on_refresh();
-                          push_notification({
-                            kind: "success",
-                            title: "Materialized view refreshed",
-                            detail: t.name,
-                          });
-                        } catch (e) {
-                          push_notification({
-                            kind: "error",
-                            title: "Refresh failed",
-                            detail: String(e),
-                          });
-                        }
-                      })()
-                  : undefined
-              }
-            />
-          ))
+              <TableListItem
+                key={t.name}
+                name={t.name}
+                kind={t.kind}
+                is_selected={t.name === (selected_name ?? active_table)}
+                disabled={dupe_submitting}
+                on_select={() => {
+                  setSelectedName(t.name);
+                  // Focus the list so arrow keys / Enter work right away
+                  // (WebKit does not focus buttons on click).
+                  list_ref.current?.focus();
+                }}
+                on_open={() => {
+                  if (is_mongo) {
+                    store_open_mongo(conn_id, pg_current_db, t.name);
+                  } else {
+                    on_open_table(t.name);
+                  }
+                }}
+                on_view_structure={() => open_structure(conn_id, t.name)}
+                on_copy={() => void copy_name(t.name)}
+                on_duplicate={() => ask_duplicate(t)}
+                on_drop={() => setConfirmDrop({ name: t.name, kind: t.kind })}
+                on_view_grants={() => {
+                  setGrantsRows(null);
+                  setGrantsFor(t.name);
+                }}
+                on_refresh_matview={
+                  t.kind === "matview"
+                    ? () =>
+                        void (async () => {
+                          try {
+                            await refreshMatview(conn_id, t.name);
+                            on_refresh();
+                            push_notification({
+                              kind: "success",
+                              title: "Materialized view refreshed",
+                              detail: t.name,
+                            });
+                          } catch (e) {
+                            push_notification({
+                              kind: "error",
+                              title: "Refresh failed",
+                              detail: String(e),
+                            });
+                          }
+                        })()
+                    : undefined
+                }
+              />
+            ))
         )}
       </div>
 

@@ -312,6 +312,21 @@ fn row_to_vec(r: &PgRow) -> Vec<Option<String>> {
                     .ok()
                     .flatten()
                     .map(|b| format!("\\x{}", hex_encode(&b))),
+                // ARRAY columns: sqlx names custom enum arrays `permission[]`
+                // and built-in arrays `_text`/`_int4`. The binary wire format
+                // is NOT readable as UTF-8 directly, so decode it and render a
+                // Postgres array literal `{a,b,c}`.
+                _ if ty.ends_with("[]") || ty.starts_with('_') => r
+                    .try_get_unchecked::<Option<Vec<u8>>, _>(i)
+                    .ok()
+                    .flatten()
+                    .map(|b| {
+                        let els: Vec<String> = decode_pg_array(&b)
+                            .into_iter()
+                            .map(|e| e.unwrap_or_default())
+                            .collect();
+                        format!("{{{}}}", els.join(","))
+                    }),
                 // USER-DEFINED (domains, composites, custom enums not in
                 // pg_enum, …): try a typed text decode first, then the
                 // unchecked variant which reads the raw wire bytes as text.
@@ -327,6 +342,135 @@ fn row_to_vec(r: &PgRow) -> Vec<Option<String>> {
             }
         })
         .collect()
+}
+
+/// Element type OIDs for fixed-width PostgreSQL base types. A fixed-width array
+/// packs its elements back-to-back with no length word; every other element type
+/// (text, varchar, enum, numeric, bytea, …) is varlena and length-prefixed.
+fn fixed_typlen(elem_oid: u32) -> Option<usize> {
+    let w = match elem_oid {
+        16 => 1,    // bool
+        18 => 1,    // char
+        21 => 2,    // int2
+        23 => 4,    // int4
+        20 => 8,    // int8
+        26 => 4,    // oid
+        700 => 4,   // float4
+        701 => 8,   // float8
+        1082 => 4,  // date
+        1114 => 8,  // timestamp
+        1184 => 8,  // timestamptz
+        1266 => 12, // timetz
+        1700 => 0,  // numeric is varlena
+        2950 => 16, // uuid
+        _ => 0,
+    };
+    if w == 0 {
+        None
+    } else {
+        Some(w)
+    }
+}
+
+/// Render one fixed-width array element's raw bytes as human-readable text.
+fn decode_fixed_elem(elem_oid: u32, b: &[u8]) -> String {
+    let take = |n: usize| -> &[u8] { &b[..b.len().min(n)] };
+    match elem_oid {
+        16 => match b.first() {
+            Some(&0) => "false".into(),
+            Some(_) => "true".into(),
+            None => String::new(),
+        },
+        18 | 25 => String::from_utf8_lossy(take(1)).into_owned(), // char
+        21 => i16::from_be_bytes([take(2)[0], take(2)[1]]).to_string(),
+        23 | 26 => i32::from_be_bytes([take(4)[0], take(4)[1], take(4)[2], take(4)[3]]).to_string(),
+        20 => {
+            let t = take(8);
+            i64::from_be_bytes([t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]]).to_string()
+        }
+        700 => {
+            let t = take(4);
+            f32::from_be_bytes([t[0], t[1], t[2], t[3]]).to_string()
+        }
+        701 => {
+            let t = take(8);
+            f64::from_be_bytes([t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]]).to_string()
+        }
+        2950 => {
+            let h = take(16)
+                .iter()
+                .map(|x| format!("{x:02x}"))
+                .collect::<String>();
+            format!(
+                "{}-{}-{}-{}-{}",
+                &h[..8.min(h.len())],
+                &h[8..16.min(h.len())],
+                &h[16..20.min(h.len())],
+                &h[20..24.min(h.len())],
+                &h[24..32.min(h.len())]
+            )
+        }
+        // date/timestamp/timetz: keep lossy text rather than guess timezones.
+        _ => String::from_utf8_lossy(b).into_owned(),
+    }
+}
+
+/// Decode a PostgreSQL binary array (the `array_send` wire format) into its text
+/// elements. Mirrors `array_recv`: a fixed-width element type may be flagged
+/// `hasnull` (each element then prefixed by an int32 length, -1 = NULL) or
+/// packed contiguously; every other type is varlena and always length-prefixed.
+fn decode_pg_array(buf: &[u8]) -> Vec<Option<String>> {
+    if buf.len() < 12 {
+        return vec![];
+    }
+    let i32at = |o: usize| -> Option<i32> {
+        buf.get(o..o + 4)
+            .map(|s| i32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+    };
+    let Some(ndim) = i32at(0) else { return vec![] };
+    let hasnull = i32at(4).unwrap_or(0) != 0;
+    let elem_oid = i32at(8).unwrap_or(0) as u32;
+    let width = fixed_typlen(elem_oid);
+    let mut o = 12usize;
+    let mut nelems: i64 = 1;
+    for _ in 0..ndim {
+        let Some(len) = i32at(o) else { return vec![] };
+        if len < 0 {
+            return vec![];
+        }
+        nelems = nelems.saturating_mul(len as i64);
+        o += 8; // skip the dimension's lower bound
+    }
+    if ndim <= 0 || nelems <= 0 || nelems > 1_000_000 {
+        return vec![];
+    }
+    let mut out: Vec<Option<String>> = Vec::with_capacity(nelems as usize);
+    while out.len() < nelems as usize && o < buf.len() {
+        if let Some(w) = width {
+            if hasnull {
+                let Some(len) = i32at(o) else { break };
+                o += 4;
+                if len < 0 {
+                    out.push(None);
+                    continue;
+                }
+            }
+            let end = (o + w).min(buf.len());
+            out.push(Some(decode_fixed_elem(elem_oid, &buf[o..end])));
+            o = end;
+        } else {
+            let Some(len) = i32at(o) else { break };
+            o += 4;
+            if len < 0 {
+                out.push(None);
+                continue;
+            }
+            let end = (o + len as usize).min(buf.len());
+            out.push(Some(String::from_utf8_lossy(&buf[o..end]).into_owned()));
+            o = end;
+        }
+    }
+    out
 }
 
 fn hex_encode(b: &[u8]) -> String {
@@ -394,12 +538,21 @@ impl DbAdapter for PgAdapter {
         let sql_pk = "SELECT a.attname FROM pg_index i \
              JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum = ANY(i.indkey) \
              WHERE i.indrelid = $1::regclass AND i.indisprimary";
-        let sql_enums = "SELECT a.attname, t.typname, e.enumlabel \
-                 FROM pg_attribute a \
-                 JOIN pg_type t ON a.atttypid = t.oid \
-                 JOIN pg_enum e ON e.enumtypid = t.oid \
-              WHERE a.attrelid = $1::regclass \
-              ORDER BY a.attnum, e.enumsortorder";
+        // Native enum columns — including ARRAYS of a native enum (a column of
+        // type `permission[]` has atttypid = the `_permission` array type, whose
+        // typelem points back at the enum; we resolve through it so the column
+        // surfaces the enum's labels and is flagged as an array).
+        let sql_enums = "SELECT a.attname, \
+                (CASE WHEN pt.typelem <> 0 THEN el.typname ELSE pt.typname END), \
+                (pt.typelem <> 0) AS is_array, \
+                e.enumlabel \
+             FROM pg_attribute a \
+             JOIN pg_type pt ON a.atttypid = pt.oid \
+             LEFT JOIN pg_type el ON pt.typelem <> 0 AND pt.typelem = el.oid \
+             JOIN pg_enum e ON e.enumtypid = \
+                  CASE WHEN pt.typelem <> 0 THEN pt.typelem ELSE pt.oid END \
+             WHERE a.attrelid = $1::regclass \
+             ORDER BY a.attnum, e.enumsortorder";
         let sql_fks = "SELECT kcu.column_name, ccu.table_name, ccu.column_name, \
               tc.constraint_name, \
               CASE con.confdeltype WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' \
@@ -446,7 +599,7 @@ impl DbAdapter for PgAdapter {
         let f_pk = sqlx::query_as::<_, (String,)>(sql_pk)
             .bind(&regclass)
             .fetch_all(&self.pool);
-        let f_enums = sqlx::query_as::<_, (String, String, String)>(sql_enums)
+        let f_enums = sqlx::query_as::<_, (String, String, bool, String)>(sql_enums)
             .bind(&regclass)
             .fetch_all(&self.pool);
         let f_fks = sqlx::query_as::<_, (String, String, String, String, String, String)>(sql_fks)
@@ -475,7 +628,7 @@ impl DbAdapter for PgAdapter {
         let object_kind: Option<Option<String>> = r_kind.map_err(DbError::Sqlite)?;
         let columns: Vec<(String, String, String, String)> = r_cols.map_err(DbError::Sqlite)?;
         let pk_rows: Vec<(String,)> = r_pk.map_err(DbError::Sqlite)?;
-        let enum_rows: Vec<(String, String, String)> = r_enums.map_err(DbError::Sqlite)?;
+        let enum_rows: Vec<(String, String, bool, String)> = r_enums.map_err(DbError::Sqlite)?;
         let fk_rows: Vec<(String, String, String, String, String, String)> = r_fks.map_err(DbError::Sqlite)?;
         let idx_rows: Vec<(String, String)> = r_idx.map_err(DbError::Sqlite)?;
         let trig_rows: Vec<(String, Option<String>)> = r_trig.map_err(DbError::Sqlite)?;
@@ -492,6 +645,7 @@ impl DbAdapter for PgAdapter {
                 primary_key: false,
                 default: if default.is_empty() { None } else { Some(default) },
                 enum_values: Vec::new(),
+                is_array: false,
             })
             .map(|mut c| {
                 c.primary_key = pk_set.contains(&c.name);
@@ -502,18 +656,25 @@ impl DbAdapter for PgAdapter {
         // Native enum columns: resolve the UDT name and its labels, then
         // surface them on the column (header shows the type name; editors
         // show the labels as a dropdown).
-        let mut enum_labels: std::collections::HashMap<String, (String, Vec<String>)> =
-            std::collections::HashMap::new();
-        for (col, typname, label) in enum_rows {
+        let mut enum_labels: std::collections::HashMap<
+            String,
+            (String, bool, Vec<String>),
+        > = std::collections::HashMap::new();
+        for (col, typname, is_array, label) in enum_rows {
             let entry = enum_labels
                 .entry(col)
-                .or_insert_with(|| (typname.clone(), Vec::new()));
-            entry.1.push(label);
+                .or_insert_with(|| (typname.clone(), is_array, Vec::new()));
+            entry.2.push(label);
         }
         for c in &mut cols {
-            if let Some((typname, labels)) = enum_labels.get(&c.name) {
-                c.data_type = typname.clone();
+            if let Some((typname, is_array, labels)) = enum_labels.get(&c.name) {
+                c.data_type = if *is_array {
+                    format!("{}[]", typname)
+                } else {
+                    typname.clone()
+                };
                 c.enum_values = labels.clone();
+                c.is_array = *is_array;
             }
         }
 
@@ -748,30 +909,9 @@ impl DbAdapter for PgAdapter {
                 .first()
                 .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
                 .unwrap_or_default();
-            let mut out: Vec<Vec<Option<String>>> = Vec::with_capacity(rows.len());
-            for r in &rows {
-                let mut row = Vec::with_capacity(r.columns().len());
-                for i in 0..r.columns().len() {
-                    // Values arrive typed; render everything as text like the
-                    // SQLite adapter does.
-                    let v: Option<String> = match r.try_get::<Option<String>, _>(i) {
-                        Ok(v) => v,
-                        Err(_) => r
-                            .try_get::<Option<i64>, _>(i)
-                            .ok()
-                            .flatten()
-                            .map(|n| n.to_string())
-                            .or_else(|| {
-                                r.try_get::<Option<f64>, _>(i).ok().flatten().map(|f| f.to_string())
-                            })
-                            .or_else(|| {
-                                r.try_get::<Option<bool>, _>(i).ok().flatten().map(|b| b.to_string())
-                            }),
-                    };
-                    row.push(v);
-                }
-                out.push(row);
-            }
+            // Reuse row_to_vec so every type (dates, timestamps, arrays,
+            // booleans, numerics, …) renders as human-readable text.
+            let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
             return Ok(QueryResult {
                 columns,
                 rows: out,
@@ -1459,3 +1599,101 @@ fn bind_all<'a>(
     }
     q
 }
+
+#[cfg(test)]
+mod array_decode_tests {
+    use super::{decode_pg_array, fixed_typlen};
+
+    fn i32(v: i32) -> Vec<u8> {
+        v.to_be_bytes().to_vec()
+    }
+
+    #[test]
+    fn varlena_empty_and_values() {
+        // {read,write} — varlena (no fixed width), no nulls.
+        let mut b = Vec::new();
+        b.extend(i32(1)); // ndim
+        b.extend(i32(0)); // hasnull
+        b.extend(i32(25)); // elem oid = text (varlena)
+        b.extend(i32(2)); // nelems
+        b.extend(i32(1)); // lower bound
+        b.extend(i32(4)); // "read"
+        b.extend(b"read");
+        b.extend(i32(5)); // "write"
+        b.extend(b"write");
+        let got = decode_pg_array(&b);
+        assert_eq!(got, vec![Some("read".into()), Some("write".into())]);
+        assert_eq!(fixed_typlen(25), None);
+    }
+
+    #[test]
+    fn varlena_with_null() {
+        // {read,NULL,admin}
+        let mut b = Vec::new();
+        b.extend(i32(1));
+        b.extend(i32(1)); // hasnull
+        b.extend(i32(694124)); // arbitrary enum oid -> varlena
+        b.extend(i32(3));
+        b.extend(i32(1));
+        b.extend(i32(4));
+        b.extend(b"read");
+        b.extend(i32(-1)); // NULL
+        b.extend(i32(5));
+        b.extend(b"admin");
+        assert_eq!(
+            decode_pg_array(&b),
+            vec![
+                Some("read".into()),
+                None,
+                Some("admin".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_array() {
+        // ndim = 0
+        let mut b = Vec::new();
+        b.extend(i32(0)); // ndim = 0 => empty array
+        b.extend(i32(0));
+        b.extend(i32(25));
+        assert_eq!(decode_pg_array(&b), Vec::<Option<String>>::new());
+    }
+
+    #[test]
+    fn fixed_width_no_null() {
+        // int[] {1,2} -> fixed width 4, packed contiguously.
+        let mut b = Vec::new();
+        b.extend(i32(1)); // ndim
+        b.extend(i32(0)); // hasnull
+        b.extend(i32(23)); // int4, width 4
+        b.extend(i32(2));
+        b.extend(i32(1));
+        b.extend(1i32.to_be_bytes());
+        b.extend(2i32.to_be_bytes());
+        assert_eq!(
+            decode_pg_array(&b),
+            vec![Some("1".into()), Some("2".into())]
+        );
+        assert_eq!(fixed_typlen(23), Some(4));
+    }
+
+    #[test]
+    fn fixed_width_with_null() {
+        // int[] {1,NULL} -> width 4, hasnull with length prefixes.
+        let mut b = Vec::new();
+        b.extend(i32(1));
+        b.extend(i32(1)); // hasnull
+        b.extend(i32(23));
+        b.extend(i32(2));
+        b.extend(i32(1));
+        b.extend(i32(4)); // len
+        b.extend(1i32.to_be_bytes());
+        b.extend(i32(-1)); // NULL
+        assert_eq!(
+            decode_pg_array(&b),
+            vec![Some("1".into()), None]
+        );
+    }
+}
+

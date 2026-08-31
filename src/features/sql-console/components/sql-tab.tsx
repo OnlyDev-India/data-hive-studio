@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Play, TextCursorInput, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
@@ -111,7 +111,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
     };
   }, [conn_id, table_key]);
 
-  const add_tab = (): number => {
+  const add_tab = useCallback((): number => {
     const id = ++next_id.current;
     setTabs((cur) => [
       ...cur,
@@ -124,11 +124,11 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
     ]);
     setActiveId(id);
     return id;
-  };
+  }, [setTabs, setActiveId]);
 
-  const patch_tab = (id: number, patch: Partial<ResultTab>) => {
+  const patch_tab = useCallback((id: number, patch: Partial<ResultTab>) => {
     setTabs((cur) => cur.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  };
+  }, [setTabs]);
 
   const close_tab = (id: number) => {
     setTabs((cur) => {
@@ -142,58 +142,61 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
     });
   };
 
-  const run_query = async (id: number, query: string) => {
-    patch_tab(id, { running: true, result: null });
-    // Accumulate streamed rows; flush to the tab at most once per frame so
-    // large results paint progressively without a render per batch.
-    const acc: { cols: string[] | null; rows: (string | null)[][] } = {
-      cols: null,
-      rows: [],
-    };
-    let raf = 0;
-    const flush = () => {
-      raf = 0;
-      if (acc.rows.length === 0) return;
-      patch_tab(id, {
-        result: {
-          columns: acc.cols ?? [],
-          rows: [...acc.rows],
-          rows_affected: 0,
-          is_select: true,
-          error: null,
-          elapsed_ms: 0,
-        },
-      });
-    };
-    let res: QueryResult;
-    try {
-      res = await runSqlStream(conn_id, query, (chunk) => {
-        if (chunk.columns) acc.cols = chunk.columns;
-        if (chunk.rows.length > 0) {
-          acc.rows.push(...chunk.rows);
-          if (!raf) raf = requestAnimationFrame(flush);
-        }
-      });
-    } catch (e) {
-      res = {
-        columns: [],
+  const run_query = useCallback(
+    async (id: number, query: string) => {
+      patch_tab(id, { running: true, result: null });
+      // Accumulate streamed rows; flush to the tab at most once per frame so
+      // large results paint progressively without a render per batch.
+      const acc: { cols: string[] | null; rows: (string | null)[][] } = {
+        cols: null,
         rows: [],
-        rows_affected: 0,
-        is_select: false,
-        error: String(e),
-        elapsed_ms: 0,
       };
-    }
-    if (raf) cancelAnimationFrame(raf);
-    if (!res.is_select && !res.error) on_modified?.();
-    // The resolved metadata is authoritative; pair it with accumulated rows.
-    patch_tab(id, {
-      running: false,
-      result: res.is_select ? { ...res, rows: acc.rows } : res,
-    });
-  };
+      let raf = 0;
+      const flush = () => {
+        raf = 0;
+        if (acc.rows.length === 0) return;
+        patch_tab(id, {
+          result: {
+            columns: acc.cols ?? [],
+            rows: [...acc.rows],
+            rows_affected: 0,
+            is_select: true,
+            error: null,
+            elapsed_ms: 0,
+          },
+        });
+      };
+      let res: QueryResult;
+      try {
+        res = await runSqlStream(conn_id, query, (chunk) => {
+          if (chunk.columns) acc.cols = chunk.columns;
+          if (chunk.rows.length > 0) {
+            acc.rows.push(...chunk.rows);
+            if (!raf) raf = requestAnimationFrame(flush);
+          }
+        });
+      } catch (e) {
+        res = {
+          columns: [],
+          rows: [],
+          rows_affected: 0,
+          is_select: false,
+          error: String(e),
+          elapsed_ms: 0,
+        };
+      }
+      if (raf) cancelAnimationFrame(raf);
+      if (!res.is_select && !res.error) on_modified?.();
+      // The resolved metadata is authoritative; pair it with accumulated rows.
+      patch_tab(id, {
+        running: false,
+        result: res.is_select ? { ...res, rows: acc.rows } : res,
+      });
+    },
+    [patch_tab, conn_id, on_modified],
+  );
 
-  const run_all = () => {
+  const run_all = useCallback(() => {
     const stmts = statementRanges(sql)
       .map((r) => sql.slice(r.start, r.end).trim())
       .filter(Boolean);
@@ -202,14 +205,14 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
       const id = add_tab();
       void run_query(id, stmt);
     }
-  };
+  }, [sql, add_tab, run_query]);
 
-  const run_target = () => {
+  const run_target = useCallback(() => {
     const target = editorRef.current?.getTarget();
     if (!target) return;
     const id = add_tab();
     void run_query(id, target);
-  };
+  }, [add_tab, run_query]);
 
   const active = tabs.find((t) => t.id === active_id) ?? null;
 
@@ -230,16 +233,30 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
     return true;
   }, []);
   useEffect(() => {
-    set_sql_tab(tab_key, { has_text: sql.trim().length > 0, save: save_sql });
+    set_sql_tab(tab_key, {
+      has_text: sql.trim().length > 0,
+      can_run_target: sql.trim().length > 0,
+      save: save_sql,
+      run_all,
+      run_target,
+    });
     // Re-registers whenever the dirty flag flips; cleanup on unmount.
     return () => clear_sql_tab(tab_key);
-  }, [tab_key, sql, save_sql, set_sql_tab, clear_sql_tab]);
+  }, [
+    tab_key,
+    sql,
+    save_sql,
+    run_all,
+    run_target,
+    set_sql_tab,
+    clear_sql_tab,
+  ]);
   // ------------------------------------------------------------------------
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ResizablePanelGroup orientation="vertical" className="gap-3">
-        <ResizablePanel defaultSize="40%" minSize="15%" className="flex-col">
+      <ResizablePanelGroup orientation="vertical" className="">
+        <ResizablePanel defaultSize="40%" minSize="15%" className="flex-col bg-background pb-3">
           <div className="flex h-full min-h-0 flex-col gap-3">
             <SqlEditor
               ref={editorRef}
@@ -251,20 +268,6 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
               schema={schema}
               height="100%"
             />
-            <div className="flex shrink-0 items-center gap-2">
-              <Button disabled={sql.trim().length === 0} onClick={run_all}>
-                <Play className="size-4" />
-                Run all
-              </Button>
-              <Button
-                variant="outline"
-                onClick={run_target}
-                title="Run the selected text, or the statement under the cursor"
-              >
-                <TextCursorInput className="size-4" />
-                Run selection
-              </Button>
-            </div>
           </div>
         </ResizablePanel>
 
@@ -344,7 +347,7 @@ function SqlResults({ result }: { result: QueryResult }) {
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
         <QueryResultsGrid result={result} />
         <div className="bg-muted/30 text-muted-foreground flex items-center gap-2 border-t px-3 py-1.5 text-xs">
-          <Badge variant="success">Query</Badge>
+          <Badge>Query</Badge>
           <span>
             {result.rows.length} rows • {elapsed_ms} ms
           </span>
@@ -361,7 +364,7 @@ function SqlResults({ result }: { result: QueryResult }) {
 
   return (
     <div className="text-muted-foreground flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
-      <Badge variant="info">Done</Badge>
+      <Badge>Done</Badge>
       <span>
         {result.rows_affected} row(s) affected • {elapsed_ms} ms
       </span>

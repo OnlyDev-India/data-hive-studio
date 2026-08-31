@@ -10,6 +10,8 @@ pub enum DbKind {
     Postgres,
     #[allow(dead_code)]
     Mysql,
+    #[allow(dead_code)]
+    Mongodb,
 }
 
 impl DbKind {
@@ -18,6 +20,7 @@ impl DbKind {
             DbKind::Sqlite => "SQLite",
             DbKind::Postgres => "PostgreSQL",
             DbKind::Mysql => "MySQL",
+            DbKind::Mongodb => "MongoDB",
         }
     }
 }
@@ -38,6 +41,12 @@ pub struct ColumnInfo {
     /// Postgres native enums: allowed labels (empty otherwise).
     #[serde(default)]
     pub enum_values: Vec<String>,
+    /// Postgres only: true when the column is an array type (e.g. `text[]`,
+    /// `permission[]`). The frontend can then offer array-aware editing; when
+    /// the array's element type is a native enum, `enum_values` holds its
+    /// labels and `data_type` is the element type followed by `[]`.
+    #[serde(default)]
+    pub is_array: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -102,6 +111,36 @@ pub struct QueryResult {
     pub error: Option<String>,
     pub elapsed_ms: u128,
 }
+
+/// Result for MongoDB document listing with pagination.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MongoDocumentsResult {
+    pub documents: Vec<serde_json::Value>,
+    pub total: u64,
+}
+
+/// Result of running a single MongoDB console command (a JSON find/aggregate,
+/// or a shell-subset statement). Carries both a flat grid projection (columns +
+/// rows, renderable by the shared query grid) and the raw JSON documents for a
+/// JSON view.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MongoRunResult {
+    /// The canonical operation, e.g. `db.users.find({"age": {"$gte": 18}})`.
+    pub command: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+    pub documents: Vec<serde_json::Value>,
+    pub rows_affected: u64,
+    pub is_select: bool,
+    /// Non-table feedback, e.g. rows affected / a shell notice.
+    pub message: Option<String>,
+    /// Error text (a run may return a shaped result with an error embedded).
+    pub error: Option<String>,
+    /// Set by `use <db>` so the console updates its current-database context.
+    pub switch_db: Option<String>,
+    pub elapsed_ms: u128,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConnectionInfo {

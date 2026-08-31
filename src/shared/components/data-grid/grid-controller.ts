@@ -19,6 +19,16 @@ function toJsonValue(v: string | null, sqlType: string | undefined): unknown {
   if (v === null) return null;
   const t = (sqlType ?? "").toLowerCase();
   if (t.includes("bool")) return v === "1" || v.toLowerCase() === "true";
+  // Mongo object / array columns arrive as embedded JSON strings (nested
+  // documents are flattened into a single cell). Re-parse them so the JSON
+  // drill-down shows the real nested structure instead of an escaped string.
+  if (t.includes("object") || t.includes("array") || t.startsWith("bson")) {
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
+  }
   if (/(int|real|float|double|numeric|decimal)/.test(t)) {
     const n = Number(v);
     if (Number.isFinite(n) && String(n) === v.trim()) return n;
@@ -97,6 +107,9 @@ export interface GridControllerConfig {
   on_cell_changed?: (row: JsonRow) => void;
   /** Called when "View JSON" is picked on a cell — opens the JSON viewer. */
   on_open_json?: () => void;
+  /** Called when "Open as grid (drill-down)" is picked on a JSON cell — opens a
+   * breadcrumbed grid over that cell's value. */
+  on_drill_json?: (col: string, value: string | null) => void;
   /** Called when an FK cell's jump icon is clicked — opens the referenced
    * table filtered to this value. */
   on_open_reference?: (
@@ -171,6 +184,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     on_navigation_change,
     on_cell_changed,
     on_open_json,
+    on_drill_json,
     on_open_reference,
   } = cfg;
 
@@ -207,7 +221,9 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       }
       if (by_row.size > 0) {
         real = rows.map((data, realIdx) => {
-          const m = by_row.get(realIdx);
+          // dirty_cells are keyed by GLOBAL row index (row_offset-inclusive),
+          // so a page change never lets one row's edit bleed onto another.
+          const m = by_row.get(row_offset + realIdx);
           if (!m) return data;
           const out = data.slice();
           for (const [col, v] of m) {
@@ -232,6 +248,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     sort_asc,
     pending_rows,
     dirty_cells,
+    row_offset,
   ]);
 
   const view = useMemo(
@@ -619,6 +636,19 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     on_open_json?.();
   }, [on_open_json]);
 
+  // Drill into a JSON cell: resynthesize the raw text from the rendered row
+  // and hand it (plus the column) to the host so it can open a drill grid.
+  const menu_drill_json = useCallback(
+    (rowIdx: number, col: string) => {
+      if (!on_drill_json) return;
+      const row = rows_to_render[rowIdx];
+      if (!row) return;
+      const ci = col_index_of[col] ?? 0;
+      on_drill_json(col, row[ci] ?? null);
+    },
+    [on_drill_json, rows_to_render, col_index_of],
+  );
+
   // Copy the clicked row — or every fully-selected row — as JSON, an INSERT
   // statement, or a Markdown table.
   const menu_copy_as = useCallback(
@@ -770,17 +800,20 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const cell_dirty = useCallback(
     (row: number, col: string) => {
       const real = row - pending_count;
-      return real >= 0 && (dirty_cells?.has(`${col}\u0000${real}`) ?? false);
+      return (
+        real >= 0 &&
+        (dirty_cells?.has(`${col}\u0000${row_offset + real}`) ?? false)
+      );
     },
-    [pending_count, dirty_cells],
+    [pending_count, dirty_cells, row_offset],
   );
 
   const row_deleted = useCallback(
     (row: number) => {
       const real = row - pending_count;
-      return real >= 0 && (deleted_rows?.has(real) ?? false);
+      return real >= 0 && (deleted_rows?.has(row_offset + real) ?? false);
     },
-    [pending_count, deleted_rows],
+    [pending_count, deleted_rows, row_offset],
   );
 
   return {
@@ -833,6 +866,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     menu_show_json: on_open_json ? menu_show_json : undefined,
     menu_copy_as,
     menu_clone_row: on_clone_row ? menu_clone_row : undefined,
+    menu_drill_json: on_drill_json ? menu_drill_json : undefined,
     on_open_reference,
     pending_count,
     pending_dirty: (row: number) => pending[row]?.dirty ?? false,

@@ -1,5 +1,5 @@
 import { cn } from "@/shared/lib/utils";
-import { CellEditor } from "./cell-editor";
+import { CellEditor, parsePgArray } from "./cell-editor";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -92,6 +92,7 @@ export function Cell({ row, col, dci }: CellProps) {
   // Boolean columns render an inline checkbox instead of text; clicking it
   // toggles the value in place (buffered like any other edit).
   const is_bool = (ctx.kinds[col] ?? "text") === "bool";
+  const is_array = (ctx.kinds[col] ?? "text") === "array";
   const can_edit = editable || is_pending;
   const truthy = isTruthy(value);
   const toggle_bool = () => {
@@ -128,7 +129,7 @@ export function Cell({ row, col, dci }: CellProps) {
     is_selected && "bg-primary/15",
     dirty && !is_selected && "bg-yellow-300/10",
     deleted && "line-through",
-    pinned && "sticky z-30 bg-background",
+    pinned && "sticky z-3 bg-background",
     is_editing && "p-0",
   );
 
@@ -146,7 +147,7 @@ export function Cell({ row, col, dci }: CellProps) {
             // and any overlay it opens — covers later rows, while still
             // sitting UNDER the header/gutter/pinned chrome (z-30/z-40).
             // position: "relative",
-            zIndex: is_editing ? 40 : pinned ? 50 : undefined,
+            zIndex: is_editing ? 4 : pinned ? 5 : undefined,
             ...(pinned ? { left: `${px}px` } : {}),
           }}
           onMouseDown={(e) => {
@@ -207,6 +208,8 @@ export function Cell({ row, col, dci }: CellProps) {
                 if (can_edit) toggle_bool();
               }}
             />
+          ) : is_array && value !== null ? (
+            <ArrayCell value={value} />
           ) : value !== null ? (
             <span className="truncate">{value}</span>
           ) : (
@@ -219,7 +222,7 @@ export function Cell({ row, col, dci }: CellProps) {
               size="iconXs"
               title={`Open ${ctx.fk_targets[col].table}`}
               className={cn(
-                "bg-background/90 text-muted-foreground hover:bg-muted hover:text-primary absolute top-1/2 right-1 z-10 size-5 -translate-y-1/2 rounded shadow-sm",
+                "bg-background/90 text-muted-foreground hover:bg-muted hover:text-primary absolute top-1/2 right-1 z-1 size-5 -translate-y-1/2 rounded shadow-sm",
                 is_selected
                   ? "opacity-100"
                   : "opacity-0 group-hover/cell:opacity-100",
@@ -304,5 +307,36 @@ export function Cell({ row, col, dci }: CellProps) {
         )}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** Read-only tag strip for array cell values (e.g. a `permission[]` column).
+ *  The stored text is a Postgres array literal like `{read,write,admin}`. */
+function ArrayCell({ value }: { value: string }) {
+  const items = parsePgArray(value);
+  if (items.length === 0) {
+    return (
+      <span className="text-muted-foreground inline-flex items-center gap-1 truncate">
+        <span className="rounded bg-muted px-1 py-px text-[10px]">empty</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 overflow-hidden">
+      {items.slice(0, 4).map((v) => (
+        <span
+          key={v}
+          className="bg-primary/10 text-primary truncate rounded px-1 py-px text-[10px]"
+          style={{ maxWidth: "5rem" }}
+        >
+          {v}
+        </span>
+      ))}
+      {items.length > 4 && (
+        <span className="text-muted-foreground shrink-0 text-[10px]">
+          +{items.length - 4}
+        </span>
+      )}
+    </span>
   );
 }

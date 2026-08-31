@@ -6,6 +6,7 @@ import type {
 } from "../api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
+import type { PendingChange } from "../components/data-grid/grid-context";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace" | "admin";
@@ -34,13 +35,16 @@ export interface GridBridge {
   pending_count: number;
   /** Begin drafting a new row: pins a blank pending row to the top of the grid. */
   start_pending: () => void;
-  /** Commit all drafted pending rows as real records. */
-  apply_pending: () => void;
+  /** Commit all drafted pending rows as real records. `keepIds` limits which
+   *  staged changes are applied (see {@link PendingChange}). */
+  apply_pending: (keepIds?: Set<string>) => void;
   /** Discard all drafted pending rows. */
   cancel_pending: () => void;
   /** Render every pending change (insert drafts, cell edits, row deletions)
    *  as runnable SQL statements, or null when nothing is staged. */
   get_pending_sql: () => string | null;
+  /** Structured list of every buffered change for the apply diff dialog. */
+  get_pending_changes: () => PendingChange[];
   refresh: () => void;
   /** Snapshot of the loaded result for exports (null when nothing loaded).
    *  Reflects the last fetched page as stored in the database — buffered,
@@ -66,6 +70,7 @@ export interface WorkspaceTabs {
   nextSqlId: number;
   nextNewTableId: number;
   nextTableId: number;
+  nextMongoTabId: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
   paneModes: Record<string, "data" | "schema">;
 }
@@ -117,17 +122,24 @@ export interface StudioNotification {
   description?: string;
 }
 
-// Connection parameters for one PostgreSQL recent entry (persisted in
-// localStorage so double-click reconnect works across restarts).
+// Connection parameters for one saved connection (PostgreSQL or MongoDB)
+// persisted in localStorage so double-click reconnect works across restarts.
 export interface SavedConnParams {
   /** Optional display name (saved/pinned connections). */
   name?: string;
+  /** Which database kind this connection reopens. */
+  kind: "postgres" | "mongodb";
   host: string;
   port: number;
   user: string;
   password: string;
   database: string;
+  /** PostgreSQL only: SSL mode. */
   ssl_mode?: string;
+  /** MongoDB only: auth source database (default "admin"). */
+  auth_db?: string;
+  /** MongoDB only: use mongodb+srv:// (DNS seedlist) instead of mongodb://. */
+  srv?: boolean;
 }
 
 /** What the landing form is editing (when prefill carries an edit target). */
@@ -205,11 +217,39 @@ export interface StudioStore {
 
   /** Registered by every SQL editor tab while mounted: `has_text` marks the
    *  tab dirty (dot in the strip); `save` writes the queries to a file the
-   *  user picks, resolving false when cancelled. */
-  sqlTabs: Record<string, { has_text: boolean; save: () => Promise<boolean> }>;
+   *  user picks, resolving false when cancelled. For MongoDB connections,
+   *  additional fields provide collection introspection and query execution. */
+  sqlTabs: Record<
+    string,
+    {
+      has_text: boolean;
+      save: () => Promise<boolean>;
+      /** MongoDB: list of collections in the current database. */
+      mongo_collections?: string[];
+      /** MongoDB: currently selected collection. */
+      mongo_collection?: string;
+      /** MongoDB: change the selected collection. */
+      set_mongo_collection?: (c: string) => void;
+      /** Run all queries in the editor. */
+      run_all?: () => void;
+      /** Whether a target (selection) can be run. */
+      can_run_target?: boolean;
+      /** Run the selected query target. */
+      run_target?: () => void;
+    }
+  >;
   setSqlTab: (
     key: string,
-    handle: { has_text: boolean; save: () => Promise<boolean> },
+    handle: {
+      has_text: boolean;
+      save: () => Promise<boolean>;
+      mongo_collections?: string[];
+      mongo_collection?: string;
+      set_mongo_collection?: (c: string) => void;
+      run_all?: () => void;
+      can_run_target?: boolean;
+      run_target?: () => void;
+    },
   ) => void;
   clearSqlTab: (key: string) => void;
 
@@ -260,33 +300,39 @@ export interface StudioStore {
     d: { conn_id: string; entry: ActivityEntry } | null,
   ) => void;
 
-  /** Saved PostgreSQL connection params per connection id (recents). */
+  /** Saved connection params per connection id (recents), includes `kind`. */
   recentParams: Record<string, SavedConnParams>;
   pushRecentParams: (connId: string, params: SavedConnParams) => void;
-  /** Locally saved connections keyed by display name ('pg.saved'). */
+  /** Locally saved connections keyed by display name ('saved.local').
+   *  Each entry carries `kind` ("postgres" | "mongodb") so it reopens correctly. */
   savedLocal: Record<string, SavedConnParams>;
-  saveLocalPg: (name: string, params: SavedConnParams) => void;
-  updateSavedLocalPg: (
+  /** Save a local connection (any kind). */
+  saveLocal: (name: string, params: SavedConnParams) => void;
+  /** Rename/update a saved local connection. */
+  updateSavedLocal: (
     oldName: string,
     name: string,
     params: SavedConnParams,
   ) => void;
-  deleteSavedLocalPg: (name: string) => void;
+  /** Delete a saved local connection. */
+  deleteSavedLocal: (name: string) => void;
   /** Pinned ids across sources: 'local:<name>' or 'srv:<profile>:<conn>' ('pg.pins'). */
   pins: string[];
   togglePin: (id: string) => void;
-  /** Landing-page prefill request: sidebar click hands PG details to the
-   *  connect form. `n` increments so repeat requests re-trigger; `connect`
-   *  additionally starts connecting right after the fields are filled.
-   *  `edit` puts the form in edit mode — Save updates that connection
-   *  (server-shared or local) instead of creating a new one. */
+  /** Landing-page prefill request: sidebar click hands connection details to the
+   *  connect form. `kind` routes to the right tab; `n` increments so repeat
+   *  requests re-trigger; `connect` additionally starts connecting right after
+   *  the fields are filled. `edit` puts the form in edit mode — Save updates
+   *  that connection (server-shared or local) instead of creating a new one. */
   landingPrefill: {
+    kind: "postgres" | "mongodb";
     params: SavedConnParams;
     n: number;
     connect: boolean;
     edit?: LandingEditTarget;
   } | null;
   requestLandingPrefill: (
+    kind: "postgres" | "mongodb",
     params: SavedConnParams,
     connect?: boolean,
     edit?: LandingEditTarget,
@@ -296,6 +342,17 @@ export interface StudioStore {
   /** Global Postgres connect-in-flight flag (survives page switches). */
   pgConnecting: boolean;
   setPgConnecting: (v: boolean) => void;
+  /** Global MongoDB connect-in-flight flag (survives page switches). */
+  mongoConnecting: boolean;
+  setMongoConnecting: (v: boolean) => void;
+
+  /** Command palette open state. */
+  commandPaletteOpen: boolean;
+  setCommandPaletteOpen: (open: boolean) => void;
+
+  /** Per-mongo-tab view mode ("grid" | "json"), keyed by the tab's unique key. */
+  mongoViews: Record<string, "grid" | "json">;
+  setMongoView: (key: string, view: "grid" | "json") => void;
 
   // Per-connection workspaces (tabs)
   workspaces: Record<string, WorkspaceTabs>;
@@ -309,6 +366,10 @@ export interface StudioStore {
   openNewTable: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
   openActivityTab: (connId: string) => void;
+  /** Open a MongoDB collection tab (data view). */
+  openMongo: (connId: string, database: string, collection: string) => void;
+  /** Open a MongoDB console tab for the given connection & database. */
+  openMongoConsole: (connId: string, database: string) => void;
   selectTab: (connId: string, tab: StudioTab) => void;
   closeTab: (connId: string, tab: StudioTab) => void;
   /** Move `tab` so it ends up at index `toIndex` of the tab strip. */

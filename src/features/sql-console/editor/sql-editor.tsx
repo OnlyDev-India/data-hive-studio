@@ -10,14 +10,24 @@ import CodeMirror, {
   type ReactCodeMirrorRef,
 } from "@uiw/react-codemirror";
 import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
+import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { EditorState } from "@codemirror/state";
+import { completeFromList } from "@codemirror/autocomplete";
+import {
+  syntaxHighlighting,
+  HighlightStyle,
+} from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 import type {
   Completion,
   CompletionContext,
   CompletionResult,
   CompletionSource,
 } from "@codemirror/autocomplete";
-import { appEditorExtensions } from "@/features/sql-console/codemirror-theme";
+import {
+  appEditorExtensions,
+  appEditorTheme,
+} from "@/features/sql-console/codemirror-theme";
 import { cn, statementRanges } from "@/shared/lib/utils";
 
 export interface SqlEditorHandle {
@@ -80,6 +90,33 @@ const FIELD_KEYWORDS = new Set([
   "then",
   "else",
   "exists",
+]);
+
+/** JS-specific syntax colours (Mongo console). This is the *only* highlight
+ *  style in JS mode (the shared SQL one is swapped out) so its rules for
+ *  property/method names can't be shadowed by the SQL foreground rules. */
+const jsHighlightStyle = HighlightStyle.define([
+  { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
+  { tag: [t.punctuation, t.paren, t.brace, t.squareBracket], color: "var(--muted-foreground)" },
+  { tag: t.meta, color: "var(--muted-foreground)" },
+  { tag: t.operator, color: "var(--foreground)" },
+  { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
+  { tag: t.modifier, color: "var(--info-dark)", fontWeight: "600" },
+  { tag: [t.bool, t.null], color: "var(--warning-dark)" },
+  { tag: t.number, color: "var(--warning-dark)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--success-dark)" },
+  { tag: t.typeName, color: "var(--info-dark)" },
+  { tag: [t.standard(t.name), t.special(t.name)], color: "var(--info-dark)" },
+  // Method/call chains (`db.users.find(...)`) tinted blue so they read as code.
+  {
+    tag: [
+      t.variableName,
+      t.propertyName,
+      t.function(t.variableName),
+      t.function(t.propertyName),
+    ],
+    color: "var(--info-dark)",
+  },
 ]);
 
 /** Tables (and their aliases) referenced by FROM/JOIN clauses, mapped from
@@ -154,6 +191,30 @@ function schemaCompletions(
   };
 }
 
+/** Mongo shell completions for the JS console, offered alongside the
+ *  collection names. */
+const MONGO_SHELL_COMPLETIONS: Completion[] = [
+  { label: "find", type: "method" },
+  { label: "findOne", type: "method" },
+  { label: "countDocuments", type: "method" },
+  { label: "count", type: "method" },
+  { label: "distinct", type: "method" },
+  { label: "aggregate", type: "method" },
+  { label: "insertOne", type: "method" },
+  { label: "insertMany", type: "method" },
+  { label: "updateOne", type: "method" },
+  { label: "updateMany", type: "method" },
+  { label: "deleteOne", type: "method" },
+  { label: "deleteMany", type: "method" },
+  { label: "sort", type: "method" },
+  { label: "limit", type: "method" },
+  { label: "skip", type: "method" },
+  { label: "pretty", type: "method" },
+  { label: "use", type: "keyword" },
+  { label: "show dbs", type: "keyword" },
+  { label: "show collections", type: "keyword" },
+];
+
 interface SqlEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -164,6 +225,12 @@ interface SqlEditorProps {
   /** Column completions per table. Enables column suggestions after
    * `table.` and in field positions. */
   schema?: Record<string, Completion[]>;
+  /** "sql" (SQLite dialect) or "js" (JavaScript highlighting + colors —
+   * used by the MongoDB console). */
+  language?: "sql" | "js";
+  /** Extra completion labels offered in "js" (Mongo console) mode — e.g. the
+   *  collection names, suggested after `db.`. */
+  jsCompletions?: string[];
   height?: string;
   showLineNumber?: boolean;
   readOnly?: boolean;
@@ -174,7 +241,8 @@ interface SqlEditorProps {
 /**
  * SQL editor backed by CodeMirror 6 with the SQLite dialect. Its theme is
  * driven by the app's own design tokens (see codemirror-theme.ts), so it stays
- * in sync with light/dark mode. Ctrl+Enter runs the query.
+ * in sync with light/dark mode. Ctrl+Enter runs the query. Set `language` to
+ * "js" to highlight JavaScript shell commands instead (MongoDB console).
  */
 export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
   function SqlEditor(
@@ -185,7 +253,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
       onRunTarget,
       tables,
       schema,
+      jsCompletions,
       className,
+      language = "sql",
       height = "160px",
       showLineNumber = true,
       readOnly = false,
@@ -226,21 +296,46 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
       return () => document.removeEventListener("keydown", down);
     }, []);
 
-    const extensions = useMemo(() => {
-      const completions: Completion[] = (tables ?? []).map((t) => ({
-        label: t,
-        type: "table",
-      }));
+  const extensions = useMemo(() => {
+    if (language === "js") {
+      const collectionOptions: Completion[] = (jsCompletions ?? []).map(
+        (c) => ({ label: c, type: "property" }),
+      );
       return [
-        ...appEditorExtensions,
-        sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
-        // Register the schema-aware source alongside lang-sql's built-ins.
+        appEditorTheme,
+        // JS parsing/highlighting. The raw language keeps CodeMirror's built-in
+        // JS keyword completions (`default`, `do`, …) out of the console's
+        // suggestion list — the one below is the only completion provider.
+        javascriptLanguage,
+        syntaxHighlighting(jsHighlightStyle),
+        // Simplest reliable autocomplete: a static list (methods, shell
+        // keywords, collection names). `completeFromList` handles prefix
+        // matching and closes itself on chars that break the word.
         EditorState.languageData.of(() => [
-          { autocomplete: schemaCompletions(schema ?? {}) },
+          {
+            autocomplete: completeFromList([
+              ...MONGO_SHELL_COMPLETIONS,
+              ...collectionOptions,
+            ]),
+          },
         ]),
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
       ];
-    }, [tables, schema, enableWrapping]);
+    }
+    const completions: Completion[] = (tables ?? []).map((t) => ({
+      label: t,
+      type: "table",
+    }));
+    return [
+      ...appEditorExtensions,
+      sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
+      // Register the schema-aware source alongside lang-sql's built-ins.
+      EditorState.languageData.of(() => [
+        { autocomplete: schemaCompletions(schema ?? {}) },
+      ]),
+      ...(enableWrapping ? [EditorView.lineWrapping] : []),
+    ];
+  }, [tables, schema, language, jsCompletions, enableWrapping]);
 
     return (
       <div
@@ -268,7 +363,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
             searchKeymap: true,
             tabSize: 2,
           }}
-          placeholder="SELECT * FROM sqlite_master;"
+          placeholder={
+            language === "js"
+              ? 'db.users.find({ "status": "active" }).limit(10)'
+              : "SELECT * FROM sqlite_master;"
+          }
         />
       </div>
     );

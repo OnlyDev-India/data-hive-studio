@@ -7,7 +7,11 @@ import {
   srvConnId,
 } from "../api/client";
 import { connectionActions } from "./connections";
-import type { SavedConnParams, StudioNotification, StudioStore } from "./types";
+import type {
+  SavedConnParams,
+  StudioNotification,
+  StudioStore,
+} from "./types";
 import { workspaceActions } from "./workspace";
 
 let notif_seq = 0;
@@ -42,6 +46,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         view: "home",
         setView(view) {
           set({ view });
+        },
+
+        commandPaletteOpen: false,
+        setCommandPaletteOpen(open) {
+          set({ commandPaletteOpen: open });
         },
 
         sidebarOpen: true,
@@ -83,6 +92,13 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             delete next[key];
             return { gridBridges: next };
           });
+        },
+
+        mongoViews: {},
+        setMongoView(key, view) {
+          set((s) => ({
+            mongoViews: { ...s.mongoViews, [key]: view },
+          }));
         },
 
         schemaEdits: {},
@@ -156,57 +172,85 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           });
         },
 
-        // Saved (local) connections. Current format lives under 'pg.saved';
-        // legacy 'pg.pinned' local:* entries migrate here on first load.
+        // Saved (local) connections — ONE map for every kind, keyed by display
+        // name ('saved.local'); `kind` records which DB it reopens. Legacy
+        // 'pg.saved' / 'pg.pinned' / 'mongo.saved' data migrates in on first
+        // load so nothing already saved is lost.
         savedLocal: (() => {
           try {
-            const stored = localStorage.getItem("pg.saved");
+            const stored = localStorage.getItem("saved.local");
             if (stored)
               return JSON.parse(stored) as Record<string, SavedConnParams>;
           } catch {
             /* corrupt — fall through to legacy migration */
           }
+          const merged: Record<string, SavedConnParams> = {};
+          // Postgres saves from before the kind field — default to postgres.
           try {
-            const legacy = JSON.parse(
-              localStorage.getItem("pg.pinned") ?? "{}",
-            );
-            const saved: Record<string, SavedConnParams> = {};
-            const pins: string[] = [];
-            for (const [k, v] of Object.entries(legacy) as [
-              string,
-              SavedConnParams,
-            ][]) {
-              if (k.startsWith("local:")) saved[k.slice(6)] = v;
-              else pins.push(k);
-            }
-            if (pins.length)
-              localStorage.setItem("pg.pinIds", JSON.stringify(pins));
-            if (Object.keys(saved).length) {
-              localStorage.setItem("pg.saved", JSON.stringify(saved));
-            }
-            return saved;
+            for (const [k, v] of Object.entries(
+              JSON.parse(localStorage.getItem("pg.saved") ?? "{}"),
+            ) as [string, SavedConnParams][])
+              merged[k] = v.kind ? v : { ...v, kind: "postgres" };
           } catch {
-            return {};
+            /* corrupt */
           }
+          try {
+            for (const [k, v] of Object.entries(
+              JSON.parse(localStorage.getItem("pg.pinned") ?? "{}"),
+            ) as [string, SavedConnParams][]) {
+              if (k.startsWith("local:")) {
+                merged[k.slice(6)] = v.kind ? v : { ...v, kind: "postgres" };
+              } else {
+                try {
+                  const pins: string[] = JSON.parse(
+                    localStorage.getItem("pg.pinIds") ?? "[]",
+                  );
+                  if (!pins.includes(k)) pins.push(k);
+                  localStorage.setItem("pg.pinIds", JSON.stringify(pins));
+                } catch {
+                  /* storage unavailable */
+                }
+              }
+            }
+          } catch {
+            /* corrupt */
+          }
+          // MongoDB saves — always kind "mongodb".
+          try {
+            for (const [k, v] of Object.entries(
+              JSON.parse(localStorage.getItem("mongo.saved") ?? "{}"),
+            ) as [string, SavedConnParams][])
+              merged[k] = v.kind ? v : { ...v, kind: "mongodb" };
+          } catch {
+            /* corrupt */
+          }
+          if (Object.keys(merged).length) {
+            try {
+              localStorage.setItem("saved.local", JSON.stringify(merged));
+            } catch {
+              /* storage unavailable */
+            }
+          }
+          return merged;
         })(),
-        saveLocalPg(name, params) {
+        saveLocal(name, params) {
           set((s) => {
             const next = { ...s.savedLocal, [name]: { ...params, name } };
             try {
-              localStorage.setItem("pg.saved", JSON.stringify(next));
+              localStorage.setItem("saved.local", JSON.stringify(next));
             } catch {
               /* storage unavailable */
             }
             return { savedLocal: next };
           });
         },
-        updateSavedLocalPg(oldName, name, params) {
+        updateSavedLocal(oldName, name, params) {
           set((s) => {
             const next = { ...s.savedLocal };
             delete next[oldName];
             next[name] = { ...params, name };
             try {
-              localStorage.setItem("pg.saved", JSON.stringify(next));
+              localStorage.setItem("saved.local", JSON.stringify(next));
             } catch {
               /* storage unavailable */
             }
@@ -224,12 +268,12 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             return { savedLocal: next, pins: pin_next };
           });
         },
-        deleteSavedLocalPg(name) {
+        deleteSavedLocal(name) {
           set((s) => {
             const next = { ...s.savedLocal };
             delete next[name];
             try {
-              localStorage.setItem("pg.saved", JSON.stringify(next));
+              localStorage.setItem("saved.local", JSON.stringify(next));
             } catch {
               /* storage unavailable */
             }
@@ -270,9 +314,16 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         setPgConnecting(v) {
           set({ pgConnecting: v });
         },
-        requestLandingPrefill(params, connect = false, edit) {
+        /** True while a MongoDB connect is in flight — GLOBAL so navigating
+         *  between home/studio can't lose the spinner or double-connect. */
+        mongoConnecting: false,
+        setMongoConnecting(v) {
+          set({ mongoConnecting: v });
+        },
+        requestLandingPrefill(kind, params, connect = false, edit) {
           set((s) => ({
             landingPrefill: {
+              kind,
               params,
               n: (s.landingPrefill?.n ?? 0) + 1,
               connect,

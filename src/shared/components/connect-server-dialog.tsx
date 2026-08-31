@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -58,14 +58,22 @@ export function ConnectServerForm({
   const [name, setName] = useState(initial_name);
   const [url, setUrl] = useState(initial_url);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const displayError = externalError ?? error;
+  // Surface externally-passed errors (e.g. from a parent connect attempt) as
+  // notifications instead of inline text.
+  useEffect(() => {
+    if (externalError) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Server connection failed",
+        detail: externalError,
+      });
+    }
+  }, [externalError]);
 
   async function verify() {
     if (busy || !token.trim()) return;
     setBusy(true);
-    setError(null);
     try {
       // Verify the token against the server.
       const base =
@@ -159,7 +167,7 @@ export function ConnectServerForm({
           />
         </div>
 
-        {tab === "team" && (
+{tab === "team" && (
           <div className="grid gap-1.5">
             <Label htmlFor="cs-team">Team name</Label>
             <Input
@@ -169,10 +177,6 @@ export function ConnectServerForm({
               placeholder='e.g. "acme"'
             />
           </div>
-        )}
-
-        {displayError && (
-          <p className="text-destructive text-sm">{displayError}</p>
         )}
 
         <Button

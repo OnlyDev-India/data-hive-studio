@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Database, FileCode2 } from "lucide-react";
+import { Database, FileCode2, Leaf } from "lucide-react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { cn } from "@/shared/lib/utils";
 import {
   closeConnection,
+  connectMongo,
   connectPostgres,
   openDatabasePath,
   serversCreateConnection,
@@ -13,13 +14,14 @@ import {
 import { WEB } from "@/shared/api/web";
 import { pickDatabaseFile } from "@/shared/lib/platform";
 import { useStudioStore } from "@/shared/store";
-import type { LandingEditTarget, SavedConnParams } from "@/shared/store";
+import type { LandingEditTarget } from "@/shared/store";
 
 import { EditBanner } from "./edit-banner";
+import { MongoPanel } from "./mongo-panel";
 import { PgPanel } from "./pg-panel";
 import { SqlitePanel } from "./sqlite-panel";
 
-type DbKindChoice = "sqlite" | "postgres";
+type DbKindChoice = "sqlite" | "postgres" | "mongodb";
 
 /** Connection-kind bar, styled like the editor's tab strip (top of page). */
 function KindBar({
@@ -32,6 +34,7 @@ function KindBar({
   const items: { id: DbKindChoice; label: string; icon: typeof Database }[] = [
     { id: "sqlite", label: "SQLite", icon: Database },
     { id: "postgres", label: "PostgreSQL", icon: FileCode2 },
+    { id: "mongodb", label: "MongoDB", icon: Leaf },
   ];
   return (
     <div
@@ -97,6 +100,8 @@ export function Landing() {
    *  truthful and blocks a second auto-connect from the replayed prefill. */
   const pg_connecting = useStudioStore((st) => st.pgConnecting);
   const setPgConnecting = useStudioStore((st) => st.setPgConnecting);
+  const mongo_connecting = useStudioStore((st) => st.mongoConnecting);
+  const setMongoConnecting = useStudioStore((st) => st.setMongoConnecting);
   const clearLandingPrefill = useStudioStore((st) => st.clearLandingPrefill);
   const push_recent_params = useStudioStore((st) => st.pushRecentParams);
   const landing_prefill = useStudioStore((st) => st.landingPrefill);
@@ -107,6 +112,24 @@ export function Landing() {
   const [testing, setTesting] = useState(false);
   const [test_ok, setTestOk] = useState<boolean | null>(null);
   const [test_error, setTestError] = useState<string | null>(null);
+
+  // ---- MongoDB connect form ----
+  const [mongo_name, setMongoName] = useState("");
+  const [mongo_host, setMongoHost] = useState("localhost");
+  const [mongo_port, setMongoPort] = useState("27017");
+  const [mongo_user, setMongoUser] = useState("");
+  const [mongo_password, setMongoPassword] = useState("");
+  const [mongo_database, setMongoDatabase] = useState("");
+  const [mongo_auth_db, setMongoAuthDb] = useState("admin");
+  const [mongo_srv, setMongoSrv] = useState(false);
+  const [mongo_testing, setMongoTesting] = useState(false);
+  const [mongo_test_ok, setMongoTestOk] = useState<boolean | null>(null);
+  const [mongo_test_error, setMongoTestError] = useState<string | null>(null);
+
+  // MongoDB URL import/export
+  const [mongo_url_text, setMongoUrlText] = useState("");
+  const [mongo_url_error, setMongoUrlError] = useState<string | null>(null);
+  const [mongo_copied, setMongoCopied] = useState(false);
 
   const build_params = () => ({
     host: pg_host.trim() || "localhost",
@@ -181,11 +204,51 @@ export function Landing() {
     }
   };
 
+  // ---- MongoDB URL import/export ----
+  const import_mongo_url = () => {
+    const raw = mongo_url_text.trim();
+    if (!raw) return;
+    try {
+      const u = new URL(raw);
+      // Detect mongodb+srv:// vs mongodb://
+      const isSrv = u.protocol === "mongodb+srv:";
+      setMongoSrv(isSrv);
+      setMongoUser(decodeURIComponent(u.username));
+      setMongoPassword(decodeURIComponent(u.password));
+      setMongoHost(u.hostname);
+      if (u.port && !isSrv) setMongoPort(u.port);
+      setMongoDatabase(u.pathname.replace(/^\/+/, ""));
+      const authSource = u.searchParams.get("authSource");
+      if (authSource) setMongoAuthDb(authSource);
+      setMongoUrlError(null);
+    } catch {
+      setMongoUrlError("Could not parse that connection URL.");
+    }
+  };
+
+  const export_mongo_url = async () => {
+    const auth = `${encodeURIComponent(mongo_user.trim())}:${encodeURIComponent(mongo_password)}`;
+    const authSource = mongo_auth_db.trim() ? `?authSource=${encodeURIComponent(mongo_auth_db)}` : "";
+    const url = mongo_srv
+      ? `mongodb+srv://${auth}@${mongo_host.trim() || "localhost"}/${mongo_database.trim()}${authSource}`
+      : `mongodb://${auth}@${mongo_host.trim() || "localhost"}:${Number(mongo_port) || 27017}/${mongo_database.trim()}${authSource}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setMongoCopied(true);
+      setTimeout(() => setMongoCopied(false), 1500);
+    } catch {
+      // clipboard unavailable
+    }
+  };
+
   // Sidebar click hands PG details here; switch to the PG tab + fill. When
   // the request carries connect=true (double-click), chain a connect right
   // after the prefilled fields have committed.
   const last_prefill = useRef(0);
   const want_connect = useRef(false);
+  /** Which connect form a pending double-click targets; consumed by the
+   *  auto-connect effect once its fields commit. */
+  const want_kind = useRef<"postgres" | "mongodb" | null>(null);
 
   const pg_connect_click = async () => {
     if (pg_connecting || !pg_database.trim()) return;
@@ -228,6 +291,7 @@ export function Landing() {
       const conn: ConnectionInfo = await connectPostgres(form_ref.current);
       push_recent_params(conn.id, {
         ...form_ref.current,
+        kind: "postgres",
         name: pg_name.trim() || undefined,
       });
       openConn(conn);
@@ -242,21 +306,73 @@ export function Landing() {
     }
   };
 
-  // ---- Save connection (local pin or shared onto a team server) ----
+  const mongo_build_params = () => ({
+    host: mongo_host.trim() || "localhost",
+    port: Number(mongo_port) || 27017,
+    user: mongo_user.trim(),
+    password: mongo_password,
+    database: mongo_database.trim(),
+    auth_db: mongo_auth_db.trim() || "admin",
+    srv: mongo_srv,
+  });
+
+  const mongo_test_click = async () => {
+    if (mongo_testing || !mongo_database.trim()) return;
+    setMongoTesting(true);
+    setMongoTestOk(null);
+    setMongoTestError(null);
+    try {
+      const conn = await connectMongo(mongo_build_params());
+      await closeConnection(conn.id);
+      setMongoTestOk(true);
+    } catch (e) {
+      setMongoTestOk(false);
+      setMongoTestError(String(e));
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "MongoDB connection test failed",
+        detail: String(e),
+      });
+    } finally {
+      setMongoTesting(false);
+    }
+  };
+
+  const mongo_connect_click = async () => {
+    if (mongo_connecting || !mongo_database.trim()) return;
+    setMongoConnecting(true);
+    try {
+      const conn: ConnectionInfo = await connectMongo(mongo_build_params());
+      openConn(conn);
+    } catch (e) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "MongoDB connection failed",
+        detail: String(e),
+      });
+    } finally {
+      setMongoConnecting(false);
+    }
+  };
+
+  // ---- Save connection (local device; Mongo has no team-server sharing) ----
   const serverSessions = useStudioStore((st) => st.serverSessions);
-  const saveLocalPg = useStudioStore((st) => st.saveLocalPg);
+  const saveLocal = useStudioStore((st) => st.saveLocal);
+  const updateSavedLocal = useStudioStore((st) => st.updateSavedLocal);
   const pushNotification = useStudioStore((st) => st.pushNotification);
   /** Servers whose active session may publish connections (admin scope only). */
   const admin_servers = Object.values(serverSessions).filter(
     (s) => s.me.is_admin,
   );
   const [saving_to, setSavingTo] = useState<string | null>(null);
-  const updateSavedLocalPg = useStudioStore((st) => st.updateSavedLocalPg);
   const [editing, setEditing] = useState<LandingEditTarget | null>(null);
+
+  /** Full saved record for the PG form — `kind` routes it on reopen. */
+  const pg_saved_params = () => ({ ...build_params(), kind: "postgres" as const });
 
   const save_local = () => {
     if (editing?.source === "local") {
-      updateSavedLocalPg(editing.oldName, display_name(), build_params());
+      updateSavedLocal(editing.oldName, display_name(), pg_saved_params());
       pushNotification({
         kind: "success",
         title: "Updated saved connection",
@@ -265,11 +381,41 @@ export function Landing() {
       setEditing(null);
       return;
     }
-    saveLocalPg(display_name(), build_params());
+    saveLocal(display_name(), pg_saved_params());
     pushNotification({
       kind: "success",
       title: "Saved on this device",
       detail: display_name(),
+    });
+  };
+
+  const mongo_display_name = () =>
+    mongo_name.trim() ||
+    mongo_database.trim() ||
+    `${mongo_user.trim()}@${mongo_host.trim() || "localhost"}`;
+
+  /** Full saved record for the Mongo form — `kind` routes it on reopen. */
+  const mongo_saved_params = () => ({
+    ...mongo_build_params(),
+    kind: "mongodb" as const,
+  });
+
+  const save_mongo_local = () => {
+    if (editing?.source === "local") {
+      updateSavedLocal(editing.oldName, mongo_display_name(), mongo_saved_params());
+      pushNotification({
+        kind: "success",
+        title: "Updated saved MongoDB connection",
+        detail: mongo_display_name(),
+      });
+      setEditing(null);
+      return;
+    }
+    saveLocal(mongo_display_name(), mongo_saved_params());
+    pushNotification({
+      kind: "success",
+      title: "Saved on this device",
+      detail: mongo_display_name(),
     });
   };
 
@@ -361,33 +507,59 @@ export function Landing() {
   useEffect(() => {
     if (!landing_prefill || landing_prefill.n === last_prefill.current) return;
     last_prefill.current = landing_prefill.n;
-    const p: SavedConnParams = landing_prefill.params;
+    const kind = landing_prefill.kind;
+    const p = landing_prefill.params;
     setEditing(landing_prefill.edit ?? null);
     want_connect.current = landing_prefill.connect;
+    want_kind.current = kind;
     // Consume immediately: navigating home and back must NOT replay this
     // (that used to auto-open a duplicate connection on every visit).
     clearLandingPrefill();
     // Apply outside the effect body (no cascading renders).
     queueMicrotask(() => {
-      setKind("postgres");
-      setPgHost(p.host);
-      setPgPort(String(p.port));
-      setPgUser(p.user);
-      setPgPassword(p.password);
-      setPgDatabase(p.database);
-      if (p.ssl_mode) setPgSsl(p.ssl_mode);
+      if (kind === "mongodb") {
+        const m = p;
+        setKind("mongodb");
+        setMongoName(m.name ?? "");
+        setMongoHost(m.host);
+        setMongoPort(String(m.port));
+        setMongoUser(m.user);
+        setMongoPassword(m.password);
+        setMongoDatabase(m.database);
+        setMongoAuthDb(m.auth_db || "admin");
+        setMongoSrv(m.srv ?? false);
+      } else {
+        const pg = p;
+        setKind("postgres");
+        setPgHost(pg.host);
+        setPgPort(String(pg.port));
+        setPgUser(pg.user);
+        setPgPassword(pg.password);
+        setPgDatabase(pg.database);
+        if (pg.ssl_mode) setPgSsl(pg.ssl_mode);
+      }
     });
   }, [landing_prefill, clearLandingPrefill]);
 
   // Runs after the prefilled values commit; fires the Connect flow so its
-  // spinner/state drives from the form itself. The global pg_connecting flag
-  // keeps this safe across home/studio navigation.
+  // spinner/state drives from the form itself. The global connecting flags
+  // keep this safe across home/studio navigation.
   useEffect(() => {
-    if (!want_connect.current) return;
+    if (want_kind.current !== "postgres") return;
     if (!pg_database.trim() || pg_connecting) return;
+    want_kind.current = null;
     want_connect.current = false;
     // Microtask keeps setState out of the effect body itself.
     queueMicrotask(() => void pg_connect_click());
+  });
+
+  useEffect(() => {
+    if (want_kind.current !== "mongodb") return;
+    if (!mongo_database.trim() || mongo_connecting) return;
+    want_kind.current = null;
+    want_connect.current = false;
+    // Microtask keeps setState out of the effect body itself.
+    queueMicrotask(() => void mongo_connect_click());
   });
 
   // PG form field setter — keeps form_ref in sync via the effect above.
@@ -418,48 +590,90 @@ export function Landing() {
             />
           )}
 
-          <Card className="w-full">
-            <CardContent className="flex flex-col gap-4 pt-4">
-              {kind === "sqlite" ? (
-                <SqlitePanel
-                  opening={opening}
-                  onOpen={() => void open_file_click()}
-                />
-              ) : (
-                <PgPanel
-                  form={{
-                    name: pg_name,
-                    host: pg_host,
-                    port: pg_port,
-                    user: pg_user,
-                    password: pg_password,
-                    database: pg_database,
-                    ssl_mode: pg_ssl,
-                  }}
-                  setField={setPgField}
-                  url_text={url_text}
-                  setUrlText={setUrlText}
-                  url_error={url_error}
-                  copied={copied}
-                  onImport={import_url}
-                  onExport={() => void export_url()}
-                  testing={testing}
-                  test_ok={test_ok}
-                  test_error={test_error}
-                  onTest={() => void test_click()}
-                  connecting={pg_connecting}
-                  onConnect={() => void pg_connect_click()}
-                  saving_to={saving_to}
-                  admin_servers={admin_servers}
-                  editing={editing}
-                  onSaveLocal={save_local}
-                  onSaveServer={(pid, name) => void save_to_server(pid, name)}
-                  onUpdate={() => void update_server()}
-                  onCancelEdit={() => setEditing(null)}
-                />
-              )}
-            </CardContent>
-          </Card>
+            <Card className="w-full">
+              <CardContent className="flex flex-col gap-4 pt-4">
+                {kind === "sqlite" ? (
+                  <SqlitePanel
+                    opening={opening}
+                    onOpen={() => void open_file_click()}
+                  />
+                ) : kind === "mongodb" ? (
+                  <MongoPanel
+                    form={{
+                      name: mongo_name,
+                      host: mongo_host,
+                      port: mongo_port,
+                      user: mongo_user,
+                      password: mongo_password,
+                      database: mongo_database,
+                      auth_db: mongo_auth_db,
+                      srv: mongo_srv,
+                    }}
+                    setField={(key, value) => {
+                      const setters: Record<string, (v: string | boolean) => void> = {
+                        name: setMongoName,
+                        host: setMongoHost,
+                        port: setMongoPort,
+                        user: setMongoUser,
+                        password: setMongoPassword,
+                        database: setMongoDatabase,
+                        auth_db: setMongoAuthDb,
+                        srv: setMongoSrv,
+                      };
+                      setters[key]?.(value);
+                    }}
+                    testing={mongo_testing}
+                    test_ok={mongo_test_ok}
+                    test_error={mongo_test_error}
+                    onTest={() => void mongo_test_click()}
+                    connecting={mongo_connecting}
+                    onConnect={() => void mongo_connect_click()}
+                    editing={editing !== null}
+                    onSaveLocal={save_mongo_local}
+                    onUpdate={() => save_mongo_local()}
+                    onCancelEdit={() => setEditing(null)}
+                    url_text={mongo_url_text}
+                    setUrlText={setMongoUrlText}
+                    url_error={mongo_url_error}
+                    copied={mongo_copied}
+                    onImport={() => void import_mongo_url()}
+                    onExport={() => void export_mongo_url()}
+                  />
+                ) : (
+                  <PgPanel
+                    form={{
+                      name: pg_name,
+                      host: pg_host,
+                      port: pg_port,
+                      user: pg_user,
+                      password: pg_password,
+                      database: pg_database,
+                      ssl_mode: pg_ssl,
+                    }}
+                    setField={setPgField}
+                    url_text={url_text}
+                    setUrlText={setUrlText}
+                    url_error={url_error}
+                    copied={copied}
+                    onImport={import_url}
+                    onExport={() => void export_url()}
+                    testing={testing}
+                    test_ok={test_ok}
+                    test_error={test_error}
+                    onTest={() => void test_click()}
+                    connecting={pg_connecting}
+                    onConnect={() => void pg_connect_click()}
+                    saving_to={saving_to}
+                    admin_servers={admin_servers}
+                    editing={editing}
+                    onSaveLocal={save_local}
+                    onSaveServer={(pid, name) => void save_to_server(pid, name)}
+                    onUpdate={() => void update_server()}
+                    onCancelEdit={() => setEditing(null)}
+                  />
+                )}
+              </CardContent>
+            </Card>
         </div>
       </div>
     </div>

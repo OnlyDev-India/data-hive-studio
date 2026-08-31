@@ -1,15 +1,9 @@
-import {
-  Database,
-  History,
-  House,
-  ShieldCheck,
-  SquarePlus,
-  Terminal,
-} from "lucide-react";
+import { useState } from "react";
+import { History, Settings, ShieldCheck, Terminal } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
-import { ThemeToggle } from "@/shared/components/ui/theme-toggle";
 import { useStudioStore } from "@/shared/store";
+import { SettingsDialog } from "@/features/settings";
 import { ServerMenu } from "@/features/sharing";
 import {
   Tooltip,
@@ -17,6 +11,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/shared/components/ui/tooltip";
+import { DatabaseIcon, HouseIcon } from "@/shared/components/icons";
+import { SquarePlusIcon } from "@/shared/components/icons/pluse-square";
 
 function BarButton({
   active,
@@ -48,6 +44,7 @@ function BarButton({
             onClick={safeOnClick}
             disabled={disabled}
             className={cn(
+              "group hover:bg-primary/20",
               active ? "bg-primary/15 text-primary" : "text-muted-foreground",
               disabled &&
                 "opacity-40 hover:cursor-not-allowed hover:bg-transparent active:bg-transparent",
@@ -95,11 +92,14 @@ export function ActivityBar({
   const admin_active = useStudioStore((s) => s.view === "admin");
   const setView = useStudioStore((s) => s.setView);
 
+  // App settings dialog (gear button at the bottom of the bar).
+  const [settings_open, set_settings_open] = useState(false);
+
   return (
     <TooltipProvider delay={0}>
       <nav className="bg-background flex w-14 shrink-0 flex-col items-center gap-1 border-r py-3">
         <BarButton active={home_active} label="Home" onClick={on_home}>
-          <House className="size-5" />
+          <HouseIcon className="size-5" active={home_active} />
         </BarButton>
         <BarButton
           active={tables_active}
@@ -107,7 +107,11 @@ export function ActivityBar({
           label="Tables"
           onClick={on_tables}
         >
-          <Database className="size-5" />
+          <DatabaseIcon
+            className="size-5"
+            active={tables_active}
+            disabled={actions_disabled}
+          />
         </BarButton>
         <BarButton
           active={false}
@@ -115,7 +119,11 @@ export function ActivityBar({
           label="New table"
           onClick={on_new_table}
         >
-          <SquarePlus className="size-5" />
+          <SquarePlusIcon
+            className="size-5"
+            active={false}
+            disabled={actions_disabled}
+          />
         </BarButton>
         <BarButton
           active={false}
@@ -123,7 +131,11 @@ export function ActivityBar({
           label="SQL editor"
           onClick={on_sql}
         >
-          <Terminal className="size-5" />
+          <Terminal
+            className={cn("size-5", {
+              "group-hover:text-primary": !actions_disabled,
+            })}
+          />
         </BarButton>
         <BarButton
           active={activity_active}
@@ -131,7 +143,11 @@ export function ActivityBar({
           label="Activity — backend command log"
           onClick={on_activity}
         >
-          <History className="size-5" />
+          <History
+            className={cn("size-5", {
+              "group-hover:text-primary": !actions_disabled,
+            })}
+          />
         </BarButton>
         <div className="mt-auto flex flex-col items-center gap-1">
           <ServerMenu />
@@ -144,8 +160,15 @@ export function ActivityBar({
               <ShieldCheck className="size-5" />
             </BarButton>
           )}
-          <ThemeToggle />
+        <BarButton
+          active={false}
+          label="Settings"
+          onClick={() => set_settings_open(true)}
+        >
+          <Settings className="size-5" />
+        </BarButton>
         </div>
+        <SettingsDialog open={settings_open} onOpenChange={set_settings_open} />
       </nav>
     </TooltipProvider>
   );

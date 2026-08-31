@@ -15,6 +15,26 @@ export type CellId = [number, string];
 /** Formats a row can be copied as (right-click menu). */
 export type CopyFormat = "json" | "sql" | "markdown";
 
+/** One buffered, not-yet-applied change staged in the grid. Used by the apply
+ *  diff dialog so the user can review (and deselect) individual changes before
+ *  committing. `id` is stable and used to filter what gets applied. */
+export interface PendingChange {
+  id: string;
+  kind: "insert" | "update" | "delete";
+  /** Global display row number (1-based, includes the page offset). */
+  row: number;
+  /** update: the column being changed. */
+  column?: string;
+  /** update: original stored value. */
+  before?: string | null;
+  /** update: buffered new value. */
+  after?: string | null;
+  /** insert: the drafted row's values in column order. */
+  values?: (string | null)[];
+  /** insert: the drafted row's column names in the same order as `values`. */
+  value_columns?: string[];
+}
+
 /** Bounding box of the selection net, in row index / display-column index. */
 export interface SelBounds {
   min_r: number;
@@ -161,6 +181,9 @@ export interface GridContextValue {
   menu_delete: (row: number) => void;
   /** Present only when the host supports it; opens the right-side JSON viewer. */
   menu_show_json?: () => void;
+  /** Present only when the host supports it; opens a breadcrumbed drill-down
+   * grid over the JSON value of the clicked cell. */
+  menu_drill_json?: (row: number, col: string) => void;
   /** Copy the clicked row (or all fully-selected rows) as a formatted blob. */
   menu_copy_as?: (row: number, format: CopyFormat) => void;
   /** Present only when the host table supports it; duplicates the clicked row. */

@@ -51,8 +51,8 @@ export function GridBody() {
     >
       {/* Header: corner cell (row-number gutter header) then column headers.
           Sticks to the top of the scroller while rows window underneath. */}
-      <div className="bg-muted text-muted-foreground sticky top-0 z-80 flex w-max min-w-full border-b text-xs font-medium">
-        <div className="border-border/40 bg-muted sticky left-0 z-80 flex w-12 shrink-0 items-center justify-center border-r text-[11px]">
+      <div className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium">
+        <div className="border-border/40 bg-muted sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r text-[11px]">
           <span>#</span>
         </div>
         {headers.map(([col, isSorted, isPinned, px]) => (
@@ -100,7 +100,7 @@ export function GridBody() {
             >
               <div
                 className={cn(
-                  "border-border/40 bg-muted text-muted-foreground sticky left-0 z-70 flex w-12 shrink-0 cursor-pointer items-center justify-center border-r text-[11px] select-none",
+                  "border-border/40 bg-muted text-muted-foreground sticky left-0 z-7 flex w-12 shrink-0 cursor-pointer items-center justify-center border-r text-[11px] select-none",
                   gutter_sel &&
                     "bg-primary text-primary-foreground font-medium",
                   is_pending && "bg-yellow-300/20",

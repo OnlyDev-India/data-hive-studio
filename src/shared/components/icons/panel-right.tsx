@@ -8,7 +8,9 @@ interface PanelRightIconProps extends IconProps {
 const PanelRightIcon = ({
   size,
   className,
+  active,
   isOpen = false,
+  ...props
 }: PanelRightIconProps) => {
   return (
     <svg
@@ -18,29 +20,56 @@ const PanelRightIcon = ({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="0"
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn(
         "lucide lucide-panel-right-icon lucide-panel-right",
         className,
       )}
+      {...props}
     >
-      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <rect
+        width="18"
+        height="18"
+        x="3"
+        y="3"
+        rx="2"
+        className={cn("fill-muted-foreground/60", {
+          "fill-primary/60": active,
+        })}
+      />
 
       {/* Right panel */}
       <rect
-        x="15"
+        x={"15"}
         y="3"
-        width="6"
+        width={isOpen?"8":"0"}
         height="18"
-        rx="0"
-        fill={isOpen ? "currentColor" : "none"}
-        stroke="none"
+        rx="2"
+        stroke="2"
+        className={cn(
+          "fill-muted-foreground transition-all",
+          isOpen ? "opacity-100" : "opacity-80",
+          { "fill-primary": active },
+        )}
       />
+      {!isOpen && (
+        <rect
+          x={"12"}
+          y="3"
+          width={"3"}
+          height="18"
+          rx="2"
+          className={cn(
+            "fill-muted-foreground",
+            { "fill-primary": active },
+          )}
+        />
+      )}
 
       {/* Divider */}
-      <path d="M15 3v18" />
+      <path d="M15 3v18" stroke="2" className="fill-red-500"/>
     </svg>
   );
 };

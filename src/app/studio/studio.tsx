@@ -22,6 +22,7 @@ import { Landing } from "@/features/connections";
 import { NotificationToast } from "@/features/notifications";
 import { AdminConsole } from "@/features/sharing";
 import { Sidebar } from "@/features/workspace";
+import { CommandPalette } from "./command-palette";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 
 /** Per-connection workspaces are code-split away from the shell. */
@@ -290,6 +291,7 @@ export function Studio() {
         )}
       </div>
       <ActionBar on_disconnect={disconnect_click} />
+      <CommandPalette />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
     </div>

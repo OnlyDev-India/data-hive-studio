@@ -18,6 +18,7 @@ import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { useStudioStore } from "@/shared/store";
+import type { SavedConnParams } from "@/shared/store";
 
 /** Collapsible sidebar section. An OPEN section stretches to fill all
  *  remaining height; CLOSED ones shrink to just their header row, stacking
@@ -83,7 +84,7 @@ export function HomeView({
   on_search_change: (v: string) => void;
 }) {
   const saved_local = useStudioStore((s) => s.savedLocal);
-  const delete_saved = useStudioStore((s) => s.deleteSavedLocalPg);
+  const delete_saved = useStudioStore((s) => s.deleteSavedLocal);
   const pins = useStudioStore((s) => s.pins);
   const toggle_pin = useStudioStore((s) => s.togglePin);
   const server_sessions = useStudioStore((s) => s.serverSessions);
@@ -121,18 +122,27 @@ export function HomeView({
 
   const home_query = search_value.trim().toLowerCase();
 
-  const saved_rows = useMemo(
-    () =>
-      Object.entries(saved_local).filter(
-        ([name, p]) =>
-          !home_query ||
-          name.toLowerCase().includes(home_query) ||
-          [p.database, p.host, p.user].some((v) =>
-            v?.toLowerCase().includes(home_query),
-          ),
-      ),
-    [saved_local, home_query],
-  );
+  /** A saved connection bundled with everything the Saved section needs:
+   *  its kind (which form it fills) and its pin id. */
+  type SavedRow = {
+    id: string;
+    name: string;
+    kind: "postgres" | "mongodb";
+    params: SavedConnParams;
+  };
+  const saved_rows = useMemo<SavedRow[]>(() => {
+    const matches = (v: string | undefined) =>
+      !home_query || v?.toLowerCase().includes(home_query);
+    const out: SavedRow[] = [];
+    for (const [name, p] of Object.entries(saved_local)) {
+      // Backfill for saves written before the kind field existed.
+      const kind = p.kind || "postgres";
+      if (!matches(name) && ![p.database, p.host, p.user].some(matches))
+        continue;
+      out.push({ id: `local:${name}`, name, kind, params: p });
+    }
+    return out;
+  }, [saved_local, home_query]);
 
   const recent_filtered = useMemo(() => {
     if (!home_query) return recent;
@@ -160,13 +170,14 @@ export function HomeView({
         const params = saved_local[name];
         if (!params) continue;
         if (home_query && !name.toLowerCase().includes(home_query)) continue;
+        const kind = params.kind || "postgres";
         out.push({
           id,
           label: name,
-          source: "local",
+          source: kind === "mongodb" ? "mongodb" : "local",
           connect_title: "Double-click to connect",
-          on_click: () => request_prefill({ ...params }),
-          on_double_click: () => request_prefill({ ...params }, true),
+          on_click: () => request_prefill(kind, { ...params }),
+          on_double_click: () => request_prefill(kind, { ...params }, true),
         });
         continue;
       }
@@ -180,12 +191,13 @@ export function HomeView({
           source: sess.profile.name,
           connect_title: "Single click loads details; double-click connects",
           on_click: () =>
-            request_prefill({
+            request_prefill("postgres", {
               host: c.host,
               port: c.port,
               user: c.user,
               password: "",
               database: c.database,
+              kind: "postgres",
             }),
           on_double_click: () =>
             open_conn({
@@ -311,27 +323,23 @@ export function HomeView({
                             profileId,
                             remote_id,
                           );
-                          request_prefill(
-                            {
-                              host: creds.host,
-                              port: creds.port,
-                              user: creds.user,
-                              password: creds.password,
-                              database: creds.database,
-                            },
-                            false,
-                          );
+                          request_prefill("postgres", {
+                            host: creds.host,
+                            port: creds.port,
+                            user: creds.user,
+                            password: creds.password,
+                            database: creds.database,
+                            kind: "postgres",
+                          }, false);
                         } catch {
-                          request_prefill(
-                            {
-                              host: c.host,
-                              port: c.port,
-                              user: c.user,
-                              password: "",
-                              database: c.database,
-                            },
-                            false,
-                          );
+                          request_prefill("postgres", {
+                            host: c.host,
+                            port: c.port,
+                            user: c.user,
+                            password: "",
+                            database: c.database,
+                            kind: "postgres",
+                          }, false);
                         }
                       }}
                       onDoubleClick={() => {
@@ -439,20 +447,27 @@ export function HomeView({
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {saved_rows.map(([name, params]) => {
-              const pin_id = `local:${name}`;
+            {saved_rows.map((row) => {
+              const { id: pin_id, name, kind, params } = row;
               const is_pinned = pins.includes(pin_id);
               return (
                 <li key={name}>
                   <Button
                     variant="ghost"
                     title="Load into the connect form"
-                    onClick={() => request_prefill({ ...params })}
-                    onDoubleClick={() => request_prefill({ ...params }, true)}
+                    onClick={() => request_prefill(kind, { ...params })}
+                    onDoubleClick={() =>
+                      request_prefill(kind, { ...params }, true)
+                    }
                     className="hover:bg-accent group h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                   >
                     <Save className="text-muted-foreground size-4 shrink-0" />
                     <span className="truncate font-medium">{name}</span>
+                    {kind === "mongodb" && (
+                      <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
+                        mongo
+                      </span>
+                    )}
                     <span className="ml-auto flex shrink-0 items-center gap-1">
                       <span
                         aria-label={`Delete ${name}`}
@@ -521,7 +536,10 @@ export function HomeView({
                     onClick={() => {
                       const params = recents_params[conn.id];
                       if (conn.kind === "postgres" && params) {
-                        request_prefill(params);
+                        request_prefill("postgres", {
+                          ...params,
+                          kind: "postgres",
+                        });
                       } else {
                         void reopenRecent(conn);
                       }
@@ -529,7 +547,11 @@ export function HomeView({
                     onDoubleClick={() => {
                       const params = recents_params[conn.id];
                       if (conn.kind === "postgres" && params) {
-                        request_prefill(params, true);
+                        request_prefill(
+                          "postgres",
+                          { ...params, kind: "postgres" },
+                          true,
+                        );
                       } else {
                         void reopenRecent(conn);
                       }

@@ -6,11 +6,12 @@ import type { StudioStore, WorkspaceTabs } from "./types";
 type SetState = StoreApi<StudioStore>["setState"];
 
 export const DEFAULT_WORKSPACE: WorkspaceTabs = {
-  tabs: [{ kind: "sql", id: 0 }],
-  active: { kind: "sql", id: 0 },
-  nextSqlId: 1,
+  tabs: [],
+  active: null,
+  nextSqlId: 0,
   nextNewTableId: 0,
   nextTableId: 0,
+  nextMongoTabId: 0,
   paneModes: {},
 };
 
@@ -67,6 +68,10 @@ function bulkCloseTabs(
 
     const paneModes: typeof cur.paneModes = {};
     for (const t of kept) paneModes[tabKey(t)] = cur.paneModes[tabKey(t)];
+    const keptKeys = new Set(kept.map((t) => tabKey(t)));
+    const mongoViews: typeof state.mongoViews = {};
+    for (const k of Object.keys(state.mongoViews))
+      if (keptKeys.has(k)) mongoViews[k] = state.mongoViews[k];
     return {
       workspaces: putWs(state.workspaces, connId, {
         ...cur,
@@ -74,6 +79,7 @@ function bulkCloseTabs(
         active,
         paneModes,
       }),
+      mongoViews,
     };
   });
 }
@@ -172,6 +178,26 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
+    openMongo(connId: string, database: string, collection: string) {
+      set((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const tab: StudioTab = {
+          kind: "mongo",
+          conn_id: connId,
+          database,
+          collection,
+          tabId: cur.nextMongoTabId,
+        };
+        return {
+          workspaces: putWs(state.workspaces, connId, {
+            ...cur,
+            tabs: [...cur.tabs, tab],
+            active: tab,
+            nextMongoTabId: cur.nextMongoTabId + 1,
+          }),
+        };
+      });
+    },
     openNewTable(connId: string) {
       set((state) => {
         const cur = getWs(state.workspaces, connId);
@@ -182,6 +208,27 @@ export function workspaceActions(set: SetState) {
             tabs: [...cur.tabs, tab],
             active: tab,
             nextNewTableId: cur.nextNewTableId + 1,
+          }),
+        };
+      });
+    },
+/** MongoDB console per connection, one new tab each call (like SQL
+     *  editors). `database` is the console's initial db context. */
+    openMongoConsole(connId: string, database: string) {
+      set((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const tab: StudioTab = {
+          kind: "mongo-console",
+          conn_id: connId,
+          database,
+          id: cur.nextMongoTabId,
+        };
+        return {
+          workspaces: putWs(state.workspaces, connId, {
+            ...cur,
+            tabs: [...cur.tabs, tab],
+            active: tab,
+            nextMongoTabId: cur.nextMongoTabId + 1,
           }),
         };
       });
@@ -211,6 +258,8 @@ export function workspaceActions(set: SetState) {
         delete paneModes[tabKey(tab)];
         const sqlSeeds = { ...state.sqlSeeds };
         delete sqlSeeds[tabKey(tab)];
+        const mongoViews = { ...state.mongoViews };
+        delete mongoViews[tabKey(tab)];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -219,6 +268,7 @@ export function workspaceActions(set: SetState) {
             paneModes,
           }),
           sqlSeeds,
+          mongoViews,
         };
       });
     },

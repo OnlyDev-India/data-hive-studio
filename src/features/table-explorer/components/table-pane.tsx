@@ -171,7 +171,7 @@ export function TablePane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, combined_rev, distinct_cols, is_postgres]);
+  }, [conn_id, table, combined_rev, distinct_cols, is_postgres, schema]);
 
   const add_filter = (filter: Omit<GridFilter, "id">) => {
     setFilters((cur) => {

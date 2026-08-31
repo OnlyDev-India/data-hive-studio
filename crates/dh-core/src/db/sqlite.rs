@@ -108,6 +108,7 @@ impl SqliteAdapter {
                     primary_key: pk > 0,
                     default,
                     enum_values: Vec::new(),
+                    is_array: false,
                 });
             }
         }
