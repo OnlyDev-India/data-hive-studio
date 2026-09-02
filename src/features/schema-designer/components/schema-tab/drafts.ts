@@ -250,6 +250,61 @@ export function validate_drafts(
   return null;
 }
 
+/** Diff index drafts against the loaded schema into drop/create ops for one
+ *  table/collection. Shared by `build_ops` (SQL tables, which also diff
+ *  columns/triggers/FKs) and the MongoDB index-only editor (Mongo collections
+ *  have no columns/triggers/FKs to diff — indexes are the only DDL concept
+ *  that applies). `table` rides along on every op — SQLite/Postgres ignore
+ *  it on drop (index names are unique per file/schema there), but MongoDB
+ *  requires it (index names are only unique per collection). */
+export function build_index_ops(
+  table: string,
+  idxs: IdxDraft[],
+  resolve: (n: string) => string,
+): SchemaOp[] {
+  const ops: SchemaOp[] = [];
+  const dropped_idx = new Set<string>();
+  for (const ix of idxs) {
+    if (ix.system) continue;
+    if (!ix.orig_name || !ix.dropped) continue;
+    ops.push({ kind: "drop_index", table, index: ix.orig_name });
+    dropped_idx.add(ix.id);
+  }
+  for (const ix of idxs) {
+    if (ix.system || ix.dropped || !ix.orig_name) continue;
+    const name = ix.name.trim();
+    const final_cols = ix.columns.map(resolve);
+    const changed =
+      name !== ix.orig_name ||
+      ix.unique !== !!ix.orig_unique ||
+      JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns);
+    if (changed && !dropped_idx.has(ix.id))
+      ops.push({ kind: "drop_index", table, index: ix.orig_name });
+  }
+  for (const ix of idxs) {
+    if (ix.system || ix.dropped) continue;
+    const name = ix.name.trim();
+    if (!name || ix.columns.length === 0) continue;
+    const is_new = ix.orig_name === null;
+    const final_cols = ix.columns.map(resolve);
+    const changed =
+      !is_new &&
+      (name !== ix.orig_name ||
+        ix.unique !== !!ix.orig_unique ||
+        JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns));
+    if (is_new || changed) {
+      ops.push({
+        kind: "create_index",
+        table,
+        name,
+        columns: final_cols,
+        ...(ix.unique ? { unique: true } : {}),
+      });
+    }
+  }
+  return ops;
+}
+
 /** Diff drafts against the original schema into an ordered batch of DDL ops:
  *  table rename → column drops → adds → alters → index drops → creates →
  *  trigger drops → creates. `resolve` maps original column names to their
@@ -311,45 +366,7 @@ export function build_ops(
         : {}),
     });
   }
-  const dropped_idx = new Set<string>();
-  for (const ix of idxs) {
-    if (ix.system) continue;
-    if (!ix.orig_name || !ix.dropped) continue;
-    ops.push({ kind: "drop_index", index: ix.orig_name });
-    dropped_idx.add(ix.id);
-  }
-  for (const ix of idxs) {
-    if (ix.system || ix.dropped || !ix.orig_name) continue;
-    const name = ix.name.trim();
-    const final_cols = ix.columns.map(resolve);
-    const changed =
-      name !== ix.orig_name ||
-      ix.unique !== !!ix.orig_unique ||
-      JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns);
-    if (changed && !dropped_idx.has(ix.id))
-      ops.push({ kind: "drop_index", index: ix.orig_name });
-  }
-  for (const ix of idxs) {
-    if (ix.system || ix.dropped) continue;
-    const name = ix.name.trim();
-    if (!name || ix.columns.length === 0) continue;
-    const is_new = ix.orig_name === null;
-    const final_cols = ix.columns.map(resolve);
-    const changed =
-      !is_new &&
-      (name !== ix.orig_name ||
-        ix.unique !== !!ix.orig_unique ||
-        JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns));
-    if (is_new || changed) {
-      ops.push({
-        kind: "create_index",
-        table: T,
-        name,
-        columns: final_cols,
-        ...(ix.unique ? { unique: true } : {}),
-      });
-    }
-  }
+  ops.push(...build_index_ops(T, idxs, resolve));
   // Triggers last: an edit is a drop + create pair (no ALTER TRIGGER in
   // SQLite); the transactional apply keeps the pair atomic.
   for (const t of trigs) {

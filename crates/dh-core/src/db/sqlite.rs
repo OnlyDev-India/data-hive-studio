@@ -695,7 +695,7 @@ impl SqliteAdapter {
                     cols
                 )]
             }
-            SchemaOp::DropIndex { index } => {
+            SchemaOp::DropIndex { index, .. } => {
                 vec![format!("DROP INDEX {}", quote_ident(index))]
             }
             SchemaOp::DropTrigger { name } => {
@@ -1444,7 +1444,7 @@ mod tests {
 
         // Batch 1 — toggle unique OFF: drop + recreate as a plain index.
         let batch1 = vec![
-            SchemaOp::DropIndex { index: "ux_email".into() },
+            SchemaOp::DropIndex { table: None, index: "ux_email".into() },
             SchemaOp::CreateIndex {
                 table: "t".into(),
                 name: "ux_email".into(),
@@ -1462,7 +1462,7 @@ mod tests {
 
         // Batch 2 — toggle unique back ON: the CREATE hits the duplicates…
         let batch2 = vec![
-            SchemaOp::DropIndex { index: "ux_email".into() },
+            SchemaOp::DropIndex { table: None, index: "ux_email".into() },
             SchemaOp::CreateIndex {
                 table: "t".into(),
                 name: "ux_email".into(),
@@ -1554,7 +1554,7 @@ mod tests {
 
         let ops = vec![
             SchemaOp::RenameTable { table: "t".into(), new_name: "t2".into() },
-            SchemaOp::DropIndex { index: "never_existed".into() },
+            SchemaOp::DropIndex { table: None, index: "never_existed".into() },
         ];
         assert!(adapter.apply_schema_ops_batch(&ops).await.is_err());
         let tables: Vec<(String,)> =

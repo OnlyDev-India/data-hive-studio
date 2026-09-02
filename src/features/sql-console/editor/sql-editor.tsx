@@ -12,11 +12,13 @@ import CodeMirror, {
 import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
 import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { EditorState } from "@codemirror/state";
-import { completeFromList } from "@codemirror/autocomplete";
 import {
-  syntaxHighlighting,
-  HighlightStyle,
-} from "@codemirror/language";
+  completeFromList,
+  closeCompletion,
+  startCompletion,
+} from "@codemirror/autocomplete";
+import { keymap } from "@codemirror/view";
+import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import type {
   Completion,
@@ -97,14 +99,20 @@ const FIELD_KEYWORDS = new Set([
  *  property/method names can't be shadowed by the SQL foreground rules. */
 const jsHighlightStyle = HighlightStyle.define([
   { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
-  { tag: [t.punctuation, t.paren, t.brace, t.squareBracket], color: "var(--muted-foreground)" },
+  {
+    tag: [t.punctuation, t.paren, t.brace, t.squareBracket],
+    color: "var(--muted-foreground)",
+  },
   { tag: t.meta, color: "var(--muted-foreground)" },
   { tag: t.operator, color: "var(--foreground)" },
   { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
   { tag: t.modifier, color: "var(--info-dark)", fontWeight: "600" },
   { tag: [t.bool, t.null], color: "var(--warning-dark)" },
   { tag: t.number, color: "var(--warning-dark)" },
-  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--success-dark)" },
+  {
+    tag: [t.string, t.special(t.string), t.regexp],
+    color: "var(--success-dark)",
+  },
   { tag: t.typeName, color: "var(--info-dark)" },
   { tag: [t.standard(t.name), t.special(t.name)], color: "var(--info-dark)" },
   // Method/call chains (`db.users.find(...)`) tinted blue so they read as code.
@@ -215,6 +223,25 @@ const MONGO_SHELL_COMPLETIONS: Completion[] = [
   { label: "show collections", type: "keyword" },
 ];
 
+/** Completions for the Mongo console: right after `db.` this offers
+ *  collection names, right after `db.<collection>.` it offers shell methods
+ *  — mirroring `schemaCompletions`' auto-open-on-dot behaviour for SQL — and
+ *  anything else falls back to prefix-matching the combined list. */
+function mongoConsoleCompletions(
+  methods: Completion[],
+  collections: Completion[],
+): CompletionSource {
+  const fallback = completeFromList([...methods, ...collections]);
+  return (ctx: CompletionContext) => {
+    const before = ctx.state.doc.sliceString(0, ctx.pos);
+    if (/db\.\w*\.$/.test(before))
+      return { from: ctx.pos, options: methods, validFor: /^\w*$/ };
+    if (/db\.$/.test(before))
+      return { from: ctx.pos, options: collections, validFor: /^\w*$/ };
+    return fallback(ctx);
+  };
+}
+
 interface SqlEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -269,6 +296,46 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
     const runTargetRef = useRef(onRunTarget);
     runTargetRef.current = onRunTarget;
 
+    // Word-breaking characters close a lingering completion popup instead of
+    // filtering it. `.` gets its own handler below: it's the member-access
+    // trigger (`table.`, `db.`), so instead of just closing it re-opens the
+    // popup immediately after inserting the dot.
+    const completionDismissKeymap = keymap.of([
+      {
+        key: " ",
+        run: (view) => {
+          closeCompletion(view);
+          view.dispatch(view.state.replaceSelection(" "));
+          return true;
+        },
+      },
+      {
+        key: ".",
+        run: (view) => {
+          closeCompletion(view);
+          view.dispatch(view.state.replaceSelection("."));
+          startCompletion(view);
+          return true;
+        },
+      },
+      {
+        key: "(",
+        run: (view) => {
+          closeCompletion(view);
+          view.dispatch(view.state.replaceSelection("("));
+          return true;
+        },
+      },
+      {
+        key: ",",
+        run: (view) => {
+          closeCompletion(view);
+          view.dispatch(view.state.replaceSelection(","));
+          return true;
+        },
+      },
+    ]);
+
     useImperativeHandle(ref, () => ({
       getTarget: () => {
         const view = cmsRef.current?.view;
@@ -296,46 +363,73 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
       return () => document.removeEventListener("keydown", down);
     }, []);
 
-  const extensions = useMemo(() => {
-    if (language === "js") {
-      const collectionOptions: Completion[] = (jsCompletions ?? []).map(
-        (c) => ({ label: c, type: "property" }),
-      );
+    const extensions = useMemo(() => {
+      if (language === "js") {
+        const collectionOptions: Completion[] = (jsCompletions ?? []).map(
+          (c) => ({ label: c, type: "property" }),
+        );
+        return [
+          appEditorTheme,
+          // JS parsing/highlighting. The raw language keeps CodeMirror's built-in
+          // JS keyword completions (`default`, `do`, …) out of the console's
+          // suggestion list — the one below is the only completion provider.
+          javascriptLanguage,
+          syntaxHighlighting(jsHighlightStyle),
+          // Static list (methods, shell keywords, collection names), plus
+          // dot-triggered scoping so `db.` / `db.<collection>.` auto-open
+          // the right subset instead of requiring a typed prefix.
+          EditorState.languageData.of(() => [
+            {
+              autocomplete: mongoConsoleCompletions(
+                MONGO_SHELL_COMPLETIONS,
+                collectionOptions,
+              ),
+            },
+          ]),
+          // Dismiss the completion popup when the user types space.
+          completionDismissKeymap,
+          ...(enableWrapping ? [EditorView.lineWrapping] : []),
+        ];
+      }
+      const completions: Completion[] = (tables ?? []).map((t) => ({
+        label: t,
+        type: "table",
+      }));
       return [
-        appEditorTheme,
-        // JS parsing/highlighting. The raw language keeps CodeMirror's built-in
-        // JS keyword completions (`default`, `do`, …) out of the console's
-        // suggestion list — the one below is the only completion provider.
-        javascriptLanguage,
-        syntaxHighlighting(jsHighlightStyle),
-        // Simplest reliable autocomplete: a static list (methods, shell
-        // keywords, collection names). `completeFromList` handles prefix
-        // matching and closes itself on chars that break the word.
+        ...appEditorExtensions,
+        sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
+        // Register the schema-aware source alongside lang-sql's built-ins.
         EditorState.languageData.of(() => [
-          {
-            autocomplete: completeFromList([
-              ...MONGO_SHELL_COMPLETIONS,
-              ...collectionOptions,
-            ]),
-          },
+          { autocomplete: schemaCompletions(schema ?? {}) },
         ]),
+        // Dismiss the completion popup when the user types space.
+        completionDismissKeymap,
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
       ];
-    }
-    const completions: Completion[] = (tables ?? []).map((t) => ({
-      label: t,
-      type: "table",
-    }));
-    return [
-      ...appEditorExtensions,
-      sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
-      // Register the schema-aware source alongside lang-sql's built-ins.
-      EditorState.languageData.of(() => [
-        { autocomplete: schemaCompletions(schema ?? {}) },
-      ]),
-      ...(enableWrapping ? [EditorView.lineWrapping] : []),
-    ];
-  }, [tables, schema, language, jsCompletions, enableWrapping]);
+    }, [tables, schema, language, jsCompletions, enableWrapping]);
+
+    // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set
+    // (tearing down and recreating every basicSetup extension, including
+    // autocompletion()) whenever this object's reference changes. Passed
+    // inline it would be a new object every render — i.e. on every
+    // keystroke, since this is a controlled editor — killing any
+    // in-progress/open completion before it could ever show.
+    const basicSetupConfig = useMemo(
+      () => ({
+        lineNumbers: showLineNumber,
+        highlightActiveLineGutter: true,
+        highlightActiveLine: true,
+        history: true,
+        foldGutter: false,
+        autocompletion: true,
+        closeBrackets: true,
+        bracketMatching: true,
+        indentOnInput: true,
+        searchKeymap: true,
+        tabSize: 2,
+      }),
+      [showLineNumber],
+    );
 
     return (
       <div
@@ -350,19 +444,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
           theme="none"
           style={{ height: "100%" }}
           readOnly={readOnly}
-          basicSetup={{
-            lineNumbers: showLineNumber,
-            highlightActiveLineGutter: true,
-            highlightActiveLine: true,
-            history: true,
-            foldGutter: false,
-            autocompletion: true,
-            closeBrackets: true,
-            bracketMatching: true,
-            indentOnInput: true,
-            searchKeymap: true,
-            tabSize: 2,
-          }}
+          basicSetup={basicSetupConfig}
           placeholder={
             language === "js"
               ? 'db.users.find({ "status": "active" }).limit(10)'

@@ -40,6 +40,7 @@
   --info-foreground: oklch(0.985 0 0);
   --info-light: oklch(0.95 0.08 250);
   --info-dark: oklch(0.35 0.18 250);
+  --bson-ctor: oklch(0.42 0.17 292);
   --selection: oklch(0.65 0.16 55);
   --selection-foreground: oklch(1 0 0);
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
@@ -83,6 +84,7 @@
   --info-foreground: oklch(0.985 0 0);
   --info-light: oklch(0.25 0.08 250);
   --info-dark: oklch(0.75 0.18 250);
+  --bson-ctor: oklch(0.8 0.16 292);
   --selection: oklch(0.55 0.18 55);
   --selection-foreground: oklch(0.205 0 0);
   --scrollbar-thumb: #555;
@@ -198,4 +200,21 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* ---- BSON JSON editor (JSON view) syntax accents ---- */
+/* The key/ctor marks wrap the token's own highlight span, so the inner span
+   (e.g. `.ͼ39` for strings) must be targeted directly to override it. */
+.bson-ctor,
+.bson-ctor span {
+  color: var(--bson-ctor) !important;
+  font-weight: 650;
+}
+.json-key,
+.json-key span {
+  color: var(--info-dark) !important;
+}
+.cm-mongo-error {
+  text-decoration: underline wavy var(--destructive);
+  text-decoration-skip-ink: none;
 }

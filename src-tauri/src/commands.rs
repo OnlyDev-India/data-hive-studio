@@ -1,6 +1,6 @@
 use crate::api::{
-    ConnectionInfo, DbKind, MongoDocumentsResult, MongoRunResult, QueryChunk, QueryOp, QueryResult,
-    SchemaOp, TableInfo, TableSchema,
+    ConnectionInfo, DbKind, MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult,
+    QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
 };
 use crate::db::CatalogOverview;
 
@@ -99,15 +99,47 @@ pub async fn list_documents(
     Ok(MongoDocumentsResult { documents: docs, total })
 }
 
-/// Replace a single MongoDB document (matched by `_id` ObjectId hex).
+/// Replace a single MongoDB document (matched by `_id` ObjectId hex) with the
+/// document parsed from MQL extended JSON `document_text`.
 #[tauri::command]
 pub async fn save_document(
     conn_id: String,
     collection: String,
     id: String,
-    document: serde_json::Value,
+    document_text: String,
 ) -> Result<bool, String> {
-    crate::db::save_document(&conn_id, &collection, &id, document).await.map_err(to_err)
+    crate::db::save_document(&conn_id, &collection, &id, &document_text)
+        .await
+        .map_err(to_err)
+}
+
+/// Fetch a page of MongoDB documents rendered as type-aware MQL extended JSON
+/// text (for the JSON editor).
+#[tauri::command]
+pub async fn list_documents_ext(
+    conn_id: String,
+    collection: String,
+    filter: Option<serde_json::Value>,
+    skip: u64,
+    limit: u64,
+) -> Result<MongoExtDocumentsResult, String> {
+    let (docs, total) =
+        crate::db::list_documents_ext(&conn_id, &collection, filter, skip, limit)
+            .await
+            .map_err(to_err)?;
+    Ok(MongoExtDocumentsResult { documents: docs, total })
+}
+
+/// Insert a new MongoDB document parsed from MQL extended JSON `document_text`.
+#[tauri::command]
+pub async fn insert_document(
+    conn_id: String,
+    collection: String,
+    document_text: String,
+) -> Result<(), String> {
+    crate::db::insert_document(&conn_id, &collection, &document_text)
+        .await
+        .map_err(to_err)
 }
 
 /// Run a MongoDB console command (JSON find/aggregate or a shell-subset

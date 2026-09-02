@@ -22,15 +22,7 @@ import { cn, statementRanges } from "@/shared/lib/utils";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import { useStudioStore } from "@/shared/store";
 
-const DEFAULT_SCRIPT = `// MongoDB console — run one line at a time:
-//   db.users.find({ "status": "active" }).limit(10).pretty()
-//   db.users.aggregate([ { "$match": { "status": "active" } }, { "$count": "n" } ])
-//   db.users.countDocuments({})
-//   db.users.distinct( "city" )
-//   show collections
-//   use <database>
-// With a collection selected above you can also paste a bare JSON query:
-//   { "status": "active" }`;
+const DEFAULT_SCRIPT = ``;
 
 /** One row of the result strip: a single run + its outcome. */
 interface Entry {
@@ -307,6 +299,8 @@ export function MongoConsolePane({
                   entry={active}
                   query_result={entry_query_result(active)}
                   view={view}
+                  conn_id={conn_id}
+                  tab_key={tab_key}
                 />
               ) : null}
             </div>
@@ -321,10 +315,14 @@ function ResultBody({
   entry,
   query_result,
   view,
+  conn_id,
+  tab_key,
 }: {
   entry: Entry;
   query_result: QueryResult;
   view: "grid" | "json";
+  conn_id: string;
+  tab_key: string;
 }) {
   const result = entry.result!;
   if (result.error)
@@ -342,7 +340,11 @@ function ResultBody({
       )}
 
       {view === "grid" ? (
-        <QueryResultsGrid result={query_result} />
+        <QueryResultsGrid
+          result={query_result}
+          conn_id={conn_id}
+          tab_key={tab_key}
+        />
       ) : result.documents.length === 0 ? (
         <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
           No documents.

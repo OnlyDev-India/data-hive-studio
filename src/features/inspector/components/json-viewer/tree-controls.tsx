@@ -4,6 +4,7 @@ import {
   Copy,
   Maximize,
   Search,
+  Pencil,
   WrapText,
   X,
 } from "lucide-react";
@@ -25,10 +26,16 @@ export interface TreeControlsProps {
   onCopy: () => void;
   onClose: () => void;
   onExpand?: () => void;
+  /** True when the viewer is in edit mode (the pencil is active). */
+  editable: boolean;
+  /** Row can't be edited (no write-back hook) — disable the pencil. */
+  editDisabled?: boolean;
+  onToggleEdit: () => void;
 }
 
-/** Toolbar shared by the sidebar viewer and the expanded dialog: search with
- *  match navigation, word-wrap toggle, copy, expand and close. */
+/** Toolbar shared by the sidebar viewer and the expanded dialog: search (the
+ *  magnifier lives inside the search box), word-wrap toggle, edit toggle,
+ *  copy, expand and close. */
 export function TreeControls({
   query,
   onQueryChange,
@@ -43,23 +50,28 @@ export function TreeControls({
   onCopy,
   onClose,
   onExpand,
+  editable,
+  editDisabled,
+  onToggleEdit,
 }: TreeControlsProps) {
   return (
-    <div className="flex items-center gap-1 border-b px-2 py-1.5">
-      <Search className="text-muted-foreground size-3.5 shrink-0" />
-      <Input
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            if (e.shiftKey) onPrev();
-            else onNext();
-          }
-        }}
-        placeholder="Search in row…"
-        className="h-6 min-w-0 flex-1 px-2 text-xs"
-      />
+    <div className="flex items-center gap-1 border-b px-2 py-1.5 max-h-8.5">
+      <label className="relative min-w-0 flex-1">
+        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-1.5 size-3.5 -translate-y-1/2" />
+        <Input
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (e.shiftKey) onPrev();
+              else onNext();
+            }
+          }}
+          placeholder="Search in row…"
+          className="h-6 w-full min-w-0 pl-6 text-xs"
+        />
+      </label>
       {searching && (
         <>
           <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
@@ -102,12 +114,32 @@ export function TreeControls({
       <Button
         variant="ghost"
         size="iconXs"
-        className={cn("size-5", wrap && "bg-muted text-foreground")}
+        className={cn("size-5", wrap && "bg-primary/60 text-foreground")}
         aria-label="Toggle word wrap"
         title={wrap ? "Word wrap on" : "Word wrap off"}
         onClick={onToggleWrap}
       >
         <WrapText className="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="iconXs"
+        disabled={editDisabled}
+        className={cn(
+          "size-5",
+          editable && !editDisabled && "bg-primary/60 text-foreground",
+        )}
+        aria-label={editable ? "Stop editing" : "Edit row JSON"}
+        title={
+          editDisabled
+            ? "This row is read-only"
+            : editable
+              ? "Editing (click again to stop)"
+              : "Edit row JSON"
+        }
+        onClick={onToggleEdit}
+      >
+        <Pencil className="size-3.5" />
       </Button>
       {onExpand && (
         <Button

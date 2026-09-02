@@ -119,6 +119,13 @@ pub struct MongoDocumentsResult {
     pub total: u64,
 }
 
+/// Result for the type-aware MongoDB document listing (MQL extended JSON text).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MongoExtDocumentsResult {
+    pub documents: Vec<String>,
+    pub total: u64,
+}
+
 /// Result of running a single MongoDB console command (a JSON find/aggregate,
 /// or a shell-subset statement). Carries both a flat grid projection (columns +
 /// rows, renderable by the shared query grid) and the raw JSON documents for a
@@ -322,7 +329,11 @@ pub enum SchemaOp {
         unique: bool,
     },
     DropIndex {
-        /// Index names are unique per database file in SQLite.
+        /// Index names are unique per database file in SQLite (and per
+        /// schema in Postgres) — those adapters ignore `table`. MongoDB
+        /// index names are only unique per collection, so Mongo requires it.
+        #[serde(default)]
+        table: Option<String>,
         index: String,
     },
     /// Remove a trigger. SQLite has no ALTER TRIGGER — editing is always a

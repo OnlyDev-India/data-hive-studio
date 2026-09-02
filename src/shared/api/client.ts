@@ -702,19 +702,56 @@ export async function listDocuments(
   });
 }
 
-/** Replace a single MongoDB document by its ObjectId hex `_id`. */
+export interface MongoExtDocumentsResult {
+  documents: string[];
+  total: number;
+}
+
+/** Fetch a page of documents rendered as type-aware MQL extended JSON text
+ *  (the JSON editor's data source — types like ObjectId/ISODate survive). */
+export async function listDocumentsExt(
+  connId: string,
+  collection: string,
+  params?: ListDocumentsParams,
+): Promise<MongoExtDocumentsResult> {
+  if (isServerConn(connId) || WEB) return { documents: [], total: 0 };
+  return invoke("list_documents_ext", {
+    connId,
+    collection,
+    filter: params?.filter ?? null,
+    skip: params?.skip ?? 0,
+    limit: params?.limit ?? 50,
+  });
+}
+
+/** Replace a single MongoDB document (matched by ObjectId hex `_id`) with the
+ *  document parsed from `documentText` (MQL extended JSON). */
 export async function saveDocument(
   connId: string,
   collection: string,
   id: string,
-  document: unknown,
+  documentText: string,
 ): Promise<boolean> {
   if (isServerConn(connId) || WEB) return false;
   return invoke("save_document", {
     connId,
     collection,
     id,
-    document,
+    documentText,
+  });
+}
+
+/** Insert a new MongoDB document parsed from `documentText` (MQL extended JSON). */
+export async function insertDocument(
+  connId: string,
+  collection: string,
+  documentText: string,
+): Promise<void> {
+  if (isServerConn(connId) || WEB) return;
+  return invoke("insert_document", {
+    connId,
+    collection,
+    documentText,
   });
 }
 

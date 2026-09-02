@@ -1402,7 +1402,7 @@ impl DbAdapter for PgAdapter {
                         q(table)
                     )]
                 }
-                SchemaOp::DropIndex { index } => {
+                SchemaOp::DropIndex { index, .. } => {
                     vec![format!("DROP INDEX {}", q(index))]
                 }
                 SchemaOp::DropTrigger { name } => {

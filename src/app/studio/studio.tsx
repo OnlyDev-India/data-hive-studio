@@ -9,10 +9,9 @@ import {
 import { AlertTriangle } from "lucide-react";
 import { LeftPanelSlot } from "./left-panel";
 import {
-  closeConnection,
   getActivity,
   serversReleaseConnection,
-  type ActivityEntry,
+  type ActivityEntry
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
@@ -201,17 +200,6 @@ export function Studio() {
   const landing = effective_view === "home";
   const show_admin = effective_view === "admin";
 
-  // Disconnect lives in the status bar's first section.
-  const closeConn = useStudioStore((s) => s.closeConn);
-  const disconnect_click = useCallback(() => {
-    const c = active_conn;
-    if (!c) return;
-    void (async () => {
-      await closeConnection(c.id);
-      closeConn(c.id);
-    })();
-  }, [active_conn, closeConn]);
-
   return (
     <div className="bg-muted/20 flex h-screen flex-col overflow-hidden border-t">
       <WebWarningBanner />
@@ -290,7 +278,7 @@ export function Studio() {
           })
         )}
       </div>
-      <ActionBar on_disconnect={disconnect_click} />
+      <ActionBar />
       <CommandPalette />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}

@@ -1,8 +1,8 @@
-//! MongoDB adapter (Phase 1 of the MONGODB_SUPPORT plan): connects over TCP,
-//! lists databases/collections, and serves best-effort read-only introspection
-//! against the same [`DbAdapter`] surface. SQL-shaped operations are rejected
-//! with `InvalidOperation` — MongoDB has no SQL — and the dedicated document
-//! browsing/query surface lands in later phases.
+//! MongoDB adapter: connects over TCP, lists databases/collections, serves
+//! document browsing/editing and the MongoDB console (find/aggregate/shell
+//! subset), and — per `MONGODB_SUPPORT.md` Phase 4 — runs a `SELECT`-only SQL
+//! subset (see `mongo_sql.rs`) translated to `find()`. Writes/DDL via SQL
+//! remain unsupported; use the grid or the MongoDB console for those.
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -13,7 +13,8 @@ use mongodb::Client;
 use std::sync::Arc;
 
 use crate::api::{
-    ColumnInfo, FilterOp, GridFilterCond, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
+    ColumnInfo, FilterOp, GridFilterCond, IndexInfo, QueryOp, QueryResult, SchemaOp, TableInfo,
+    TableSchema,
 };
 use super::{BatchSink, DbAdapter, DbError, DbResult, OpOutcome, QueryChunk};
 
@@ -264,9 +265,12 @@ fn filter_from_match_row(
 
 pub struct MongoAdapter {
     client: Client,
-    /// Database the connection was opened against — where unqualified
-    /// collection operations resolve.
-    database: String,
+    /// Database unqualified collection operations resolve against. Starts as
+    /// the database the connection was opened with, but the user can switch
+    /// it (a Mongo connection spans every database on the server) — see
+    /// `set_active_schema`. A sync `RwLock` is fine: it's only ever held for
+    /// a clone/assign, never across an `.await`.
+    database: std::sync::RwLock<String>,
 }
 
 // ---- Console parser (Phase 3: find / aggregate / count / distinct + a small
@@ -494,15 +498,20 @@ impl MongoAdapter {
             .map_err(|e| DbError::InvalidOperation(format!("mongo connect {}:{}: {}", params.host, params.port, e)))?;
         Ok(Self {
             client,
-            database: params.database.clone(),
+            database: std::sync::RwLock::new(params.database.clone()),
         })
+    }
+
+    /// The database unqualified collection operations currently target.
+    fn cur_database(&self) -> String {
+        self.database.read().unwrap().clone()
     }
 
     /// Collect the union of top-level field names across a sample of up to 200
     /// documents, with each field's most-common BSON type. Used to build a
     /// best-effort "schema" for the explorer (MongoDB is schemaless).
     async fn inferred_schema(&self, collection: &str) -> DbResult<Vec<ColumnInfo>> {
-        let col = self.client.database(&self.database).collection::<bson::Document>(collection);
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
         let mut cursor = col
             .find(None, None)
             .await
@@ -554,6 +563,93 @@ impl MongoAdapter {
             .collect())
     }
 
+    /// List a collection's indexes (Phase 5: index manager). `_id_` is
+    /// Mongo's implicit primary-key index — reported with origin `"pk"` so
+    /// the UI treats it as read-only, matching the SQL adapters' PK-index
+    /// convention; every other index is `"c"` (explicit, editable/droppable).
+    async fn list_indexes(&self, collection: &str) -> DbResult<Vec<IndexInfo>> {
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
+        let mut cursor = col
+            .list_indexes(None)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        let mut out = Vec::new();
+        while let Some(model) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
+            let name = model
+                .options
+                .as_ref()
+                .and_then(|o| o.name.clone())
+                .unwrap_or_default();
+            let unique = model.options.as_ref().and_then(|o| o.unique).unwrap_or(false);
+            let columns: Vec<String> = model.keys.iter().map(|(k, _)| k.clone()).collect();
+            let origin = if name == "_id_" { "pk" } else { "c" };
+            out.push(IndexInfo { name, unique, columns, origin: origin.into() });
+        }
+        Ok(out)
+    }
+
+    /// Create an index (Phase 5). Every listed field gets an ascending (1)
+    /// key — the generic `SchemaOp::CreateIndex` shape has no per-column
+    /// direction, matching the SQL adapters' index-creation surface.
+    async fn create_index(
+        &self,
+        collection: &str,
+        name: &str,
+        columns: &[String],
+        unique: bool,
+    ) -> DbResult<()> {
+        if columns.is_empty() {
+            return Err(DbError::InvalidOperation(
+                "an index needs at least one column".into(),
+            ));
+        }
+        let mut keys = bson::Document::new();
+        for c in columns {
+            keys.insert(c.as_str(), 1);
+        }
+        let options = mongodb::options::IndexOptions::builder()
+            .name(name.to_string())
+            .unique(unique)
+            .build();
+        let model = mongodb::IndexModel::builder()
+            .keys(keys)
+            .options(Some(options))
+            .build();
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
+        col.create_index(model, None)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        Ok(())
+    }
+
+    /// Drop an index by name (Phase 5). The default `_id_` index can't be
+    /// dropped — rejected here with a friendlier message than the server's.
+    async fn drop_index(&self, collection: &str, name: &str) -> DbResult<()> {
+        if name == "_id_" {
+            return Err(DbError::InvalidOperation(
+                "the default _id index cannot be dropped".into(),
+            ));
+        }
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
+        col.drop_index(name, None)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        Ok(())
+    }
+
     /// Convert a BSON Document to a serde_json::Value for JSON rendering.
     fn document_to_json(doc: bson::Document) -> serde_json::Value {
         let mut map = serde_json::Map::new();
@@ -595,7 +691,7 @@ impl MongoAdapter {
         skip: u64,
         limit: u64,
     ) -> DbResult<(Vec<serde_json::Value>, u64)> {
-        let col = self.client.database(&self.database).collection::<bson::Document>(collection);
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
         let total = col
             .count_documents(filter.clone().unwrap_or_default(), None)
             .await
@@ -631,7 +727,7 @@ impl MongoAdapter {
         limit: i64,
         offset: i64,
     ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>, u64)> {
-        let col = self.client.database(&self.database).collection::<bson::Document>(collection);
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
         let mut opts = mongodb::options::FindOptions::builder().build();
         if let Some(field) = order_by {
             let dir = if order_dir == Some("DESC") { -1 } else { 1 };
@@ -693,6 +789,70 @@ impl MongoAdapter {
         Ok((columns, rows, total))
     }
 
+    /// Execute a translated SQL `SELECT` (Phase 4: SQL-on-Mongo) as a Mongo
+    /// `find()` and project it into a grid-style column/row result. Explicit
+    /// column lists (`SELECT a, b FROM ...`) drive the Mongo projection and
+    /// fix the output column order; `SELECT *` falls back to the union-of-
+    /// fields projection used elsewhere in this adapter.
+    async fn run_select_plan(
+        &self,
+        plan: &super::mongo_sql::SelectPlan,
+    ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>)> {
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(&plan.table);
+        let mut opts = mongodb::options::FindOptions::builder().build();
+        if let Some(cols) = &plan.columns {
+            let mut proj = bson::Document::new();
+            for c in cols {
+                proj.insert(c.as_str(), 1);
+            }
+            if !cols.iter().any(|c| c == "_id") {
+                proj.insert("_id", 0);
+            }
+            opts.projection = Some(proj);
+        }
+        if let Some(sort) = &plan.sort {
+            opts.sort = Some(sort.clone());
+        }
+        if let Some(limit) = plan.limit {
+            if limit > 0 {
+                opts.limit = Some(limit);
+            }
+        }
+        if let Some(offset) = plan.offset {
+            opts.skip = Some(offset.max(0) as u64);
+        }
+        let mut cursor = col
+            .find(plan.filter.clone().unwrap_or_default(), opts)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        let mut docs: Vec<serde_json::Value> = Vec::new();
+        while let Some(d) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
+            docs.push(Self::document_to_json(d));
+        }
+        if let Some(cols) = &plan.columns {
+            let rows = docs
+                .iter()
+                .map(|d| match d {
+                    serde_json::Value::Object(map) => cols
+                        .iter()
+                        .map(|c| map.get(c).and_then(json_cell_string))
+                        .collect(),
+                    other => cols.iter().map(|_| json_cell_string(other)).collect(),
+                })
+                .collect();
+            Ok((cols.clone(), rows))
+        } else {
+            Ok(flatten_documents(&docs))
+        }
+    }
+
     /// Distinct cell values for one field (bounded), for enum-style editors.
     async fn distinct_values(
         &self,
@@ -700,7 +860,7 @@ impl MongoAdapter {
         column: &str,
         limit: i64,
     ) -> DbResult<Vec<Option<String>>> {
-        let col = self.client.database(&self.database).collection::<bson::Document>(collection);
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
         let vals = col
             .distinct(column, doc! {}, None)
             .await
@@ -1059,7 +1219,7 @@ impl DbAdapter for MongoAdapter {
     async fn list_tables(&self) -> DbResult<Vec<TableInfo>> {
         let names = self
             .client
-            .database(&self.database)
+            .database(&self.cur_database())
             .list_collection_names(None)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
@@ -1071,6 +1231,10 @@ impl DbAdapter for MongoAdapter {
 
     async fn table_schema(&self, table: &str) -> DbResult<(TableSchema, Vec<String>)> {
         let columns = self.inferred_schema(table).await?;
+        // Index listing degrades gracefully (empty) rather than failing the
+        // whole schema fetch — browsing a collection shouldn't break because
+        // of a transient listIndexes issue.
+        let indexes = self.list_indexes(table).await.unwrap_or_default();
         Ok((
             TableSchema {
                 // "table" → the grid renders the collection with editable
@@ -1078,10 +1242,13 @@ impl DbAdapter for MongoAdapter {
                 kind: "table".into(),
                 columns,
                 foreign_keys: Vec::new(),
-                indexes: Vec::new(),
+                indexes,
                 triggers: Vec::new(),
             },
-            vec![format!("db.{table}.find().limit(200) / sample to infer fields")],
+            vec![
+                format!("db.{table}.find().limit(200) / sample to infer fields"),
+                format!("db.{table}.getIndexes()"),
+            ],
         ))
     }
 
@@ -1111,11 +1278,43 @@ impl DbAdapter for MongoAdapter {
         self.list_documents(collection, bson_filter, skip, limit).await
     }
 
+    async fn list_documents_ext(
+        &self,
+        collection: &str,
+        filter: Option<serde_json::Value>,
+        skip: u64,
+        limit: u64,
+    ) -> DbResult<(Vec<String>, u64)> {
+        let bson_filter = filter.and_then(|v| bson::to_document(&v).ok());
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let total = col
+            .count_documents(bson_filter.clone().unwrap_or_default(), None)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        let mut cursor = col
+            .find(bson_filter.unwrap_or_default(), None)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        let mut docs = Vec::new();
+        let mut skipped = 0u64;
+        while let Some(doc) = cursor.try_next().await.map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))? {
+            if skipped < skip {
+                skipped += 1;
+                continue;
+            }
+            if docs.len() >= limit as usize {
+                break;
+            }
+            docs.push(super::mongo_json::render(&doc));
+        }
+        Ok((docs, total))
+    }
+
     async fn save_document(
         &self,
         collection: &str,
         id: &str,
-        document: serde_json::Value,
+        document_text: &str,
     ) -> DbResult<bool> {
         if !is_object_id_hex(id) {
             return Err(DbError::InvalidOperation(
@@ -1124,14 +1323,28 @@ impl DbAdapter for MongoAdapter {
         }
         let oid = bson::oid::ObjectId::parse_str(id)
             .map_err(|e| DbError::InvalidOperation(format!("mongo _id: {e}")))?;
-        let doc = bson::to_document(&document)
-            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
-        let col = self.client.database(&self.database).collection::<bson::Document>(collection);
+        let doc = super::mongo_json::parse(document_text)
+            .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
         let res = col
             .replace_one(doc! { "_id": oid }, doc, None)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(res.modified_count > 0 || res.matched_count > 0)
+    }
+
+    async fn insert_document(
+        &self,
+        collection: &str,
+        document_text: &str,
+    ) -> DbResult<()> {
+        let doc = super::mongo_json::parse(document_text)
+            .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
+        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        col.insert_one(doc, None)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        Ok(())
     }
 
     async fn run_mongo(
@@ -1148,26 +1361,67 @@ impl DbAdapter for MongoAdapter {
         Ok(super::CatalogOverview {
             schemas: vec![],
             databases,
-            active_schema: self.database.clone(),
+            active_schema: self.cur_database(),
         })
     }
 
     async fn active_schema(&self) -> DbResult<String> {
-        Ok(self.database.clone())
+        Ok(self.cur_database())
     }
 
-    async fn run_sql(&self, _sql: &str) -> DbResult<QueryResult> {
-        Err(DbError::InvalidOperation(
-            "MongoDB has no SQL; use the MongoDB console (find/aggregate/shell)".into(),
-        ))
+    /// Switch which database on the server unqualified collection operations
+    /// (grid browsing, the console, SQL) target. Mongo has no schemas —
+    /// this reuses the `DbAdapter` schema-switch slot for Mongo's database
+    /// switch, the same way the sidebar already treats "schema" as the
+    /// per-engine catalog unit.
+    async fn set_active_schema(&self, schema: &str) -> DbResult<()> {
+        let dbs = self.list_databases().await?;
+        if !dbs.iter().any(|d| d == schema) {
+            return Err(DbError::InvalidOperation(format!(
+                "database \"{schema}\" does not exist on this server"
+            )));
+        }
+        *self.database.write().unwrap() = schema.to_string();
+        Ok(())
+    }
+
+    /// SQL-on-Mongo (Phase 4): a `SELECT ... FROM ... [WHERE ...] [ORDER BY
+    /// ...] [LIMIT ...] [OFFSET ...]` subset (no JOINs, no schema needed) is
+    /// translated to a `find()` and run for real. Anything else (writes,
+    /// DDL, JOINs) is out of the supported subset — use the grid or the
+    /// MongoDB console instead.
+    async fn run_sql(&self, sql: &str) -> DbResult<QueryResult> {
+        let start = std::time::Instant::now();
+        if !super::mongo_sql::is_select(sql) {
+            return Err(DbError::InvalidOperation(
+                "MongoDB SQL support currently covers SELECT only (WHERE/ORDER BY/LIMIT/OFFSET, no JOINs); use the grid or the MongoDB console for writes".into(),
+            ));
+        }
+        let plan = super::mongo_sql::translate_select(sql)
+            .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
+        let (columns, rows) = self.run_select_plan(&plan).await?;
+        Ok(QueryResult {
+            columns,
+            rows,
+            rows_affected: 0,
+            is_select: true,
+            error: None,
+            elapsed_ms: start.elapsed().as_millis(),
+        })
     }
 
     async fn execute_params(&self, _sql: &str, _params: &[Option<String>]) -> DbResult<u64> {
-        Err(DbError::InvalidOperation("MongoDB has no SQL".into()))
+        Err(DbError::InvalidOperation(
+            "MongoDB SQL support is read-only (SELECT) for now; use the grid or the MongoDB console to write".into(),
+        ))
     }
 
-    async fn run_sql_params(&self, _sql: &str, _params: &[Option<String>]) -> DbResult<QueryResult> {
-        Err(DbError::InvalidOperation("MongoDB has no SQL".into()))
+    async fn run_sql_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<QueryResult> {
+        // Our SQL subset has no placeholder syntax of its own — inline the
+        // bound `?` params as literals first (same helper the SQL adapters
+        // use for the activity log), then translate as plain SQL text.
+        let inlined = super::inline_placeholders(sql, params, false);
+        self.run_sql(&inlined).await
     }
 
     async fn execute_op(&self, op: &QueryOp) -> DbResult<OpOutcome> {
@@ -1201,7 +1455,7 @@ impl DbAdapter for MongoAdapter {
             QueryOp::Count { table, filters, custom_where } => {
                 let filter = build_filter(filters, custom_where.as_deref())?;
                 let desc = filter_desc(&filter);
-                let col = self.client.database(&self.database).collection::<bson::Document>(table);
+                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
                 let total = col
                     .count_documents(filter.clone().unwrap_or_default(), None)
                     .await
@@ -1242,7 +1496,7 @@ impl DbAdapter for MongoAdapter {
                     }
                     set_doc.insert(k, field_bson(v.as_deref(), cols.get(k).map(String::as_str)));
                 }
-                let col = self.client.database(&self.database).collection::<bson::Document>(table);
+                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
                 let res = col
                     .update_many(filter.clone(), doc! { "$set": set_doc }, None)
                     .await
@@ -1261,7 +1515,7 @@ impl DbAdapter for MongoAdapter {
             }
             QueryOp::Delete { table, match_row } => {
                 let filter = filter_from_match_row(match_row);
-                let col = self.client.database(&self.database).collection::<bson::Document>(table);
+                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
                 let res = col
                     .delete_many(filter.clone(), None)
                     .await
@@ -1290,7 +1544,7 @@ impl DbAdapter for MongoAdapter {
                     }
                     doc.insert(k, field_bson(v.as_deref(), cols.get(k).map(String::as_str)));
                 }
-                let col = self.client.database(&self.database).collection::<bson::Document>(table);
+                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
                 col.insert_one(doc.clone(), None)
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
@@ -1378,12 +1632,74 @@ impl DbAdapter for MongoAdapter {
         }
     }
 
-    async fn run_sql_stream(&self, _sql: &str, _on_batch: BatchSink<'_>) -> DbResult<QueryResult> {
-        Err(DbError::InvalidOperation("MongoDB has no SQL".into()))
+    async fn run_sql_stream(&self, sql: &str, on_batch: BatchSink<'_>) -> DbResult<QueryResult> {
+        let start = std::time::Instant::now();
+        if !super::mongo_sql::is_select(sql) {
+            return Err(DbError::InvalidOperation(
+                "MongoDB SQL support currently covers SELECT only (WHERE/ORDER BY/LIMIT/OFFSET, no JOINs); use the grid or the MongoDB console for writes".into(),
+            ));
+        }
+        let plan = super::mongo_sql::translate_select(sql)
+            .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
+        let (columns, rows) = self.run_select_plan(&plan).await?;
+        on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
+        let mut batch: Vec<Vec<Option<String>>> = Vec::new();
+        for row in rows {
+            batch.push(row);
+            if batch.len() >= 500 {
+                on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
+            }
+        }
+        if !batch.is_empty() {
+            on_batch(QueryChunk { columns: None, rows: batch })?;
+        }
+        Ok(QueryResult {
+            columns,
+            rows: Vec::new(),
+            rows_affected: 0,
+            is_select: true,
+            error: None,
+            elapsed_ms: start.elapsed().as_millis(),
+        })
     }
 
-    async fn apply_schema_ops_batch(&self, _ops: &[SchemaOp]) -> DbResult<Vec<String>> {
-        Err(DbError::InvalidOperation("MongoDB is schemaless; DDL is not supported".into()))
+    /// MongoDB is schemaless, so most `SchemaOp` DDL has no equivalent — the
+    /// index-only subset (Phase 5) is the exception, since indexes are a real
+    /// per-collection concept in Mongo. Ops run one at a time (no
+    /// transaction — Mongo index DDL isn't part of the multi-doc transaction
+    /// surface here); the first failure stops the batch.
+    async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
+        let mut stmts = Vec::with_capacity(ops.len());
+        for op in ops {
+            match op {
+                SchemaOp::CreateIndex { table, name, columns, unique } => {
+                    self.create_index(table, name, columns, *unique).await?;
+                    let keys = columns
+                        .iter()
+                        .map(|c| format!("{c}: 1"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    stmts.push(format!(
+                        "db.{table}.createIndex({{ {keys} }}, {{ name: \"{name}\", unique: {unique} }})"
+                    ));
+                }
+                SchemaOp::DropIndex { table, index } => {
+                    let Some(table) = table else {
+                        return Err(DbError::InvalidOperation(
+                            "dropping a MongoDB index requires its collection name".into(),
+                        ));
+                    };
+                    self.drop_index(table, index).await?;
+                    stmts.push(format!("db.{table}.dropIndex(\"{index}\")"));
+                }
+                _ => {
+                    return Err(DbError::InvalidOperation(
+                        "MongoDB is schemaless; only index create/drop is supported".into(),
+                    ))
+                }
+            }
+        }
+        Ok(stmts)
     }
 
     async fn close(self: Arc<Self>) {}

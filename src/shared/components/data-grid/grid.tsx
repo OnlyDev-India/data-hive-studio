@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   executeOp,
   executeOpStream,
@@ -18,6 +26,27 @@ import {
   type GridFilter,
 } from "./types";
 
+/** Mongo document session — the grid's live page + buffered edits, shared with
+ *  the JSON view so both render the same source of truth. */
+export interface MongoSession {
+  columns: string[];
+  rows: (string | null)[][];
+  offset: number;
+  dirty: Record<string, string | null>;
+  pending: { values: (string | null)[]; dirty: boolean }[];
+}
+
+/** Handle a pane uses to take over bridge ownership (registerBridge={false})
+ *  while delegating the actual editing/apply to the grid. */
+export interface GridHandle {
+  /** The grid's own bridge (unregistered) — the owner composes the final
+   *  action-bar bridge from it. */
+  bridge: GridBridge;
+  session: () => MongoSession | null;
+  /** Write a single (top-level field) edit into the grid's buffered state. */
+  edit_field: (col: string, globalRow: number, value: string | null) => void;
+}
+
 interface GridProps {
   conn_id: string;
   table: string;
@@ -28,6 +57,9 @@ interface GridProps {
   custom_where: string;
   distinct: DistinctMap;
   on_refresh?: () => void;
+  /** True when this grid renders a Mongo collection: the right-hand editor
+   *  then uses BSON source (ObjectId, ISODate, …) instead of plain JSON. */
+  is_mongo?: boolean;
   /** Called when an FK cell's jump icon is clicked — opens the referenced
    * table filtered to this value. */
   on_open_reference?: (
@@ -37,9 +69,8 @@ interface GridProps {
   ) => void;
   /** True while a schema Apply is in flight for this pane — blocks the grid. */
   props_busy?: boolean;
-  /** False while the grid stays mounted but another view (e.g. the JSON view)
-   *  owns the tab's action-bar bridge. The grid re-registers its bridge when
-   *  it becomes active again. */
+  /** False while the grid stays mounted but another view owns the tab's
+   *  action-bar bridge; the grid re-registers its bridge when active again. */
   active?: boolean;
 }
 
@@ -55,20 +86,24 @@ function sql_ident(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-export function Grid({
-  conn_id,
-  table,
-  schema,
-  revision,
-  tab_key,
-  filters,
-  custom_where,
-  distinct,
-  on_refresh,
-  on_open_reference,
-  props_busy = false,
-  active = true,
-}: GridProps) {
+export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
+  {
+    conn_id,
+    table,
+    schema,
+    revision,
+    tab_key,
+    filters,
+    custom_where,
+    distinct,
+    on_refresh,
+    is_mongo = false,
+    on_open_reference,
+    props_busy = false,
+    active = true,
+  },
+  ref,
+) {
   const [page, setPage] = useState(0);
   const [page_size, setPageSize] = useState(50);
   const [local_rev, setLocalRev] = useState(0);
@@ -130,12 +165,37 @@ export function Grid({
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
   const setRightSidebarOpen = useStudioStore((s) => s.setRightSidebarOpen);
+  // The JSON viewer shows the ACTIVE tab's row; publishing under this scope
+  // (connection + tab) keeps one tab's selection from leaking into another.
+  const json_scope = `${conn_id}\u0000${tab_key}`;
 
   // The controller keeps the JSON viewer in sync with the anchor cell; the
-  // viewer opens on the context-menu action.
+  // viewer opens on the context-menu action. The published row carries a
+  // `kind` (BSON source for Mongo, plain JSON otherwise) and a write-back hook
+  // so the right-hand editor can buffer field edits on that row.
   const sync_json = useCallback(
-    (row: JsonRow) => setJsonRow(row),
-    [setJsonRow],
+    (row: JsonRow) => {
+      setJsonRow(json_scope, {
+        ...row,
+        kind: is_mongo ? "mongo" : "sql",
+        col_types: Object.fromEntries(schema.columns.map((c) => [c.name, c.data_type])),
+        on_edit: (col, value) => {
+          const real = row.row_number - 1;
+          const key = `${col}\u0000${real}`;
+          const local = real - page * page_size;
+          const original =
+            result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
+          const norm = (v: string | null) => (v === null || v === "" ? "" : v);
+          setDirtyCells((cur) => {
+            const next = new Map(cur);
+            if (norm(value) === norm(original)) next.delete(key);
+            else next.set(key, value);
+            return next;
+          });
+        },
+      });
+    },
+    [json_scope, is_mongo, schema, result, page, page_size, setJsonRow],
   );
   const open_json = useCallback(
     () => setRightSidebarOpen(true),
@@ -917,17 +977,54 @@ export function Grid({
     ],
   );
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      bridge,
+      session: () => ({
+        columns: result?.columns ?? [],
+        rows: result?.rows ?? [],
+        offset,
+        dirty: Object.fromEntries(dirty_cells),
+        pending: pending.map((p) => ({ values: p.values, dirty: p.dirty })),
+      }),
+      edit_field: (col, globalRow, value) => {
+        setDirtyCells((cur) => {
+          const next = new Map(cur);
+          next.set(`${col}\u0000${globalRow}`, value);
+          return next;
+        });
+      },
+    }),
+    [
+      bridge,
+      result,
+      offset,
+      dirty_cells,
+      pending,
+    ],
+  );
+
   useEffect(() => {
     if (!active) return;
     setGridBridge(tab_key, bridge);
     return () => clearGridBridge(tab_key);
   }, [tab_key, bridge, active, setGridBridge, clearGridBridge]);
 
+  // Clear the JSON viewer's row only when this grid truly stops being the
+  // active tab (unmount / tab switch) — NOT on every `bridge` refresh (edits,
+  // selection changes, …), which would otherwise blank the viewer until the
+  // next row-anchor change republishes it.
+  useEffect(() => {
+    if (!active) return;
+    return () => setJsonRow(json_scope, null);
+  }, [tab_key, active, json_scope, setJsonRow]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* GridBody owns scrolling (it hosts the row virtualizer). */}
       <div
-        className="relative min-h-0 flex-1 rounded-md border"
+        className="relative min-h-0 flex-1 border"
         data-selectable
       >
         {/* Spinners for both first load and refetch live in table-pane's
@@ -940,4 +1037,4 @@ export function Grid({
       </div>
     </div>
   );
-}
+});

@@ -9,6 +9,7 @@
     "build:web": "tsc -b && vite build --mode web",
     "lint": "eslint .",
     "typecheck": "tsc -b",
+    "test:unit": "bun test ./src",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

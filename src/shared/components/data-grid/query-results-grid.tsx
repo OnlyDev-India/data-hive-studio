@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import type { QueryResult } from "@/shared/api";
 import { useStudioStore, type JsonRow } from "@/shared/store";
 import { GridBody } from "./grid-body";
@@ -12,17 +12,30 @@ import type { CellKind } from "./types";
  * there's no schema so rows are read-only. Sorting happens in-memory (descending
  * keeps NULLs at the bottom of ascending sorts, matching a SQL engine's default).
  */
-export function QueryResultsGrid({ result }: { result: QueryResult }) {
+export function QueryResultsGrid({
+  result,
+  conn_id,
+  tab_key,
+}: {
+  result: QueryResult;
+  conn_id: string;
+  tab_key: string;
+}) {
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
   const setRightSidebarOpen = useStudioStore((s) => s.setRightSidebarOpen);
+  const json_scope = `${conn_id}\u0000${tab_key}`;
   const sync_json = useCallback(
-    (row: JsonRow) => setJsonRow(row),
-    [setJsonRow],
+    (row: JsonRow) => setJsonRow(json_scope, { ...row, kind: "sql" }),
+    [setJsonRow, json_scope],
   );
   const open_json = useCallback(
     () => setRightSidebarOpen(true),
     [setRightSidebarOpen],
   );
+  // A new query's result invalidates whatever row was published for this tab.
+  useEffect(() => {
+    setJsonRow(json_scope, null);
+  }, [result, json_scope, setJsonRow]);
 
   // All query cells are text (no declared types) – fine, cells are read-only.
   const kinds: Record<string, CellKind> = useMemo(

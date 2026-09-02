@@ -277,14 +277,23 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const [on_screen, setOnScreen] = useState(true);
   const saved_scroll = useRef(0);
   const was_shown = useRef(true);
+  // Options are memoized so tanstack never sees a brand-new option object
+  // (fresh closures) on re-renders. A freshly-recreated options bag makes the
+  // virtualizer's internal no-deps layout effect diff "changed" state every
+  // render and re-notify → setState → re-render → report "Maximum update
+  // depth exceeded".
+  const virtualizer_options = useMemo(
+    () => ({
+      count: rows_to_render.length,
+      getScrollElement: () => root_ref.current,
+      estimateSize: () => ROW_ESTIMATE_PX,
+      overscan: 12,
+      enabled: on_screen,
+    }),
+    [rows_to_render.length, on_screen],
+  );
   // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer instance is stable; the rule can't see that
-  const row_virtualizer = useVirtualizer({
-    count: rows_to_render.length,
-    getScrollElement: () => root_ref.current,
-    estimateSize: () => ROW_ESTIMATE_PX,
-    overscan: 12,
-    enabled: on_screen,
-  });
+  const row_virtualizer = useVirtualizer(virtualizer_options);
 
   // Track whether this grid is actually on screen, remember the scroll
   // position while it is, and put the user back exactly there on reveal.
@@ -324,12 +333,19 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   }, [row_virtualizer]);
 
   // A fresh page/query invalidates the old scroll position; snap back to the
-  // top and remeasure so the spacer always matches the real content height.
+  // top. This is keyed to the real row data + offset (not `rows_to_render`,
+  // which is rebuilt on every pending/dirty overlay change), and it defers to
+  // the next animation frame so the virtualizer's own layout effect has
+  // already reconciled the spacer. Forcing `measure()` here re-enters the
+  // notify→setState loop inside tanstack (spacer/row-size measurement feedback),
+  // so we let its ResizeObserver do the reconciliation instead.
   useEffect(() => {
     if (!on_screen) return;
-    root_ref.current?.scrollTo({ top: 0 });
-    row_virtualizer.measure();
-  }, [rows_to_render, on_screen, row_virtualizer]);
+    const raf = requestAnimationFrame(() => {
+      root_ref.current?.scrollTo({ top: 0 });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [rows, row_offset, on_screen]);
 
   const on_sort = useCallback(
     (col: string, asc: boolean) => {
@@ -716,8 +732,13 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     [on_clone_row],
   );
 
-  // Keep the JSON viewer showing the row where the selection starts (the
-  // anchor cell), just like the highlighted anchor cell in the grid.
+// Keep the JSON viewer showing the row where the selection starts (the
+  // anchor cell), just like the highlighted anchor cell in the grid. Buffered
+  // (not-yet-applied) cell edits are overlaid so the right-side editor shows
+  // exactly what the grid shows. Publishing is idempotent: the row is re-sent
+  // only when its content really changes, so the six+ effect deps below can
+  // never drive a publish→store-update→re-render loop on their own.
+  const last_published = useRef<string | null>(null);
   const anchor_row = sel_anchor?.[0];
   useEffect(() => {
     if (!on_cell_changed) return;
@@ -725,30 +746,27 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     if (anchor_row < pending_count) return;
     const row = rows_to_render[anchor_row];
     if (!row) return;
+    const real = row_offset + (anchor_row - pending_count);
     const data: Record<string, unknown> = {};
     for (const col of column_order) {
       const ci = col_index_of[col];
-      if (ci !== undefined)
-        data[col] = toJsonValue(row[ci] ?? null, types?.[col]);
+      if (ci === undefined) continue;
+      const key = `${col}\u0000${real}`;
+      const cell = dirty_cells?.has(key)
+        ? dirty_cells.get(key) ?? null
+        : (row[ci] ?? null);
+      data[col] = toJsonValue(cell, types?.[col]);
     }
+    const sig = `${real}\u0000${JSON.stringify(data)}`;
+    if (last_published.current === sig) return;
+    last_published.current = sig;
     on_cell_changed({
       conn_id,
       table,
-      row_number: row_offset + (anchor_row - pending_count) + 1,
+      row_number: real + 1,
       data,
     });
-  }, [
-    anchor_row,
-    on_cell_changed,
-    rows_to_render,
-    column_order,
-    col_index_of,
-    types,
-    conn_id,
-    table,
-    row_offset,
-    pending_count,
-  ]);
+  }, [anchor_row, on_cell_changed, pending_count, rows_to_render, column_order, col_index_of, types, dirty_cells, conn_id, table, row_offset]);
 
   // A freshly-added pending row (at the top of the grid) drops the user straight
   // into its first cell so they can start typing; only fires when the batch

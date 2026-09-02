@@ -4,10 +4,13 @@
 //! serialized back for download. Connections are held in a process-wide
 //! registry keyed by a connection id.
 
+mod mongo_json;
+mod mongo_sql;
 mod mongodb;
 mod postgres;
 mod sqlite;
 
+pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};
 pub use mongodb::{MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
 
@@ -128,16 +131,40 @@ pub trait DbAdapter: Send + Sync {
             "document listing is not supported by this adapter".into(),
         ))
     }
+    /// Fetch a page of documents rendered as type-aware MQL extended JSON
+    /// text (used by the JSON editor). MongoDB only.
+    async fn list_documents_ext(
+        &self,
+        _collection: &str,
+        _filter: Option<serde_json::Value>,
+        _skip: u64,
+        _limit: u64,
+    ) -> DbResult<(Vec<String>, u64)> {
+        Err(DbError::InvalidOperation(
+            "extended document listing is not supported by this adapter".into(),
+        ))
+    }
     /// Replace the document matching `id` (an ObjectId hex string) with the
-    /// given document (MongoDB).
+    /// document parsed from `document_text` (MQL extended JSON). MongoDB only.
     async fn save_document(
         &self,
         _collection: &str,
         _id: &str,
-        _document: serde_json::Value,
+        _document_text: &str,
     ) -> DbResult<bool> {
         Err(DbError::InvalidOperation(
             "document editing is not supported by this adapter".into(),
+        ))
+    }
+    /// Insert a new document parsed from `document_text` (MQL extended JSON).
+    /// MongoDB only.
+    async fn insert_document(
+        &self,
+        _collection: &str,
+        _document_text: &str,
+    ) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "document insertion is not supported by this adapter".into(),
         ))
     }
     /// Run a MongoDB console command (a JSON find/aggregate or a shell-subset
@@ -454,15 +481,42 @@ pub async fn list_documents(
     .await
 }
 
-/// Replace a single MongoDB document by its `_id` (ObjectId hex string).
+/// Fetch a page of documents rendered as type-aware MQL extended JSON text.
+pub async fn list_documents_ext(
+    conn_id: &str,
+    collection: &str,
+    filter: Option<serde_json::Value>,
+    skip: u64,
+    limit: u64,
+) -> DbResult<(Vec<String>, u64)> {
+    with_connection(conn_id, |a| async move {
+        a.list_documents_ext(collection, filter, skip, limit).await
+    })
+    .await
+}
+
+/// Replace a single MongoDB document by its `_id` (ObjectId hex string) with
+/// the document parsed from `document_text` (MQL extended JSON).
 pub async fn save_document(
     conn_id: &str,
     collection: &str,
     id: &str,
-    document: serde_json::Value,
+    document_text: &str,
 ) -> DbResult<bool> {
     with_connection(conn_id, |a| async move {
-        a.save_document(collection, id, document).await
+        a.save_document(collection, id, document_text).await
+    })
+    .await
+}
+
+/// Insert a new MongoDB document parsed from `document_text`.
+pub async fn insert_document(
+    conn_id: &str,
+    collection: &str,
+    document_text: &str,
+) -> DbResult<()> {
+    with_connection(conn_id, |a| async move {
+        a.insert_document(collection, document_text).await
     })
     .await
 }

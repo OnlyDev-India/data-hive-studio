@@ -256,7 +256,9 @@ export type SchemaOp =
       columns: string[];
       unique?: boolean;
     }
-  | { kind: "drop_index"; index: string }
+  /** `table` is required for MongoDB (index names are only unique per
+   *  collection there); SQLite/Postgres ignore it (unique per file/schema). */
+  | { kind: "drop_index"; table?: string; index: string }
   /** SQLite has no ALTER TRIGGER — edits run as a drop + create pair. */
   | { kind: "drop_trigger"; name: string }
   /** Full CREATE TRIGGER statement, executed verbatim. */

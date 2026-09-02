@@ -81,9 +81,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         setRightSidebarWidth(px) {
           set({ rightSidebarWidth: px });
         },
-        jsonRow: null,
-        setJsonRow(row) {
-          set({ jsonRow: row });
+        jsonRows: {},
+        setJsonRow(scope, row) {
+          set((s) => ({ jsonRows: { ...s.jsonRows, [scope]: row } }));
         },
 
         workspaces: {},

@@ -131,7 +131,11 @@ export function TablesBrowser({
   const pg_current_db = recents_db ?? conn_name ?? "";
 
   useEffect(() => {
-    if (!is_pg) return;
+    // Mongo has no schemas — its "schema switcher" slot below repurposes
+    // this same fetch to switch the active DATABASE instead (via
+    // `overview.databases`/`set_active_schema`, which the Mongo adapter
+    // reuses for its database switch — see MONGODB_SUPPORT.md).
+    if (!is_pg && !is_mongo) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -147,7 +151,7 @@ export function TablesBrowser({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, is_pg, ddl_rev]);
+  }, [conn_id, is_pg, is_mongo, ddl_rev]);
 
   // ---- Create/drop database & schema (Postgres DDL dialogs) ----
   const [ddl_dialog, setDdlDialog] = useState<null | {
@@ -216,7 +220,7 @@ export function TablesBrowser({
     } catch (e) {
       push_notification({
         kind: "error",
-        title: "Schema switch failed",
+        title: is_mongo ? "Database switch failed" : "Schema switch failed",
         detail: String(e),
       });
     }
@@ -304,7 +308,7 @@ export function TablesBrowser({
 
   // ---- List filtering + keyboard navigation ------------------------------
   const loading = tables === null || reloading;
-  const pg_loading = is_pg && pg_schemas === null;
+  const pg_loading = (is_pg || is_mongo) && pg_schemas === null;
 
   const filtered_tables = useMemo(() => {
     if (!tables) return [];
@@ -448,55 +452,62 @@ export function TablesBrowser({
 
   return (
     <>
-      {/* Selector strip is ALWAYS visible on PG — disabled (with placeholders)
-          while the catalog overview loads. */}
-      {is_pg && (
+      {/* Selector strip is ALWAYS visible on PG/Mongo — disabled (with
+          placeholders) while the catalog overview loads. Postgres gets both
+          rows (reconnect-based database picker + in-place schema switch);
+          Mongo only needs the second row, repurposed to switch its active
+          database in place (no reconnect, no create/drop — Mongo databases
+          are created implicitly on first write and dropping one isn't
+          wired up yet). */}
+      {(is_pg || is_mongo) && (
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-1">
-            <Select
-              value={pg_current_db || null}
-              onValueChange={(v) => void change_database(v as string)}
-              disabled={switching_db || pg_loading}
-            >
-              <SelectTrigger
-                size="sm"
-                aria-label="Database"
-                title="Opens this database as a new connection"
-                className="h-7 min-w-0 flex-1 px-2 text-xs"
+          {is_pg && (
+            <div className="flex items-center gap-1">
+              <Select
+                value={pg_current_db || null}
+                onValueChange={(v) => void change_database(v as string)}
+                disabled={switching_db || pg_loading}
               >
-                <SelectValue>
-                  {pg_loading ? (
-                    <span className="text-muted-foreground">database…</span>
-                  ) : (
-                    pg_current_db || (
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Database"
+                  title="Opens this database as a new connection"
+                  className="h-7 min-w-0 flex-1 px-2 text-xs"
+                >
+                  <SelectValue>
+                    {pg_loading ? (
                       <span className="text-muted-foreground">database…</span>
-                    )
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {pg_databases.map((d) => (
-                  <SelectItem key={d} value={d} className="text-xs">
-                    {d}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="iconXs"
-              variant="ghost"
-              aria-label="New database"
-              title="Create database on this server"
-              className="size-7 shrink-0"
-              disabled={pg_loading}
-              onClick={() => {
-                setDdlName("");
-                open_ddl("db-create");
-              }}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          </div>
+                    ) : (
+                      pg_current_db || (
+                        <span className="text-muted-foreground">database…</span>
+                      )
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {pg_databases.map((d) => (
+                    <SelectItem key={d} value={d} className="text-xs">
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="iconXs"
+                variant="ghost"
+                aria-label="New database"
+                title="Create database on this server"
+                className="size-7 shrink-0"
+                disabled={pg_loading}
+                onClick={() => {
+                  setDdlName("");
+                  open_ddl("db-create");
+                }}
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <Select
               value={pg_loading ? null : pg_active_schema || null}
@@ -505,52 +516,60 @@ export function TablesBrowser({
             >
               <SelectTrigger
                 size="sm"
-                aria-label="Schema"
+                aria-label={is_mongo ? "Database" : "Schema"}
                 className="h-7 min-w-0 flex-1 px-2 text-xs"
               >
                 <SelectValue>
                   {pg_loading ? (
-                    <span className="text-muted-foreground">schema…</span>
+                    <span className="text-muted-foreground">
+                      {is_mongo ? "database…" : "schema…"}
+                    </span>
                   ) : (
                     pg_active_schema || (
-                      <span className="text-muted-foreground">schema…</span>
+                      <span className="text-muted-foreground">
+                        {is_mongo ? "database…" : "schema…"}
+                      </span>
                     )
                   )}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {(pg_schemas ?? []).map((sc) => (
+                {(is_mongo ? pg_databases : (pg_schemas ?? [])).map((sc) => (
                   <SelectItem key={sc} value={sc} className="text-xs">
                     {sc}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              size="iconXs"
-              variant="ghost"
-              aria-label="New schema"
-              title="Create schema"
-              className="size-7 shrink-0"
-              disabled={pg_loading}
-              onClick={() => {
-                setDdlName("");
-                open_ddl("schema-create");
-              }}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-            <Button
-              size="iconXs"
-              variant="ghost"
-              aria-label="Drop schema"
-              title={`Drop a schema (active: ${pg_active_schema})`}
-              disabled={pg_loading || pg_active_schema === "public"}
-              className="size-7 shrink-0"
-              onClick={() => open_ddl("schema-drop", pg_active_schema)}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+            {is_pg && (
+              <>
+                <Button
+                  size="iconXs"
+                  variant="ghost"
+                  aria-label="New schema"
+                  title="Create schema"
+                  className="size-7 shrink-0"
+                  disabled={pg_loading}
+                  onClick={() => {
+                    setDdlName("");
+                    open_ddl("schema-create");
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+                <Button
+                  size="iconXs"
+                  variant="ghost"
+                  aria-label="Drop schema"
+                  title={`Drop a schema (active: ${pg_active_schema})`}
+                  disabled={pg_loading || pg_active_schema === "public"}
+                  className="size-7 shrink-0"
+                  onClick={() => open_ddl("schema-drop", pg_active_schema)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}

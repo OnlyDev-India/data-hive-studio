@@ -29,7 +29,7 @@ export function AppearanceSection() {
 
       {/* macOS-style settings rows: label column on the left, options on the
           right. */}
-      <div className="divide-y divide-border rounded-xl border">
+      <div className="divide-border divide-y rounded-xl border">
         <SettingRow label="Theme">
           <div className="flex justify-end gap-3">
             {THEMES.map(({ id, label, icon: Icon }) => {
@@ -91,10 +91,10 @@ function SettingRow({
 
 /** A mini window preview used by the theme picker. */
 function ThemeSwatch({ mode, active }: { mode: ThemeMode; active: boolean }) {
-  const { dark } = useTheme();
   // Show a preview reflecting the RESOLVED value of this option: system folds
   // into the current resolved dark state.
-  const previewDark = mode === "system" ? dark : mode === "dark";
+  const previewDark = mode === "dark";
+  const previewSystem = mode === "system";
   return (
     <div
       className={cn(
@@ -102,37 +102,58 @@ function ThemeSwatch({ mode, active }: { mode: ThemeMode; active: boolean }) {
         active && "border-primary shadow-sm",
       )}
     >
-      <div
-        className={cn(
-          "flex h-1.5 items-center gap-0.5 rounded-sm px-0.5",
-          previewDark ? "bg-neutral-700" : "bg-neutral-200",
+      {previewSystem ? (
+        <div className="flex h-1.5! items-center">
+          <div className="flex h-1.5 flex-1 items-center gap-0.5 rounded-l-full bg-neutral-700 px-0.5">
+            <span className="h-0.5 w-0.5 rounded-full bg-neutral-400" />
+            <span className="h-0.5 w-0.5 rounded-full bg-neutral-500" />
+          </div>
+          <div className="flex h-1.5 flex-1 items-center gap-0.5 rounded-r-full bg-neutral-200 px-0.5">
+            <span className="ml-auto h-0.5 w-1 rounded-sm bg-neutral-800" />
+          </div>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "flex h-1.5 items-center gap-0.5 rounded-sm px-0.5",
+            previewDark ? "bg-neutral-700" : "bg-neutral-200",
+          )}
+        >
+          <span
+            className={cn(
+              "h-0.5 w-0.5 rounded-full",
+              previewDark ? "bg-neutral-400" : "bg-neutral-400",
+            )}
+          />
+          <span
+            className={cn(
+              "h-0.5 w-0.5 rounded-full",
+              previewDark ? "bg-neutral-500" : "bg-neutral-400",
+            )}
+          />
+          <span
+            className={cn(
+              "ml-auto h-0.5 w-1 rounded-sm",
+              previewDark ? "bg-neutral-400" : "bg-neutral-300",
+            )}
+          />
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden rounded-sm border">
+        {previewSystem ? (
+          <>
+            <div className="flex-1 bg-neutral-800" />
+            <div className="flex-1 bg-white" />
+          </>
+        ) : (
+          <div
+            className={cn(
+              "flex-1 rounded-sm",
+              previewDark ? "bg-neutral-800" : "bg-white",
+            )}
+          />
         )}
-      >
-        <span
-          className={cn(
-            "h-0.5 w-0.5 rounded-full",
-            previewDark ? "bg-neutral-400" : "bg-neutral-400",
-          )}
-        />
-        <span
-          className={cn(
-            "h-0.5 w-0.5 rounded-full",
-            previewDark ? "bg-neutral-500" : "bg-neutral-400",
-          )}
-        />
-        <span
-          className={cn(
-            "ml-auto h-0.5 w-1 rounded-sm",
-            previewDark ? "bg-neutral-400" : "bg-neutral-300",
-          )}
-        />
       </div>
-      <div
-        className={cn(
-          "flex-1 rounded-sm",
-          previewDark ? "bg-neutral-800" : "bg-white",
-        )}
-      />
     </div>
   );
 }
@@ -158,7 +179,7 @@ function AccentSwatch({
       className={cn(
         "flex size-6 items-center justify-center rounded-full border transition-transform hover:scale-110",
         active
-          ? "border-foreground ring-2 ring-primary/30 ring-offset-1"
+          ? "border-foreground ring-primary/30 ring-2 ring-offset-1"
           : "border-border hover:border-foreground/40",
       )}
       style={isGraphite ? undefined : { backgroundColor: color }}

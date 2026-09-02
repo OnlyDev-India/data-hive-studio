@@ -13,9 +13,7 @@ import {
   Search,
   Table2,
   TextCursorInput,
-  Trash2,
-  Unplug,
-  X,
+  Trash2, X
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { prettyKind } from "@/shared/api";
@@ -47,8 +45,9 @@ import { ExportMenu } from "@/features/data-export";
 import { NotificationBell } from "@/features/notifications";
 import { ApplyChangesDialog } from "@/shared/components/data-grid/apply-changes-dialog";
 import type { PendingChange } from "@/shared/components/data-grid/grid-context";
+import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
 
-export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
+export function ActionBar() {
   const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
     null,
   );
@@ -59,9 +58,10 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
   const bridge = useStudioStore((s) =>
     active_key ? s.gridBridges[active_key] : null,
   );
-  // Mongo collection + console tabs expose a Grid/JSON toggle here.
+  // The Mongo console tab exposes a Grid/JSON toggle; collection tabs are
+  // grid-only (their JSON is edited in the right-hand sidebar).
   const mongoView = useStudioStore((s) =>
-    active?.kind === "mongo" || active?.kind === "mongo-console"
+    active?.kind === "mongo-console"
       ? active_key
         ? (s.mongoViews[active_key] ?? "grid")
         : null
@@ -108,15 +108,7 @@ export function ActionBar({ on_disconnect }: { on_disconnect: () => void }) {
           className="bg-background flex w-14 shrink-0 items-center justify-center border-r"
           title={conn ? conn.name : "No connection"}
         >
-          <Button
-            variant="ghost"
-            size="iconXs"
-            disabled={!conn}
-            onClick={on_disconnect}
-            title={conn ? "Disconnect" : "No connection to disconnect"}
-          >
-            <Unplug className="size-3.5" />
-          </Button>
+          <DisconnectDbBtn conn={conn} />
         </div>
         {/* Section 2 — connection details (flows with the sidebar width) */}
         <div

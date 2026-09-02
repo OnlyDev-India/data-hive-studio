@@ -73,6 +73,20 @@ export function CellEditor() {
   // Transform back when committing.
   const toDb = (v: string) =>
     kind === "datetime" ? v.replaceAll("T", " ") : v;
+  // Debounced live publish: while the user types, push the value into the
+  // grid's buffer after a short pause so it shows up in the grid and the JSON
+  // viewer without waiting for Enter/blur. on_edit_cell is idempotent (it only
+  // adds/removes a cell in the dirty set), so repeated pushes are safe.
+  const live_ref = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const push_live = (raw: string) => {
+    if (live_ref.current !== null) clearTimeout(live_ref.current);
+    live_ref.current = setTimeout(() => {
+      live_ref.current = null;
+      const db = toDb(raw);
+      if (row < pending_count) on_pending_edit(row, col, db);
+      else on_edit_cell(row, col, db);
+    }, 400);
+  };
   // Clicking outside can unmount the editor before blur fires — persist the
   // typed value on unmount unless it was already committed (Enter/blur).
   const committed = useRef(false);
@@ -82,6 +96,7 @@ export function CellEditor() {
   });
   useEffect(
     () => () => {
+      if (live_ref.current !== null) clearTimeout(live_ref.current);
       if (committed.current || cancelled.current) return;
       const cur = val_ref.current;
       if (cur === (value ?? "")) return;
@@ -135,7 +150,10 @@ export function CellEditor() {
               ref={area_ref}
               autoFocus
               value={val}
-              onChange={(e) => setVal(e.target.value)}
+              onChange={(e) => {
+                setVal(e.target.value);
+                push_live(e.target.value);
+              }}
               onScroll={(e) => {
                 const pre = e.currentTarget
                   .previousSibling as HTMLPreElement | null;
@@ -160,7 +178,10 @@ export function CellEditor() {
             ref={area_ref}
             autoFocus
             value={val}
-            onChange={(e) => setVal(e.target.value)}
+            onChange={(e) => {
+              setVal(e.target.value);
+              push_live(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
@@ -181,7 +202,10 @@ export function CellEditor() {
     <Input
       ref={ref}
       value={val}
-      onChange={(e) => setVal(e.target.value)}
+      onChange={(e) => {
+        setVal(e.target.value);
+        push_live(e.target.value);
+      }}
       onBlur={() => commit()}
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
@@ -197,7 +221,10 @@ export function CellEditor() {
       type="number"
       step={sql_type.includes("int") ? 1 : "any"}
       value={val}
-      onChange={(e) => setVal(e.target.value)}
+      onChange={(e) => {
+        setVal(e.target.value);
+        push_live(e.target.value);
+      }}
       onBlur={() => commit()}
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();

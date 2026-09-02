@@ -61,6 +61,15 @@ export interface JsonRow {
   table: string;
   row_number: number;
   data: Record<string, unknown>;
+  /** "mongo" rows render/parse as BSON source (ObjectId, ISODate, …); anything
+   *  else renders/parses as plain JSON (Postgres stores plain values). */
+  kind?: "mongo" | "sql";
+  /** Schema `data_type` per column, so the mongo editor can render ObjectId /
+   *  ISODate constructors for columns that are really those BSON types. */
+  col_types?: Record<string, string>;
+  /** Write one changed top-level field back into the owning grid's buffered
+   *  edits (so the toolbar Apply persists it). Absent ⇒ row is read-only. */
+  on_edit?: (col: string, value: string | null) => void;
 }
 
 /** Per-connection tab/workspace state. */
@@ -176,8 +185,8 @@ export interface StudioStore {
   toggleRightSidebar: () => void;
   setRightSidebarOpen: (open: boolean) => void;
   setRightSidebarWidth: (px: number) => void;
-  jsonRow: JsonRow | null;
-  setJsonRow: (row: JsonRow | null) => void;
+  jsonRows: Record<string, JsonRow | null>;
+  setJsonRow: (scope: string, row: JsonRow | null) => void;
 
   // Grid bridges (active table grid -> status bar controls)
   gridBridges: Record<string, GridBridge | null>;

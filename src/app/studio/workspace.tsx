@@ -491,7 +491,10 @@ export default function Workspace({
           <AnimatePresence initial={false}>
             {rightSidebarOpen && (
               <Suspense fallback={null}>
-                <JsonViewer />
+                <JsonViewer
+                  conn_id={conn_id}
+                  tab_key={active ? tabKey(active) : null}
+                />
               </Suspense>
             )}
           </AnimatePresence>

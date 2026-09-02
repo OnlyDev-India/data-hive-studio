@@ -329,7 +329,11 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
                   ))}
                 </div>
               ) : active.result ? (
-                <SqlResults result={active.result} />
+                <SqlResults
+                  conn_id={conn_id}
+                  tab_key={tab_key}
+                  result={active.result}
+                />
               ) : null}
             </div>
           </div>
@@ -339,13 +343,25 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   );
 }
 
-function SqlResults({ result }: { result: QueryResult }) {
+function SqlResults({
+  result,
+  conn_id,
+  tab_key,
+}: {
+  result: QueryResult;
+  conn_id: string;
+  tab_key: string;
+}) {
   const { elapsed_ms } = result;
 
   if (result.is_select)
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
-        <QueryResultsGrid result={result} />
+        <QueryResultsGrid
+          result={result}
+          conn_id={conn_id}
+          tab_key={tab_key}
+        />
         <div className="bg-muted/30 text-muted-foreground flex items-center gap-2 border-t px-3 py-1.5 text-xs">
           <Badge>Query</Badge>
           <span>

@@ -138,7 +138,7 @@ export function TabBar({
 
   return (
     <div
-      className="bg-background min-h-8.5 flex w-full shrink-0 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
+      className="bg-background min-h-8.5 max-h-8.5 flex w-full shrink-0 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
       onPointerDown={on_strip_pointer_down}
       // A real drag suppresses the follow-up click so tabs don't get selected.
       onClickCapture={(e) => {
