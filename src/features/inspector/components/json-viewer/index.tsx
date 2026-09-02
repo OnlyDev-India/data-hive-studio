@@ -4,14 +4,14 @@ import { Braces } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
 import { TreeControls } from "./tree-controls";
-import { BsonEditor } from "@/features/table-explorer/components/bson-json-editor";
+import { BsonEditor } from "@/shared/components/bson-editor";
 import {
   parseMongoJson,
   renderMongoDocument,
   rowToDocument,
   valueToCell,
   type MongoJsonValue,
-} from "@/shared/mongo-json";
+} from "@/shared/lib/mongo-json";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import { Prec, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 

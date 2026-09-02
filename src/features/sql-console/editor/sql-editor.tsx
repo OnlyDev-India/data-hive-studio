@@ -29,7 +29,7 @@ import type {
 import {
   appEditorExtensions,
   appEditorTheme,
-} from "@/features/sql-console/codemirror-theme";
+} from "@/shared/theme/codemirror-theme";
 import { cn, statementRanges } from "@/shared/lib/utils";
 
 export interface SqlEditorHandle {

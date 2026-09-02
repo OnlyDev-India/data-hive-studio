@@ -14,10 +14,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
-import {
-  SqlEditor,
-  type SqlEditorHandle,
-} from "@/features/sql-console/editor/sql-editor";
+import { SqlEditor, type SqlEditorHandle } from "@/features/sql-console";
 import { cn, statementRanges } from "@/shared/lib/utils";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import { useStudioStore } from "@/shared/store";

@@ -26,3 +26,7 @@ dist-web
 
 target
 graphify-out
+
+# SQLite WAL runtime sidecars (server.db itself stays tracked as demo data)
+data/*.db-shm
+data/*.db-wal

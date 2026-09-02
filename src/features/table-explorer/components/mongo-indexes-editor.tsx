@@ -7,8 +7,8 @@ import {
   idx_is_dirty,
   idxs_from_schema,
   type IdxDraft,
-} from "@/features/schema-designer/components/schema-tab/drafts";
-import { IndexesPanel } from "@/features/schema-designer/components/schema-tab/indexes-panel";
+  IndexesPanel,
+} from "@/features/schema-designer";
 
 /** Index list/create/drop editor for a MongoDB collection — reuses the SQL
  *  schema designer's `IndexesPanel`/draft machinery (indexes are the one DDL

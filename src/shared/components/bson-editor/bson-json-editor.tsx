@@ -24,12 +24,12 @@ import {
   type Extension,
 } from "@codemirror/state";
 import { autocompletion, completeFromList } from "@codemirror/autocomplete";
-import { appEditorTheme } from "@/features/sql-console/codemirror-theme";
+import { appEditorTheme } from "@/shared/theme/codemirror-theme";
 import {
   MONGO_BSON_CONSTRUCTORS,
   parseMongoJson,
   type MongoParseError,
-} from "@/shared/mongo-json";
+} from "@/shared/lib/mongo-json";
 import { cn } from "@/shared/lib/utils";
 
 const CTR_SET = new Set<string>(MONGO_BSON_CONSTRUCTORS);
