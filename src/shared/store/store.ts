@@ -4,7 +4,6 @@ import { activityActions } from "@/features/activity/store/activity-slice";
 import { notificationsActions } from "@/features/notifications/store/notifications-slice";
 import { schemaDesignerActions } from "@/features/schema-designer/store/schema-designer-slice";
 import { sharingActions } from "@/features/sharing/store/sharing-slice";
-import { tableExplorerActions } from "@/features/table-explorer/store/table-explorer-slice";
 import { connectionActions } from "./connections";
 import type { SavedConnParams, StudioStore } from "./types";
 import { workspaceActions } from "./workspace";
@@ -272,7 +271,6 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...activityActions(set),
         ...notificationsActions(set, get),
         ...schemaDesignerActions(set),
-        ...tableExplorerActions(set),
         ...sharingActions(set, get),
         ...connectionActions(set),
         ...workspaceActions(set),

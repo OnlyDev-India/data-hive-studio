@@ -38,15 +38,28 @@ export interface ColDraft {
 
 /** Editable mirror of one table index (same snapshot pattern). `system`
  *  marks constraint-backed indexes (UNIQUE / PRIMARY KEY) which SQLite
- *  forbids dropping directly — they render read-only and never emit ops. */
+ *  forbids dropping directly — they render read-only and never emit ops.
+ *  The `*_dirs`/`sparse`/`ttl_seconds`/`partial_filter` fields are MongoDB-
+ *  only extras; SQL engines never populate `orig_*` for them and always keep
+ *  the plain defaults (ascending, not sparse, no TTL, no partial filter). */
 export interface IdxDraft {
   id: string;
   orig_name: string | null;
   orig_unique: boolean | null;
   orig_columns: string[] | null;
+  orig_column_dirs: number[] | null;
+  orig_sparse: boolean | null;
+  orig_ttl_seconds: number | null;
+  orig_partial_filter: string | null;
   name: string;
   unique: boolean;
   columns: string[];
+  /** Per-column sort direction (1 = asc, -1 = desc), parallel to `columns`. */
+  column_dirs: number[];
+  sparse: boolean;
+  ttl_seconds: number | null;
+  /** MQL extended JSON text, or "" for none. */
+  partial_filter: string;
   dropped: boolean;
   system: boolean;
 }
@@ -100,17 +113,41 @@ export function cols_from_schema(schema: TableSchema): ColDraft[] {
 }
 
 export function idxs_from_schema(schema: TableSchema): IdxDraft[] {
-  return schema.indexes.map((ix, i) => ({
-    id: `o${i}`,
-    orig_name: ix.name,
-    orig_unique: ix.unique,
-    orig_columns: ix.columns,
-    name: ix.name,
-    unique: ix.unique,
-    columns: [...ix.columns],
-    dropped: false,
-    system: ix.origin !== "c",
-  }));
+  return schema.indexes.map((ix, i) => {
+    const default_dirs = ix.columns.map(() => 1);
+    return {
+      id: `o${i}`,
+      orig_name: ix.name,
+      orig_unique: ix.unique,
+      orig_columns: ix.columns,
+      orig_column_dirs: ix.column_dirs ?? null,
+      orig_sparse: ix.sparse ?? null,
+      orig_ttl_seconds: ix.ttl_seconds ?? null,
+      orig_partial_filter: ix.partial_filter ?? null,
+      name: ix.name,
+      unique: ix.unique,
+      columns: [...ix.columns],
+      column_dirs: ix.column_dirs ? [...ix.column_dirs] : default_dirs,
+      sparse: ix.sparse ?? false,
+      ttl_seconds: ix.ttl_seconds ?? null,
+      partial_filter: ix.partial_filter ?? "",
+      dropped: false,
+      system: ix.origin !== "c",
+    };
+  });
+}
+
+/** True when an index draft's MongoDB-only extras differ from what was
+ *  loaded. Shared by `idx_is_dirty` and `build_index_ops`'s "did this index
+ *  change" check so the two can't drift out of sync. */
+function idx_extras_changed(ix: IdxDraft): boolean {
+  const orig_dirs = ix.orig_column_dirs ?? ix.orig_columns?.map(() => 1) ?? [];
+  return (
+    JSON.stringify(ix.column_dirs) !== JSON.stringify(orig_dirs) ||
+    ix.sparse !== !!ix.orig_sparse ||
+    ix.ttl_seconds !== ix.orig_ttl_seconds ||
+    ix.partial_filter !== (ix.orig_partial_filter ?? "")
+  );
 }
 
 export function col_is_dirty(c: ColDraft): boolean {
@@ -134,7 +171,9 @@ export function idx_is_dirty(
   return (
     ix.name.trim() !== ix.orig_name ||
     ix.unique !== !!ix.orig_unique ||
-    JSON.stringify(ix.columns.map(resolve)) !== JSON.stringify(ix.orig_columns)
+    JSON.stringify(ix.columns.map(resolve)) !==
+      JSON.stringify(ix.orig_columns) ||
+    idx_extras_changed(ix)
   );
 }
 
@@ -277,7 +316,8 @@ export function build_index_ops(
     const changed =
       name !== ix.orig_name ||
       ix.unique !== !!ix.orig_unique ||
-      JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns);
+      JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns) ||
+      idx_extras_changed(ix);
     if (changed && !dropped_idx.has(ix.id))
       ops.push({ kind: "drop_index", table, index: ix.orig_name });
   }
@@ -291,7 +331,8 @@ export function build_index_ops(
       !is_new &&
       (name !== ix.orig_name ||
         ix.unique !== !!ix.orig_unique ||
-        JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns));
+        JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns) ||
+        idx_extras_changed(ix));
     if (is_new || changed) {
       ops.push({
         kind: "create_index",
@@ -299,6 +340,14 @@ export function build_index_ops(
         name,
         columns: final_cols,
         ...(ix.unique ? { unique: true } : {}),
+        ...(ix.column_dirs.some((d) => d < 0)
+          ? { column_dirs: ix.column_dirs }
+          : {}),
+        ...(ix.sparse ? { sparse: true } : {}),
+        ...(ix.ttl_seconds != null ? { ttl_seconds: ix.ttl_seconds } : {}),
+        ...(ix.partial_filter.trim()
+          ? { partial_filter: ix.partial_filter.trim() }
+          : {}),
       });
     }
   }

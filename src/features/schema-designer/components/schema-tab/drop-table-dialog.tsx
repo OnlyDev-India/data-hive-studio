@@ -21,12 +21,16 @@ export function DropTableDialog({
   open,
   on_open_change,
   on_dropped,
+  /** "table" (SQL) or "collection" (MongoDB) — only the wording differs, the
+   *  op is the same generic `QueryOp::DropTable` either way. */
+  object_noun = "table",
 }: {
   conn_id: string;
   table: string;
   open: boolean;
   on_open_change: (open: boolean) => void;
   on_dropped: () => void;
+  object_noun?: "table" | "collection";
 }) {
   const [dropping, setDropping] = useState(false);
   const push_notification = useStudioStore((s) => s.pushNotification);
@@ -36,13 +40,16 @@ export function DropTableDialog({
     setDropping(true);
     try {
       await executeOp(conn_id, { kind: "drop_table", table });
-      push_notification({ kind: "success", title: `Table “${table}” dropped` });
+      push_notification({
+        kind: "success",
+        title: `${object_noun === "table" ? "Table" : "Collection"} “${table}” dropped`,
+      });
       on_dropped();
     } catch (e) {
-      console.error("drop table failed", e);
+      console.error(`drop ${object_noun} failed`, e);
       push_notification({
         kind: "error",
-        title: `Failed to drop table “${table}”`,
+        title: `Failed to drop ${object_noun} “${table}”`,
         detail: String(e),
       });
     } finally {
@@ -55,10 +62,10 @@ export function DropTableDialog({
     <Dialog open={open} onOpenChange={on_open_change}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Drop table</DialogTitle>
+          <DialogTitle>Drop {object_noun}</DialogTitle>
           <DialogDescription>
-            This permanently deletes the table “{table}” and its data. This
-            cannot be undone.
+            This permanently deletes the {object_noun} “{table}” and its data.
+            This cannot be undone.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

@@ -84,6 +84,23 @@ pub struct IndexInfo {
     /// backed indexes cannot be dropped or altered directly in SQLite —
     /// the UI must treat them as read-only.
     pub origin: String,
+    /// MongoDB only: per-column sort direction (1 = ascending, -1 =
+    /// descending), parallel to `columns`. `None`/absent means all-ascending
+    /// (or not applicable — SQL adapters don't report this).
+    #[serde(default)]
+    pub column_dirs: Option<Vec<i8>>,
+    /// MongoDB only: a sparse index skips documents missing the indexed
+    /// field(s).
+    #[serde(default)]
+    pub sparse: Option<bool>,
+    /// MongoDB only: TTL index — documents expire this many seconds after
+    /// the indexed (date) field's value.
+    #[serde(default)]
+    pub ttl_seconds: Option<u64>,
+    /// MongoDB only: partial index filter, as MQL extended JSON text — only
+    /// documents matching it are indexed.
+    #[serde(default)]
+    pub partial_filter: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -299,6 +316,21 @@ pub enum SchemaOp {
         columns: Vec<String>,
         #[serde(default)]
         unique: bool,
+        /// MongoDB only: per-column sort direction (1/-1), parallel to
+        /// `columns`. SQL adapters ignore this (always ascending).
+        #[serde(default)]
+        column_dirs: Option<Vec<i8>>,
+        /// MongoDB only: sparse index. SQL adapters ignore this.
+        #[serde(default)]
+        sparse: Option<bool>,
+        /// MongoDB only: TTL index expiry in seconds. SQL adapters ignore
+        /// this.
+        #[serde(default)]
+        ttl_seconds: Option<u64>,
+        /// MongoDB only: partial index filter (MQL extended JSON text). SQL
+        /// adapters ignore this.
+        #[serde(default)]
+        partial_filter: Option<String>,
     },
     DropIndex {
         /// Index names are unique per database file in SQLite (and per

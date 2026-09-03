@@ -2,7 +2,7 @@
 name = "dh-core"
 version = "0.1.0"
 edition = "2021"
-description = "Shared core for dh-studio: db adapters, wire types, activity log; future server/gateway modules"
+description = "Shared core for dh-studio: database adapters (SQLite, PostgreSQL, MongoDB), wire types, activity log, and the team-server gateway"
 
 [dependencies]
 serde.workspace = true

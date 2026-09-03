@@ -5,18 +5,18 @@
 //! remain unsupported; use the grid or the MongoDB console for those.
 
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::Engine as _;
 use bson::doc;
 use futures_util::TryStreamExt;
 use mongodb::options::ClientOptions;
 use mongodb::Client;
 use std::sync::Arc;
 
+use super::{BatchSink, DbAdapter, DbError, DbResult, OpOutcome, QueryChunk};
 use crate::api::{
     ColumnInfo, FilterOp, GridFilterCond, IndexInfo, QueryOp, QueryResult, SchemaOp, TableInfo,
     TableSchema,
 };
-use super::{BatchSink, DbAdapter, DbError, DbResult, OpOutcome, QueryChunk};
 
 /// Parameters for connecting to a MongoDB server.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -34,8 +34,9 @@ pub struct MongoParams {
     /// When true, `port` is ignored.
     #[serde(default)]
     pub srv: bool,
-    /// Reserved for a future TLS upgrade (the driver currently ships without a
-    /// TLS transport enabled).
+    /// Require TLS on a plain `mongodb://` connection. `mongodb+srv://`
+    /// (`srv: true`) gets TLS by default regardless of this flag — this only
+    /// matters for direct single-host connections.
     #[serde(default)]
     pub tls: bool,
 }
@@ -45,30 +46,37 @@ fn default_port() -> u16 {
 }
 
 async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
+    let mut query: Vec<String> = vec![format!(
+        "authSource={}",
+        percent_encode(params.auth_db.as_deref().unwrap_or("admin"))
+    )];
+    // mongodb+srv:// implies TLS by default; a plain mongodb:// connection
+    // needs it requested explicitly to get the driver's TLS transport
+    // (backed by the `rustls-tls` feature on the `mongodb` crate).
+    if params.tls && !params.srv {
+        query.push("tls=true".to_string());
+    }
+    let query = query.join("&");
     let uri = if params.srv {
-        // mongodb+srv:// requires a seedlist hostname (no port), includes TLS by default
+        // mongodb+srv:// requires a seedlist hostname (no port)
         format!(
-            "mongodb+srv://{}:{}@{}/{}?authSource={}",
+            "mongodb+srv://{}:{}@{}/{}?{}",
             params.user,
             percent_encode(&params.password),
             params.host,
             params.database,
-            percent_encode(params.auth_db.as_deref().unwrap_or("admin"))
+            query,
         )
     } else {
         // mongodb:// single host with explicit port
         format!(
-            "mongodb://{}:{}@{}:{}/{}{}",
+            "mongodb://{}:{}@{}:{}/{}?{}",
             params.user,
             percent_encode(&params.password),
             params.host,
             params.port,
             params.database,
-            params
-                .auth_db
-                .as_deref()
-                .map(|a| format!("?authSource={}", percent_encode(a)))
-                .unwrap_or_default()
+            query,
         )
     };
     ClientOptions::parse(uri)
@@ -112,15 +120,18 @@ fn condition_doc(cond: &GridFilterCond) -> Option<bson::Document> {
         FilterOp::Gte => d.insert(field, doc! { "$gte": scalar_bson(&cond.value) }),
         FilterOp::Lt => d.insert(field, doc! { "$lt": scalar_bson(&cond.value) }),
         FilterOp::Lte => d.insert(field, doc! { "$lte": scalar_bson(&cond.value) }),
-        FilterOp::Contains => {
-            d.insert(field, doc! { "$regex": cond.value.as_str(), "$options": "i" })
-        }
-        FilterOp::StartsWith => {
-            d.insert(field, doc! { "$regex": format!("^{}", cond.value), "$options": "i" })
-        }
-        FilterOp::EndsWith => {
-            d.insert(field, doc! { "$regex": format!("{}$", cond.value), "$options": "i" })
-        }
+        FilterOp::Contains => d.insert(
+            field,
+            doc! { "$regex": cond.value.as_str(), "$options": "i" },
+        ),
+        FilterOp::StartsWith => d.insert(
+            field,
+            doc! { "$regex": format!("^{}", cond.value), "$options": "i" },
+        ),
+        FilterOp::EndsWith => d.insert(
+            field,
+            doc! { "$regex": format!("{}$", cond.value), "$options": "i" },
+        ),
         FilterOp::IsNull => d.insert(field, bson::Bson::Null),
         FilterOp::IsNotNull => d.insert(field, doc! { "$ne": null }),
     };
@@ -135,7 +146,9 @@ fn build_filter(
 ) -> DbResult<Option<bson::Document>> {
     if let Some(cw) = custom_where.map(str::trim).filter(|s| !s.is_empty()) {
         let parsed: serde_json::Value = serde_json::from_str(cw).map_err(|e| {
-            DbError::InvalidOperation(format!("custom_where must be a Mongo query JSON object: {e}"))
+            DbError::InvalidOperation(format!(
+                "custom_where must be a Mongo query JSON object: {e}"
+            ))
         })?;
         return Ok(bson::to_document(&parsed).ok());
     }
@@ -149,7 +162,9 @@ fn build_filter(
     if docs.len() == 1 {
         return Ok(docs.into_iter().next());
     }
-    let use_or = filters.iter().all(|f| f.conjunction.as_deref() == Some("OR"));
+    let use_or = filters
+        .iter()
+        .all(|f| f.conjunction.as_deref() == Some("OR"));
     if use_or {
         Ok(Some(doc! { "$or": docs }))
     } else {
@@ -380,8 +395,17 @@ fn parse_db_call(s: &str) -> Option<DbCall> {
     let coll = prefix[..last_dot].trim().to_string();
     let close = balanced_close(body, open)?;
     let args = body[open + 1..close].trim().to_string();
-    let chain = body[close + 1..].trim().trim_end_matches(';').trim().to_string();
-    Some(DbCall { coll, method, args, chain })
+    let chain = body[close + 1..]
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string();
+    Some(DbCall {
+        coll,
+        method,
+        args,
+        chain,
+    })
 }
 
 /// Options recognized after a `find(...)` call, e.g. `.limit(5).sort({...})`.
@@ -392,7 +416,10 @@ struct FindChain {
 
 fn parse_chain(chain: &str) -> FindChain {
     let lower = chain.to_ascii_lowercase();
-    let mut f = FindChain { limit: None, sort: None };
+    let mut f = FindChain {
+        limit: None,
+        sort: None,
+    };
     if let Some(i) = lower.find(".limit") {
         if let Some(po) = chain[i..].find('(') {
             let o = i + po;
@@ -462,6 +489,22 @@ fn flatten_documents(docs: &[serde_json::Value]) -> (Vec<String>, Vec<Vec<Option
     (columns, rows)
 }
 
+/// One index key's sort direction as ±1. Non-numeric key values (text/geo/
+/// hashed index specs, e.g. `{field: "text"}`) aren't a sort direction at
+/// all — reported as ascending since there's nothing meaningful to show.
+fn bson_dir(v: &bson::Bson) -> i8 {
+    let n = match v {
+        bson::Bson::Int32(n) => *n as f64,
+        bson::Bson::Int64(n) => *n as f64,
+        bson::Bson::Double(n) => *n,
+        _ => return 1,
+    };
+    if n < 0.0 {
+        -1
+    } else {
+        1
+    }
+}
 
 /// BSON type name → human data_type string (for the schema explorer).
 fn bson_type_name(ty: &bson::Bson) -> &'static str {
@@ -493,9 +536,14 @@ impl MongoAdapter {
         // connect time, instead of surfacing as a confusing first-query error.
         client
             .database(&params.database)
-            .run_command(bson::doc! { "ping": 1 }, None)
+            .run_command(bson::doc! { "ping": 1 })
             .await
-            .map_err(|e| DbError::InvalidOperation(format!("mongo connect {}:{}: {}", params.host, params.port, e)))?;
+            .map_err(|e| {
+                DbError::InvalidOperation(format!(
+                    "mongo connect {}:{}: {}",
+                    params.host, params.port, e
+                ))
+            })?;
         Ok(Self {
             client,
             database: std::sync::RwLock::new(params.database.clone()),
@@ -511,17 +559,24 @@ impl MongoAdapter {
     /// documents, with each field's most-common BSON type. Used to build a
     /// best-effort "schema" for the explorer (MongoDB is schemaless).
     async fn inferred_schema(&self, collection: &str) -> DbResult<Vec<ColumnInfo>> {
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
         let mut cursor = col
-            .find(None, None)
+            .find(bson::doc! {})
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
-        let mut types: std::collections::BTreeMap<String, std::collections::HashMap<&'static str, usize>> =
-            std::collections::BTreeMap::new();
+        let mut types: std::collections::BTreeMap<
+            String,
+            std::collections::HashMap<&'static str, usize>,
+        > = std::collections::BTreeMap::new();
         let mut count = 0;
-        while let Some(doc) = cursor.try_next().await.map_err(|e| {
-            DbError::InvalidOperation(format!("mongo: {e}"))
-        })? {
+        while let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
             for (k, v) in doc.iter() {
                 let t = bson_type_name(v);
                 let entry = types.entry(k.clone()).or_default();
@@ -547,7 +602,12 @@ impl MongoAdapter {
         Ok(types
             .into_iter()
             .map(|(name, freq)| {
-                let data_type = freq.iter().max_by_key(|(_, n)| **n).map(|(t, _)| *t).unwrap_or("bson").to_string();
+                let data_type = freq
+                    .iter()
+                    .max_by_key(|(_, n)| **n)
+                    .map(|(t, _)| *t)
+                    .unwrap_or("bson")
+                    .to_string();
                 let primary_key = name == "_id";
                 let is_array = data_type == "array";
                 ColumnInfo {
@@ -573,7 +633,7 @@ impl MongoAdapter {
             .database(&self.cur_database())
             .collection::<bson::Document>(collection);
         let mut cursor = col
-            .list_indexes(None)
+            .list_indexes()
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut out = Vec::new();
@@ -587,23 +647,54 @@ impl MongoAdapter {
                 .as_ref()
                 .and_then(|o| o.name.clone())
                 .unwrap_or_default();
-            let unique = model.options.as_ref().and_then(|o| o.unique).unwrap_or(false);
+            let unique = model
+                .options
+                .as_ref()
+                .and_then(|o| o.unique)
+                .unwrap_or(false);
             let columns: Vec<String> = model.keys.iter().map(|(k, _)| k.clone()).collect();
+            let column_dirs: Vec<i8> = model.keys.iter().map(|(_, v)| bson_dir(v)).collect();
+            let sparse = model.options.as_ref().and_then(|o| o.sparse);
+            let ttl_seconds = model
+                .options
+                .as_ref()
+                .and_then(|o| o.expire_after)
+                .map(|d| d.as_secs());
+            let partial_filter = model
+                .options
+                .as_ref()
+                .and_then(|o| o.partial_filter_expression.as_ref())
+                .map(super::mongo_json::render);
             let origin = if name == "_id_" { "pk" } else { "c" };
-            out.push(IndexInfo { name, unique, columns, origin: origin.into() });
+            out.push(IndexInfo {
+                name,
+                unique,
+                columns,
+                origin: origin.into(),
+                column_dirs: Some(column_dirs),
+                sparse,
+                ttl_seconds,
+                partial_filter,
+            });
         }
         Ok(out)
     }
 
-    /// Create an index (Phase 5). Every listed field gets an ascending (1)
-    /// key — the generic `SchemaOp::CreateIndex` shape has no per-column
-    /// direction, matching the SQL adapters' index-creation surface.
+    /// Create an index (Phase 5, extended per MONGODB_SUPPORT.md's index
+    /// manager pass). `column_dirs` gives each field's sort direction
+    /// (missing/short → ascending); `sparse`/`ttl_seconds`/`partial_filter`
+    /// are optional MongoDB-specific index options with no SQL equivalent.
+    #[allow(clippy::too_many_arguments)]
     async fn create_index(
         &self,
         collection: &str,
         name: &str,
         columns: &[String],
         unique: bool,
+        column_dirs: Option<&[i8]>,
+        sparse: Option<bool>,
+        ttl_seconds: Option<u64>,
+        partial_filter: Option<&str>,
     ) -> DbResult<()> {
         if columns.is_empty() {
             return Err(DbError::InvalidOperation(
@@ -611,12 +702,30 @@ impl MongoAdapter {
             ));
         }
         let mut keys = bson::Document::new();
-        for c in columns {
-            keys.insert(c.as_str(), 1);
+        for (i, c) in columns.iter().enumerate() {
+            let dir = column_dirs
+                .and_then(|d| d.get(i))
+                .copied()
+                .unwrap_or(1);
+            keys.insert(c.as_str(), if dir < 0 { -1 } else { 1 });
         }
+        // The typed-builder's generic state tracks which setters ran at the
+        // type level, so setters can't be called conditionally (each call
+        // changes the builder's type) — every setter is called unconditionally
+        // with the already-Option value instead.
+        let partial_filter_doc: Option<bson::Document> =
+            match partial_filter.map(str::trim).filter(|s| !s.is_empty()) {
+                Some(text) => Some(super::mongo_json::parse(text).map_err(|e| {
+                    DbError::InvalidOperation(format!("invalid partial filter: {e}"))
+                })?),
+                None => None,
+            };
         let options = mongodb::options::IndexOptions::builder()
             .name(name.to_string())
             .unique(unique)
+            .sparse(sparse)
+            .expire_after(ttl_seconds.map(std::time::Duration::from_secs))
+            .partial_filter_expression(partial_filter_doc)
             .build();
         let model = mongodb::IndexModel::builder()
             .keys(keys)
@@ -626,7 +735,7 @@ impl MongoAdapter {
             .client
             .database(&self.cur_database())
             .collection::<bson::Document>(collection);
-        col.create_index(model, None)
+        col.create_index(model)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(())
@@ -644,7 +753,7 @@ impl MongoAdapter {
             .client
             .database(&self.cur_database())
             .collection::<bson::Document>(collection);
-        col.drop_index(name, None)
+        col.drop_index(name)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(())
@@ -662,20 +771,39 @@ impl MongoAdapter {
     fn bson_to_json(v: bson::Bson) -> serde_json::Value {
         use bson::Bson::*;
         match v {
-            Double(f) => serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0))),
+            Double(f) => serde_json::Value::Number(
+                serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)),
+            ),
             String(s) => serde_json::Value::String(s),
-            Array(arr) => serde_json::Value::Array(arr.into_iter().map(Self::bson_to_json).collect()),
+            Array(arr) => {
+                serde_json::Value::Array(arr.into_iter().map(Self::bson_to_json).collect())
+            }
             Document(doc) => Self::document_to_json(doc),
             Boolean(b) => serde_json::Value::Bool(b),
             Int32(i) => serde_json::Value::Number(i.into()),
             Int64(i) => serde_json::Value::Number(i.into()),
             Decimal128(d) => serde_json::Value::String(d.to_string()),
-            DateTime(dt) => serde_json::Value::String(dt.to_rfc3339_string()),
+            // Falls back to Display (raw millis) for dates outside chrono's
+            // representable range instead of the deprecated panicking variant.
+            DateTime(dt) => {
+                serde_json::Value::String(dt.try_to_rfc3339_string().unwrap_or_else(|_| dt.to_string()))
+            }
             Null | Undefined => serde_json::Value::Null,
             ObjectId(oid) => serde_json::Value::String(oid.to_hex()),
-            Binary(bin) => serde_json::Value::String(format!("BinData({:?},{})", bin.subtype, base64::engine::general_purpose::STANDARD.encode(bin.bytes))),
-            RegularExpression(regex) => serde_json::Value::String(format!("/{}/{}", regex.pattern, regex.options)),
-            Timestamp(ts) => serde_json::Value::Object(serde_json::json!({"t": ts.time, "i": ts.increment}).as_object().unwrap().clone()),
+            Binary(bin) => serde_json::Value::String(format!(
+                "BinData({:?},{})",
+                bin.subtype,
+                base64::engine::general_purpose::STANDARD.encode(bin.bytes)
+            )),
+            RegularExpression(regex) => {
+                serde_json::Value::String(format!("/{}/{}", regex.pattern, regex.options))
+            }
+            Timestamp(ts) => serde_json::Value::Object(
+                serde_json::json!({"t": ts.time, "i": ts.increment})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
             MinKey => serde_json::Value::String("MinKey".into()),
             MaxKey => serde_json::Value::String("MaxKey".into()),
             Symbol(s) => serde_json::Value::String(s),
@@ -691,18 +819,25 @@ impl MongoAdapter {
         skip: u64,
         limit: u64,
     ) -> DbResult<(Vec<serde_json::Value>, u64)> {
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
         let total = col
-            .count_documents(filter.clone().unwrap_or_default(), None)
+            .count_documents(filter.clone().unwrap_or_default())
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut cursor = col
-            .find(filter.unwrap_or_default(), None)
+            .find(filter.unwrap_or_default())
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut docs = Vec::new();
         let mut skipped = 0u64;
-        while let Some(doc) = cursor.try_next().await.map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))? {
+        while let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
             if skipped < skip {
                 skipped += 1;
                 continue;
@@ -727,7 +862,10 @@ impl MongoAdapter {
         limit: i64,
         offset: i64,
     ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>, u64)> {
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
         let mut opts = mongodb::options::FindOptions::builder().build();
         if let Some(field) = order_by {
             let dir = if order_dir == Some("DESC") { -1 } else { 1 };
@@ -740,18 +878,21 @@ impl MongoAdapter {
             opts.limit = Some(limit_u as i64);
         }
         let mut cursor = col
-            .find(filter.clone().unwrap_or_default(), opts)
+            .find(filter.clone().unwrap_or_default())
+            .with_options(opts)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
 
         let mut docs: Vec<serde_json::Value> = Vec::new();
-        while let Some(doc) = cursor.try_next().await.map_err(|e| {
-            DbError::InvalidOperation(format!("mongo: {e}"))
-        })? {
+        while let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
             docs.push(Self::document_to_json(doc));
         }
         let total = col
-            .count_documents(filter.clone().unwrap_or_default(), None)
+            .count_documents(filter.clone().unwrap_or_default())
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
 
@@ -780,10 +921,7 @@ impl MongoAdapter {
                     .iter()
                     .map(|c| map.get(c).and_then(json_cell_string))
                     .collect(),
-                other => columns
-                    .iter()
-                    .map(|_| json_cell_string(other))
-                    .collect(),
+                other => columns.iter().map(|_| json_cell_string(other)).collect(),
             });
         }
         Ok((columns, rows, total))
@@ -825,7 +963,8 @@ impl MongoAdapter {
             opts.skip = Some(offset.max(0) as u64);
         }
         let mut cursor = col
-            .find(plan.filter.clone().unwrap_or_default(), opts)
+            .find(plan.filter.clone().unwrap_or_default())
+            .with_options(opts)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut docs: Vec<serde_json::Value> = Vec::new();
@@ -860,9 +999,12 @@ impl MongoAdapter {
         column: &str,
         limit: i64,
     ) -> DbResult<Vec<Option<String>>> {
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
         let vals = col
-            .distinct(column, doc! {}, None)
+            .distinct(column, doc! {})
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut out: Vec<Option<String>> = Vec::new();
@@ -908,7 +1050,10 @@ impl MongoAdapter {
             ..Default::default()
         };
         if s.is_empty() {
-            return Ok(fail("Empty command. Try a JSON query, db.<collection>.find(...), or show collections".into()));
+            return Ok(fail(
+                "Empty command. Try a JSON query, db.<collection>.find(...), or show collections"
+                    .into(),
+            ));
         }
         // `use <db>` — switch the console's database context.
         if let Some(name) = s
@@ -940,7 +1085,7 @@ impl MongoAdapter {
         if s == "show collections" || s == "show tables" {
             let col = self.client.database(db);
             let names = col
-                .list_collection_names(None)
+                .list_collection_names()
                 .await
                 .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
             return Ok(crate::api::MongoRunResult {
@@ -980,7 +1125,9 @@ impl MongoAdapter {
     ) -> DbResult<crate::api::MongoRunResult> {
         let Some(call) = parse_db_call(s) else {
             return Ok(crate::api::MongoRunResult {
-                error: Some(format!("Could not parse `{s}` as db.<collection>.<method>(...)")),
+                error: Some(format!(
+                    "Could not parse `{s}` as db.<collection>.<method>(...)"
+                )),
                 elapsed_ms: start.elapsed().as_millis(),
                 ..Default::default()
             });
@@ -990,7 +1137,10 @@ impl MongoAdapter {
             elapsed_ms: start.elapsed().as_millis(),
             ..Default::default()
         };
-        let col = self.client.database(db).collection::<bson::Document>(&call.coll);
+        let col = self
+            .client
+            .database(db)
+            .collection::<bson::Document>(&call.coll);
         let command = || format!("db.{}.{}({})", call.coll, call.method, call.args);
         match call.method.as_str() {
             "find" | "findOne" => {
@@ -1017,7 +1167,8 @@ impl MongoAdapter {
                     opts.limit = Some(200);
                 }
                 let mut cursor = col
-                    .find(filter.clone().unwrap_or_default(), opts)
+                    .find(filter.clone().unwrap_or_default())
+            .with_options(opts)
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 let mut docs: Vec<serde_json::Value> = Vec::new();
@@ -1045,7 +1196,7 @@ impl MongoAdapter {
             "count" | "countDocuments" => {
                 let filter = parse_filter(&call.args)?;
                 let n = col
-                    .count_documents(filter.clone().unwrap_or_default(), None)
+                    .count_documents(filter.clone().unwrap_or_default())
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 Ok(crate::api::MongoRunResult {
@@ -1073,7 +1224,7 @@ impl MongoAdapter {
                     None
                 };
                 let vals = col
-                    .distinct(&field, filter.clone().unwrap_or_default(), None)
+                    .distinct(&field, filter.clone().unwrap_or_default())
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 let docs: Vec<serde_json::Value> =
@@ -1109,7 +1260,7 @@ impl MongoAdapter {
                     })
                     .collect::<DbResult<_>>()?;
                 let mut cursor = col
-                    .aggregate(stages, None)
+                    .aggregate(stages)
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 let mut docs: Vec<serde_json::Value> = Vec::new();
@@ -1153,13 +1304,16 @@ impl MongoAdapter {
             let mut opts = mongodb::options::FindOptions::builder().build();
             opts.limit = Some(50);
             let mut cursor = col
-                .find(filter.clone(), opts)
+                .find(filter.clone())
+                .with_options(opts)
                 .await
                 .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
             let mut docs: Vec<serde_json::Value> = Vec::new();
-            while let Some(d) = cursor.try_next().await.map_err(|e| {
-                DbError::InvalidOperation(format!("mongo: {e}"))
-            })? {
+            while let Some(d) = cursor
+                .try_next()
+                .await
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+            {
                 docs.push(Self::document_to_json(d));
             }
             let (columns, rows) = flatten_documents(&docs);
@@ -1183,13 +1337,15 @@ impl MongoAdapter {
                 })
                 .collect::<DbResult<_>>()?;
             let mut cursor = col
-                .aggregate(stages, None)
+                .aggregate(stages)
                 .await
                 .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
             let mut docs: Vec<serde_json::Value> = Vec::new();
-            while let Some(d) = cursor.try_next().await.map_err(|e| {
-                DbError::InvalidOperation(format!("mongo: {e}"))
-            })? {
+            while let Some(d) = cursor
+                .try_next()
+                .await
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+            {
                 docs.push(Self::document_to_json(d));
             }
             let (columns, rows) = flatten_documents(&docs);
@@ -1220,12 +1376,15 @@ impl DbAdapter for MongoAdapter {
         let names = self
             .client
             .database(&self.cur_database())
-            .list_collection_names(None)
+            .list_collection_names()
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(names
             .into_iter()
-            .map(|name| TableInfo { name, kind: "table".into() })
+            .map(|name| TableInfo {
+                name,
+                kind: "table".into(),
+            })
             .collect())
     }
 
@@ -1259,7 +1418,7 @@ impl DbAdapter for MongoAdapter {
     async fn list_databases(&self) -> DbResult<Vec<String>> {
         let names = self
             .client
-            .list_database_names(None, None)
+            .list_database_names()
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(names)
@@ -1272,10 +1431,9 @@ impl DbAdapter for MongoAdapter {
         skip: u64,
         limit: u64,
     ) -> DbResult<(Vec<serde_json::Value>, u64)> {
-        let bson_filter = filter.and_then(|v| {
-            bson::to_document(&v).ok()
-        });
-        self.list_documents(collection, bson_filter, skip, limit).await
+        let bson_filter = filter.and_then(|v| bson::to_document(&v).ok());
+        self.list_documents(collection, bson_filter, skip, limit)
+            .await
     }
 
     async fn list_documents_ext(
@@ -1286,18 +1444,25 @@ impl DbAdapter for MongoAdapter {
         limit: u64,
     ) -> DbResult<(Vec<String>, u64)> {
         let bson_filter = filter.and_then(|v| bson::to_document(&v).ok());
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
         let total = col
-            .count_documents(bson_filter.clone().unwrap_or_default(), None)
+            .count_documents(bson_filter.clone().unwrap_or_default())
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut cursor = col
-            .find(bson_filter.unwrap_or_default(), None)
+            .find(bson_filter.unwrap_or_default())
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         let mut docs = Vec::new();
         let mut skipped = 0u64;
-        while let Some(doc) = cursor.try_next().await.map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))? {
+        while let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
             if skipped < skip {
                 skipped += 1;
                 continue;
@@ -1325,23 +1490,25 @@ impl DbAdapter for MongoAdapter {
             .map_err(|e| DbError::InvalidOperation(format!("mongo _id: {e}")))?;
         let doc = super::mongo_json::parse(document_text)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
         let res = col
-            .replace_one(doc! { "_id": oid }, doc, None)
+            .replace_one(doc! { "_id": oid }, doc)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(res.modified_count > 0 || res.matched_count > 0)
     }
 
-    async fn insert_document(
-        &self,
-        collection: &str,
-        document_text: &str,
-    ) -> DbResult<()> {
+    async fn insert_document(&self, collection: &str, document_text: &str) -> DbResult<()> {
         let doc = super::mongo_json::parse(document_text)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
-        let col = self.client.database(&self.cur_database()).collection::<bson::Document>(collection);
-        col.insert_one(doc, None)
+        let col = self
+            .client
+            .database(&self.cur_database())
+            .collection::<bson::Document>(collection);
+        col.insert_one(doc)
             .await
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
         Ok(())
@@ -1383,6 +1550,81 @@ impl DbAdapter for MongoAdapter {
         }
         *self.database.write().unwrap() = schema.to_string();
         Ok(())
+    }
+
+    /// Explicitly create a collection ("New table" for a Mongo connection).
+    /// Collections also spring into existence implicitly on first insert,
+    /// but a dedicated create gives the UI an immediate, empty collection to
+    /// open — the same experience CREATE TABLE gives the SQL adapters.
+    async fn create_collection(&self, name: &str) -> DbResult<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(DbError::InvalidOperation(
+                "collection name cannot be empty".into(),
+            ));
+        }
+        self.client
+            .database(&self.cur_database())
+            .create_collection(name)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))
+    }
+
+    /// Duplicate a collection under a new name (sidebar right-click). Indexes
+    /// (everything but the implicit `_id_`, which Mongo creates on its own)
+    /// are always copied; documents are copied only when `copy_data` is
+    /// true, via a server-side `$out` aggregation so the whole collection
+    /// never round-trips through this process regardless of its size.
+    async fn duplicate_table(
+        &self,
+        source: &str,
+        target: &str,
+        copy_data: bool,
+    ) -> DbResult<Vec<String>> {
+        let target = target.trim();
+        if target.is_empty() {
+            return Err(DbError::InvalidOperation(
+                "collection name cannot be empty".into(),
+            ));
+        }
+        let mut ran = Vec::new();
+
+        self.client
+            .database(&self.cur_database())
+            .create_collection(target)
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        ran.push(format!("db.createCollection(\"{target}\")"));
+
+        for ix in self.list_indexes(source).await? {
+            if ix.name == "_id_" {
+                continue;
+            }
+            self.create_index(
+                target,
+                &ix.name,
+                &ix.columns,
+                ix.unique,
+                ix.column_dirs.as_deref(),
+                ix.sparse,
+                ix.ttl_seconds,
+                ix.partial_filter.as_deref(),
+            )
+            .await?;
+            ran.push(format!("db.{target}.createIndex(… \"{}\")", ix.name));
+        }
+
+        if copy_data {
+            let col = self
+                .client
+                .database(&self.cur_database())
+                .collection::<bson::Document>(source);
+            col.aggregate(vec![bson::doc! { "$out": target }])
+                .await
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+            ran.push(format!("db.{source}.aggregate([{{ $out: \"{target}\" }}])"));
+        }
+        Ok(ran)
     }
 
     /// SQL-on-Mongo (Phase 4): a `SELECT ... FROM ... [WHERE ...] [ORDER BY
@@ -1427,7 +1669,15 @@ impl DbAdapter for MongoAdapter {
     async fn execute_op(&self, op: &QueryOp) -> DbResult<OpOutcome> {
         let start = std::time::Instant::now();
         match op {
-            QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } => {
+            QueryOp::Select {
+                table,
+                filters,
+                custom_where,
+                order_by,
+                order_dir,
+                limit,
+                offset,
+            } => {
                 let filter = build_filter(filters, custom_where.as_deref())?;
                 let desc = filter_desc(&filter);
                 let (columns, rows, _total) = self
@@ -1452,12 +1702,19 @@ impl DbAdapter for MongoAdapter {
                     sql: Some(format!("db.{table}.find({desc})")),
                 })
             }
-            QueryOp::Count { table, filters, custom_where } => {
+            QueryOp::Count {
+                table,
+                filters,
+                custom_where,
+            } => {
                 let filter = build_filter(filters, custom_where.as_deref())?;
                 let desc = filter_desc(&filter);
-                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
+                let col = self
+                    .client
+                    .database(&self.cur_database())
+                    .collection::<bson::Document>(table);
                 let total = col
-                    .count_documents(filter.clone().unwrap_or_default(), None)
+                    .count_documents(filter.clone().unwrap_or_default())
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 Ok(OpOutcome {
@@ -1472,8 +1729,14 @@ impl DbAdapter for MongoAdapter {
                     sql: Some(format!("db.{table}.countDocuments({desc})")),
                 })
             }
-            QueryOp::SelectDistinct { table, column, limit } => {
-                let vals = self.distinct_values(table, column, limit.unwrap_or(100)).await?;
+            QueryOp::SelectDistinct {
+                table,
+                column,
+                limit,
+            } => {
+                let vals = self
+                    .distinct_values(table, column, limit.unwrap_or(100))
+                    .await?;
                 Ok(OpOutcome {
                     result: QueryResult {
                         columns: vec![column.clone()],
@@ -1486,7 +1749,11 @@ impl DbAdapter for MongoAdapter {
                     sql: Some(format!("db.{table}.distinct(\"{column}\")")),
                 })
             }
-            QueryOp::Update { table, set, match_row } => {
+            QueryOp::Update {
+                table,
+                set,
+                match_row,
+            } => {
                 let filter = filter_from_match_row(match_row);
                 let cols = self.column_types(table).await?;
                 let mut set_doc = bson::Document::new();
@@ -1496,9 +1763,12 @@ impl DbAdapter for MongoAdapter {
                     }
                     set_doc.insert(k, field_bson(v.as_deref(), cols.get(k).map(String::as_str)));
                 }
-                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
+                let col = self
+                    .client
+                    .database(&self.cur_database())
+                    .collection::<bson::Document>(table);
                 let res = col
-                    .update_many(filter.clone(), doc! { "$set": set_doc }, None)
+                    .update_many(filter.clone(), doc! { "$set": set_doc })
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 Ok(OpOutcome {
@@ -1510,14 +1780,20 @@ impl DbAdapter for MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                     },
-                    sql: Some(format!("db.{table}.updateMany({}, {{$set: ...}})", filter_desc(&Some(filter)))),
+                    sql: Some(format!(
+                        "db.{table}.updateMany({}, {{$set: ...}})",
+                        filter_desc(&Some(filter))
+                    )),
                 })
             }
             QueryOp::Delete { table, match_row } => {
                 let filter = filter_from_match_row(match_row);
-                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
+                let col = self
+                    .client
+                    .database(&self.cur_database())
+                    .collection::<bson::Document>(table);
                 let res = col
-                    .delete_many(filter.clone(), None)
+                    .delete_many(filter.clone())
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 Ok(OpOutcome {
@@ -1529,23 +1805,32 @@ impl DbAdapter for MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                     },
-                    sql: Some(format!("db.{table}.deleteMany({})", filter_desc(&Some(filter)))),
+                    sql: Some(format!(
+                        "db.{table}.deleteMany({})",
+                        filter_desc(&Some(filter))
+                    )),
                 })
             }
-            QueryOp::Insert { table, values, skip_empty } => {
+            QueryOp::Insert {
+                table,
+                values,
+                skip_empty,
+            } => {
                 let cols = self.column_types(table).await?;
                 let mut doc = bson::Document::new();
                 for (k, v) in values {
-                    let drop_empty = *skip_empty
-                        && v.as_deref().map_or(true, |s| s.is_empty())
-                        && k != "_id";
+                    let drop_empty =
+                        *skip_empty && v.as_deref().map_or(true, |s| s.is_empty()) && k != "_id";
                     if drop_empty {
                         continue;
                     }
                     doc.insert(k, field_bson(v.as_deref(), cols.get(k).map(String::as_str)));
                 }
-                let col = self.client.database(&self.cur_database()).collection::<bson::Document>(table);
-                col.insert_one(doc.clone(), None)
+                let col = self
+                    .client
+                    .database(&self.cur_database())
+                    .collection::<bson::Document>(table);
+                col.insert_one(doc.clone())
                     .await
                     .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
                 Ok(OpOutcome {
@@ -1557,19 +1842,51 @@ impl DbAdapter for MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                     },
-                    sql: Some(format!("db.{table}.insertOne({})", serde_json::to_string(&doc).unwrap_or_default())),
+                    sql: Some(format!(
+                        "db.{table}.insertOne({})",
+                        serde_json::to_string(&doc).unwrap_or_default()
+                    )),
                 })
             }
-            _ => Err(DbError::InvalidOperation(
-                "MongoDB is schemaless; this operation is not supported".into(),
-            )),
+            QueryOp::DropTable { table } => {
+                let col = self
+                    .client
+                    .database(&self.cur_database())
+                    .collection::<bson::Document>(table);
+                col.drop()
+                    .await
+                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                Ok(OpOutcome {
+                    result: QueryResult {
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        rows_affected: 0,
+                        is_select: false,
+                        error: None,
+                        elapsed_ms: start.elapsed().as_millis(),
+                    },
+                    sql: Some(format!("db.{table}.drop()")),
+                })
+            }
         }
     }
 
-    async fn execute_op_stream(&self, op: &QueryOp, on_batch: BatchSink<'_>) -> DbResult<OpOutcome> {
+    async fn execute_op_stream(
+        &self,
+        op: &QueryOp,
+        on_batch: BatchSink<'_>,
+    ) -> DbResult<OpOutcome> {
         let start = std::time::Instant::now();
         match op {
-            QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } => {
+            QueryOp::Select {
+                table,
+                filters,
+                custom_where,
+                order_by,
+                order_dir,
+                limit,
+                offset,
+            } => {
                 let filter = build_filter(filters, custom_where.as_deref())?;
                 let (columns, rows, total) = self
                     .select_page(
@@ -1582,19 +1899,28 @@ impl DbAdapter for MongoAdapter {
                     )
                     .await?;
                 // First chunk carries the column names, later chunks the rows.
-                on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
+                on_batch(QueryChunk {
+                    columns: Some(columns.clone()),
+                    rows: Vec::new(),
+                })?;
                 let mut batch: Vec<Vec<Option<String>>> = Vec::new();
                 let mut size = 0usize;
                 for row in &rows {
                     batch.push(row.clone());
                     size += 1;
                     if size >= 500 {
-                        on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
+                        on_batch(QueryChunk {
+                            columns: None,
+                            rows: std::mem::take(&mut batch),
+                        })?;
                         size = 0;
                     }
                 }
                 if !batch.is_empty() {
-                    on_batch(QueryChunk { columns: None, rows: batch })?;
+                    on_batch(QueryChunk {
+                        columns: None,
+                        rows: batch,
+                    })?;
                 }
                 let _ = total;
                 Ok(OpOutcome {
@@ -1609,11 +1935,23 @@ impl DbAdapter for MongoAdapter {
                     sql: Some(format!("db.{table}.find({})", filter_desc(&filter))),
                 })
             }
-            QueryOp::SelectDistinct { table, column, limit } => {
-                let vals = self.distinct_values(table, column, limit.unwrap_or(100)).await?;
-                on_batch(QueryChunk { columns: Some(vec![column.clone()]), rows: Vec::new() })?;
+            QueryOp::SelectDistinct {
+                table,
+                column,
+                limit,
+            } => {
+                let vals = self
+                    .distinct_values(table, column, limit.unwrap_or(100))
+                    .await?;
+                on_batch(QueryChunk {
+                    columns: Some(vec![column.clone()]),
+                    rows: Vec::new(),
+                })?;
                 for v in vals {
-                    on_batch(QueryChunk { columns: None, rows: vec![vec![v]] })?;
+                    on_batch(QueryChunk {
+                        columns: None,
+                        rows: vec![vec![v]],
+                    })?;
                 }
                 Ok(OpOutcome {
                     result: QueryResult {
@@ -1642,16 +1980,25 @@ impl DbAdapter for MongoAdapter {
         let plan = super::mongo_sql::translate_select(sql)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
         let (columns, rows) = self.run_select_plan(&plan).await?;
-        on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
+        on_batch(QueryChunk {
+            columns: Some(columns.clone()),
+            rows: Vec::new(),
+        })?;
         let mut batch: Vec<Vec<Option<String>>> = Vec::new();
         for row in rows {
             batch.push(row);
             if batch.len() >= 500 {
-                on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
+                on_batch(QueryChunk {
+                    columns: None,
+                    rows: std::mem::take(&mut batch),
+                })?;
             }
         }
         if !batch.is_empty() {
-            on_batch(QueryChunk { columns: None, rows: batch })?;
+            on_batch(QueryChunk {
+                columns: None,
+                rows: batch,
+            })?;
         }
         Ok(QueryResult {
             columns,
@@ -1672,15 +2019,70 @@ impl DbAdapter for MongoAdapter {
         let mut stmts = Vec::with_capacity(ops.len());
         for op in ops {
             match op {
-                SchemaOp::CreateIndex { table, name, columns, unique } => {
-                    self.create_index(table, name, columns, *unique).await?;
+                SchemaOp::RenameTable { table, new_name } => {
+                    // renameCollection is an admin command, not a per-database
+                    // one — it takes fully-qualified `<db>.<collection>` names.
+                    let db = self.cur_database();
+                    self.client
+                        .database("admin")
+                        .run_command(bson::doc! {
+                            "renameCollection": format!("{db}.{table}"),
+                            "to": format!("{db}.{new_name}"),
+                        })
+                        .await
+                        .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    stmts.push(format!(
+                        "db.adminCommand({{ renameCollection: \"{db}.{table}\", to: \"{db}.{new_name}\" }})"
+                    ));
+                }
+                SchemaOp::CreateIndex {
+                    table,
+                    name,
+                    columns,
+                    unique,
+                    column_dirs,
+                    sparse,
+                    ttl_seconds,
+                    partial_filter,
+                } => {
+                    self.create_index(
+                        table,
+                        name,
+                        columns,
+                        *unique,
+                        column_dirs.as_deref(),
+                        *sparse,
+                        *ttl_seconds,
+                        partial_filter.as_deref(),
+                    )
+                    .await?;
                     let keys = columns
                         .iter()
-                        .map(|c| format!("{c}: 1"))
+                        .enumerate()
+                        .map(|(i, c)| {
+                            let dir = column_dirs
+                                .as_deref()
+                                .and_then(|d| d.get(i))
+                                .copied()
+                                .unwrap_or(1);
+                            format!("{c}: {}", if dir < 0 { -1 } else { 1 })
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
+                    let mut opts = vec![format!("name: \"{name}\"")];
+                    opts.push(format!("unique: {unique}"));
+                    if let Some(s) = sparse {
+                        opts.push(format!("sparse: {s}"));
+                    }
+                    if let Some(secs) = ttl_seconds {
+                        opts.push(format!("expireAfterSeconds: {secs}"));
+                    }
+                    if let Some(pf) = partial_filter.as_deref().filter(|s| !s.trim().is_empty()) {
+                        opts.push(format!("partialFilterExpression: {pf}"));
+                    }
                     stmts.push(format!(
-                        "db.{table}.createIndex({{ {keys} }}, {{ name: \"{name}\", unique: {unique} }})"
+                        "db.{table}.createIndex({{ {keys} }}, {{ {} }})",
+                        opts.join(", ")
                     ));
                 }
                 SchemaOp::DropIndex { table, index } => {
@@ -1730,7 +2132,9 @@ mod tests {
 
     #[test]
     fn parse_db_call_with_filter_fragment() {
-        let c = parse_db_call("db.orders.aggregate([ { \"$match\": { \"age\": { \"$gte\": 18 } } } ])").unwrap();
+        let c =
+            parse_db_call("db.orders.aggregate([ { \"$match\": { \"age\": { \"$gte\": 18 } } } ])")
+                .unwrap();
         assert_eq!(c.coll, "orders");
         assert_eq!(c.method, "aggregate");
         assert!(c.args.contains("$match"));
@@ -1751,7 +2155,9 @@ mod tests {
         assert!(parse_filter("").unwrap().is_none());
         assert!(parse_filter("   ").unwrap().is_none());
         assert!(parse_filter("{}").unwrap().is_some());
-        assert!(parse_filter("{ \"status\": \"active\" }").unwrap().is_some());
+        assert!(parse_filter("{ \"status\": \"active\" }")
+            .unwrap()
+            .is_some());
         // The first argument of a find/distinct is a field or must be an object
         // query — a scalar/array is rejected here.
         assert!(parse_filter("\"city\", { \"x\": 1 }").is_err());

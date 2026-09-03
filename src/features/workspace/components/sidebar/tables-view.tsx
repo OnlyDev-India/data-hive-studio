@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
@@ -68,6 +69,23 @@ function uniqueCopyName(name: string, tables: { name: string }[]): string {
   return `${name}_copy_${i}`;
 }
 
+/** `<name>_<YYYYMMDD_HHmmss>` — the default name MongoDB's "Duplicate
+ *  collection" dialog prefills (distinct from the SQL `_copy` suffix; a
+ *  timestamp practically never collides, but fall back to `uniqueCopyName`'s
+ *  numbered-suffix approach on the off chance two duplicates land in the
+ *  same second). */
+function timestampedCopyName(name: string, tables: { name: string }[]): string {
+  const used = new Set(tables.map((t) => t.name));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const base = `${name}_${stamp}`;
+  if (!used.has(base)) return base;
+  let i = 2;
+  while (used.has(`${base}_${i}`)) i += 1;
+  return `${base}_${i}`;
+}
+
 /** Database browser: schema/database selectors (PG), searchable table list
  *  with context menus, server-object browsers and their dialogs. */
 export function TablesBrowser({
@@ -105,6 +123,18 @@ export function TablesBrowser({
   const [dupe_submitting, setDupeSubmitting] = useState(false);
   const [dupe_error, setDupeError] = useState<string | null>(null);
 
+  // MongoDB's duplicate dialog is distinct from the SQL one above: the
+  // default name is `<collection>_<timestamp>` (not `_copy`) and it offers a
+  // "copy data" checkbox — Postgres/SQLite duplicate always copies data with
+  // no such choice.
+  const [confirm_duplicate_mongo, setConfirmDuplicateMongo] = useState<{
+    name: string;
+  } | null>(null);
+  const [dupe_mongo_name, setDupeMongoName] = useState("");
+  const [dupe_mongo_copy_data, setDupeMongoCopyData] = useState(true);
+  const [dupe_mongo_submitting, setDupeMongoSubmitting] = useState(false);
+  const [dupe_mongo_error, setDupeMongoError] = useState<string | null>(null);
+
   const store_open_table = useStudioStore((s) => s.openTable);
   const store_open_mongo = useStudioStore((s) => s.openMongo);
   const open_structure = useStudioStore((s) => s.openStructure);
@@ -116,6 +146,9 @@ export function TablesBrowser({
   );
   const is_pg = conn_kind === "postgres";
   const is_mongo = conn_kind === "mongodb";
+  /** "collection" for Mongo, "table" otherwise — used in dialog copy so a
+   *  Mongo user isn't told they're dropping/duplicating a "table". */
+  const noun = is_mongo ? "collection" : "table";
   const [pg_schemas, setPgSchemas] = useState<string[] | null>(null);
   const [pg_active_schema, setPgActiveSchema] = useState("public");
   const [pg_databases, setPgDatabases] = useState<string[]>([]);
@@ -450,6 +483,46 @@ export function TablesBrowser({
     setConfirmDuplicate(t);
   };
 
+  const duplicate_collection_mongo = async () => {
+    if (!confirm_duplicate_mongo || dupe_mongo_submitting) return;
+    const target = dupe_mongo_name.trim();
+    if (!target) {
+      setDupeMongoError("Enter a name for the duplicate collection.");
+      return;
+    }
+    const taken = (tables ?? []).some(
+      (t) => t.name.toLowerCase() === target.toLowerCase(),
+    );
+    if (taken) {
+      setDupeMongoError(`A collection named “${target}” already exists.`);
+      return;
+    }
+    setDupeMongoSubmitting(true);
+    setDupeMongoError(null);
+    try {
+      await duplicateTable(
+        conn_id,
+        confirm_duplicate_mongo.name,
+        target,
+        dupe_mongo_copy_data,
+      );
+      setConfirmDuplicateMongo(null);
+      on_refresh();
+      store_open_mongo(conn_id, pg_active_schema, target);
+    } catch (e) {
+      setDupeMongoError(String(e));
+    } finally {
+      setDupeMongoSubmitting(false);
+    }
+  };
+
+  const ask_duplicate_mongo = (t: { name: string }) => {
+    setDupeMongoError(null);
+    setDupeMongoCopyData(true);
+    setDupeMongoName(timestampedCopyName(t.name, tables ?? []));
+    setConfirmDuplicateMongo(t);
+  };
+
   return (
     <>
       {/* Selector strip is ALWAYS visible on PG/Mongo — disabled (with
@@ -624,8 +697,9 @@ export function TablesBrowser({
                 key={t.name}
                 name={t.name}
                 kind={t.kind}
+                is_mongo={is_mongo}
                 is_selected={t.name === (selected_name ?? active_table)}
-                disabled={dupe_submitting}
+                disabled={dupe_submitting || dupe_mongo_submitting}
                 on_select={() => {
                   setSelectedName(t.name);
                   // Focus the list so arrow keys / Enter work right away
@@ -641,7 +715,9 @@ export function TablesBrowser({
                 }}
                 on_view_structure={() => open_structure(conn_id, t.name)}
                 on_copy={() => void copy_name(t.name)}
-                on_duplicate={() => ask_duplicate(t)}
+                on_duplicate={() =>
+                  is_mongo ? ask_duplicate_mongo(t) : ask_duplicate(t)
+                }
                 on_drop={() => setConfirmDrop({ name: t.name, kind: t.kind })}
                 on_view_grants={() => {
                   setGrantsRows(null);
@@ -734,9 +810,9 @@ export function TablesBrowser({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Drop table</DialogTitle>
+            <DialogTitle>Drop {noun}</DialogTitle>
             <DialogDescription>
-              This permanently deletes the table “{confirm_drop?.name ?? ""}”
+              This permanently deletes the {noun} “{confirm_drop?.name ?? ""}”
               and its data. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
@@ -798,6 +874,62 @@ export function TablesBrowser({
               onClick={() => void duplicate_table()}
             >
               {dupe_submitting ? "Duplicating…" : "Duplicate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MongoDB's duplicate dialog: a timestamped default name and a
+          copy-data checkbox instead of the SQL dialog's always-copies-data
+          "_copy" flow. Indexes are always copied either way. */}
+      <Dialog
+        open={confirm_duplicate_mongo !== null}
+        onOpenChange={(open) => {
+          if (!open && !dupe_mongo_submitting) {
+            setConfirmDuplicateMongo(null);
+            setDupeMongoError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Duplicate collection</DialogTitle>
+            <DialogDescription>
+              Create a copy of “{confirm_duplicate_mongo?.name ?? ""}”. Indexes
+              are always copied; documents only if you choose to below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="dupe-mongo-name">Name of the duplicate</Label>
+            <Input
+              id="dupe-mongo-name"
+              placeholder="collection_20260101_120000"
+              value={dupe_mongo_name}
+              onChange={(e) => setDupeMongoName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void duplicate_collection_mongo();
+              }}
+              autoFocus
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={dupe_mongo_copy_data}
+              onCheckedChange={(v) => setDupeMongoCopyData(v === true)}
+            />
+            Copy all documents too
+          </label>
+          {dupe_mongo_error && (
+            <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-sm">
+              {dupe_mongo_error}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              disabled={dupe_mongo_submitting}
+              onClick={() => void duplicate_collection_mongo()}
+            >
+              {dupe_mongo_submitting ? "Duplicating…" : "Duplicate"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -931,6 +1063,7 @@ export function TablesBrowser({
 function TableListItem({
   name,
   kind,
+  is_mongo = false,
   is_selected,
   disabled,
   on_select,
@@ -944,6 +1077,7 @@ function TableListItem({
 }: {
   name: string;
   kind: string;
+  is_mongo?: boolean;
   is_selected: boolean;
   disabled?: boolean;
   on_select: () => void;
@@ -955,6 +1089,7 @@ function TableListItem({
   on_drop: () => void;
   on_refresh_matview?: () => void;
 }) {
+  const noun = is_mongo ? "collection" : "table";
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -983,23 +1118,26 @@ function TableListItem({
       <ContextMenuContent className="w-48">
         <ContextMenuItem onSelect={on_open}>
           <TableIcon className="text-muted-foreground size-4" />
-          Open table
+          Open {noun}
         </ContextMenuItem>
         <ContextMenuItem onSelect={on_view_structure}>
           <Eye className="text-muted-foreground size-4" />
           View structure
         </ContextMenuItem>
-        <ContextMenuItem onSelect={on_view_grants}>
-          <ShieldCheck className="text-muted-foreground size-4" />
-          View grants
-        </ContextMenuItem>
+        {/* Grants are a Postgres/SQL concept — meaningless for Mongo. */}
+        {!is_mongo && (
+          <ContextMenuItem onSelect={on_view_grants}>
+            <ShieldCheck className="text-muted-foreground size-4" />
+            View grants
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={on_copy}>
           <Copy className="text-muted-foreground size-4" />
-          Copy table name
+          Copy {noun} name
         </ContextMenuItem>
         <ContextMenuItem onSelect={on_duplicate} disabled={disabled}>
           <CopyPlus className="text-muted-foreground size-4" />
-          Duplicate table
+          Duplicate {noun}
         </ContextMenuItem>
         {kind === "matview" && (
           <ContextMenuItem onSelect={on_refresh_matview}>
@@ -1010,7 +1148,7 @@ function TableListItem({
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onSelect={on_drop}>
           <Trash2 className="size-4" />
-          Drop table…
+          Drop {noun}…
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

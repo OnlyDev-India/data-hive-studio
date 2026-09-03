@@ -76,6 +76,7 @@ pub fn run() {
       commands::drop_pg_database,
       commands::create_pg_schema,
       commands::drop_pg_schema,
+      commands::create_mongo_collection,
       commands::refresh_matview,
       commands::set_active_schema,
       commands::active_schema,

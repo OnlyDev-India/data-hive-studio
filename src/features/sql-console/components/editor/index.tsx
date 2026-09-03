@@ -1,6 +1,5 @@
 import {
   forwardRef,
-  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -31,6 +30,7 @@ import {
   appEditorTheme,
 } from "@/shared/theme/codemirror-theme";
 import { cn, statementRanges } from "@/shared/lib/utils";
+import { useShortcuts, type Shortcut } from "@/shared/hooks/use-shortcut";
 
 export interface SqlEditorHandle {
   /** If text is selected: that selection. Otherwise: the statement around the
@@ -247,6 +247,10 @@ interface SqlEditorProps {
   onChange: (value: string) => void;
   onRun: () => void;
   onRunTarget: () => void;
+  /** Cmd/Ctrl+S while the editor is focused saves straight to a file — the
+   *  same action offered when closing a tab with unsaved queries, just
+   *  reachable without closing anything first. */
+  onSave?: () => void;
   /** Table names offered as completions. */
   tables?: string[];
   /** Column completions per table. Enables column suggestions after
@@ -268,8 +272,10 @@ interface SqlEditorProps {
 /**
  * SQL editor backed by CodeMirror 6 with the SQLite dialect. Its theme is
  * driven by the app's own design tokens (see codemirror-theme.ts), so it stays
- * in sync with light/dark mode. Ctrl+Enter runs the query. Set `language` to
- * "js" to highlight JavaScript shell commands instead (MongoDB console).
+ * in sync with light/dark mode. Ctrl+Enter runs the query, Ctrl+Shift+Enter
+ * runs the selection/statement at the cursor, Ctrl+S saves (see `onSave`).
+ * Set `language` to "js" to highlight JavaScript shell commands instead
+ * (MongoDB console).
  */
 export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
   function SqlEditor(
@@ -278,6 +284,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
       onChange,
       onRun,
       onRunTarget,
+      onSave,
       tables,
       schema,
       jsCompletions,
@@ -291,10 +298,6 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
     ref,
   ) {
     const cmsRef = useRef<ReactCodeMirrorRef>(null);
-    const runRef = useRef(onRun);
-    runRef.current = onRun;
-    const runTargetRef = useRef(onRunTarget);
-    runTargetRef.current = onRunTarget;
 
     // Word-breaking characters close a lingering completion popup instead of
     // filtering it. `.` gets its own handler below: it's the member-access
@@ -352,16 +355,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
       },
     }));
 
-    useEffect(() => {
-      const down = (e: KeyboardEvent) => {
-        if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
-        e.preventDefault();
-        if (e.shiftKey) runTargetRef.current();
-        else runRef.current();
-      };
-      document.addEventListener("keydown", down);
-      return () => document.removeEventListener("keydown", down);
-    }, []);
+    const shortcuts: Shortcut[] = [
+      { key: "Enter", mod: true, handler: onRun },
+      { key: "Enter", mod: true, shift: true, handler: onRunTarget },
+    ];
+    if (onSave) shortcuts.push({ key: "s", mod: true, handler: onSave });
+    useShortcuts(shortcuts);
 
     const extensions = useMemo(() => {
       if (language === "js") {
@@ -406,7 +405,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
         completionDismissKeymap,
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
       ];
-    }, [tables, schema, language, jsCompletions, enableWrapping]);
+    }, [tables, schema, language, jsCompletions, enableWrapping, completionDismissKeymap]);
 
     // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set
     // (tearing down and recreating every basicSetup extension, including

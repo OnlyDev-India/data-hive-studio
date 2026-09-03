@@ -111,13 +111,20 @@ export interface SchemaPaneHandle {
   drop: () => void;
 }
 
-/** Registered by every SQL editor tab while mounted: `has_text` marks the
- *  tab dirty (dot in the strip); `save` writes the queries to a file the
- *  user picks, resolving false when cancelled; `run_all`/`run_target` drive
- *  the status bar's run controls. Generic — every SQL-shaped connection
- *  registers this much, independent of which database kind it targets. */
+/** Registered by every SQL editor tab while mounted. `save` writes the
+ *  queries to a file the user picks, resolving false when cancelled;
+ *  `run_all`/`run_target` drive the status bar's run controls. Generic —
+ *  every SQL-shaped connection registers this much, independent of which
+ *  database kind it targets. */
 export interface SqlTabHandleBase {
+  /** True whenever the editor has any non-empty text — drives Run All's
+   *  enabled state. NOT the same as "unsaved" — see `is_dirty`. */
   has_text: boolean;
+  /** True when the editor's text differs from what was last saved (or has
+   *  never been saved and has text) — drives the tab-strip dirty dot, the
+   *  close-confirmation prompt, and its button wording. Stays false right
+   *  after a successful save even though `has_text` may still be true. */
+  is_dirty: boolean;
   save: () => Promise<boolean>;
   /** Run all queries in the editor. */
   run_all?: () => void;
@@ -125,6 +132,16 @@ export interface SqlTabHandleBase {
   can_run_target?: boolean;
   /** Run the selected query target. */
   run_target?: () => void;
+  /** Summary of the currently active result tab, for the action bar's
+   *  rows/time display — SQL query results have no GridBridge (they're not
+   *  paginated/editable), so this is how that info reaches the action bar
+   *  instead. Null when no result tab is active, it's still running, or it
+   *  errored (nothing meaningful to show). */
+  result?: { rows: number; is_select: boolean; elapsed_ms: number } | null;
+  /** Basename of the file this editor was last saved to, or null if it's
+   *  never been saved — the tab strip shows this instead of the generic
+   *  "SQL"/"NoSQL console" label once set. */
+  file_name?: string | null;
 }
 
 /** Extra fields table-explorer's Mongo console pane registers on top of the
@@ -179,6 +196,8 @@ export interface SavedConnParams {
   auth_db?: string;
   /** MongoDB only: use mongodb+srv:// (DNS seedlist) instead of mongodb://. */
   srv?: boolean;
+  /** MongoDB only: require TLS on a plain mongodb:// connection. */
+  tls?: boolean;
   /** SQLite only: real file path prefilled into the connect form. */
   source_path?: string | null;
 }
@@ -357,10 +376,6 @@ export interface StudioStore {
   /** Command palette open state. */
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
-
-  /** Per-mongo-tab view mode ("grid" | "json"), keyed by the tab's unique key. */
-  mongoViews: Record<string, "grid" | "json">;
-  setMongoView: (key: string, view: "grid" | "json") => void;
 
   // Per-connection workspaces (tabs)
   workspaces: Record<string, WorkspaceTabs>;

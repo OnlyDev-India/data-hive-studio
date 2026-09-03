@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Braces,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -58,27 +57,20 @@ export function ActionBar() {
   const bridge = useStudioStore((s) =>
     active_key ? s.gridBridges[active_key] : null,
   );
-  // The Mongo console tab exposes a Grid/JSON toggle; collection tabs are
-  // grid-only (their JSON is edited in the right-hand sidebar).
-  const mongoView = useStudioStore((s) =>
-    active?.kind === "mongo-console"
-      ? active_key
-        ? (s.mongoViews[active_key] ?? "grid")
-        : null
-      : null,
-  );
-  const setMongoView = useStudioStore((s) => s.setMongoView);
   const schemaEdit = useStudioStore((s) =>
     active_key ? (s.schemaEdits[active_key] ?? null) : null,
   );
-  // Refresh / Drop-table for the active table pane while its Schema editor
-  // is open (registered by SchemaTab via the store).
+  // Refresh / Drop-table(-collection) for the active table/Mongo pane while
+  // its Schema editor is open (registered by SchemaTab/MongoIndexesEditor
+  // via the store).
+  const is_schema_pane_kind =
+    active?.kind === "table" || active?.kind === "mongo";
   const paneMode = usePaneMode(
     conn?.id ?? "",
-    active?.kind === "table" && active_key ? active_key : "",
+    is_schema_pane_kind && active_key ? active_key : "",
   );
   const schemaPane = useStudioStore((s) =>
-    active?.kind === "table" && active_key
+    is_schema_pane_kind && active_key
       ? (s.schemaPanes[active_key] ?? null)
       : null,
   );
@@ -152,45 +144,22 @@ export function ActionBar() {
                   </span>
                 </>
               )}
+              {!bridge && sqlConsole?.result && (
+                <>
+                  <span className="text-muted-foreground/80 shrink-0">
+                    {sqlConsole.result.elapsed_ms} ms
+                  </span>
+                  <span className="text-muted-foreground/80 shrink-0">
+                    {sqlConsole.result.rows}{" "}
+                    {sqlConsole.result.is_select ? "rows" : "row(s) affected"}
+                  </span>
+                </>
+              )}
             </>
           ) : (
             <span className="truncate">No tab open</span>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            {mongoView && (
-              <div className="mr-1 flex items-center rounded-md border">
-                <Button
-                  variant="ghost"
-                  size="iconXs"
-                  className={
-                    "rounded-r-none " +
-                    (mongoView === "grid"
-                      ? "bg-background text-foreground"
-                      : "text-muted-foreground")
-                  }
-                  title="Grid view"
-                  aria-label="Grid view"
-                  onClick={() => active_key && setMongoView(active_key, "grid")}
-                >
-                  <Table2 className="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="iconXs"
-                  className={
-                    "rounded-l-none " +
-                    (mongoView === "json"
-                      ? "bg-background text-foreground"
-                      : "text-muted-foreground")
-                  }
-                  title="JSON view"
-                  aria-label="JSON view"
-                  onClick={() => active_key && setMongoView(active_key, "json")}
-                >
-                  <Braces className="size-3.5" />
-                </Button>
-              </div>
-            )}
             {bridge && paneMode === "data" && (
               <>
                 <LimitInput
@@ -345,15 +314,25 @@ export function ActionBar() {
               </>
             )}
 
-            {active?.kind === "table" &&
+            {is_schema_pane_kind &&
               paneMode === "schema" &&
               schemaPane && (
                 <>
-                  <ActionBarTooltip label="Drop table">
+                  <ActionBarTooltip
+                    label={
+                      active?.kind === "mongo"
+                        ? "Drop collection"
+                        : "Drop table"
+                    }
+                  >
                     <Button
                       variant="ghost"
                       size="iconXs"
-                      aria-label="Drop table"
+                      aria-label={
+                        active?.kind === "mongo"
+                          ? "Drop collection"
+                          : "Drop table"
+                      }
                       disabled={schemaPane.busy}
                       onClick={() => schemaPane.drop()}
                       className={
@@ -581,6 +560,10 @@ function MongoCollectionPicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search collections…"
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
               className="h-full w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             />
           </div>

@@ -6,7 +6,7 @@ import {
 } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { ModeTabs } from "./mode-tabs";
-import { MongoIndexesEditor } from "./mongo-indexes-editor";
+import { MongoSchemaEditor } from "./mongo-schema-editor";
 import { useStudioStore, usePaneMode } from "@/shared/store";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { AlertCircle, Loader2, KeyRound } from "lucide-react";
@@ -134,33 +134,51 @@ export function MongoCollectionPane({
               </pre>
             )}
           </div>
-        ) : mode === "schema" ? (
-          schema && (
-            <MongoSchemaView
-              conn_id={conn_id}
-              tab_key={tab_key}
-              collection={collection}
-              schema={schema}
-              on_index_applied={() => {
-                reload_schema();
-                on_modified();
-              }}
-            />
-          )
         ) : (
           schema && (
-            <Grid
-              conn_id={conn_id}
-              table={collection}
-              schema={schema}
-              revision={refresh_rev}
-              tab_key={tab_key}
-              filters={filters}
-              custom_where={custom_where}
-              distinct={{}}
-              on_refresh={refresh_data_only}
-              kind="mongo"
-            />
+            <>
+              {/* Both surfaces stay mounted (hidden while inactive), same as
+                  the SQL TablePane: the grid keeps its rows/scroll and never
+                  refetches on a mode switch, and the schema editor keeps its
+                  drafts. */}
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col",
+                  mode === "data" ? "flex" : "hidden",
+                )}
+              >
+                <Grid
+                  conn_id={conn_id}
+                  table={collection}
+                  schema={schema}
+                  revision={refresh_rev}
+                  tab_key={tab_key}
+                  filters={filters}
+                  custom_where={custom_where}
+                  distinct={{}}
+                  on_refresh={refresh_data_only}
+                  kind="mongo"
+                />
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1",
+                  mode === "schema" ? "flex flex-col" : "hidden",
+                )}
+              >
+                <MongoSchemaView
+                  conn_id={conn_id}
+                  tab_key={tab_key}
+                  collection={collection}
+                  schema={schema}
+                  on_index_applied={() => {
+                    reload_schema();
+                    on_modified();
+                  }}
+                  on_dropped={on_modified}
+                />
+              </div>
+            </>
           )
         )}
         {mode === "data" &&
@@ -185,12 +203,14 @@ function MongoSchemaView({
   collection,
   schema,
   on_index_applied,
+  on_dropped,
 }: {
   conn_id: string;
   tab_key: string;
   collection: string;
   schema: TableSchema;
   on_index_applied: () => void;
+  on_dropped: () => void;
 }) {
   const grid =
     "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2";
@@ -225,12 +245,13 @@ function MongoSchemaView({
             </div>
           ))}
         </div>
-        <MongoIndexesEditor
+        <MongoSchemaEditor
           conn_id={conn_id}
           collection={collection}
           schema={schema}
           store_key={tab_key}
           on_applied={on_index_applied}
+          on_dropped={on_dropped}
         />
       </div>
     </div>

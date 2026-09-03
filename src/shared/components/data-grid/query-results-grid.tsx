@@ -63,7 +63,7 @@ export function QueryResultsGrid({
   });
 
   return (
-    <div className="min-h-0 flex-1 rounded-md border" data-selectable>
+    <div className="min-h-0 flex-1 border" data-selectable>
       {ctl.rows.length === 0 && !result.error ? (
         <p className="text-muted-foreground px-3 py-8 text-center text-sm">
           No rows.

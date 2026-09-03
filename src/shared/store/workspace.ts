@@ -68,10 +68,6 @@ function bulkCloseTabs(
 
     const paneModes: typeof cur.paneModes = {};
     for (const t of kept) paneModes[tabKey(t)] = cur.paneModes[tabKey(t)];
-    const keptKeys = new Set(kept.map((t) => tabKey(t)));
-    const mongoViews: typeof state.mongoViews = {};
-    for (const k of Object.keys(state.mongoViews))
-      if (keptKeys.has(k)) mongoViews[k] = state.mongoViews[k];
     return {
       workspaces: putWs(state.workspaces, connId, {
         ...cur,
@@ -79,7 +75,6 @@ function bulkCloseTabs(
         active,
         paneModes,
       }),
-      mongoViews,
     };
   });
 }
@@ -258,8 +253,6 @@ export function workspaceActions(set: SetState) {
         delete paneModes[tabKey(tab)];
         const sqlSeeds = { ...state.sqlSeeds };
         delete sqlSeeds[tabKey(tab)];
-        const mongoViews = { ...state.mongoViews };
-        delete mongoViews[tabKey(tab)];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -268,7 +261,6 @@ export function workspaceActions(set: SetState) {
             paneModes,
           }),
           sqlSeeds,
-          mongoViews,
         };
       });
     },

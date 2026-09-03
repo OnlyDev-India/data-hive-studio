@@ -94,9 +94,18 @@ pub trait DbAdapter: Send + Sync {
     ) -> DbResult<OpOutcome>;
     async fn run_sql_stream(&self, sql: &str, on_batch: BatchSink<'_>) -> DbResult<QueryResult>;
     async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>>;
-    /// Duplicate a table; returns the statements that ran (activity log).
-    async fn duplicate_table(&self, source: &str, target: &str) -> DbResult<Vec<String>> {
-        let _ = (source, target);
+    /// Duplicate a table/collection under a new name; returns the statements
+    /// that ran (activity log). `copy_data` is honored by MongoDB (the
+    /// sidebar's right-click "Duplicate collection" offers a copy-data
+    /// checkbox); SQL adapters don't respect it yet and always copy
+    /// structure + indexes + data, pending the same UI for SQL tables.
+    async fn duplicate_table(
+        &self,
+        source: &str,
+        target: &str,
+        copy_data: bool,
+    ) -> DbResult<Vec<String>> {
+        let _ = (source, target, copy_data);
         Err(DbError::InvalidOperation(
             "duplicate table is not supported by this adapter".into(),
         ))
@@ -219,6 +228,15 @@ pub trait DbAdapter: Send + Sync {
     async fn create_schema(&self, _name: &str) -> DbResult<()> {
         Err(DbError::InvalidOperation(
             "creating schemas is not supported by this adapter".into(),
+        ))
+    }
+    /// Create a new collection in the active database (MongoDB). An explicit
+    /// create is optional in Mongo (a collection also springs into existence
+    /// on its first insert) but this gives "New table" a real, immediate
+    /// equivalent for Mongo connections instead of SQL DDL.
+    async fn create_collection(&self, _name: &str) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "creating collections is not supported by this adapter".into(),
         ))
     }
     /// Drop a schema; `cascade` also drops every object inside it.
@@ -569,6 +587,7 @@ macro_rules! named_ddl_op {
 named_ddl_op!(create_database, create_database, "ddl", "CREATE DATABASE {}");
 named_ddl_op!(drop_database, drop_database, "drop_table", "DROP DATABASE {}");
 named_ddl_op!(create_schema, create_schema, "ddl", "CREATE SCHEMA {}");
+named_ddl_op!(create_collection, create_collection, "ddl", "db.createCollection(\"{}\")");
 named_ddl_op!(set_active_schema, set_active_schema, "schema", "SET SCHEMA {}");
 named_ddl_op!(refresh_matview, refresh_matview, "ddl", "REFRESH MATERIALIZED VIEW {}");
 
@@ -763,14 +782,25 @@ pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {
     with_connection(&conn_id, |a| async move { a.save_bytes().await }).await
 }
 
-/// Duplicate a table (structure + indexes + data) under a new name.
-pub async fn duplicate_table(conn_id: &str, source: &str, target: &str) -> DbResult<Vec<String>> {
+/// Duplicate a table/collection under a new name. `copy_data` controls
+/// whether documents are copied too (MongoDB only for now — SQL adapters
+/// always copy structure + indexes + data regardless of this flag, pending
+/// the same UI for SQL tables).
+pub async fn duplicate_table(
+    conn_id: &str,
+    source: &str,
+    target: &str,
+    copy_data: bool,
+) -> DbResult<Vec<String>> {
     let t = std::time::Instant::now();
-    let label = format!("{source} → {target}");
+    let label = format!(
+        "{source} → {target}{}",
+        if copy_data { "" } else { " (structure only)" }
+    );
     let source = source.to_string();
     let target = target.to_string();
     let res = with_connection(conn_id, move |a| async move {
-        a.duplicate_table(&source, &target).await
+        a.duplicate_table(&source, &target, copy_data).await
     })
     .await;
     match &res {

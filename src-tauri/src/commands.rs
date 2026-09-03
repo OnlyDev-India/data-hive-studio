@@ -183,6 +183,11 @@ forward_cmd! {
     create_pg_schema(conn_id: String, name: String) -> () => create_schema
 }
 
+forward_cmd! {
+    /// Create a collection in the active database (MongoDB).
+    create_mongo_collection(conn_id: String, name: String) -> () => create_collection
+}
+
 /// Drop a schema; `cascade` also drops every object inside it (Postgres).
 #[tauri::command]
 pub async fn drop_pg_schema(
@@ -266,10 +271,19 @@ forward_cmd! {
     save_database(conn_id: String) -> Vec<u8> => save_database
 }
 
-forward_cmd! {
-    /// Duplicate a table (structure + indexes + data) under a new name; returns
-    /// the statements that ran.
-    duplicate_table(conn_id: String, source: String, target: String) -> Vec<String> => duplicate_table
+/// Duplicate a table/collection under a new name; returns the statements
+/// that ran. `copy_data` controls whether documents are copied too (honored
+/// by MongoDB; SQL adapters always copy everything regardless, for now).
+#[tauri::command]
+pub async fn duplicate_table(
+    conn_id: String,
+    source: String,
+    target: String,
+    copy_data: bool,
+) -> Result<Vec<String>, String> {
+    crate::db::duplicate_table(&conn_id, &source, &target, copy_data)
+        .await
+        .map_err(to_err)
 }
 
 forward_cmd! {

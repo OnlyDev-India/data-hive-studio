@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Database, FileCode2, Leaf } from "lucide-react";
+import { Database, Leaf } from "lucide-react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { cn } from "@/shared/lib/utils";
 import {
@@ -20,6 +20,7 @@ import { EditBanner } from "./edit-banner";
 import { MongoPanel, type MongoFormValues } from "./mongo-panel";
 import { PgPanel, type PgFormValues } from "./pg-panel";
 import { SqlitePanel } from "./sqlite-panel";
+import PGIcon from "@/shared/components/icons/pg-icon";
 
 type DbKindChoice = "sqlite" | "postgres" | "mongodb";
 
@@ -33,7 +34,7 @@ function KindBar({
 }) {
   const items: { id: DbKindChoice; label: string; icon: typeof Database }[] = [
     { id: "sqlite", label: "SQLite", icon: Database },
-    { id: "postgres", label: "PostgreSQL", icon: FileCode2 },
+    { id: "postgres", label: "PostgreSQL", icon: PGIcon as typeof Database },
     { id: "mongodb", label: "MongoDB", icon: Leaf },
   ];
   return (
@@ -127,6 +128,7 @@ export function Landing() {
     database: "",
     auth_db: "admin",
     srv: false,
+    tls: false,
   });
   const [mongo_testing, setMongoTesting] = useState(false);
   const [mongo_test_ok, setMongoTestOk] = useState<boolean | null>(null);
@@ -229,6 +231,7 @@ export function Landing() {
         port: u.port && !isSrv ? u.port : m.port,
         database: u.pathname.replace(/^\/+/, ""),
         auth_db: u.searchParams.get("authSource") ?? m.auth_db,
+        tls: u.searchParams.get("tls") === "true" || isSrv,
       }));
       setMongoUrlError(null);
     } catch {
@@ -238,10 +241,16 @@ export function Landing() {
 
   const export_mongo_url = async () => {
     const auth = `${encodeURIComponent(mongo.user.trim())}:${encodeURIComponent(mongo.password)}`;
-    const authSource = mongo.auth_db.trim() ? `?authSource=${encodeURIComponent(mongo.auth_db)}` : "";
+    const query: string[] = [];
+    if (mongo.auth_db.trim())
+      query.push(`authSource=${encodeURIComponent(mongo.auth_db)}`);
+    // mongodb+srv:// gets TLS by default — only a plain mongodb:// URL needs
+    // it spelled out.
+    if (mongo.tls && !mongo.srv) query.push("tls=true");
+    const qs = query.length > 0 ? `?${query.join("&")}` : "";
     const url = mongo.srv
-      ? `mongodb+srv://${auth}@${mongo.host.trim() || "localhost"}/${mongo.database.trim()}${authSource}`
-      : `mongodb://${auth}@${mongo.host.trim() || "localhost"}:${Number(mongo.port) || 27017}/${mongo.database.trim()}${authSource}`;
+      ? `mongodb+srv://${auth}@${mongo.host.trim() || "localhost"}/${mongo.database.trim()}${qs}`
+      : `mongodb://${auth}@${mongo.host.trim() || "localhost"}:${Number(mongo.port) || 27017}/${mongo.database.trim()}${qs}`;
     try {
       await navigator.clipboard.writeText(url);
       setMongoCopied(true);
@@ -324,6 +333,7 @@ export function Landing() {
     database: mongo.database.trim(),
     auth_db: mongo.auth_db.trim() || "admin",
     srv: mongo.srv,
+    tls: mongo.tls,
   });
 
   const mongo_test_click = async () => {
@@ -378,7 +388,10 @@ export function Landing() {
   const [editing, setEditing] = useState<LandingEditTarget | null>(null);
 
   /** Full saved record for the PG form — `kind` routes it on reopen. */
-  const pg_saved_params = () => ({ ...build_params(), kind: "postgres" as const });
+  const pg_saved_params = () => ({
+    ...build_params(),
+    kind: "postgres" as const,
+  });
 
   const save_local = () => {
     if (editing?.source === "local") {
@@ -412,7 +425,11 @@ export function Landing() {
 
   const save_mongo_local = () => {
     if (editing?.source === "local") {
-      updateSavedLocal(editing.oldName, mongo_display_name(), mongo_saved_params());
+      updateSavedLocal(
+        editing.oldName,
+        mongo_display_name(),
+        mongo_saved_params(),
+      );
       pushNotification({
         kind: "success",
         title: "Updated saved MongoDB connection",
@@ -542,6 +559,7 @@ export function Landing() {
           database: m.database,
           auth_db: m.auth_db || "admin",
           srv: m.srv ?? false,
+          tls: m.tls ?? false,
         }));
       } else if (kind === "sqlite") {
         setKind("sqlite");
@@ -602,64 +620,64 @@ export function Landing() {
             />
           )}
 
-            <Card className="w-full">
-              <CardContent className="flex flex-col gap-4 pt-4">
-                {kind === "sqlite" ? (
-                  <SqlitePanel
-                    opening={opening}
-                    onOpen={() => void open_file_click()}
-                    path={sqlite_path}
-                  />
-                ) : kind === "mongodb" ? (
-                  <MongoPanel
-                    form={mongo}
-                    setField={(key, value) => {
-                      setMongo((m) => ({ ...m, [key]: value }));
-                    }}
-                    testing={mongo_testing}
-                    test_ok={mongo_test_ok}
-                    test_error={mongo_test_error}
-                    onTest={() => void mongo_test_click()}
-                    connecting={mongo_connecting}
-                    onConnect={() => void mongo_connect_click()}
-                    editing={editing !== null}
-                    onSaveLocal={save_mongo_local}
-                    onUpdate={() => save_mongo_local()}
-                    onCancelEdit={() => setEditing(null)}
-                    url_text={mongo_url_text}
-                    setUrlText={setMongoUrlText}
-                    url_error={mongo_url_error}
-                    copied={mongo_copied}
-                    onImport={() => void import_mongo_url()}
-                    onExport={() => void export_mongo_url()}
-                  />
-                ) : (
-                  <PgPanel
-                    form={pg}
-                    setField={setPgField}
-                    url_text={url_text}
-                    setUrlText={setUrlText}
-                    url_error={url_error}
-                    copied={copied}
-                    onImport={import_url}
-                    onExport={() => void export_url()}
-                    testing={testing}
-                    test_ok={test_ok}
-                    test_error={test_error}
-                    onTest={() => void test_click()}
-                    connecting={pg_connecting}
-                    onConnect={() => void pg_connect_click()}
-                    saving_to={saving_to}
-                    admin_servers={admin_servers}
-                    editing={editing}
-                    onSaveLocal={save_local}
-                    onSaveServer={(pid, name) => void save_to_server(pid, name)}
-                    onUpdate={() => void update_server()}
-                    onCancelEdit={() => setEditing(null)}
-                  />
-                )}
-              </CardContent>
-            </Card>
+          <Card className="w-full">
+            <CardContent className="flex flex-col gap-4 pt-4">
+              {kind === "sqlite" ? (
+                <SqlitePanel
+                  opening={opening}
+                  onOpen={() => void open_file_click()}
+                  path={sqlite_path}
+                />
+              ) : kind === "mongodb" ? (
+                <MongoPanel
+                  form={mongo}
+                  setField={(key, value) => {
+                    setMongo((m) => ({ ...m, [key]: value }));
+                  }}
+                  testing={mongo_testing}
+                  test_ok={mongo_test_ok}
+                  test_error={mongo_test_error}
+                  onTest={() => void mongo_test_click()}
+                  connecting={mongo_connecting}
+                  onConnect={() => void mongo_connect_click()}
+                  editing={editing !== null}
+                  onSaveLocal={save_mongo_local}
+                  onUpdate={() => save_mongo_local()}
+                  onCancelEdit={() => setEditing(null)}
+                  url_text={mongo_url_text}
+                  setUrlText={setMongoUrlText}
+                  url_error={mongo_url_error}
+                  copied={mongo_copied}
+                  onImport={() => void import_mongo_url()}
+                  onExport={() => void export_mongo_url()}
+                />
+              ) : (
+                <PgPanel
+                  form={pg}
+                  setField={setPgField}
+                  url_text={url_text}
+                  setUrlText={setUrlText}
+                  url_error={url_error}
+                  copied={copied}
+                  onImport={import_url}
+                  onExport={() => void export_url()}
+                  testing={testing}
+                  test_ok={test_ok}
+                  test_error={test_error}
+                  onTest={() => void test_click()}
+                  connecting={pg_connecting}
+                  onConnect={() => void pg_connect_click()}
+                  saving_to={saving_to}
+                  admin_servers={admin_servers}
+                  editing={editing}
+                  onSaveLocal={save_local}
+                  onSaveServer={(pid, name) => void save_to_server(pid, name)}
+                  onUpdate={() => void update_server()}
+                  onCancelEdit={() => setEditing(null)}
+                />
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

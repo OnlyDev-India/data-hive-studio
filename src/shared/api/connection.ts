@@ -269,6 +269,15 @@ export async function createPgSchema(
   return invoke("create_pg_schema", { connId, name });
 }
 
+/** Create a collection in the active database (MongoDB). */
+export async function createMongoCollection(
+  connId: string,
+  name: string,
+): Promise<void> {
+  serverUnsupported(connId);
+  return invoke("create_mongo_collection", { connId, name });
+}
+
 /** Drop a schema; `cascade` also drops every object inside it (Postgres). */
 export async function dropPgSchema(
   connId: string,
@@ -342,16 +351,20 @@ export async function saveDatabase(connId: string): Promise<number[]> {
   return invoke("save_database", { connId });
 }
 
-/** Duplicate a table under a new name, including structure, keys, indexes
- *  and data. Returns the statements that ran. */
+/** Duplicate a table/collection under a new name, including structure and
+ *  indexes. `copyData` controls whether the data comes along too — honored
+ *  by MongoDB (the sidebar's "Duplicate collection" checkbox); SQL adapters
+ *  always copy everything regardless, for now. Returns the statements that
+ *  ran. */
 export async function duplicateTable(
   connId: string,
   source: string,
   target: string,
+  copyData = true,
 ): Promise<string[]> {
   serverUnsupported(connId);
 
-  return invoke("duplicate_table", { connId, source, target });
+  return invoke("duplicate_table", { connId, source, target, copyData });
 }
 
 /** Read a file from disk as raw bytes (opened via the native dialog). */

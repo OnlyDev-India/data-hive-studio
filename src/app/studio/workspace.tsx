@@ -18,6 +18,7 @@ import {
   type ConnectionInfo,
 } from "@/shared/api";
 import type { GridFilter } from "@/shared/components/data-grid/types";
+import { pickSqlFile } from "@/shared/lib/platform";
 import {
   useStudioStore,
   useWorkspace,
@@ -28,7 +29,12 @@ import {
 } from "@/shared/store";
 import { Sidebar, TabBar } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
-import { TablePane, MongoCollectionPane, MongoConsolePane } from "@/features/table-explorer";
+import {
+  TablePane,
+  MongoCollectionPane,
+  MongoConsolePane,
+  MongoNewCollectionTab,
+} from "@/features/table-explorer";
 import { ActivityBar } from "./activity-bar";
 import { LeftPanelSlot } from "./left-panel";
 import { ConnectionTabs, Landing } from "@/features/connections";
@@ -162,7 +168,7 @@ export default function Workspace({
     for (const k of Object.keys(s.newTables))
       if (s.newTables[k]?.has_draft) keys.push(k);
     for (const k of Object.keys(s.sqlTabs))
-      if (s.sqlTabs[k]?.has_text) keys.push(k);
+      if (s.sqlTabs[k]?.is_dirty) keys.push(k);
     return keys.join("\u0000");
   });
 
@@ -182,6 +188,21 @@ export default function Workspace({
     [open_table, conn_id],
   );
   const openNewSql = useCallback(() => open_sql(conn_id), [open_sql, conn_id]);
+  const openFileTab = useCallback(() => {
+    void (async () => {
+      try {
+        const file = await pickSqlFile();
+        if (!file) return;
+        open_sql(conn_id, file.text);
+      } catch (e) {
+        useStudioStore.getState().pushNotification({
+          kind: "error",
+          title: "Could not open file",
+          detail: String(e),
+        });
+      }
+    })();
+  }, [open_sql, conn_id]);
   const openNewTableTab = useCallback(
     () => open_new_table(conn_id),
     [open_new_table, conn_id],
@@ -228,7 +249,7 @@ export default function Workspace({
     const nt = s.newTables[key];
     if (nt?.has_draft) parts.push("table definition");
     const sq = s.sqlTabs[key];
-    if (sq?.has_text) parts.push("unsaved queries");
+    if (sq?.is_dirty) parts.push("unsaved queries");
     return parts;
   }, []);
 
@@ -289,7 +310,7 @@ export default function Workspace({
       for (const t of confirm_close) {
         const k = tabKey(t);
         const sq = useStudioStore.getState().sqlTabs[k];
-        if (sq?.has_text) {
+        if (sq?.is_dirty) {
           const ok = await sq.save();
           if (!ok) {
             aborted = true;
@@ -408,6 +429,7 @@ export default function Workspace({
                     on_new_sql={openNewSql}
                     on_new_table={openNewTableTab}
                     on_new_mongo_console={openMongoConsoleTab}
+                    on_open_file={openFileTab}
                     dirty_keys={
                       new Set(dirty_keys.split("\u0000").filter(Boolean))
                     }
@@ -467,6 +489,13 @@ export default function Workspace({
                               <ActivityDetailsTab
                                 conn_id={conn_id}
                                 tab_key={tabKey(tab)}
+                              />
+                            ) : conn.kind === "mongodb" ? (
+                              <MongoNewCollectionTab
+                                conn_id={conn_id}
+                                tab_key={tabKey(tab)}
+                                active={is_active}
+                                on_modified={bump}
                               />
                             ) : (
                               <Suspense fallback={<TabFallback />}>
@@ -554,7 +583,7 @@ export default function Workspace({
               }}
             >
               {confirm_close?.some(
-                (t) => useStudioStore.getState().sqlTabs[tabKey(t)]?.has_text,
+                (t) => useStudioStore.getState().sqlTabs[tabKey(t)]?.is_dirty,
               )
                 ? "Don't save"
                 : "Discard changes"}
@@ -572,7 +601,7 @@ export default function Workspace({
                 (() => {
                   const hasSql = confirm_close?.some(
                     (t) =>
-                      useStudioStore.getState().sqlTabs[tabKey(t)]?.has_text,
+                      useStudioStore.getState().sqlTabs[tabKey(t)]?.is_dirty,
                   );
                   const hasApply = confirm_close?.some((t) => {
                     const k = tabKey(t);

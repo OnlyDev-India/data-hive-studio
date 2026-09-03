@@ -16,6 +16,8 @@ export interface MongoFormValues {
   auth_db: string;
   /** Use mongodb+srv:// (DNS seedlist) instead of mongodb://. */
   srv: boolean;
+  /** Require TLS on a plain mongodb:// connection (srv:// gets it by default). */
+  tls: boolean;
 }
 
 export interface MongoPanelProps {
@@ -151,6 +153,18 @@ export function MongoPanel({
         />
         <label className="text-sm text-muted-foreground">Use mongodb+srv:// (DNS seedlist, no port)</label>
       </div>
+
+      {/* TLS checkbox — mongodb+srv:// already gets TLS by default, so this
+          only matters (and is only shown) for a plain mongodb:// connection. */}
+      {!form.srv && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            checked={form.tls}
+            onCheckedChange={(checked) => setField("tls", checked)}
+          />
+          <label className="text-sm text-muted-foreground">Require TLS</label>
+        </div>
+      )}
 
       <Input
         placeholder="connection name (optional)"

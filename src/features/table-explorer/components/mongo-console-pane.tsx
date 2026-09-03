@@ -15,7 +15,7 @@ import {
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
 import { SqlEditor, type SqlEditorHandle } from "@/features/sql-console";
-import { cn, statementRanges } from "@/shared/lib/utils";
+import { basename, cn, statementRanges } from "@/shared/lib/utils";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import { useStudioStore } from "@/shared/store";
 
@@ -61,9 +61,6 @@ export function MongoConsolePane({
   const [active_id, setActiveId] = useState<number | null>(null);
   const editorRef = useRef<SqlEditorHandle>(null);
   const next_id = useRef(0);
-  // Grid/JSON is a per-console preference in the action bar's toggle.
-  const view = useStudioStore((s) => s.mongoViews[tab_key] ?? "grid");
-  const setView = useStudioStore((s) => s.setMongoView);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,8 +93,6 @@ export function MongoConsolePane({
         );
         patch(id, { result: res });
         if (res.switch_db) setDb(res.switch_db);
-        // Successful selects show the grid.
-        if (res.is_select) setView(tab_key, "grid");
       } catch (e) {
         patch(id, {
           result: {
@@ -117,7 +112,7 @@ export function MongoConsolePane({
         patch(id, { running: false });
       }
     },
-    [patch, conn_id, db, collection, tab_key, setView],
+    [patch, conn_id, db, collection],
   );
 
   const add_tab = useCallback(
@@ -165,6 +160,13 @@ export function MongoConsolePane({
   const active = entries.find((e) => e.id === active_id) ?? null;
 
   // ---- Unsaved-script tracking + action-bar handle ----------------------
+  // is_dirty tracks "differs from what was last saved" — has_text alone
+  // stays true after a successful save as long as there's still text in the
+  // editor, so it can't drive the dirty dot on its own (see sql-tab.tsx for
+  // the same fix on the SQL side).
+  const [saved_baseline, setSavedBaseline] = useState("");
+  const [file_name, setFileName] = useState<string | null>(null);
+  const is_dirty = script.trim().length > 0 && script !== saved_baseline;
   const save_script = useCallback(async (): Promise<boolean> => {
     const path = await save({
       defaultPath: "console.js",
@@ -173,6 +175,8 @@ export function MongoConsolePane({
     if (!path || Array.isArray(path)) return false;
     const bytes = Array.from(new TextEncoder().encode(script));
     await writeFile(path, bytes);
+    setSavedBaseline(script);
+    setFileName(basename(path));
     return true;
   }, [script]);
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
@@ -180,6 +184,7 @@ export function MongoConsolePane({
   useEffect(() => {
     set_sql_tab(tab_key, {
       has_text: script.trim().length > 0,
+      is_dirty,
       can_run_target: script.trim().length > 0,
       save: save_script,
       run_all,
@@ -187,11 +192,14 @@ export function MongoConsolePane({
       mongo_collections: collections,
       mongo_collection: collection,
       set_mongo_collection: setCollection,
+      file_name,
     });
     return () => clear_sql_tab(tab_key);
   }, [
     tab_key,
     script,
+    is_dirty,
+    file_name,
     save_script,
     run_all,
     run_target,
@@ -229,6 +237,7 @@ export function MongoConsolePane({
               onChange={setScript}
               onRun={() => void run_all()}
               onRunTarget={run_target}
+              onSave={() => void save_script()}
               language="js"
               jsCompletions={collections}
               height="100%"
@@ -281,7 +290,7 @@ export function MongoConsolePane({
                 ))}
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-auto p-3" data-selectable>
+            <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {!active ? (
                 <div className="text-muted-foreground rounded-md border border-dashed p-10 text-center text-sm">
                   Run a command to see results. Each run opens its own result
@@ -295,7 +304,6 @@ export function MongoConsolePane({
                 <ResultBody
                   entry={active}
                   query_result={entry_query_result(active)}
-                  view={view}
                   conn_id={conn_id}
                   tab_key={tab_key}
                 />
@@ -311,13 +319,11 @@ export function MongoConsolePane({
 function ResultBody({
   entry,
   query_result,
-  view,
   conn_id,
   tab_key,
 }: {
   entry: Entry;
   query_result: QueryResult;
-  view: "grid" | "json";
   conn_id: string;
   tab_key: string;
 }) {
@@ -336,28 +342,11 @@ function ResultBody({
         </span>
       )}
 
-      {view === "grid" ? (
-        <QueryResultsGrid
-          result={query_result}
-          conn_id={conn_id}
-          tab_key={tab_key}
-        />
-      ) : result.documents.length === 0 ? (
-        <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-          No documents.
-        </div>
-      ) : (
-        <div className="bg-background min-h-0 flex-1 overflow-auto rounded-md border p-2">
-          {result.documents.map((doc, i) => (
-            <pre
-              key={i}
-              className="border-muted rounded-md border-b p-2 font-mono text-xs whitespace-pre-wrap last:border-0"
-            >
-              {JSON.stringify(doc, null, 2)}
-            </pre>
-          ))}
-        </div>
-      )}
+      <QueryResultsGrid
+        result={query_result}
+        conn_id={conn_id}
+        tab_key={tab_key}
+      />
     </div>
   );
 }

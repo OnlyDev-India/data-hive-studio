@@ -68,6 +68,15 @@ export interface IndexInfo {
   /** 'c' = explicit CREATE INDEX, 'u' = UNIQUE constraint, 'pk' = PRIMARY KEY.
    *  Constraint-backed ('u'/'pk') indexes are read-only in the designer. */
   origin: string;
+  /** MongoDB only: per-column sort direction (1 = asc, -1 = desc), parallel
+   *  to `columns`. Absent on SQL adapters. */
+  column_dirs?: number[] | null;
+  /** MongoDB only: sparse index. */
+  sparse?: boolean | null;
+  /** MongoDB only: TTL index — seconds after which documents expire. */
+  ttl_seconds?: number | null;
+  /** MongoDB only: partial index filter (MQL extended JSON text). */
+  partial_filter?: string | null;
 }
 
 export interface TableSchema {
@@ -255,6 +264,16 @@ export type SchemaOp =
       name: string;
       columns: string[];
       unique?: boolean;
+      /** MongoDB only: per-column sort direction (1/-1), parallel to
+       *  `columns`. SQL adapters ignore this (always ascending). */
+      column_dirs?: number[];
+      /** MongoDB only: sparse index. SQL adapters ignore this. */
+      sparse?: boolean;
+      /** MongoDB only: TTL index expiry in seconds. SQL adapters ignore this. */
+      ttl_seconds?: number;
+      /** MongoDB only: partial index filter (MQL extended JSON text). SQL
+       *  adapters ignore this. */
+      partial_filter?: string;
     }
   /** `table` is required for MongoDB (index names are only unique per
    *  collection there); SQLite/Postgres ignore it (unique per file/schema). */

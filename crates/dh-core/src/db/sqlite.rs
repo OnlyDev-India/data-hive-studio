@@ -150,6 +150,10 @@ impl SqliteAdapter {
                     unique: unique != 0,
                     columns: cols.into_iter().map(|(_, _, c)| c).collect(),
                     origin: origin.to_string(),
+                    column_dirs: None,
+                    sparse: None,
+                    ttl_seconds: None,
+                    partial_filter: None,
                 });
             }
         }
@@ -676,6 +680,7 @@ impl SqliteAdapter {
                 name,
                 columns,
                 unique,
+                ..
             } => {
                 if columns.is_empty() {
                     return Err(DbError::InvalidOperation(
@@ -910,7 +915,15 @@ impl SqliteAdapter {
     /// Duplicate a table including its structure (column types, primary/foreign
     /// keys, constraints, indexes) and all of its data. Views fall back to a
     /// plain `CREATE TABLE AS SELECT` copy.
-    pub async fn duplicate_table(&self, source: &str, target: &str) -> DbResult<Vec<String>> {
+    pub async fn duplicate_table(
+        &self,
+        source: &str,
+        target: &str,
+        _copy_data: bool,
+    ) -> DbResult<Vec<String>> {
+        // TODO(postgres/sqlite duplicate UI): honor copy_data once SQL
+        // tables get the same copy-data checkbox as Mongo's "Duplicate
+        // collection" — always copies data for now.
         let mut ran: Vec<String> = Vec::new();
         const LOOKUP: &str = "SELECT type, sql FROM sqlite_master WHERE name = ?";
         let row: Option<(String, Option<String>)> = sqlx::query_as(LOOKUP)
@@ -1450,6 +1463,10 @@ mod tests {
                 name: "ux_email".into(),
                 columns: vec!["email".into()],
                 unique: false,
+                column_dirs: None,
+                sparse: None,
+                ttl_seconds: None,
+                partial_filter: None,
             },
         ];
         adapter.apply_schema_ops_batch(&batch1).await.unwrap();
@@ -1468,6 +1485,10 @@ mod tests {
                 name: "ux_email".into(),
                 columns: vec!["email".into()],
                 unique: true,
+                column_dirs: None,
+                sparse: None,
+                ttl_seconds: None,
+                partial_filter: None,
             },
         ];
         let result = adapter.apply_schema_ops_batch(&batch2).await;
@@ -1504,6 +1525,10 @@ mod tests {
             name: "ix_bad".into(),
             columns: vec!["no_such_column".into()],
             unique: false,
+            column_dirs: None,
+            sparse: None,
+            ttl_seconds: None,
+            partial_filter: None,
         }];
         let result = adapter.apply_schema_ops_batch(&ops).await;
         assert!(result.is_err(), "unknown column must be rejected");
@@ -1535,6 +1560,10 @@ mod tests {
                 name: "ix_phone".into(),
                 columns: vec!["phone".into()],
                 unique: true,
+                column_dirs: None,
+                sparse: None,
+                ttl_seconds: None,
+                partial_filter: None,
             },
         ];
         let ran = adapter.apply_schema_ops_batch(&ops).await.unwrap();
@@ -1768,8 +1797,13 @@ impl DbAdapter for SqliteAdapter {
     async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
         SqliteAdapter::apply_schema_ops_batch(self, ops).await
     }
-    async fn duplicate_table(&self, source: &str, target: &str) -> DbResult<Vec<String>> {
-        SqliteAdapter::duplicate_table(self, source, target).await
+    async fn duplicate_table(
+        &self,
+        source: &str,
+        target: &str,
+        copy_data: bool,
+    ) -> DbResult<Vec<String>> {
+        SqliteAdapter::duplicate_table(self, source, target, copy_data).await
     }
     async fn checkpoint(&self) -> DbResult<()> {
         SqliteAdapter::checkpoint(self).await

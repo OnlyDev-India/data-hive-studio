@@ -12,6 +12,7 @@ import { Dialog, DialogContent } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
 import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
+import { useShortcuts } from "@/shared/hooks/use-shortcut";
 
 interface Command {
   id: string;
@@ -35,16 +36,14 @@ export function CommandPalette() {
   const [selected, setSelected] = useState(0);
   const input_ref = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") {
-        e.preventDefault();
-        setOpen(!useStudioStore.getState().commandPaletteOpen);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [setOpen]);
+  useShortcuts([
+    {
+      key: "p",
+      mod: true,
+      shift: true,
+      handler: () => setOpen(!useStudioStore.getState().commandPaletteOpen),
+    },
+  ]);
 
   // Reset the query + highlight whenever the palette opens.
   useEffect(() => {

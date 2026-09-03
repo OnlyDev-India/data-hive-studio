@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import { cn, statementRanges } from "@/shared/lib/utils";
+import { basename, cn, statementRanges } from "@/shared/lib/utils";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -12,7 +12,7 @@ import {
 import {
   SqlEditor,
   type SqlEditorHandle,
-} from "./editor/sql-editor";
+} from "./editor";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import {
   runSqlStream,
@@ -215,39 +215,70 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   }, [add_tab, run_query]);
 
   const active = tabs.find((t) => t.id === active_id) ?? null;
+  // Rows/time for the action bar (no GridBridge for SQL results — they're
+  // not paginated/editable) — null while running or on error, since there's
+  // nothing meaningful to show then. Memoized so its identity is stable
+  // across renders where the underlying values don't change (the effect
+  // below re-registers whenever this object changes).
+  const result = active?.result;
+  const result_summary = useMemo(
+    () =>
+      active && !active.running && result && !result.error
+        ? {
+            rows: result.is_select ? result.rows.length : result.rows_affected,
+            is_select: result.is_select,
+            elapsed_ms: result.elapsed_ms,
+          }
+        : null,
+    [active, result],
+  );
 
   // ---- Unsaved-query tracking -------------------------------------------
-  // Any text in the editor marks the tab dirty (dot in the strip); closing
-  // then offers to save the queries to a .sql file.
+  // is_dirty tracks "differs from what was last saved" (or never saved and
+  // has text) — has_text alone can't drive the dirty dot, since it stays
+  // true after a successful save as long as there's still text in the
+  // editor. Closing while dirty offers to save the queries to a file.
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
   const sql_ref = useRef(sql);
   useEffect(() => {
     sql_ref.current = sql;
   });
+  const [saved_baseline, setSavedBaseline] = useState("");
+  const [file_name, setFileName] = useState<string | null>(null);
+  const is_dirty = sql.trim().length > 0 && sql !== saved_baseline;
   const save_sql = useCallback(async (): Promise<boolean> => {
     const path = await pickSqlSavePath();
     if (!path) return false;
     const bytes = Array.from(new TextEncoder().encode(sql_ref.current));
     await writeFile(path, bytes);
+    setSavedBaseline(sql_ref.current);
+    setFileName(basename(path));
     return true;
   }, []);
   useEffect(() => {
     set_sql_tab(tab_key, {
       has_text: sql.trim().length > 0,
+      is_dirty,
       can_run_target: sql.trim().length > 0,
       save: save_sql,
       run_all,
       run_target,
+      result: result_summary,
+      file_name,
     });
-    // Re-registers whenever the dirty flag flips; cleanup on unmount.
+    // Re-registers whenever the dirty flag, filename, or active result
+    // flips; cleanup on unmount.
     return () => clear_sql_tab(tab_key);
   }, [
     tab_key,
     sql,
+    is_dirty,
+    file_name,
     save_sql,
     run_all,
     run_target,
+    result_summary,
     set_sql_tab,
     clear_sql_tab,
   ]);
@@ -264,6 +295,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
               onChange={setSql}
               onRun={() => void run_all()}
               onRunTarget={run_target}
+              onSave={() => void save_sql()}
               tables={tables}
               schema={schema}
               height="100%"
@@ -314,7 +346,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
                 ))}
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-auto p-4" data-selectable>
+            <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {active === null ? (
                 <div className="text-muted-foreground rounded-md border border-dashed p-10 text-center text-sm">
                   Run a query to see results. Each run opens its own result tab.
@@ -352,22 +384,18 @@ function SqlResults({
   conn_id: string;
   tab_key: string;
 }) {
-  const { elapsed_ms } = result;
-
+  // Row count/elapsed time show in the action bar (via the sqlTabs handle's
+  // `result` field) instead of here, matching where the regular table grid
+  // shows the same info — the result tab strip's colored dot already covers
+  // running/success/error status, so this pane only needs to show content.
   if (result.is_select)
     return (
-      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden border">
         <QueryResultsGrid
           result={result}
           conn_id={conn_id}
           tab_key={tab_key}
         />
-        <div className="bg-muted/30 text-muted-foreground flex items-center gap-2 border-t px-3 py-1.5 text-xs">
-          <Badge>Query</Badge>
-          <span>
-            {result.rows.length} rows • {elapsed_ms} ms
-          </span>
-        </div>
       </div>
     );
 
@@ -381,9 +409,6 @@ function SqlResults({
   return (
     <div className="text-muted-foreground flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
       <Badge>Done</Badge>
-      <span>
-        {result.rows_affected} row(s) affected • {elapsed_ms} ms
-      </span>
     </div>
   );
 }

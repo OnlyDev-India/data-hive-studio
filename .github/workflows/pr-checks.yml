@@ -1,0 +1,92 @@
+name: PR Checks
+
+# Required checks before a PR can merge into main or develop: version-field
+# consistency, frontend lint/typecheck/tests/build, backend compile + tests.
+# Configure these three job names as required status checks in each branch's
+# protection rules (Settings → Branches) — a workflow file alone can't
+# enforce that from here.
+on:
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  version-consistency:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check package.json / src-tauri/Cargo.toml agree with src-tauri/tauri.conf.json
+        run: |
+          PKG_VERSION=$(jq -r .version package.json)
+          TAURI_VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+          CARGO_VERSION=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+
+          echo "src-tauri/tauri.conf.json (source of truth): $TAURI_VERSION"
+          echo "package.json:                                $PKG_VERSION"
+          echo "src-tauri/Cargo.toml:                         $CARGO_VERSION"
+
+          if [ "$PKG_VERSION" != "$TAURI_VERSION" ] || [ "$CARGO_VERSION" != "$TAURI_VERSION" ]; then
+            echo "::error::Version mismatch. src-tauri/tauri.conf.json is the source of truth ($TAURI_VERSION) — bump package.json and src-tauri/Cargo.toml to match it."
+            exit 1
+          fi
+
+  frontend:
+    name: Frontend (lint, typecheck, tests, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck (app)
+        run: bun run typecheck
+
+      - name: Typecheck (tests)
+        run: bun run typecheck:test
+
+      - name: Unit tests
+        run: bun run test:unit
+
+      - name: Build (sanity check — catches build-breaking changes)
+        run: bun run build
+
+  backend:
+    name: Backend (check, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Rust deps link against these even for `cargo check`, not just
+      # bundling — needed on every Linux job that touches the `dh-studio`
+      # (src-tauri) crate.
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check (whole workspace)
+        run: cargo check --workspace
+
+      # Matches package.json's "test" script. Runs dh-core's unit tests plus
+      # its tests/sqlite_registry.rs integration test (self-contained, no
+      # external services). Deliberately NOT running
+      # src-tauri/tests/pg_ddl_probe.rs here — it needs a live local Postgres
+      # and is documented as manual-only.
+      - name: Backend tests
+        run: cargo test -p dh-core

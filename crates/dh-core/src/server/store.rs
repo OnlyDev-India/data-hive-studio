@@ -93,6 +93,23 @@ impl Store {
                 )
                 .execute(p)
                 .await?;
+                // MongoDB-only connection details — see vault.rs's ConnMeta/
+                // ConnInput doc comment.
+                sqlx::query(
+                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS auth_db TEXT",
+                )
+                .execute(p)
+                .await?;
+                sqlx::query(
+                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS srv INTEGER NOT NULL DEFAULT 0",
+                )
+                .execute(p)
+                .await?;
+                sqlx::query(
+                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS tls INTEGER NOT NULL DEFAULT 0",
+                )
+                .execute(p)
+                .await?;
             }
         }
         Ok(())
@@ -236,6 +253,9 @@ CREATE TABLE IF NOT EXISTS connections (
     password_enc BLOB NOT NULL,
     database TEXT NOT NULL,
     ssl_mode TEXT,
+    auth_db TEXT,
+    srv INTEGER NOT NULL DEFAULT 0,
+    tls INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL,
     created_ms INTEGER NOT NULL,
     updated_ms INTEGER NOT NULL,
@@ -277,6 +297,11 @@ const SQLITE_ALTER_COLUMNS: &[(&str, &str, &str)] = &[
     // Existing sqlite-backed stores predate the `kind` column — every prior
     // row was implicitly Postgres, so the default backfills them correctly.
     ("connections", "kind", "TEXT NOT NULL DEFAULT 'postgres'"),
+    // MongoDB-only connection details — see vault.rs's ConnMeta/ConnInput
+    // doc comment. Defaults keep every pre-existing (Postgres) row correct.
+    ("connections", "auth_db", "TEXT"),
+    ("connections", "srv", "INTEGER NOT NULL DEFAULT 0"),
+    ("connections", "tls", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -294,6 +319,9 @@ CREATE TABLE IF NOT EXISTS connections (
     password_enc BYTEA NOT NULL,
     database TEXT NOT NULL,
     ssl_mode TEXT,
+    auth_db TEXT,
+    srv INTEGER NOT NULL DEFAULT 0,
+    tls INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL,
     created_ms BIGINT NOT NULL,
     updated_ms BIGINT NOT NULL,

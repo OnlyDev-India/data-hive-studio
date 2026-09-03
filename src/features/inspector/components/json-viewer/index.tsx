@@ -3,6 +3,7 @@ import { AnimatePresence, motion, type Transition } from "motion/react";
 import { Braces } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
+import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { TreeControls } from "./tree-controls";
 import { BsonEditor } from "@/shared/components/bson-editor";
 import {
@@ -124,14 +125,10 @@ export function JsonViewer({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset edit per selected row
     setEditable(false);
   }, [rowKey]);
-  useEffect(() => {
-    if (!dialogOpen) return;
-    const on_key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDialogOpen(false);
-    };
-    window.addEventListener("keydown", on_key);
-    return () => window.removeEventListener("keydown", on_key);
-  }, [dialogOpen]);
+  useShortcuts(
+    [{ key: "Escape", preventDefault: false, handler: () => setDialogOpen(false) }],
+    { enabled: dialogOpen },
+  );
 
   const [query, setQuery] = useState("");
   const [activeMatch, setActiveMatch] = useState(0);

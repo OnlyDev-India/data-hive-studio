@@ -15,6 +15,7 @@ import {
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
+import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { ActivityBar } from "./activity-bar";
 import { ActionBar } from "./action-bar";
 import { Landing } from "@/features/connections";
@@ -42,22 +43,14 @@ export function Studio() {
   // browsers can't render custom UI on tab close, so only interceptable
   // leave paths (Cmd/Ctrl+R, Shift variants, F5) show the dialog.
   const [leave_open, set_leave_open] = useState(false);
-  useEffect(() => {
-    if (!WEB) return;
-    const onKey = (e: KeyboardEvent) => {
-      const connected = useStudioStore.getState().open.length > 0;
-      if (!connected) return;
-      const key = e.key.toLowerCase();
-      const mod = e.metaKey || e.ctrlKey;
-      const is_reload = (mod && key === "r") || e.key === "F5";
-      if (!is_reload) return;
-      e.preventDefault();
-      e.stopPropagation();
-      set_leave_open(true);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  const connected = useStudioStore((s) => s.open.length > 0);
+  useShortcuts(
+    [
+      { key: "r", mod: true, stopPropagation: true, handler: () => set_leave_open(true) },
+      { key: "F5", stopPropagation: true, handler: () => set_leave_open(true) },
+    ],
+    { enabled: WEB && connected, capture: true },
+  );
 
   // Web mode: release server-side connection pools when the page unloads
   // (tab close, navigation) so the server frees resources immediately instead

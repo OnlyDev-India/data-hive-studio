@@ -12,6 +12,7 @@ import { useStudioStore } from "../store";
 import { closeConnection, type ConnectionInfo } from "../api";
 import { CornerDownLeft, Unplug } from "lucide-react";
 import { cn } from "../lib/utils";
+import { useShortcuts } from "../hooks/use-shortcut";
 
 const DisconnectDbBtn = ({ conn }: { conn: ConnectionInfo | null }) => {
   const [disconnect_conn_id, set_disconnect_conn_id] = useState<string | null>(
@@ -28,6 +29,11 @@ const DisconnectDbBtn = ({ conn }: { conn: ConnectionInfo | null }) => {
       set_disconnect_conn_id(null);
     }
   }
+  // Escape already closes the dialog via Base UI's own built-in dialog
+  // behavior — only Enter-to-confirm needs wiring up here.
+  useShortcuts([{ key: "Enter", handler: () => void handle_disconnect() }], {
+    enabled: disconnect_conn_id !== null,
+  });
   return (
     <>
       <Dialog

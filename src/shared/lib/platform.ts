@@ -59,3 +59,24 @@ export async function pickSqlSavePath(): Promise<string | null> {
   });
   return !path || Array.isArray(path) ? null : path;
 }
+
+/**
+ * Native "Open" dialog for a SQL script — reads the picked file and decodes
+ * it as UTF-8 text, ready to seed a new SQL editor tab. Returns `null` if
+ * the user cancels.
+ */
+export async function pickSqlFile(): Promise<{
+  path: string;
+  name: string;
+  text: string;
+} | null> {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "SQL script", extensions: ["sql", "txt"] }],
+  });
+  if (!path || Array.isArray(path)) return null;
+  const name = path.split(/[/\\]/).pop() ?? "query.sql";
+  const bytes = await readFile(path);
+  const text = new TextDecoder().decode(new Uint8Array(bytes));
+  return { path, name, text };
+}

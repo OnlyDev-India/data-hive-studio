@@ -5,9 +5,9 @@
 //! Every shared connection predates the `kind` column and was implicitly
 //! Postgres, so the column defaults to `'postgres'` and the common
 //! host/port/user/password/database/ssl_mode shape below covers it exactly.
-//! Other kinds (see [`AdapterParams`]) reuse the same common columns and
-//! fill their own extra fields with defaults — adding a real shared
-//! connection UI for a new kind is future work, not part of this hardening.
+//! MongoDB (see [`AdapterParams`]) reuses the same common columns plus three
+//! Mongo-only ones (`auth_db`/`srv`/`tls`, all optional/defaulted so Postgres
+//! rows are unaffected).
 
 use super::crypto;
 use super::store::{now_ms, Store, StorePool};
@@ -26,6 +26,15 @@ pub struct ConnMeta {
     pub user: String,
     pub database: String,
     pub ssl_mode: Option<String>,
+    /// MongoDB only: auth source database.
+    #[serde(default)]
+    pub auth_db: Option<String>,
+    /// MongoDB only: use mongodb+srv:// (DNS seedlist).
+    #[serde(default)]
+    pub srv: bool,
+    /// MongoDB only: require TLS on a plain mongodb:// connection.
+    #[serde(default)]
+    pub tls: bool,
     pub created_by: String,
     pub created_ms: i64,
     pub updated_ms: i64,
@@ -46,6 +55,15 @@ pub struct ConnInput {
     pub database: String,
     #[serde(default)]
     pub ssl_mode: Option<String>,
+    /// MongoDB only: auth source database (defaults to "admin" when None).
+    #[serde(default)]
+    pub auth_db: Option<String>,
+    /// MongoDB only: use mongodb+srv:// (DNS seedlist) instead of mongodb://.
+    #[serde(default)]
+    pub srv: bool,
+    /// MongoDB only: require TLS on a plain mongodb:// connection.
+    #[serde(default)]
+    pub tls: bool,
 }
 
 /// Decrypted connection parameters ready to hand to the matching adapter's
@@ -92,6 +110,9 @@ macro_rules! parse_conn_row {
             password_enc: $r.get("password_enc"),
             database: $r.get("database"),
             ssl_mode: $r.get("ssl_mode"),
+            auth_db: $r.get("auth_db"),
+            srv: $r.get::<i64, _>("srv"),
+            tls: $r.get::<i64, _>("tls"),
             created_by: $r.get("created_by"),
             created_ms: $r.get::<i64, _>("created_ms"),
             updated_ms: $r.get::<i64, _>("updated_ms"),
@@ -112,8 +133,8 @@ impl Store {
         let ts = now_ms();
         let (sql, _) = self.query_ph(
             r#"INSERT INTO connections
-               (id, name, kind, host, port, user, password_enc, database, ssl_mode, created_by, created_ms, updated_ms)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"#,
+               (id, name, kind, host, port, user, password_enc, database, ssl_mode, auth_db, srv, tls, created_by, created_ms, updated_ms)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"#,
         );
         let kind_str = kind_to_str(input.kind);
         match &self.pool {
@@ -128,6 +149,9 @@ impl Store {
                     .bind(&enc)
                     .bind(&input.database)
                     .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
                     .bind(created_by)
                     .bind(ts)
                     .bind(ts)
@@ -146,6 +170,9 @@ impl Store {
                     .bind(&enc)
                     .bind(&input.database)
                     .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
                     .bind(created_by)
                     .bind(ts)
                     .bind(ts)
@@ -163,6 +190,9 @@ impl Store {
             user: input.user.clone(),
             database: input.database.clone(),
             ssl_mode: input.ssl_mode.clone(),
+            auth_db: input.auth_db.clone(),
+            srv: input.srv,
+            tls: input.tls,
             created_by: created_by.to_string(),
             created_ms: ts,
             updated_ms: ts,
@@ -184,7 +214,7 @@ impl Store {
         let ts = now_ms();
         let (sql, _) = self.query_ph(
             r#"UPDATE connections
-               SET name=?, host=?, port=?, user=?, password_enc=?, database=?, ssl_mode=?, updated_ms=?
+               SET name=?, host=?, port=?, user=?, password_enc=?, database=?, ssl_mode=?, auth_db=?, srv=?, tls=?, updated_ms=?
                WHERE id=?"#,
         );
         match &self.pool {
@@ -197,6 +227,9 @@ impl Store {
                     .bind(&enc)
                     .bind(&input.database)
                     .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
                     .bind(ts)
                     .bind(id)
                     .execute(p)
@@ -212,6 +245,9 @@ impl Store {
                     .bind(&enc)
                     .bind(&input.database)
                     .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
                     .bind(ts)
                     .bind(id)
                     .execute(p)
@@ -298,12 +334,9 @@ impl Store {
                 user: row.user,
                 password,
                 database: row.database,
-                // Not carried by the shared-connection schema yet — a real
-                // Mongo shared-connection UI would need its own input
-                // fields (and columns) for these; out of scope here.
-                auth_db: None,
-                srv: false,
-                tls: false,
+                auth_db: row.auth_db,
+                srv: row.srv != 0,
+                tls: row.tls != 0,
             }),
             // Postgres, and every other kind until it gets its own adapter
             // params shape — matches the column's own default.
@@ -347,6 +380,9 @@ impl Store {
             user: r.user.clone(),
             database: r.database.clone(),
             ssl_mode: r.ssl_mode.clone(),
+            auth_db: r.auth_db.clone(),
+            srv: r.srv != 0,
+            tls: r.tls != 0,
             created_by: r.created_by.clone(),
             created_ms: r.created_ms,
             updated_ms: r.updated_ms,
@@ -366,6 +402,9 @@ struct ConnRow {
     password_enc: Vec<u8>,
     database: String,
     ssl_mode: Option<String>,
+    auth_db: Option<String>,
+    srv: i64,
+    tls: i64,
     created_by: String,
     created_ms: i64,
     updated_ms: i64,
@@ -388,6 +427,9 @@ mod tests {
             password: Some(pw.into()),
             database: "appdb".into(),
             ssl_mode: Some("require".into()),
+            auth_db: None,
+            srv: false,
+            tls: false,
         }
     }
 
@@ -435,6 +477,46 @@ mod tests {
             AdapterParams::Postgres(p) => (p.password, p.host),
             AdapterParams::Mongodb(_) => panic!("expected Postgres params"),
         }
+    }
+
+    /// Mongo's auth_db/srv/tls must round-trip through storage — these are
+    /// the fields `conn_secret_params` used to hardcode to None/false/false
+    /// for every Mongo shared connection regardless of what was stored.
+    #[tokio::test]
+    async fn mongo_auth_db_srv_tls_round_trip() {
+        let store = super::super::store::test_store().await;
+        let input = ConnInput {
+            name: "mongo-prod".into(),
+            kind: DbKind::Mongodb,
+            host: "cluster0.mongodb.net".into(),
+            port: 27017,
+            user: "mongo-user".into(),
+            password: Some("mongo-pw".into()),
+            database: "app".into(),
+            ssl_mode: None,
+            auth_db: Some("admin".into()),
+            srv: true,
+            tls: true,
+        };
+        let meta = store.conn_add(&input, "dev1").await.unwrap();
+        assert_eq!(meta.kind, DbKind::Mongodb);
+        assert_eq!(meta.auth_db.as_deref(), Some("admin"));
+        assert!(meta.srv);
+        assert!(meta.tls);
+
+        match store.conn_secret_params(&meta.id).await.unwrap() {
+            AdapterParams::Mongodb(p) => {
+                assert_eq!(p.password, "mongo-pw");
+                assert_eq!(p.auth_db.as_deref(), Some("admin"));
+                assert!(p.srv);
+                assert!(p.tls);
+            }
+            AdapterParams::Postgres(_) => panic!("expected Mongodb params"),
+        }
+
+        // conn_get (metadata-only path) also carries the flags.
+        let fetched = store.conn_get(&meta.id).await.unwrap().unwrap();
+        assert!(fetched.srv && fetched.tls);
     }
 
     #[tokio::test]

@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Code, Plus, SquarePlus, Terminal, X } from "lucide-react";
+import {
+  ChevronDown,
+  Code,
+  FileText,
+  Plus,
+  SquarePlus,
+  Terminal,
+  X,
+} from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -17,7 +25,13 @@ import {
 } from "@/shared/components/ui/context-menu";
 import { TabTypeIcon } from "@/shared/components/tab-type-icon";
 import { cn } from "@/shared/lib/utils";
-import { tabEquals, tabKey, tabLabel, type StudioTab } from "@/shared/store";
+import {
+  tabEquals,
+  tabKey,
+  tabLabel,
+  useStudioStore,
+  type StudioTab,
+} from "@/shared/store";
 
 interface TabBarProps {
   tabs: StudioTab[];
@@ -34,6 +48,9 @@ interface TabBarProps {
   on_new_sql: () => void;
   on_new_table: () => void;
   on_new_mongo_console: () => void;
+  /** Opens a local .sql file into a new SQL editor tab, seeded with its
+   *  contents. */
+  on_open_file: () => void;
 }
 
 export function TabBar({
@@ -49,6 +66,7 @@ export function TabBar({
   on_new_sql,
   on_new_table,
   on_new_mongo_console,
+  on_open_file,
 }: TabBarProps) {
   // ---- Drag to rearrange (pointer-based; HTML5 DnD is flaky in WebViews) --
   // pointerdown records a candidate; after >4px the drag activates and tabs
@@ -191,7 +209,7 @@ export function TabBar({
               </Button>
             }
           />
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className={"w-full"}>
             <DropdownMenuItem onClick={on_new_sql}>
               <Code className="text-muted-foreground size-4" />
               SQL editor
@@ -204,6 +222,10 @@ export function TabBar({
               <SquarePlus className="text-muted-foreground size-4" />
               Create table
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={on_open_file}>
+              <FileText className="text-muted-foreground size-4" />
+              Open file…
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -215,13 +237,14 @@ export function TabBar({
           (() => {
             const t = tabs.find((x) => tabKey(x) === drag_key);
             if (!t) return null;
+            const file_name = useStudioStore.getState().sqlTabs[tabKey(t)]?.file_name;
             return (
               <div
                 className="bg-popover text-foreground pointer-events-none fixed z-50 flex max-w-56 -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm whitespace-nowrap shadow-lg"
                 style={{ left: ghost.x, top: ghost.y }}
               >
                 <TabTypeIcon tab={t} />
-                <span className="truncate">{tabLabel(t)}</span>
+                <span className="truncate">{tabLabel(t, file_name)}</span>
               </div>
             );
           })(),
@@ -257,6 +280,7 @@ function TabItem({
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
 }) {
+  const file_name = useStudioStore((s) => s.sqlTabs[tabKey(tab)]?.file_name);
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -277,7 +301,7 @@ function TabItem({
             )}
           >
             <TabTypeIcon tab={tab} />
-            <span className="max-w-56 truncate">{tabLabel(tab)}</span>
+            <span className="max-w-56 truncate">{tabLabel(tab, file_name)}</span>
             {/* Dirty tabs show a dot; hovering it reveals the close X. */}
             {dirty ? (
               <span

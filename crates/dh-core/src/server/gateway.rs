@@ -10,8 +10,10 @@
 //! data-access checks but still go through the same execution path so
 //! everything lands in the audit log).
 
-use crate::api::{QueryOp, QueryResult};
-use crate::db::{DbAdapter, MongoAdapter, PgAdapter};
+use crate::api::{
+    MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult, QueryOp, QueryResult, SchemaOp,
+};
+use crate::db::{CatalogOverview, DbAdapter, MongoAdapter, PgAdapter};
 use crate::server::grants::DataAccess;
 use crate::server::identity::AuthCtx;
 use crate::server::store::Store;
@@ -194,6 +196,207 @@ impl Gateway {
         self.adapter(conn_id).await?.list_schemas().await.map_err(|e| e.to_string())
     }
 
+    // ---- MongoDB surface -----------------------------------------------
+    //
+    // Every method below is engine-agnostic on the `Gateway`/`DbAdapter`
+    // side (same authorize→adapter→map-err shape as `run_sql`/`execute_op`
+    // above) — a non-Mongo adapter just returns its own `InvalidOperation`.
+    // These exist so the desktop app's Mongo features (document grid,
+    // console, index manager, collection create/drop/rename/duplicate,
+    // database switcher) work identically against a shared team-server
+    // connection, not just a local one.
+
+    pub async fn list_documents(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        collection: &str,
+        filter: Option<serde_json::Value>,
+        skip: u64,
+        limit: u64,
+    ) -> Result<MongoDocumentsResult, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        let (documents, total) = self
+            .adapter(conn_id)
+            .await?
+            .list_documents(collection, filter, skip, limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(MongoDocumentsResult { documents, total })
+    }
+
+    pub async fn list_documents_ext(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        collection: &str,
+        filter: Option<serde_json::Value>,
+        skip: u64,
+        limit: u64,
+    ) -> Result<MongoExtDocumentsResult, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        let (documents, total) = self
+            .adapter(conn_id)
+            .await?
+            .list_documents_ext(collection, filter, skip, limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(MongoExtDocumentsResult { documents, total })
+    }
+
+    pub async fn save_document(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        collection: &str,
+        id: &str,
+        document_text: &str,
+    ) -> Result<bool, String> {
+        self.authorize(ctx, conn_id, true).await?;
+        let saved = self
+            .adapter(conn_id)
+            .await?
+            .save_document(collection, id, document_text)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.store.audit(ctx, "doc.save", conn_id, Some(&format!("{collection}/{id}"))).await?;
+        Ok(saved)
+    }
+
+    pub async fn insert_document(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        collection: &str,
+        document_text: &str,
+    ) -> Result<(), String> {
+        self.authorize(ctx, conn_id, true).await?;
+        self.adapter(conn_id)
+            .await?
+            .insert_document(collection, document_text)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.store.audit(ctx, "doc.insert", conn_id, Some(collection)).await?;
+        Ok(())
+    }
+
+    /// Mongo console. Requires readwrite, same reasoning as `run_sql`: the
+    /// script is arbitrary free text, so it's treated as a potential write.
+    pub async fn run_mongo(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        db: &str,
+        collection: Option<&str>,
+        script: &str,
+    ) -> Result<MongoRunResult, String> {
+        self.authorize(ctx, conn_id, true).await?;
+        let result = self
+            .adapter(conn_id)
+            .await?
+            .run_mongo(db, collection, script)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.store.audit(ctx, "mongo.run", conn_id, Some(&result.command)).await?;
+        Ok(result)
+    }
+
+    pub async fn create_collection(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        name: &str,
+    ) -> Result<(), String> {
+        self.authorize(ctx, conn_id, true).await?;
+        self.adapter(conn_id).await?.create_collection(name).await.map_err(|e| e.to_string())?;
+        self.store.audit(ctx, "collection.create", conn_id, Some(name)).await?;
+        Ok(())
+    }
+
+    /// Duplicate a table/collection. `copy_data` is Mongo-specific (see the
+    /// `DbAdapter::duplicate_table` doc comment) but the op itself is
+    /// generic — this is the same method Postgres's future "duplicate with
+    /// data" UI will call too.
+    pub async fn duplicate_table(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        source: &str,
+        target: &str,
+        copy_data: bool,
+    ) -> Result<Vec<String>, String> {
+        self.authorize(ctx, conn_id, true).await?;
+        let stmts = self
+            .adapter(conn_id)
+            .await?
+            .duplicate_table(source, target, copy_data)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.store
+            .audit(ctx, "collection.duplicate", conn_id, Some(&format!("{source} → {target}")))
+            .await?;
+        Ok(stmts)
+    }
+
+    pub async fn list_databases(&self, ctx: &AuthCtx, conn_id: &str) -> Result<Vec<String>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id).await?.list_databases().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn catalog_overview(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+    ) -> Result<CatalogOverview, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id).await?.catalog_overview().await.map_err(|e| e.to_string())
+    }
+
+    /// Switches which database/schema UNQUALIFIED operations on this shared
+    /// connection target. This is per-adapter-instance state, not per-caller
+    /// — since the gateway pools one adapter per connection id for every
+    /// caller, switching it affects every other user of this same shared
+    /// connection until someone switches it back. Treated as a write for
+    /// that reason (requires a can_update grant, same as any other mutation).
+    pub async fn set_active_schema(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        schema: &str,
+    ) -> Result<(), String> {
+        self.authorize(ctx, conn_id, true).await?;
+        self.adapter(conn_id).await?.set_active_schema(schema).await.map_err(|e| e.to_string())?;
+        self.store.audit(ctx, "schema.switch", conn_id, Some(schema)).await?;
+        Ok(())
+    }
+
+    pub async fn active_schema(&self, ctx: &AuthCtx, conn_id: &str) -> Result<String, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id).await?.active_schema().await.map_err(|e| e.to_string())
+    }
+
+    /// Apply staged schema (DDL) ops — collection rename and the full index
+    /// manager (create/drop, including TTL/sparse/partial/direction) for
+    /// Mongo; the generic SQL DDL surface for other engines.
+    pub async fn apply_schema_ops_batch(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        ops: &[SchemaOp],
+    ) -> Result<Vec<String>, String> {
+        self.authorize(ctx, conn_id, true).await?;
+        let stmts = self
+            .adapter(conn_id)
+            .await?
+            .apply_schema_ops_batch(ops)
+            .await
+            .map_err(|e| e.to_string())?;
+        if !stmts.is_empty() {
+            self.store.audit(ctx, "schema_ops", conn_id, Some(&stmts.join(";\n"))).await?;
+        }
+        Ok(stmts)
+    }
+
     /// Edit stored details — needs `can_edit` on the grant or admin scope.
     /// Editing credentials drops the cached pool so the next query reconnects.
     pub async fn update_conn_details(
@@ -293,6 +496,9 @@ impl Gateway {
                 "user": p.user,
                 "password": p.password,
                 "database": p.database,
+                "auth_db": p.auth_db,
+                "srv": p.srv,
+                "tls": p.tls,
             }),
         })
     }
@@ -328,6 +534,9 @@ mod tests {
             password: Some("p".into()),
             database: "d".into(),
             ssl_mode: None,
+            auth_db: None,
+            srv: false,
+            tls: false,
         }
     }
 

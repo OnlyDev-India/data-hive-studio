@@ -5,6 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Last path segment of a native file path — handles both `/` (mac/Linux)
+ *  and `\` (Windows) separators since the path comes from Tauri's native
+ *  save dialog, whichever platform that's running on. */
+export function basename(path: string): string {
+  const parts = path.split(/[/\\]/);
+  return parts[parts.length - 1] || path;
+}
+
 /** Split raw SQL (or console commands) into statement ranges, ignoring `;`
  * inside string literals and `--` / `//` / `/* *&#47;` comments. Offsets are
  * in the input string. `//` is valid JS/console syntax (MongoDB shell); it is

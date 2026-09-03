@@ -704,7 +704,16 @@ impl DbAdapter for PgAdapter {
             if columns.is_empty() {
                 continue;
             }
-            indexes.push(IndexInfo { name, unique, columns, origin: "c".into() });
+            indexes.push(IndexInfo {
+                name,
+                unique,
+                columns,
+                origin: "c".into(),
+                column_dirs: None,
+                sparse: None,
+                ttl_seconds: None,
+                partial_filter: None,
+            });
         }
 
         let triggers = trig_rows
@@ -1393,7 +1402,7 @@ impl DbAdapter for PgAdapter {
                     }
                     ran
                 }
-                SchemaOp::CreateIndex { table, name, columns, unique } => {
+                SchemaOp::CreateIndex { table, name, columns, unique, .. } => {
                     let u = if *unique { "UNIQUE " } else { "" };
                     let cols = columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ");
                     vec![format!(
@@ -1491,7 +1500,16 @@ impl DbAdapter for PgAdapter {
     /// defaults, NOT NULL, CHECKs and all indexes (PRIMARY KEY included).
     /// Postgres deliberately excludes FOREIGN KEY constraints from LIKE —
     /// documented limitation, same as pg_dump's --no-owner style copies.
-    async fn duplicate_table(&self, source: &str, target: &str) -> DbResult<Vec<String>> {
+    async fn duplicate_table(
+        &self,
+        source: &str,
+        target: &str,
+        _copy_data: bool,
+    ) -> DbResult<Vec<String>> {
+        // TODO(postgres duplicate UI): honor copy_data once Postgres gets the
+        // same copy-data checkbox as Mongo's "Duplicate collection" — for now
+        // this always copies structure + indexes + data, matching prior
+        // behavior before the flag existed.
         let schema = self.cur_schema();
         let kind: Option<String> = sqlx::query_scalar(
             "SELECT CASE c.relkind WHEN 'r' THEN 'table' ELSE NULL END \

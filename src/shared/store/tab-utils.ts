@@ -17,7 +17,10 @@ export type StudioTab =
   /** Singleton per connection — shows the currently selected activity entry. */
   | { kind: "activity" };
 
-export function tabLabel(tab: StudioTab): string {
+/** `file_name`, when set, overrides the generic label for "sql"/"mongo-console"
+ *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`. */
+export function tabLabel(tab: StudioTab, file_name?: string | null): string {
+  if (file_name) return file_name;
   switch (tab.kind) {
     case "table":
       return tab.name;
