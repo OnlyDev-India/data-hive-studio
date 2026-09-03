@@ -4,7 +4,10 @@ name: PR Checks
 # consistency, frontend lint/typecheck/tests/build, backend compile + tests.
 # Configure these three job names as required status checks in each branch's
 # protection rules (Settings → Branches) — a workflow file alone can't
-# enforce that from here.
+# enforce that from here. `frontend`/`backend` are skipped (not removed) when
+# their own area didn't change — a skipped required check still counts as
+# passing for merge purposes, so this doesn't weaken the gate, just avoids
+# running Rust checks for a docs-only PR and vice versa.
 on:
   pull_request:
     branches: [main, develop]
@@ -14,6 +17,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - 'package.json'
+              - 'bun.lock'
+              - 'vite.config.ts'
+              - 'vitest.config.ts'
+              - 'tsconfig*.json'
+              - 'eslint.config.js'
+              - 'index.html'
+              - '.github/workflows/pr-checks.yml'
+            backend:
+              - 'crates/**'
+              - 'src-tauri/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/pr-checks.yml'
+
   version-consistency:
     name: Version consistency
     runs-on: ubuntu-latest
@@ -37,6 +70,8 @@ jobs:
 
   frontend:
     name: Frontend (lint, typecheck, tests, build)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +99,8 @@ jobs:
 
   backend:
     name: Backend (check, tests)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
