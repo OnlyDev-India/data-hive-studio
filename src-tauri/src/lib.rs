@@ -102,6 +102,7 @@ pub fn run() {
       servers::server_run_sql,
       servers::server_execute_op,
       servers::servers_admin_devices,
+      servers::servers_admin_revoke_device,
       servers::servers_admin_tokens_list,
       servers::servers_admin_mint_token,
       servers::servers_admin_delete_token,

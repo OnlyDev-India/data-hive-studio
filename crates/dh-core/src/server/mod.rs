@@ -6,6 +6,7 @@ pub mod gateway;
 pub mod grants;
 pub mod identity;
 pub mod client;
+pub mod profiles;
 pub mod router;
 pub mod store;
 pub mod vault;

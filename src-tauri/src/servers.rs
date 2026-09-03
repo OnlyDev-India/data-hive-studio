@@ -1,27 +1,21 @@
-//! Saved team-server profiles and gateway passthrough.
-//!
-//! Profile metadata (name/url) lives in `<app_data>/servers.json`; tokens
-//! never touch disk unencrypted — they go to the OS keychain via `keyring`
-//! and are only handed to [`dh_core::server::client::ServerClient`] in memory.
+//! Saved team-server profiles and gateway passthrough — the Tauri-specific
+//! shell around `dh_core::server::profiles`: this file resolves WHERE the
+//! profiles file and tokens live (`AppHandle::path()`) and does the actual
+//! token storage (OS keychain via `keyring`, or a dev-mode file — `dh-core`
+//! has no keychain dependency since `dh-server` has no keychain to talk to).
+//! Everything else forwards straight through, mirroring `commands.rs`'s
+//! thin-forwarding pattern for the desktop DB commands.
 
 use dh_core::server::client::ServerClient;
 use dh_core::server::identity::AuthCtx;
+use dh_core::server::profiles::{
+    self, client_for, load_profiles, save_profiles, with_remote, ServerProfile,
+};
 use dh_core::server::vault::{ConnInput, ConnMeta};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use serde::Serialize;
 use tauri::Manager;
 
 const KEYRING_SERVICE: &str = "dh-studio-server";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerProfile {
-    pub id: String,
-    pub name: String,
-    pub url: String,
-    #[serde(default)]
-    pub team_name: Option<String>,
-}
 
 #[derive(Serialize)]
 pub struct ServerProfileView {
@@ -38,30 +32,10 @@ pub struct ServerSession {
     pub connections: Vec<dh_core::server::gateway::ConnWithAccess>,
 }
 
-fn clients() -> &'static Mutex<HashMap<String, ServerClient>> {
-    static CLIENTS: OnceLock<Mutex<HashMap<String, ServerClient>>> = OnceLock::new();
-    CLIENTS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 fn profiles_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("servers.json"))
-}
-
-fn load_profiles(app: &tauri::AppHandle) -> Result<Vec<ServerProfile>, String> {
-    let path = profiles_path(app)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
-}
-
-fn save_profiles(app: &tauri::AppHandle, profiles: &[ServerProfile]) -> Result<(), String> {
-    let path = profiles_path(app)?;
-    let raw = serde_json::to_string_pretty(profiles).map_err(|e| e.to_string())?;
-    std::fs::write(path, raw).map_err(|e| e.to_string())
 }
 
 fn keyring_entry(profile_id: &str) -> Result<keyring::Entry, String> {
@@ -144,22 +118,12 @@ fn delete_token(app: &tauri::AppHandle, profile_id: &str) {
     }
 }
 
-fn client_for(profile_id: &str) -> Result<ServerClient, String> {
-    clients()
-        .lock()
-        .unwrap()
-        .get(profile_id)
-        .cloned()
-        .ok_or_else(|| "not connected to this server".to_string())
-}
-
 #[tauri::command]
 pub fn servers_list(app: tauri::AppHandle) -> Result<Vec<ServerProfileView>, String> {
-    let connected = |id: &str| clients().lock().unwrap().contains_key(id);
-    Ok(load_profiles(&app)?
+    Ok(load_profiles(&profiles_path(&app)?)?
         .into_iter()
         .map(|p| ServerProfileView {
-            connected: connected(&p.id),
+            connected: profiles::is_connected(&p.id),
             id: p.id,
             name: p.name,
             url: p.url,
@@ -189,19 +153,21 @@ pub async fn servers_add(
     };
     let _ = save_token(&app, &profile.id, &token);
 
-    let mut all = load_profiles(&app)?;
+    let path = profiles_path(&app)?;
+    let mut all = load_profiles(&path)?;
     all.push(profile.clone());
-    save_profiles(&app, &all)?;
+    save_profiles(&path, &all)?;
     Ok(profile)
 }
 
 #[tauri::command]
 pub fn servers_remove(app: tauri::AppHandle, profile_id: String) -> Result<(), String> {
-    clients().lock().unwrap().remove(&profile_id);
+    profiles::remove_client(&profile_id);
     delete_token(&app, &profile_id);
-    let mut all = load_profiles(&app)?;
+    let path = profiles_path(&app)?;
+    let mut all = load_profiles(&path)?;
     all.retain(|p| p.id != profile_id);
-    save_profiles(&app, &all)
+    save_profiles(&path, &all)
 }
 
 #[tauri::command]
@@ -210,7 +176,7 @@ pub async fn servers_connect(
     profile_id: String,
 ) -> Result<ServerSession, String> {
     let token = load_token(&app, &profile_id)?;
-    let profile = load_profiles(&app)?
+    let profile = load_profiles(&profiles_path(&app)?)?
         .into_iter()
         .find(|p| p.id == profile_id)
         .ok_or("profile not found")?;
@@ -218,40 +184,17 @@ pub async fn servers_connect(
     let client = ServerClient::with_team(&profile.url, &token, profile.team_name.clone());
     let me = client.me().await?;
     let connections = client.connections().await?;
-    clients()
-        .lock()
-        .unwrap()
-        .insert(profile_id.clone(), client);
+    profiles::insert_client(profile_id.clone(), client);
     Ok(ServerSession { profile, me, connections })
 }
 
 #[tauri::command]
 pub fn servers_disconnect(profile_id: String) -> Result<(), String> {
-    clients().lock().unwrap().remove(&profile_id);
+    profiles::remove_client(&profile_id);
     Ok(())
 }
 
 // ---- Gateway passthrough ----------------------------------------------------
-//
-// The frontend addresses server-backed connections with namespaced ids of the
-// form `srv:<profile_id>:<conn_id>`; these commands split them back apart so
-// every existing grid/console component keeps working unchanged.
-
-pub fn split_conn_id(conn_id: &str) -> Option<(String, String)> {
-    let rest = conn_id.strip_prefix("srv:")?;
-    let (profile_id, remote) = rest.split_once(':')?;
-    Some((profile_id.to_string(), remote.to_string()))
-}
-
-async fn with_remote<T>(
-    conn_id: &str,
-    f: impl FnOnce(ServerClient, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send>>,
-) -> Result<T, String> {
-    let (profile_id, remote) =
-        split_conn_id(conn_id).ok_or_else(|| "not a server connection".to_string())?;
-    let client = client_for(&profile_id)?;
-    f(client, remote).await
-}
 
 #[tauri::command]
 pub async fn server_list_tables(
@@ -342,6 +285,7 @@ pub async fn servers_admin_delete_token(
     client_for(&profile_id)?.admin_delete_token(&token).await
 }
 
+#[tauri::command]
 pub async fn servers_admin_revoke_device(profile_id: String, device_id: String) -> Result<(), String> {
     client_for(&profile_id)?.admin_revoke_device(&device_id).await
 }
