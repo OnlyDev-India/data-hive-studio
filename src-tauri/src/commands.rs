@@ -8,6 +8,22 @@ fn to_err(e: crate::db::DbError) -> String {
     e.to_string()
 }
 
+/// Forwards args by reference into the matching `crate::db::` function and
+/// maps any `DbError` to a plain string for the IPC boundary — the shape
+/// shared by most commands below. Commands that also log, wrap/transform
+/// their result, pass a fixed extra argument, or set up a streaming channel
+/// stay hand-written since forcing them into this shape would either lose
+/// behavior or make the macro itself the thing that needs untangling.
+macro_rules! forward_cmd {
+    ($(#[$doc:meta])* $cmd_name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty => $db_fn:ident) => {
+        $(#[$doc])*
+        #[tauri::command]
+        pub async fn $cmd_name($($arg: $ty),*) -> Result<$ret, String> {
+            crate::db::$db_fn($(&$arg),*).await.map_err(to_err)
+        }
+    };
+}
+
 /// Newest-first snapshot of the backend activity log (panel hydration).
 #[tauri::command]
 pub fn get_activity(limit: Option<usize>) -> Vec<crate::activity::ActivityEntry> {
@@ -43,11 +59,10 @@ pub async fn open_database(name: String, bytes: Vec<u8>) -> Result<ConnectionInf
     crate::db::open_database(&DbKind::Sqlite, &name, Some(&bytes)).await.map_err(to_err)
 }
 
-/// Open an existing database directly from its file path. Changes persist to
-/// that file automatically.
-#[tauri::command]
-pub async fn open_database_path(path: String) -> Result<ConnectionInfo, String> {
-    crate::db::open_database_path(&path).await.map_err(to_err)
+forward_cmd! {
+    /// Open an existing database directly from its file path. Changes persist to
+    /// that file automatically.
+    open_database_path(path: String) -> ConnectionInfo => open_database_path
 }
 
 /// Remember the real file a connection should save to.
@@ -62,28 +77,24 @@ pub async fn create_database(name: String) -> Result<ConnectionInfo, String> {
     crate::db::open_database(&DbKind::Sqlite, &name, None).await.map_err(to_err)
 }
 
-/// Close a connection and clean up its temp file.
-#[tauri::command]
-pub async fn close_connection(conn_id: String) -> Result<(), String> {
-    crate::db::close_connection(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// Close a connection and clean up its temp file.
+    close_connection(conn_id: String) -> () => close_connection
 }
 
-/// List tables and views in the database, with row counts.
-#[tauri::command]
-pub async fn list_tables(conn_id: String) -> Result<Vec<TableInfo>, String> {
-    crate::db::list_tables(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// List tables and views in the database, with row counts.
+    list_tables(conn_id: String) -> Vec<TableInfo> => list_tables
 }
 
-/// Schemas the user can switch between on this connection (Postgres).
-#[tauri::command]
-pub async fn list_schemas(conn_id: String) -> Result<Vec<String>, String> {
-    crate::db::list_schemas(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// Schemas the user can switch between on this connection (Postgres).
+    list_schemas(conn_id: String) -> Vec<String> => list_schemas
 }
 
-/// Databases reachable with this connection's server credentials (Postgres).
-#[tauri::command]
-pub async fn list_databases(conn_id: String) -> Result<Vec<String>, String> {
-    crate::db::list_databases(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// Databases reachable with this connection's server credentials (Postgres).
+    list_databases(conn_id: String) -> Vec<String> => list_databases
 }
 
 /// Fetch a page of documents from a MongoDB collection.
@@ -99,18 +110,10 @@ pub async fn list_documents(
     Ok(MongoDocumentsResult { documents: docs, total })
 }
 
-/// Replace a single MongoDB document (matched by `_id` ObjectId hex) with the
-/// document parsed from MQL extended JSON `document_text`.
-#[tauri::command]
-pub async fn save_document(
-    conn_id: String,
-    collection: String,
-    id: String,
-    document_text: String,
-) -> Result<bool, String> {
-    crate::db::save_document(&conn_id, &collection, &id, &document_text)
-        .await
-        .map_err(to_err)
+forward_cmd! {
+    /// Replace a single MongoDB document (matched by `_id` ObjectId hex) with the
+    /// document parsed from MQL extended JSON `document_text`.
+    save_document(conn_id: String, collection: String, id: String, document_text: String) -> bool => save_document
 }
 
 /// Fetch a page of MongoDB documents rendered as type-aware MQL extended JSON
@@ -130,16 +133,9 @@ pub async fn list_documents_ext(
     Ok(MongoExtDocumentsResult { documents: docs, total })
 }
 
-/// Insert a new MongoDB document parsed from MQL extended JSON `document_text`.
-#[tauri::command]
-pub async fn insert_document(
-    conn_id: String,
-    collection: String,
-    document_text: String,
-) -> Result<(), String> {
-    crate::db::insert_document(&conn_id, &collection, &document_text)
-        .await
-        .map_err(to_err)
+forward_cmd! {
+    /// Insert a new MongoDB document parsed from MQL extended JSON `document_text`.
+    insert_document(conn_id: String, collection: String, document_text: String) -> () => insert_document
 }
 
 /// Run a MongoDB console command (JSON find/aggregate or a shell-subset
@@ -157,40 +153,34 @@ pub async fn run_mongo(
         .map_err(to_err)
 }
 
-/// Schemas + databases + active schema in one round trip (Postgres).
-#[tauri::command]
-pub async fn catalog_overview(conn_id: String) -> Result<CatalogOverview, String> {
-    crate::db::catalog_overview(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// Schemas + databases + active schema in one round trip (Postgres).
+    catalog_overview(conn_id: String) -> CatalogOverview => catalog_overview
 }
 
-/// Point every unqualified operation at `schema` (Postgres).
-#[tauri::command]
-pub async fn set_active_schema(conn_id: String, schema: String) -> Result<(), String> {
-    crate::db::set_active_schema(&conn_id, &schema).await.map_err(to_err)
+forward_cmd! {
+    /// Point every unqualified operation at `schema` (Postgres).
+    set_active_schema(conn_id: String, schema: String) -> () => set_active_schema
 }
 
-/// The schema unqualified operations currently target (Postgres).
-#[tauri::command]
-pub async fn active_schema(conn_id: String) -> Result<String, String> {
-    crate::db::active_schema(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// The schema unqualified operations currently target (Postgres).
+    active_schema(conn_id: String) -> String => active_schema
 }
 
-/// Create a database on the same server (Postgres).
-#[tauri::command]
-pub async fn create_pg_database(conn_id: String, name: String) -> Result<(), String> {
-    crate::db::create_database(&conn_id, &name).await.map_err(to_err)
+forward_cmd! {
+    /// Create a database on the same server (Postgres).
+    create_pg_database(conn_id: String, name: String) -> () => create_database
 }
 
-/// Drop a database on the same server (Postgres).
-#[tauri::command]
-pub async fn drop_pg_database(conn_id: String, name: String) -> Result<(), String> {
-    crate::db::drop_database(&conn_id, &name).await.map_err(to_err)
+forward_cmd! {
+    /// Drop a database on the same server (Postgres).
+    drop_pg_database(conn_id: String, name: String) -> () => drop_database
 }
 
-/// Create a schema in the active catalog (Postgres).
-#[tauri::command]
-pub async fn create_pg_schema(conn_id: String, name: String) -> Result<(), String> {
-    crate::db::create_schema(&conn_id, &name).await.map_err(to_err)
+forward_cmd! {
+    /// Create a schema in the active catalog (Postgres).
+    create_pg_schema(conn_id: String, name: String) -> () => create_schema
 }
 
 /// Drop a schema; `cascade` also drops every object inside it (Postgres).
@@ -203,50 +193,36 @@ pub async fn drop_pg_schema(
     crate::db::drop_schema(&conn_id, &name, cascade).await.map_err(to_err)
 }
 
-/// Refresh a materialized view (Postgres).
-#[tauri::command]
-pub async fn refresh_matview(conn_id: String, name: String) -> Result<(), String> {
-    crate::db::refresh_matview(&conn_id, &name).await.map_err(to_err)
+forward_cmd! {
+    /// Refresh a materialized view (Postgres).
+    refresh_matview(conn_id: String, name: String) -> () => refresh_matview
 }
 
-/// Fetch the schema (columns, FKs, indexes) for a table.
-#[tauri::command]
-pub async fn table_schema(conn_id: String, table: String) -> Result<TableSchema, String> {
-    crate::db::table_schema(&conn_id, &table).await.map_err(to_err)
+forward_cmd! {
+    /// Fetch the schema (columns, FKs, indexes) for a table.
+    table_schema(conn_id: String, table: String) -> TableSchema => table_schema
 }
 
-/// Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
-#[tauri::command]
-pub async fn run_sql(conn_id: String, sql: String) -> Result<QueryResult, String> {
-    crate::db::run_sql(&conn_id, &sql).await.map_err(to_err)
+forward_cmd! {
+    /// Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
+    run_sql(conn_id: String, sql: String) -> QueryResult => run_sql
 }
 
-/// Execute a single DML/DDL statement with bound `?` parameters.
-#[tauri::command]
-pub async fn execute_params(
-    conn_id: String,
-    sql: String,
-    params: Vec<Option<String>>,
-) -> Result<u64, String> {
-    crate::db::execute_params(&conn_id, &sql, &params).await.map_err(to_err)
+forward_cmd! {
+    /// Execute a single DML/DDL statement with bound `?` parameters.
+    execute_params(conn_id: String, sql: String, params: Vec<Option<String>>) -> u64 => execute_params
 }
 
-/// Run a SELECT with bound `?` parameters (used by UI-built filters).
-#[tauri::command]
-pub async fn run_sql_params(
-    conn_id: String,
-    sql: String,
-    params: Vec<Option<String>>,
-) -> Result<QueryResult, String> {
-    crate::db::run_sql_params(&conn_id, &sql, &params).await.map_err(to_err)
+forward_cmd! {
+    /// Run a SELECT with bound `?` parameters (used by UI-built filters).
+    run_sql_params(conn_id: String, sql: String, params: Vec<Option<String>>) -> QueryResult => run_sql_params
 }
 
-/// Run a structured operation (select/count/insert/update/delete/...). The
-/// connection's adapter builds the actual SQL from the details — the frontend
-/// never writes SQL for these operations.
-#[tauri::command]
-pub async fn execute_op(conn_id: String, op: QueryOp) -> Result<QueryResult, String> {
-    crate::db::execute_op(&conn_id, &op).await.map_err(to_err)
+forward_cmd! {
+    /// Run a structured operation (select/count/insert/update/delete/...). The
+    /// connection's adapter builds the actual SQL from the details — the frontend
+    /// never writes SQL for these operations.
+    execute_op(conn_id: String, op: QueryOp) -> QueryResult => execute_op
 }
 
 /// Streaming variant of [`execute_op`]: SELECT-shaped ops push row batches
@@ -285,30 +261,20 @@ pub async fn run_sql_stream(
     .map_err(to_err)
 }
 
-/// Serialize the database back to bytes for save.
-#[tauri::command]
-pub async fn save_database(conn_id: String) -> Result<Vec<u8>, String> {
-    crate::db::save_database(&conn_id).await.map_err(to_err)
+forward_cmd! {
+    /// Serialize the database back to bytes for save.
+    save_database(conn_id: String) -> Vec<u8> => save_database
 }
 
-/// Duplicate a table (structure + indexes + data) under a new name; returns
-/// the statements that ran.
-#[tauri::command]
-pub async fn duplicate_table(
-    conn_id: String,
-    source: String,
-    target: String,
-) -> Result<Vec<String>, String> {
-    crate::db::duplicate_table(&conn_id, &source, &target).await.map_err(to_err)
+forward_cmd! {
+    /// Duplicate a table (structure + indexes + data) under a new name; returns
+    /// the statements that ran.
+    duplicate_table(conn_id: String, source: String, target: String) -> Vec<String> => duplicate_table
 }
 
-/// Apply staged schema (DDL) ops in order; returns every statement that ran.
-#[tauri::command]
-pub async fn apply_schema_ops(
-    conn_id: String,
-    ops: Vec<SchemaOp>,
-) -> Result<Vec<String>, String> {
-    crate::db::apply_schema_ops(&conn_id, &ops).await.map_err(to_err)
+forward_cmd! {
+    /// Apply staged schema (DDL) ops in order; returns every statement that ran.
+    apply_schema_ops(conn_id: String, ops: Vec<SchemaOp>) -> Vec<String> => apply_schema_ops
 }
 
 /// Read a file from disk as raw bytes (opened via the native dialog).

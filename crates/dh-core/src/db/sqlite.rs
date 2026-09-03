@@ -55,7 +55,7 @@ impl SqliteAdapter {
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .foreign_keys(true);
-        let pool = SqlitePool::connect_with(options).await.map_err(DbError::Sqlite)?;
+        let pool = SqlitePool::connect_with(options).await.map_err(DbError::SqlEngine)?;
         Ok(Self { pool, path })
     }
 
@@ -83,7 +83,7 @@ impl SqliteAdapter {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         Ok(rows
             .into_iter()
             .map(|(name, kind)| TableInfo { name, kind })
@@ -99,7 +99,7 @@ impl SqliteAdapter {
             let sql = format!("PRAGMA table_info('{}')", escape_str(table));
             statements.push(format!("{};", sql));
             let rows: Vec<(i64, String, String, i64, Option<String>, i64)> =
-                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
             for (_cid, name, data_type, not_null, default, pk) in rows {
                 columns.push(ColumnInfo {
                     name,
@@ -118,7 +118,7 @@ impl SqliteAdapter {
             let sql = format!("PRAGMA foreign_key_list('{}')", escape_str(table));
             statements.push(format!("{};", sql));
             let rows: Vec<(i64, i64, String, String, String)> =
-                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
             for (_id, _seq, referenced_table, column, referenced_column) in rows {
                 foreign_keys.push(ForeignKeyInfo {
                     column,
@@ -136,7 +136,7 @@ impl SqliteAdapter {
             let sql = format!("PRAGMA index_list('{}')", escape_str(table));
             statements.push(format!("{};", sql));
             let rows: Vec<(i64, String, i64, String, i64)> =
-                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
             for (_seq, name, unique, origin, partial) in rows {
                 if partial != 0 {
                     continue;
@@ -144,7 +144,7 @@ impl SqliteAdapter {
                 let isql = format!("PRAGMA index_info('{}')", escape_str(&name));
                 statements.push(format!("{};", isql));
                 let cols: Vec<(i64, i64, String)> =
-                    sqlx::query_as(&isql).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+                    sqlx::query_as(&isql).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
                 indexes.push(IndexInfo {
                     name,
                     unique: unique != 0,
@@ -162,7 +162,7 @@ impl SqliteAdapter {
             );
             statements.push(format!("{};", sql));
             let rows: Vec<(String, Option<String>)> =
-                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+                sqlx::query_as(&sql).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
             for (name, body) in rows {
                 let sql_text = body.unwrap_or_default();
                 if sql_text.trim().is_empty() {
@@ -213,19 +213,19 @@ impl SqliteAdapter {
         let is_query = matches!(first_word.as_str(), "select" | "pragma" | "explain" | "with");
 
         let result = if is_query {
-            let mut conn = self.pool.acquire().await.map_err(DbError::Sqlite)?;
-            let prepared = conn.prepare(trimmed).await.map_err(DbError::Sqlite)?;
+            let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
+            let prepared = conn.prepare(trimmed).await.map_err(DbError::SqlEngine)?;
             let columns: Vec<String> =
                 prepared.columns().iter().map(|c| c.name().to_string()).collect();
             drop(prepared);
             drop(conn);
 
-            let fetched = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+            let fetched = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
             let mut rows = Vec::with_capacity(fetched.len());
             for row in fetched {
                 let mut cells = Vec::with_capacity(columns.len());
                 for i in 0..columns.len() {
-                    cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::Sqlite)?));
+                    cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
                 }
                 rows.push(cells);
             }
@@ -238,7 +238,7 @@ impl SqliteAdapter {
                 elapsed_ms: start.elapsed().as_millis(),
             }
         } else {
-            let res = sqlx::query(trimmed).execute(&self.pool).await.map_err(DbError::Sqlite)?;
+            let res = sqlx::query(trimmed).execute(&self.pool).await.map_err(DbError::SqlEngine)?;
             QueryResult {
                 columns: Vec::new(),
                 rows: Vec::new(),
@@ -258,7 +258,7 @@ impl SqliteAdapter {
         for p in params {
             q = q.bind(p);
         }
-        let res = q.execute(&self.pool).await.map_err(DbError::Sqlite)?;
+        let res = q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
         Ok(res.rows_affected())
     }
 
@@ -266,8 +266,8 @@ impl SqliteAdapter {
     /// input is never interpolated into the SQL string.
     pub async fn run_sql_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<QueryResult> {
         let start = Instant::now();
-        let mut conn = self.pool.acquire().await.map_err(DbError::Sqlite)?;
-        let prepared = conn.prepare(sql).await.map_err(DbError::Sqlite)?;
+        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
+        let prepared = conn.prepare(sql).await.map_err(DbError::SqlEngine)?;
         let columns: Vec<String> =
             prepared.columns().iter().map(|c| c.name().to_string()).collect();
         drop(prepared);
@@ -277,12 +277,12 @@ impl SqliteAdapter {
         for p in params {
             q = q.bind(p);
         }
-        let fetched = q.fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+        let fetched = q.fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
         let mut rows = Vec::with_capacity(fetched.len());
         for row in fetched {
             let mut cells = Vec::with_capacity(columns.len());
             for i in 0..columns.len() {
-                cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::Sqlite)?));
+                cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
             }
             rows.push(cells);
         }
@@ -309,8 +309,8 @@ impl SqliteAdapter {
     ) -> DbResult<(Vec<String>, usize)> {
         // Prepare once up front to learn the column names (same trick as
         // run_sql_params), then stream with a freshly bound query.
-        let mut conn = self.pool.acquire().await.map_err(DbError::Sqlite)?;
-        let prepared = conn.prepare(sql).await.map_err(DbError::Sqlite)?;
+        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
+        let prepared = conn.prepare(sql).await.map_err(DbError::SqlEngine)?;
         let columns: Vec<String> =
             prepared.columns().iter().map(|c| c.name().to_string()).collect();
         drop(prepared);
@@ -325,10 +325,10 @@ impl SqliteAdapter {
         let mut stream = q.fetch(&self.pool);
         let mut batch: Vec<Vec<Option<String>>> = Vec::with_capacity(STREAM_BATCH_ROWS);
         let mut total = 0usize;
-        while let Some(row) = stream.try_next().await.map_err(DbError::Sqlite)? {
+        while let Some(row) = stream.try_next().await.map_err(DbError::SqlEngine)? {
             let mut cells = Vec::with_capacity(columns.len());
             for i in 0..columns.len() {
-                cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::Sqlite)?));
+                cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
             }
             batch.push(cells);
             total += 1;
@@ -532,18 +532,18 @@ impl SqliteAdapter {
     /// states (dropped/rebuilt tables) can transiently violate foreign keys.
     /// Returns every statement that ran so the UI can show/copy it.
     pub async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
-        let mut conn = self.pool.acquire().await.map_err(DbError::Sqlite)?;
+        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
         sqlx::query("PRAGMA foreign_keys = OFF")
             .execute(&mut *conn)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
 
         // The whole batch runs inside one scoped block so the transaction's
         // borrow of `conn` ends before the FK pragma is restored, whatever
         // the outcome. Any `Err` path has already rolled the tx back (or the
         // drop of a live transaction does it implicitly).
         let batch = async {
-            let mut tx = conn.begin().await.map_err(DbError::Sqlite)?;
+            let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
             let mut executed: Vec<String> = Vec::new();
             for op in ops {
                 match Self::apply_op(&mut *tx, op).await {
@@ -554,7 +554,7 @@ impl SqliteAdapter {
                     }
                 }
             }
-            tx.commit().await.map_err(DbError::Sqlite)?;
+            tx.commit().await.map_err(DbError::SqlEngine)?;
             Ok(executed)
         }
         .await;
@@ -607,7 +607,7 @@ impl SqliteAdapter {
                     ))
                     .fetch_all(&mut *conn)
                     .await
-                    .map_err(DbError::Sqlite)?;
+                    .map_err(DbError::SqlEngine)?;
                     let names: std::collections::HashSet<&str> =
                         known.iter().map(|(n,)| n.as_str()).collect();
                     for c in columns {
@@ -622,7 +622,7 @@ impl SqliteAdapter {
                 let stmts = Self::plan_schema_sql(other)?;
                 let mut executed = Vec::with_capacity(stmts.len());
                 for s in &stmts {
-                    sqlx::query(s).execute(&mut *conn).await.map_err(DbError::Sqlite)?;
+                    sqlx::query(s).execute(&mut *conn).await.map_err(DbError::SqlEngine)?;
                     executed.push(s.clone());
                 }
                 Ok(executed)
@@ -786,7 +786,7 @@ impl SqliteAdapter {
                 quote_ident(&current.name),
                 quote_ident(&target_name)
             );
-            sqlx::query(&sql).execute(&mut *conn).await.map_err(DbError::Sqlite)?;
+            sqlx::query(&sql).execute(&mut *conn).await.map_err(DbError::SqlEngine)?;
             return Ok(vec![sql]);
         }
 
@@ -885,7 +885,7 @@ impl SqliteAdapter {
         stmts.extend(index_sql);
 
         for s in &stmts {
-            sqlx::query(s).execute(&mut *conn).await.map_err(DbError::Sqlite)?;
+            sqlx::query(s).execute(&mut *conn).await.map_err(DbError::SqlEngine)?;
         }
         Ok(stmts)
     }
@@ -896,7 +896,7 @@ impl SqliteAdapter {
         sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(())
     }
 
@@ -917,7 +917,7 @@ impl SqliteAdapter {
             .bind(source)
             .fetch_optional(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         ran.push(format!("{LOOKUP};"));
 
         match row {
@@ -927,7 +927,7 @@ impl SqliteAdapter {
                 sqlx::query(&rewritten)
                     .execute(&self.pool)
                     .await
-                    .map_err(DbError::Sqlite)?;
+                    .map_err(DbError::SqlEngine)?;
                 ran.append(&mut self.duplicate_indexes(source, target).await?);
             }
             _ => {
@@ -940,7 +940,7 @@ impl SqliteAdapter {
                 sqlx::query(&fallback)
                     .execute(&self.pool)
                     .await
-                    .map_err(DbError::Sqlite)?;
+                    .map_err(DbError::SqlEngine)?;
             }
         }
 
@@ -953,7 +953,7 @@ impl SqliteAdapter {
         sqlx::query(&copy)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(ran)
     }
 
@@ -967,7 +967,7 @@ impl SqliteAdapter {
         .bind(source)
         .fetch_all(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         for (name, ddl) in indexes {
             if name.starts_with("sqlite_autoindex") {
                 continue;
@@ -982,7 +982,7 @@ impl SqliteAdapter {
                 sqlx::query(&rewritten)
                     .execute(&self.pool)
                     .await
-                    .map_err(DbError::Sqlite)?;
+                    .map_err(DbError::SqlEngine)?;
             }
         }
         Ok(ran)
@@ -1068,7 +1068,7 @@ async fn read_raw_columns(
 ) -> DbResult<Vec<RawColumn>> {
     let sql = format!("PRAGMA table_info('{}')", escape_str(table));
     let rows: Vec<(i64, String, String, i64, Option<String>, i64)> =
-        sqlx::query_as(&sql).fetch_all(conn).await.map_err(DbError::Sqlite)?;
+        sqlx::query_as(&sql).fetch_all(conn).await.map_err(DbError::SqlEngine)?;
     Ok(rows
         .into_iter()
         .map(|(_cid, name, data_type, not_null, default, pk)| RawColumn {
@@ -1095,7 +1095,7 @@ async fn group_foreign_keys(
 ) -> DbResult<Vec<GroupedFk>> {
     let sql = format!("PRAGMA foreign_key_list('{}')", escape_str(table));
     let rows: Vec<(i64, i64, String, String, Option<String>)> =
-        sqlx::query_as(&sql).fetch_all(conn).await.map_err(DbError::Sqlite)?;
+        sqlx::query_as(&sql).fetch_all(conn).await.map_err(DbError::SqlEngine)?;
     // Group rows by FK id; within a composite key SQLite lists the columns in
     // reverse declaration order, so sort each group's pairs by seq DESCENDING
     // to reconstruct the original clause.
@@ -1139,7 +1139,7 @@ async fn recreate_index_statements(
 ) -> DbResult<Vec<String>> {
     let list_sql = format!("PRAGMA index_list('{}')", escape_str(table));
     let rows: Vec<(i64, String, i64, String, i64)> =
-        sqlx::query_as(&list_sql).fetch_all(&mut *conn).await.map_err(DbError::Sqlite)?;
+        sqlx::query_as(&list_sql).fetch_all(&mut *conn).await.map_err(DbError::SqlEngine)?;
     let mut out = Vec::new();
     for (_seq, name, unique, origin, partial) in rows {
         // Partial indexes are not carried over by the rebuild, and pk/'u'
@@ -1152,7 +1152,7 @@ async fn recreate_index_statements(
         let cols: Vec<(i64, i64, String)> = sqlx::query_as(&info_sql)
             .fetch_all(&mut *conn)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         let col_list = cols
             .into_iter()
             .map(|(_, _, c)| quote_ident(&c))

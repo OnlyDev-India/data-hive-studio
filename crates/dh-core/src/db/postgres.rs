@@ -121,7 +121,7 @@ impl PgAdapter {
             .idle_timeout(std::time::Duration::from_secs(15 * 60))
             .connect_with(options)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
 
         Ok(Self {
             pool,
@@ -143,7 +143,7 @@ impl PgAdapter {
         if let Some(hit) = self.type_cache.lock().unwrap().get(&key) {
             return Ok(hit.clone());
         }
-        let mut conn = self.pool.acquire().await.map_err(DbError::Sqlite)?;
+        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
         let types = column_types(&mut conn, &key.0, table).await?;
         drop(conn);
         self.type_cache
@@ -492,7 +492,7 @@ async fn column_types(
     .bind(table)
     .fetch_all(conn)
     .await
-    .map_err(DbError::Sqlite)?;
+    .map_err(DbError::SqlEngine)?;
     Ok(rows.into_iter().collect())
 }
 
@@ -513,7 +513,7 @@ impl DbAdapter for PgAdapter {
         .bind(&schema)
         .fetch_all(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         Ok(rows
             .into_iter()
             .map(|(name, kind)| TableInfo { name, kind })
@@ -625,13 +625,13 @@ impl DbAdapter for PgAdapter {
             )
             .await;
 
-        let object_kind: Option<Option<String>> = r_kind.map_err(DbError::Sqlite)?;
-        let columns: Vec<(String, String, String, String)> = r_cols.map_err(DbError::Sqlite)?;
-        let pk_rows: Vec<(String,)> = r_pk.map_err(DbError::Sqlite)?;
-        let enum_rows: Vec<(String, String, bool, String)> = r_enums.map_err(DbError::Sqlite)?;
-        let fk_rows: Vec<(String, String, String, String, String, String)> = r_fks.map_err(DbError::Sqlite)?;
-        let idx_rows: Vec<(String, String)> = r_idx.map_err(DbError::Sqlite)?;
-        let trig_rows: Vec<(String, Option<String>)> = r_trig.map_err(DbError::Sqlite)?;
+        let object_kind: Option<Option<String>> = r_kind.map_err(DbError::SqlEngine)?;
+        let columns: Vec<(String, String, String, String)> = r_cols.map_err(DbError::SqlEngine)?;
+        let pk_rows: Vec<(String,)> = r_pk.map_err(DbError::SqlEngine)?;
+        let enum_rows: Vec<(String, String, bool, String)> = r_enums.map_err(DbError::SqlEngine)?;
+        let fk_rows: Vec<(String, String, String, String, String, String)> = r_fks.map_err(DbError::SqlEngine)?;
+        let idx_rows: Vec<(String, String)> = r_idx.map_err(DbError::SqlEngine)?;
+        let trig_rows: Vec<(String, Option<String>)> = r_trig.map_err(DbError::SqlEngine)?;
 
         let pk_set: std::collections::HashSet<String> =
             pk_rows.into_iter().map(|(n,)| n).collect();
@@ -742,7 +742,7 @@ impl DbAdapter for PgAdapter {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         Ok(rows.into_iter().map(|(n,)| n).collect())
     }
 
@@ -752,7 +752,7 @@ impl DbAdapter for PgAdapter {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         Ok(rows.into_iter().map(|(n,)| n).collect())
     }
 
@@ -777,7 +777,7 @@ impl DbAdapter for PgAdapter {
         ) = sqlx::query_as(sql)
             .fetch_one(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         let to_vec = |v: &serde_json::Value| -> Vec<String> {
             v.as_array()
                 .map(|a| {
@@ -801,7 +801,7 @@ impl DbAdapter for PgAdapter {
         .bind(schema)
         .fetch_optional(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         if exists.is_none() {
             return Err(DbError::InvalidOperation(format!(
                 "schema \"{schema}\" does not exist on this server"
@@ -828,7 +828,7 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(())
     }
 
@@ -848,7 +848,7 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(())
     }
 
@@ -863,7 +863,7 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(())
     }
 
@@ -884,7 +884,7 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         // If the user dropped the ACTIVE schema, fall back to public so
         // subsequent unqualified operations keep working.
         if self.cur_schema() == name {
@@ -904,7 +904,7 @@ impl DbAdapter for PgAdapter {
             .to_ascii_lowercase();
         let is_select = first_word == "select" || first_word == "with";
         if is_select {
-            let rows = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+            let rows = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
             let columns: Vec<String> = rows
                 .first()
                 .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
@@ -921,7 +921,7 @@ impl DbAdapter for PgAdapter {
                 elapsed_ms: start.elapsed().as_millis(),
             });
         }
-        let res = sqlx::query(trimmed).execute(&self.pool).await.map_err(DbError::Sqlite)?;
+        let res = sqlx::query(trimmed).execute(&self.pool).await.map_err(DbError::SqlEngine)?;
         Ok(QueryResult {
             columns: vec![],
             rows: vec![],
@@ -940,7 +940,7 @@ impl DbAdapter for PgAdapter {
         for p in params {
             q = bind_str(q, p);
         }
-        let res = q.execute(&self.pool).await.map_err(DbError::Sqlite)?;
+        let res = q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
         Ok(res.rows_affected())
     }
 
@@ -956,7 +956,7 @@ impl DbAdapter for PgAdapter {
         for p in params {
             q = bind_str(q, p);
         }
-        let rows = q.fetch_all(&self.pool).await.map_err(DbError::Sqlite)?;
+        let rows = q.fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
         let columns: Vec<String> = rows
             .first()
             .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
@@ -1024,7 +1024,7 @@ impl DbAdapter for PgAdapter {
                     };
                 }
                 // One scalar round trip — no row shaping, no column metadata.
-                let count = cq.fetch_one(&self.pool).await.map_err(DbError::Sqlite)? as u64;
+                let count = cq.fetch_one(&self.pool).await.map_err(DbError::SqlEngine)? as u64;
                 Ok(super::OpOutcome {
                     result: mk(vec!["count".into()], vec![vec![Some(count.to_string())]], count, true),
                     sql: Some(super::inline_placeholders(&converted, &params, true) + ";"),
@@ -1069,7 +1069,7 @@ impl DbAdapter for PgAdapter {
                 for val in &bound {
                     ins = bind_str(ins, val);
                 }
-                let res = ins.execute(&self.pool).await.map_err(DbError::Sqlite)?;
+                let res = ins.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
                 // Display copy: bound values inlined so the log is readable.
                 let display = format!(
                     // (trailing semicolon appended below)
@@ -1129,7 +1129,7 @@ impl DbAdapter for PgAdapter {
                     }
                 }
                 log::debug!("pg update: {sql}");
-                let res = final_q.execute(&self.pool).await.map_err(DbError::Sqlite)?;
+                let res = final_q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
                 // Display copy with values inlined (log only).
                 let display = format!(
                     // (trailing semicolon appended below)
@@ -1181,7 +1181,7 @@ impl DbAdapter for PgAdapter {
                 for (_, val) in match_row.iter() {
                     if !val.is_none() { real_q = bind_str(real_q, val); }
                 }
-                let res = real_q.execute(&self.pool).await.map_err(DbError::Sqlite)?;
+                let res = real_q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
                 let display = format!(
                     // (trailing semicolon appended below)
                     "DELETE FROM {}{}",
@@ -1214,7 +1214,7 @@ impl DbAdapter for PgAdapter {
             }
             QueryOp::DropTable { table } => {
                 let sql = format!("DROP TABLE IF EXISTS {}", self.tq(table));
-                let res = sqlx::query(&sql).execute(&self.pool).await.map_err(DbError::Sqlite)?;
+                let res = sqlx::query(&sql).execute(&self.pool).await.map_err(DbError::SqlEngine)?;
                 self.type_cache
                     .lock()
                     .unwrap()
@@ -1256,7 +1256,7 @@ impl DbAdapter for PgAdapter {
         let mut columns: Option<Vec<String>> = None;
         let mut batch: Vec<Vec<Option<String>>> = Vec::new();
 
-        while let Some(row) = stream.try_next().await.map_err(DbError::Sqlite)? {
+        while let Some(row) = stream.try_next().await.map_err(DbError::SqlEngine)? {
             if columns.is_none() {
                 columns = Some(row.columns().iter().map(|c| c.name().to_string()).collect());
             }
@@ -1301,8 +1301,8 @@ impl DbAdapter for PgAdapter {
     }
 
     async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
-        let mut conn = self.pool.acquire().await.map_err(DbError::Sqlite)?;
-        let mut tx = conn.begin().await.map_err(DbError::Sqlite)?;
+        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
+        let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
         // Transaction-local search_path: every unqualified name in the DDL
         // batch resolves inside the active schema. SET LOCAL dies with the
         // transaction, so pooled connections stay clean (PgBouncer-safe).
@@ -1310,7 +1310,7 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&format!("SET LOCAL search_path = {}", q(&schema)))
             .execute(&mut *tx)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         let mut executed = vec![format!("SET LOCAL search_path = {}", q(&schema))];
         for op in ops {
             let stmts: Vec<String> = match op {
@@ -1383,7 +1383,7 @@ impl DbAdapter for PgAdapter {
                             q(table),
                             clauses.join(", ")
                         );
-                        sqlx::query(&s).execute(&mut *tx).await.map_err(DbError::Sqlite)?;
+                        sqlx::query(&s).execute(&mut *tx).await.map_err(DbError::SqlEngine)?;
                         ran.push(s);
                     }
                     if ran.is_empty() {
@@ -1476,11 +1476,11 @@ impl DbAdapter for PgAdapter {
                 }
             };
             for st in &stmts {
-                sqlx::query(st).execute(&mut *tx).await.map_err(DbError::Sqlite)?;
+                sqlx::query(st).execute(&mut *tx).await.map_err(DbError::SqlEngine)?;
                 executed.push(st.clone());
             }
         }
-        tx.commit().await.map_err(DbError::Sqlite)?;
+        tx.commit().await.map_err(DbError::SqlEngine)?;
         // DDL may have changed columns/types — drop every cached map so the
         // next write re-introspects.
         self.type_cache.lock().unwrap().clear();
@@ -1502,7 +1502,7 @@ impl DbAdapter for PgAdapter {
         .bind(source)
         .fetch_optional(&self.pool)
         .await
-        .map_err(DbError::Sqlite)?;
+        .map_err(DbError::SqlEngine)?;
         if kind.is_none() {
             return Err(DbError::InvalidOperation(format!(
                 "\"{source}\" is not a plain table — only tables can be duplicated on Postgres"
@@ -1521,11 +1521,11 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&create)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         sqlx::query(&copy)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(vec![format!("{create};"), format!("{copy};")])
     }
 
@@ -1534,7 +1534,7 @@ impl DbAdapter for PgAdapter {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(DbError::Sqlite)?;
+            .map_err(DbError::SqlEngine)?;
         Ok(())
     }
 
@@ -1556,7 +1556,7 @@ async fn run_sql_prebound(
     for p in &params {
         q = bind_str(q, p);
     }
-    let rows = q.fetch_all(pool).await.map_err(DbError::Sqlite)?;
+    let rows = q.fetch_all(pool).await.map_err(DbError::SqlEngine)?;
     let columns: Vec<String> = rows
         .first()
         .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())

@@ -39,8 +39,10 @@ pub enum DbError {
     Unsupported(DbKind),
     #[error("{0}")]
     InvalidOperation(String),
+    /// Shared by every `sqlx`-backed adapter (SQLite, Postgres) — not
+    /// SQLite-specific despite the underlying crate name.
     #[error("{0}")]
-    Sqlite(#[from] sqlx::Error),
+    SqlEngine(#[from] sqlx::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -541,53 +543,34 @@ pub async fn catalog_overview(conn_id: &str) -> DbResult<CatalogOverview> {
     with_connection(conn_id, |a| async move { a.catalog_overview().await }).await
 }
 
-/// Create a database on the same server (activity kind: ddl).
-pub async fn create_database(conn_id: &str, name: &str) -> DbResult<()> {
-    let t = std::time::Instant::now();
-    let target = format!("CREATE DATABASE {name}");
-    let name = name.to_string();
-    let res = with_connection(conn_id, move |a| async move {
-        a.create_database(&name).await
-    })
-    .await;
-    match &res {
-        Ok(()) => crate::activity::log_ok(conn_id, "ddl", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "ddl", &target, t, e),
-    }
-    res
+/// Runs a single-name, no-result operation through `with_connection` and logs
+/// success/failure to the activity log — the shape shared by every simple
+/// server-catalog DDL op below (only the adapter method, activity kind, and
+/// target label text differ per call).
+macro_rules! named_ddl_op {
+    ($fn_name:ident, $adapter_method:ident, $kind:literal, $target_fmt:literal) => {
+        pub async fn $fn_name(conn_id: &str, name: &str) -> DbResult<()> {
+            let t = std::time::Instant::now();
+            let target = format!($target_fmt, name);
+            let name = name.to_string();
+            let res = with_connection(conn_id, move |a| async move {
+                a.$adapter_method(&name).await
+            })
+            .await;
+            match &res {
+                Ok(()) => crate::activity::log_ok(conn_id, $kind, &target, t, 0),
+                Err(e) => crate::activity::log_err(conn_id, $kind, &target, t, e),
+            }
+            res
+        }
+    };
 }
 
-/// Drop a database on the same server (activity kind: drop_table badge).
-pub async fn drop_database(conn_id: &str, name: &str) -> DbResult<()> {
-    let t = std::time::Instant::now();
-    let target = format!("DROP DATABASE {name}");
-    let name = name.to_string();
-    let res = with_connection(conn_id, move |a| async move {
-        a.drop_database(&name).await
-    })
-    .await;
-    match &res {
-        Ok(()) => crate::activity::log_ok(conn_id, "drop_table", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "drop_table", &target, t, e),
-    }
-    res
-}
-
-/// Create a schema (activity kind: ddl).
-pub async fn create_schema(conn_id: &str, name: &str) -> DbResult<()> {
-    let t = std::time::Instant::now();
-    let target = format!("CREATE SCHEMA {name}");
-    let name = name.to_string();
-    let res = with_connection(conn_id, move |a| async move {
-        a.create_schema(&name).await
-    })
-    .await;
-    match &res {
-        Ok(()) => crate::activity::log_ok(conn_id, "ddl", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "ddl", &target, t, e),
-    }
-    res
-}
+named_ddl_op!(create_database, create_database, "ddl", "CREATE DATABASE {}");
+named_ddl_op!(drop_database, drop_database, "drop_table", "DROP DATABASE {}");
+named_ddl_op!(create_schema, create_schema, "ddl", "CREATE SCHEMA {}");
+named_ddl_op!(set_active_schema, set_active_schema, "schema", "SET SCHEMA {}");
+named_ddl_op!(refresh_matview, refresh_matview, "ddl", "REFRESH MATERIALIZED VIEW {}");
 
 /// Drop a schema; `cascade` also drops every object inside it.
 pub async fn drop_schema(conn_id: &str, name: &str, cascade: bool) -> DbResult<()> {
@@ -601,22 +584,6 @@ pub async fn drop_schema(conn_id: &str, name: &str, cascade: bool) -> DbResult<(
     match &res {
         Ok(()) => crate::activity::log_ok(conn_id, "drop_table", &target, t, 0),
         Err(e) => crate::activity::log_err(conn_id, "drop_table", &target, t, e),
-    }
-    res
-}
-
-/// Switch the schema unqualified operations target.
-pub async fn set_active_schema(conn_id: &str, schema: &str) -> DbResult<()> {
-    let t = std::time::Instant::now();
-    let target = format!("SET SCHEMA {schema}");
-    let schema = schema.to_string();
-    let res = with_connection(conn_id, move |a| async move {
-        a.set_active_schema(&schema).await
-    })
-    .await;
-    match &res {
-        Ok(()) => crate::activity::log_ok(conn_id, "schema", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "schema", &target, t, e),
     }
     res
 }
@@ -813,21 +780,6 @@ pub async fn duplicate_table(conn_id: &str, source: &str, target: &str) -> DbRes
         }
         Ok(_) => crate::activity::log_ok(conn_id, "duplicate", &label, t, 0),
         Err(e) => crate::activity::log_err(conn_id, "duplicate", &label, t, e),
-    }
-    res
-}
-/// Refresh a materialized view (activity kind: ddl).
-pub async fn refresh_matview(conn_id: &str, name: &str) -> DbResult<()> {
-    let t = std::time::Instant::now();
-    let target = format!("REFRESH MATERIALIZED VIEW {name}");
-    let name = name.to_string();
-    let res = with_connection(conn_id, move |a| async move {
-        a.refresh_matview(&name).await
-    })
-    .await;
-    match &res {
-        Ok(()) => crate::activity::log_ok(conn_id, "ddl", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "ddl", &target, t, e),
     }
     res
 }
