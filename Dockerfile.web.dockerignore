@@ -1,0 +1,13 @@
+# BuildKit picks this up automatically for `Dockerfile.web` builds.
+# The web image needs the FRONTEND sources — the opposite of the server
+# image's .dockerignore, which excludes them for a lean API build.
+
+node_modules
+target
+.git
+graphify-out
+data
+
+# Desktop-app sources/assets unrelated to the web build.
+src-tauri
+dist-web

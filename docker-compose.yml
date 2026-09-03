@@ -1,0 +1,56 @@
+# dh-studio — two services:
+#
+#   web     nginx SPA + /v1 reverse-proxy   →  http://localhost:8080
+#   server  team-server API (internal only) →  reachable as http://server:8080
+#
+#   docker compose up --build      # start
+#   docker compose logs -f server  # first-run ADMIN invite appears here
+#   docker compose down            # stop (state persists in dh-data volume)
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dh-studio-server
+    container_name: dh-studio-server
+    environment:
+      DH_BIND: 0.0.0.0:8080
+      DH_DATA_DIR: /data
+      # Postgres instead of bundled SQLite (optional):
+      # DH_DATABASE_URL: postgres://user:pass@host:5432/db
+      # 64-char hex master key; if unset, one is generated into /data on
+      # first run and persisted there.
+      # DH_MASTER_KEY: <64-hex-chars>
+    volumes:
+      - dh-data:/data
+    expose:
+      - "8080" # internal only — reached through the `web` proxy
+    restart: unless-stopped
+    healthcheck:
+      # /dev/tcp is a bash-only builtin — run via bash, not the default sh.
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /v1/me HTTP/1.0\r\n\r\n" >&3 && grep -q "HTTP" <&3'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: dh-studio-web
+    container_name: dh-studio-web
+    ports:
+      - "8080:80" # the single URL users open: http://localhost:8080
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  dh-data:
