@@ -57,9 +57,11 @@ interface GridProps {
   custom_where: string;
   distinct: DistinctMap;
   on_refresh?: () => void;
-  /** True when this grid renders a Mongo collection: the right-hand editor
-   *  then uses BSON source (ObjectId, ISODate, …) instead of plain JSON. */
-  is_mongo?: boolean;
+  /** Which source this grid renders — "mongo" makes the right-hand editor use
+   *  BSON source (ObjectId, ISODate, …) instead of plain JSON. A discriminant
+   *  rather than a boolean so a future third source doesn't need another flag
+   *  bolted on; matches {@link JsonRow}'s own `kind` field 1:1. */
+  kind?: "sql" | "mongo";
   /** Called when an FK cell's jump icon is clicked — opens the referenced
    * table filtered to this value. */
   on_open_reference?: (
@@ -97,7 +99,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     custom_where,
     distinct,
     on_refresh,
-    is_mongo = false,
+    kind = "sql",
     on_open_reference,
     props_busy = false,
     active = true,
@@ -177,7 +179,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     (row: JsonRow) => {
       setJsonRow(json_scope, {
         ...row,
-        kind: is_mongo ? "mongo" : "sql",
+        kind,
         col_types: Object.fromEntries(schema.columns.map((c) => [c.name, c.data_type])),
         on_edit: (col, value) => {
           const real = row.row_number - 1;
@@ -195,7 +197,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         },
       });
     },
-    [json_scope, is_mongo, schema, result, page, page_size, setJsonRow],
+    [json_scope, kind, schema, result, page, page_size, setJsonRow],
   );
   const open_json = useCallback(
     () => setRightSidebarOpen(true),

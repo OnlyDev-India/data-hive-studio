@@ -159,7 +159,7 @@ export function MongoCollectionPane({
               custom_where={custom_where}
               distinct={{}}
               on_refresh={refresh_data_only}
-              is_mongo={true}
+              kind="mongo"
             />
           )
         )}
