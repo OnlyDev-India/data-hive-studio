@@ -12,8 +12,11 @@ let notif_seq = 0;
  *  session-only. */
 export function notificationsActions(set: SetState, get: GetState) {
   return {
-    notifications: [],
-    toastQueue: [],
+    // Explicit types (not just `[]`, which TS infers as `never[]`) so this
+    // slice's own return type is correct standalone — matters for testing
+    // it in isolation (see notifications-slice.test.ts).
+    notifications: [] as StudioNotification[],
+    toastQueue: [] as StudioNotification[],
     pushNotification(n: {
       kind: StudioNotification["kind"];
       title: string;

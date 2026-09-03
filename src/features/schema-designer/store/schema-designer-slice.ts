@@ -14,7 +14,10 @@ type NewTableHandle = StudioStore["newTables"][string];
 export function schemaDesignerActions(set: SetState) {
   return {
     // Schema edit handles (active schema tab -> status bar Apply/Discard)
-    schemaEdits: {},
+    // Explicit types (not just `{}`, which TS infers as the empty-object
+    // type) so this slice's own return type is correct standalone —
+    // matters for testing it in isolation (see schema-designer-slice.test.ts).
+    schemaEdits: {} as Record<string, SchemaEditHandle | null>,
     setSchemaEdit(key: string, handle: SchemaEditHandle) {
       set((s) => ({ schemaEdits: { ...s.schemaEdits, [key]: handle } }));
     },
@@ -27,7 +30,7 @@ export function schemaDesignerActions(set: SetState) {
     },
 
     // Schema pane handles (open schema editor -> status bar Refresh/Drop table)
-    schemaPanes: {},
+    schemaPanes: {} as Record<string, SchemaPaneHandle | null>,
     setSchemaPane(key: string, handle: SchemaPaneHandle) {
       set((s) => ({ schemaPanes: { ...s.schemaPanes, [key]: handle } }));
     },
@@ -39,7 +42,7 @@ export function schemaDesignerActions(set: SetState) {
       });
     },
 
-    newTables: {},
+    newTables: {} as Record<string, NewTableHandle>,
     setNewTable(key: string, handle: NewTableHandle) {
       set((s) => ({ newTables: { ...s.newTables, [key]: handle } }));
     },

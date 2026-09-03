@@ -3,8 +3,16 @@ import { create } from "zustand";
 import { schemaDesignerActions } from "./schema-designer-slice";
 
 function makeStore() {
+  // schemaDesignerActions is typed against the FULL StudioStore's set
+  // (it's designed to be spread into the real store) — a store created
+  // from just this slice's own shape has a narrower set type, which TS
+  // correctly flags as incompatible. Safe to cast here: at runtime set
+  // just merges whatever state exists, and this slice only ever touches
+  // its own fields.
   return create<ReturnType<typeof schemaDesignerActions>>()((set) =>
-    schemaDesignerActions(set),
+    schemaDesignerActions(
+      set as unknown as Parameters<typeof schemaDesignerActions>[0],
+    ),
   );
 }
 

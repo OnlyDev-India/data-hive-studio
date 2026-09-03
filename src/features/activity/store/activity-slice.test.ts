@@ -3,8 +3,14 @@ import { create } from "zustand";
 import { activityActions } from "./activity-slice";
 
 function makeStore() {
+  // activityActions is typed against the FULL StudioStore's set (it's
+  // designed to be spread into the real store) — a store created from
+  // just this slice's own shape has a narrower set type, which TS
+  // correctly flags as incompatible. Safe to cast here: at runtime set
+  // just merges whatever state exists, and this slice only ever touches
+  // its own fields.
   return create<ReturnType<typeof activityActions>>()((set) =>
-    activityActions(set),
+    activityActions(set as unknown as Parameters<typeof activityActions>[0]),
   );
 }
 

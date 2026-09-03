@@ -38,7 +38,10 @@ function mapSessionConns(profileId: string, session: ServerSessionPayload) {
  *  actions that keep them in sync. */
 export function sharingActions(set: SetState, get: GetState) {
   return {
-    serverSessions: {},
+    // Explicit type (not just `{}`, which TS infers as the empty-object
+    // type) so this slice's own return type is correct standalone —
+    // matters for testing it in isolation (see sharing-slice.test.ts).
+    serverSessions: {} as StudioStore["serverSessions"],
     serverBusy: false,
     /** Connect to a team server: fetch its shared-connection catalog into
      *  the session. Does NOT open anything — the landing sidebar lists
