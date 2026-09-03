@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { Database, Leaf } from "lucide-react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { cn } from "@/shared/lib/utils";
 import {
@@ -20,7 +19,7 @@ import { EditBanner } from "./edit-banner";
 import { MongoPanel, type MongoFormValues } from "./mongo-panel";
 import { PgPanel, type PgFormValues } from "./pg-panel";
 import { SqlitePanel } from "./sqlite-panel";
-import PGIcon from "@/shared/components/icons/pg-icon";
+import { DBIcons, type IconProps } from "@/shared/components/icons/types";
 
 type DbKindChoice = "sqlite" | "postgres" | "mongodb";
 
@@ -32,10 +31,14 @@ function KindBar({
   value: DbKindChoice;
   on_change: (v: DbKindChoice) => void;
 }) {
-  const items: { id: DbKindChoice; label: string; icon: typeof Database }[] = [
-    { id: "sqlite", label: "SQLite", icon: Database },
-    { id: "postgres", label: "PostgreSQL", icon: PGIcon as typeof Database },
-    { id: "mongodb", label: "MongoDB", icon: Leaf },
+  const items: {
+    id: DbKindChoice;
+    label: string;
+    icon: React.ComponentType<IconProps>;
+  }[] = [
+    { id: "sqlite", label: "SQLite", icon: DBIcons.sqlite },
+    { id: "postgres", label: "PostgreSQL", icon: DBIcons.postgres },
+    { id: "mongodb", label: "MongoDB", icon: DBIcons.mongodb },
   ];
   return (
     <div
@@ -92,7 +95,7 @@ export function Landing() {
   };
 
   // ---- PostgreSQL connect form ----
-  const [pg, setPg] = useState<PgFormValues>({
+  const PG_DEFAULTS: PgFormValues = {
     name: "",
     host: "localhost",
     port: "5432",
@@ -100,7 +103,8 @@ export function Landing() {
     password: "",
     database: "",
     ssl_mode: "prefer",
-  });
+  };
+  const [pg, setPg] = useState<PgFormValues>(PG_DEFAULTS);
   /** GLOBAL connect flag — navigating home mid-connect keeps the spinner
    *  truthful and blocks a second auto-connect from the replayed prefill. */
   const pg_connecting = useStudioStore((st) => st.pgConnecting);
@@ -119,7 +123,7 @@ export function Landing() {
   const [test_error, setTestError] = useState<string | null>(null);
 
   // ---- MongoDB connect form ----
-  const [mongo, setMongo] = useState<MongoFormValues>({
+  const MONGO_DEFAULTS: MongoFormValues = {
     name: "",
     host: "localhost",
     port: "27017",
@@ -129,7 +133,8 @@ export function Landing() {
     auth_db: "admin",
     srv: false,
     tls: false,
-  });
+  };
+  const [mongo, setMongo] = useState<MongoFormValues>(MONGO_DEFAULTS);
   const [mongo_testing, setMongoTesting] = useState(false);
   const [mongo_test_ok, setMongoTestOk] = useState<boolean | null>(null);
   const [mongo_test_error, setMongoTestError] = useState<string | null>(null);
@@ -195,6 +200,7 @@ export function Landing() {
         database: u.pathname.replace(/^\/+/, ""),
         ssl_mode: u.searchParams.get("sslmode") ?? p.ssl_mode,
       }));
+      setUrlText("");
       setUrlError(null);
     } catch {
       setUrlError("Could not parse that connection URL.");
@@ -212,6 +218,14 @@ export function Landing() {
     } catch {
       // clipboard unavailable
     }
+  };
+
+  const clear_pg_form = () => {
+    setPg(PG_DEFAULTS);
+    setUrlText("");
+    setUrlError(null);
+    setTestOk(null);
+    setTestError(null);
   };
 
   // ---- MongoDB URL import/export ----
@@ -234,6 +248,7 @@ export function Landing() {
         tls: u.searchParams.get("tls") === "true" || isSrv,
       }));
       setMongoUrlError(null);
+      setMongoUrlText("");
     } catch {
       setMongoUrlError("Could not parse that connection URL.");
     }
@@ -258,6 +273,14 @@ export function Landing() {
     } catch {
       // clipboard unavailable
     }
+  };
+
+  const clear_mongo_form = () => {
+    setMongo(MONGO_DEFAULTS);
+    setMongoUrlText("");
+    setMongoUrlError(null);
+    setMongoTestOk(null);
+    setMongoTestError(null);
   };
 
   // Sidebar click hands PG details here; switch to the PG tab + fill. When
@@ -478,6 +501,41 @@ export function Landing() {
     }
   };
 
+  const mongo_update_server = async () => {
+    if (editing?.source !== "server") return;
+    setSavingTo(editing.remoteId);
+    try {
+      const p = mongo_build_params();
+      await serversUpdateConnection(editing.profileId, editing.remoteId, {
+        name: mongo_display_name(),
+        kind: "mongodb",
+        host: p.host,
+        port: p.port,
+        user: p.user,
+        // blank password = keep the stored one
+        password: "",
+        database: p.database,
+        auth_db: p.auth_db,
+        srv: p.srv,
+        tls: p.tls,
+      });
+      pushNotification({
+        kind: "success",
+        title: "Connection updated",
+        detail: mongo_display_name(),
+      });
+      setEditing(null);
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Update failed",
+        detail: String(e),
+      });
+    } finally {
+      setSavingTo(null);
+    }
+  };
+
   const edit_server_name =
     editing?.source === "server"
       ? (Object.values(serverSessions).find(
@@ -517,6 +575,55 @@ export function Landing() {
         kind: "success",
         title: `Shared on ${serverName}`,
         detail: display_name(),
+      });
+      // Pull the new record into the connected server's sidebar group.
+      await useStudioStore.getState().refreshServers();
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Save failed",
+        detail: String(e),
+      });
+    } finally {
+      setSavingTo(null);
+    }
+  };
+
+  const mongo_save_to_server = async (profileId: string, serverName: string) => {
+    if (saving_to) return;
+    setSavingTo(profileId);
+    try {
+      // Re-verify eligibility before attempting to create — permissions may
+      // have changed since the session was last refreshed (e.g. an admin
+      // revoked this device's token while the tab was open).
+      await useStudioStore.getState().refreshServers();
+      const fresh = useStudioStore.getState().serverSessions[profileId];
+      if (!fresh || !fresh.me.is_admin) {
+        pushNotification({
+          kind: "error",
+          title: "Not eligible",
+          detail:
+            "Your account no longer has permission to create shared connections on this server.",
+        });
+        return;
+      }
+      const p = mongo_build_params();
+      await serversCreateConnection(profileId, {
+        name: mongo_display_name(),
+        kind: "mongodb",
+        host: p.host,
+        port: p.port,
+        user: p.user,
+        password: p.password,
+        database: p.database,
+        auth_db: p.auth_db,
+        srv: p.srv,
+        tls: p.tls,
+      });
+      pushNotification({
+        kind: "success",
+        title: `Shared on ${serverName}`,
+        detail: mongo_display_name(),
       });
       // Pull the new record into the connected server's sidebar group.
       await useStudioStore.getState().refreshServers();
@@ -640,10 +747,18 @@ export function Landing() {
                   onTest={() => void mongo_test_click()}
                   connecting={mongo_connecting}
                   onConnect={() => void mongo_connect_click()}
+                  saving_to={saving_to}
+                  admin_servers={admin_servers}
                   editing={editing !== null}
                   onSaveLocal={save_mongo_local}
-                  onUpdate={() => save_mongo_local()}
+                  onSaveServer={(pid, name) => void mongo_save_to_server(pid, name)}
+                  onUpdate={() =>
+                    editing?.source === "server"
+                      ? void mongo_update_server()
+                      : save_mongo_local()
+                  }
                   onCancelEdit={() => setEditing(null)}
+                  onClear={clear_mongo_form}
                   url_text={mongo_url_text}
                   setUrlText={setMongoUrlText}
                   url_error={mongo_url_error}
@@ -674,6 +789,7 @@ export function Landing() {
                   onSaveServer={(pid, name) => void save_to_server(pid, name)}
                   onUpdate={() => void update_server()}
                   onCancelEdit={() => setEditing(null)}
+                  onClear={clear_pg_form}
                 />
               )}
             </CardContent>

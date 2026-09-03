@@ -88,6 +88,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         // One-shot initial text for a newly opened SQL tab (see openSql);
         // entries are cleaned up when their tab closes.
         sqlSeeds: {},
+        // Set alongside sqlSeeds only when the seed came from a real file
+        // (openFileTab) — see the doc comment on the type.
+        seedFileNames: {},
 
         recentParams: (() => {
           try {

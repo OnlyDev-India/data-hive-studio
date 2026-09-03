@@ -154,7 +154,7 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
-    openSql(connId: string, seedText?: string) {
+    openSql(connId: string, seedText?: string, seedFileName?: string) {
       set((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = { kind: "sql", id: cur.nextSqlId };
@@ -166,9 +166,20 @@ export function workspaceActions(set: SetState) {
             nextSqlId: cur.nextSqlId + 1,
           }),
           // Optional initial text for the new editor (e.g. pending edits
-          // rendered as SQL); the tab consumes the seed on mount.
+          // rendered as SQL, or a picked file's contents); the tab consumes
+          // the seed on mount.
           ...(seedText !== undefined
             ? { sqlSeeds: { ...state.sqlSeeds, [tabKey(tab)]: seedText } }
+            : {}),
+          // Only set when the seed came from a real file — marks it as
+          // already-saved instead of unsaved new work.
+          ...(seedFileName !== undefined
+            ? {
+                seedFileNames: {
+                  ...state.seedFileNames,
+                  [tabKey(tab)]: seedFileName,
+                },
+              }
             : {}),
         };
       });
@@ -209,7 +220,12 @@ export function workspaceActions(set: SetState) {
     },
 /** MongoDB console per connection, one new tab each call (like SQL
      *  editors). `database` is the console's initial db context. */
-    openMongoConsole(connId: string, database: string) {
+    openMongoConsole(
+      connId: string,
+      database: string,
+      seedText?: string,
+      seedFileName?: string,
+    ) {
       set((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = {
@@ -225,6 +241,19 @@ export function workspaceActions(set: SetState) {
             active: tab,
             nextMongoTabId: cur.nextMongoTabId + 1,
           }),
+          // Same one-shot seed mechanism as openSql (e.g. opening a picked
+          // .js file); the tab consumes it on mount.
+          ...(seedText !== undefined
+            ? { sqlSeeds: { ...state.sqlSeeds, [tabKey(tab)]: seedText } }
+            : {}),
+          ...(seedFileName !== undefined
+            ? {
+                seedFileNames: {
+                  ...state.seedFileNames,
+                  [tabKey(tab)]: seedFileName,
+                },
+              }
+            : {}),
         };
       });
     },
@@ -253,6 +282,8 @@ export function workspaceActions(set: SetState) {
         delete paneModes[tabKey(tab)];
         const sqlSeeds = { ...state.sqlSeeds };
         delete sqlSeeds[tabKey(tab)];
+        const seedFileNames = { ...state.seedFileNames };
+        delete seedFileNames[tabKey(tab)];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -261,6 +292,7 @@ export function workspaceActions(set: SetState) {
             paneModes,
           }),
           sqlSeeds,
+          seedFileNames,
         };
       });
     },

@@ -1085,7 +1085,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-log",
  "tauri-plugin-window-state",
- "tokio",
  "uuid",
 ]
 

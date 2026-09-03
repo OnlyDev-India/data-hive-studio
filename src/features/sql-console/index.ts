@@ -1,5 +1,5 @@
 export { SqlTab } from "./components/sql-tab";
 export {
-  SqlEditor,
-  type SqlEditorHandle,
+  QueryEditor,
+  type QueryEditorHandle,
 } from "./components/editor";

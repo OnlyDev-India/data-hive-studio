@@ -1,7 +1,7 @@
 //! REST API for the dh-studio server. Every route requires a bearer token
 //! except enrollment; grants and admin scope are enforced per call.
 
-use crate::api::QueryOp;
+use crate::api::{QueryOp, SchemaOp};
 use crate::server::gateway::Gateway;
 use crate::server::identity::{AuthCtx, TokenGrantSpec};
 
@@ -50,6 +50,17 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/v1/c/{conn_id}/sql", post(conn_sql))
         .route("/v1/c/{conn_id}/op", post(conn_op))
         .route("/v1/c/{conn_id}/close", post(conn_close))
+        .route("/v1/c/{conn_id}/databases", get(conn_databases))
+        .route("/v1/c/{conn_id}/catalog", get(conn_catalog))
+        .route("/v1/c/{conn_id}/active-schema", get(conn_get_active_schema).put(conn_set_active_schema))
+        .route("/v1/c/{conn_id}/schema-ops", post(conn_schema_ops))
+        .route("/v1/c/{conn_id}/duplicate", post(conn_duplicate))
+        .route("/v1/c/{conn_id}/mongo/documents", post(conn_mongo_documents))
+        .route("/v1/c/{conn_id}/mongo/documents/ext", post(conn_mongo_documents_ext))
+        .route("/v1/c/{conn_id}/mongo/documents/save", post(conn_mongo_save_document))
+        .route("/v1/c/{conn_id}/mongo/documents/insert", post(conn_mongo_insert_document))
+        .route("/v1/c/{conn_id}/mongo/run", post(conn_mongo_run))
+        .route("/v1/c/{conn_id}/mongo/collections", post(conn_mongo_create_collection))
         .route("/v1/admin/connections", get(admin_list_connections).post(admin_create_conn))
         .route("/v1/admin/tokens", get(admin_list_tokens).post(admin_mint_tokens))
         .route("/v1/admin/tokens/{token}", delete(admin_delete_token))
@@ -194,6 +205,223 @@ async fn conn_op(
 ) -> Response {
     match gw.execute_op(&auth.0, &conn_id, &op).await {
         Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+// ---- MongoDB surface --------------------------------------------------
+//
+// See `Gateway`'s "MongoDB surface" section: every handler below is a thin
+// wrapper the same shape as `conn_sql`/`conn_op` above.
+
+async fn conn_databases(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+) -> Response {
+    match gw.list_databases(&auth.0, &conn_id).await {
+        Ok(d) => Json(d).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+async fn conn_catalog(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+) -> Response {
+    match gw.catalog_overview(&auth.0, &conn_id).await {
+        Ok(c) => Json(c).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+async fn conn_get_active_schema(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+) -> Response {
+    match gw.active_schema(&auth.0, &conn_id).await {
+        Ok(s) => Json(s).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ActiveSchemaBody {
+    pub schema: String,
+}
+
+async fn conn_set_active_schema(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<ActiveSchemaBody>,
+) -> Response {
+    match gw.set_active_schema(&auth.0, &conn_id, &body.schema).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct SchemaOpsBody {
+    pub ops: Vec<SchemaOp>,
+}
+
+async fn conn_schema_ops(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<SchemaOpsBody>,
+) -> Response {
+    match gw.apply_schema_ops_batch(&auth.0, &conn_id, &body.ops).await {
+        Ok(stmts) => Json(stmts).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct DuplicateBody {
+    pub source: String,
+    pub target: String,
+    #[serde(default)]
+    pub copy_data: bool,
+}
+
+async fn conn_duplicate(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<DuplicateBody>,
+) -> Response {
+    match gw.duplicate_table(&auth.0, &conn_id, &body.source, &body.target, body.copy_data).await {
+        Ok(stmts) => Json(stmts).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct MongoDocumentsBody {
+    pub collection: String,
+    #[serde(default)]
+    pub filter: Option<serde_json::Value>,
+    #[serde(default)]
+    pub skip: u64,
+    #[serde(default = "default_doc_limit")]
+    pub limit: u64,
+}
+
+fn default_doc_limit() -> u64 {
+    50
+}
+
+async fn conn_mongo_documents(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<MongoDocumentsBody>,
+) -> Response {
+    match gw
+        .list_documents(&auth.0, &conn_id, &body.collection, body.filter, body.skip, body.limit)
+        .await
+    {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+async fn conn_mongo_documents_ext(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<MongoDocumentsBody>,
+) -> Response {
+    match gw
+        .list_documents_ext(&auth.0, &conn_id, &body.collection, body.filter, body.skip, body.limit)
+        .await
+    {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct SaveDocumentBody {
+    pub collection: String,
+    pub id: String,
+    pub document_text: String,
+}
+
+async fn conn_mongo_save_document(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<SaveDocumentBody>,
+) -> Response {
+    match gw
+        .save_document(&auth.0, &conn_id, &body.collection, &body.id, &body.document_text)
+        .await
+    {
+        Ok(saved) => Json(saved).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct InsertDocumentBody {
+    pub collection: String,
+    pub document_text: String,
+}
+
+async fn conn_mongo_insert_document(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<InsertDocumentBody>,
+) -> Response {
+    match gw.insert_document(&auth.0, &conn_id, &body.collection, &body.document_text).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct RunMongoBody {
+    pub database: String,
+    #[serde(default)]
+    pub collection: Option<String>,
+    pub script: String,
+}
+
+async fn conn_mongo_run(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<RunMongoBody>,
+) -> Response {
+    match gw
+        .run_mongo(&auth.0, &conn_id, &body.database, body.collection.as_deref(), &body.script)
+        .await
+    {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CreateCollectionBody {
+    pub name: String,
+}
+
+async fn conn_mongo_create_collection(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<CreateCollectionBody>,
+) -> Response {
+    match gw.create_collection(&auth.0, &conn_id, &body.name).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err_res(e),
     }
 }

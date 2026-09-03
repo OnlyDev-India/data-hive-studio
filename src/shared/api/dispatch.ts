@@ -63,7 +63,7 @@ export function serverUnsupported(connId: string): void {
 export function dispatchDbCall<T>(
   connId: string,
   opts: {
-    httpMethod: "GET" | "POST";
+    httpMethod: "GET" | "POST" | "PUT";
     httpPath: (remoteId: string) => string;
     httpBody?: unknown;
     serverCmd: string;

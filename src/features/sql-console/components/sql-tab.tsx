@@ -10,8 +10,7 @@ import {
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
 import {
-  SqlEditor,
-  type SqlEditorHandle,
+  QueryEditor, type QueryEditorHandle
 } from "./editor";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import {
@@ -52,7 +51,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   );
   const [tabs, setTabs] = useState<ResultTab[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
-  const editorRef = useRef<SqlEditorHandle>(null);
+  const editorRef = useRef<QueryEditorHandle>(null);
   const next_id = useRef(0);
   const next_label = useRef(1);
 
@@ -244,8 +243,19 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   useEffect(() => {
     sql_ref.current = sql;
   });
-  const [saved_baseline, setSavedBaseline] = useState("");
-  const [file_name, setFileName] = useState<string | null>(null);
+  // A seed that came from a real file (openFileTab, via seedFileNames) starts
+  // clean — the tab reflects that file's saved content, not new unsaved
+  // work. A seed with no file name (e.g. action-bar's "open pending edits in
+  // SQL editor") is genuinely new content, so it starts dirty as before.
+  const [saved_baseline, setSavedBaseline] = useState(() => {
+    const s = useStudioStore.getState();
+    return s.seedFileNames[tab_key] !== undefined
+      ? (s.sqlSeeds[tab_key] ?? "")
+      : "";
+  });
+  const [file_name, setFileName] = useState<string | null>(
+    () => useStudioStore.getState().seedFileNames[tab_key] ?? null,
+  );
   const is_dirty = sql.trim().length > 0 && sql !== saved_baseline;
   const save_sql = useCallback(async (): Promise<boolean> => {
     const path = await pickSqlSavePath();
@@ -289,7 +299,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
       <ResizablePanelGroup orientation="vertical" className="">
         <ResizablePanel defaultSize="40%" minSize="15%" className="flex-col bg-background pb-3">
           <div className="flex h-full min-h-0 flex-col gap-3">
-            <SqlEditor
+            <QueryEditor
               ref={editorRef}
               value={sql}
               onChange={setSql}

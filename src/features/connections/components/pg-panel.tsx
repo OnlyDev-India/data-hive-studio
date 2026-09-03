@@ -1,4 +1,4 @@
-import { Check, Cloud, Copy, HardDrive, Link2, Save } from "lucide-react";
+import { Check, Cloud, Copy, Eraser, HardDrive, Link2, Save } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import {
@@ -58,6 +58,9 @@ export interface PgPanelProps {
   onSaveServer: (profileId: string, serverName: string) => void;
   onUpdate: () => void;
   onCancelEdit: () => void;
+
+  // Clear all fields back to defaults
+  onClear: () => void;
 }
 
 export function PgPanel({
@@ -82,6 +85,7 @@ export function PgPanel({
   onSaveServer,
   onUpdate,
   onCancelEdit,
+  onClear,
 }: PgPanelProps) {
   const disabled = connecting || testing || form.database.trim().length === 0;
 
@@ -259,6 +263,14 @@ export function PgPanel({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+        <Button
+          variant="ghost"
+          onClick={onClear}
+          title="Clear all fields"
+          className="ml-auto"
+        >
+          <Eraser className="size-4" /> Clear
+        </Button>
       </div>
 
       {/* Test result */}

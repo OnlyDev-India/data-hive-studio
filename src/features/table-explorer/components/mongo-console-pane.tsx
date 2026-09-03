@@ -14,10 +14,10 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
-import { SqlEditor, type SqlEditorHandle } from "@/features/sql-console";
 import { basename, cn, statementRanges } from "@/shared/lib/utils";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import { useStudioStore } from "@/shared/store";
+import { QueryEditor, type QueryEditorHandle } from "@/features/sql-console";
 
 const DEFAULT_SCRIPT = ``;
 
@@ -56,10 +56,16 @@ export function MongoConsolePane({
   const [db, setDb] = useState(database);
   const [collections, setCollections] = useState<string[]>([]);
   const [collection, setCollection] = useState<string>("");
-  const [script, setScript] = useState(DEFAULT_SCRIPT);
+  // Seed text handed over by other features (e.g. opening a picked .js file):
+  // openMongoConsole(connId, database, text) stashes it under this tab's key;
+  // read it once here. The store entry itself is removed when the tab closes
+  // (same one-shot mechanism sql-tab.tsx uses for openSql).
+  const [script, setScript] = useState(
+    () => useStudioStore.getState().sqlSeeds[tab_key] ?? DEFAULT_SCRIPT,
+  );
   const [entries, setEntries] = useState<Entry[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
-  const editorRef = useRef<SqlEditorHandle>(null);
+  const editorRef = useRef<QueryEditorHandle>(null);
   const next_id = useRef(0);
 
   useEffect(() => {
@@ -164,8 +170,17 @@ export function MongoConsolePane({
   // stays true after a successful save as long as there's still text in the
   // editor, so it can't drive the dirty dot on its own (see sql-tab.tsx for
   // the same fix on the SQL side).
-  const [saved_baseline, setSavedBaseline] = useState("");
-  const [file_name, setFileName] = useState<string | null>(null);
+  // A seed that came from a real file (openFileTab, via seedFileNames) starts
+  // clean — see sql-tab.tsx's identical comment for the "why".
+  const [saved_baseline, setSavedBaseline] = useState(() => {
+    const s = useStudioStore.getState();
+    return s.seedFileNames[tab_key] !== undefined
+      ? (s.sqlSeeds[tab_key] ?? DEFAULT_SCRIPT)
+      : "";
+  });
+  const [file_name, setFileName] = useState<string | null>(
+    () => useStudioStore.getState().seedFileNames[tab_key] ?? null,
+  );
   const is_dirty = script.trim().length > 0 && script !== saved_baseline;
   const save_script = useCallback(async (): Promise<boolean> => {
     const path = await save({
@@ -231,7 +246,7 @@ export function MongoConsolePane({
           className="flex-col pb-3"
         >
           <div className="flex h-full min-h-0 flex-col gap-3">
-            <SqlEditor
+            <QueryEditor
               ref={editorRef}
               value={script}
               onChange={setScript}

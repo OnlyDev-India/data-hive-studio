@@ -188,27 +188,15 @@ export default function Workspace({
     [open_table, conn_id],
   );
   const openNewSql = useCallback(() => open_sql(conn_id), [open_sql, conn_id]);
-  const openFileTab = useCallback(() => {
-    void (async () => {
-      try {
-        const file = await pickSqlFile();
-        if (!file) return;
-        open_sql(conn_id, file.text);
-      } catch (e) {
-        useStudioStore.getState().pushNotification({
-          kind: "error",
-          title: "Could not open file",
-          detail: String(e),
-        });
-      }
-    })();
-  }, [open_sql, conn_id]);
   const openNewTableTab = useCallback(
     () => open_new_table(conn_id),
     [open_new_table, conn_id],
   );
+  /** Opens (or focuses a fresh) Mongo console tab. `seedText`, when given,
+   *  becomes the console's initial script — used by openFileTab for a picked
+   *  .js file. `seedFileName` marks it as already-saved to that file. */
   const openMongoConsoleTab = useCallback(
-    () => {
+    (seedText?: string, seedFileName?: string) => {
       void (async () => {
         const s = useStudioStore.getState();
         let database = s.recentParams[conn_id]?.database ?? "";
@@ -220,11 +208,34 @@ export default function Workspace({
             /* console still opens — `use <db>` sets context */
           }
         }
-        open_mongo_console(conn_id, database);
+        open_mongo_console(conn_id, database, seedText, seedFileName);
       })();
     },
     [open_mongo_console, conn_id],
   );
+  // A picked .js file opens the NoSQL (Mongo) console instead of a SQL tab —
+  // pickSqlFile()'s own dialog filter already accepts both extensions. Either
+  // way the tab starts clean (not dirty) and shows the file's name, since
+  // this is exactly what's on disk — nothing to save yet.
+  const openFileTab = useCallback(() => {
+    void (async () => {
+      try {
+        const file = await pickSqlFile();
+        if (!file) return;
+        if (file.name.toLowerCase().endsWith(".js")) {
+          openMongoConsoleTab(file.text, file.name);
+        } else {
+          open_sql(conn_id, file.text, file.name);
+        }
+      } catch (e) {
+        useStudioStore.getState().pushNotification({
+          kind: "error",
+          title: "Could not open file",
+          detail: String(e),
+        });
+      }
+    })();
+  }, [open_sql, conn_id, openMongoConsoleTab]);
   const selectTab = useCallback(
     (tab: StudioTab) => select_tab(conn_id, tab),
     [select_tab, conn_id],

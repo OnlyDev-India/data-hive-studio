@@ -33,11 +33,16 @@ export interface ServerSession {
   connections: {
     id: string;
     name: string;
+    kind?: "postgres" | "mongodb";
     host: string;
     port: number;
     user: string;
     database: string;
     ssl_mode?: string | null;
+    /** MongoDB only. */
+    auth_db?: string;
+    srv?: boolean;
+    tls?: boolean;
     created_by: string;
     created_ms: number;
     updated_ms: number;
@@ -153,12 +158,20 @@ export function serversConnect(profileId: string): Promise<ServerSession> {
 
 export interface ServerConnInput {
   name: string;
+  /** Immutable after creation; omitted (or "postgres") for existing PG saves. */
+  kind?: "postgres" | "mongodb";
   host: string;
   port: number;
   user: string;
   password: string;
   database: string;
   ssl_mode?: string | null;
+  /** MongoDB only: auth source database (defaults to "admin" when omitted). */
+  auth_db?: string;
+  /** MongoDB only: use mongodb+srv:// (DNS seedlist) instead of mongodb://. */
+  srv?: boolean;
+  /** MongoDB only: require TLS on a plain mongodb:// connection. */
+  tls?: boolean;
 }
 
 /** Publish a shared connection to a team server — admin scope only. */
@@ -226,6 +239,10 @@ export interface ServerCredentials {
   password: string;
   database: string;
   ssl_mode?: string | null;
+  /** MongoDB only. */
+  auth_db?: string;
+  srv?: boolean;
+  tls?: boolean;
 }
 
 export function serversFetchCredentials(

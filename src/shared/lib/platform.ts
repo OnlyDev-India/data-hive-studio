@@ -72,7 +72,7 @@ export async function pickSqlFile(): Promise<{
 } | null> {
   const path = await open({
     multiple: false,
-    filters: [{ name: "SQL script", extensions: ["sql", "txt"] }],
+    filters: [{ name: "SQL script", extensions: ["sql", "js"] }],
   });
   if (!path || Array.isArray(path)) return null;
   const name = path.split(/[/\\]/).pop() ?? "query.sql";

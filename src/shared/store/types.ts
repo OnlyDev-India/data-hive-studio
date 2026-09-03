@@ -280,10 +280,16 @@ export interface StudioStore {
   setSqlTab: (key: string, handle: SqlTabHandle) => void;
   clearSqlTab: (key: string) => void;
 
-  /** Initial text handed to a freshly opened SQL tab, keyed by its tab key.
-   *  openSql(connId, text) stashes it here; the tab reads it once on mount
-   *  and closeTab deletes the entry. */
+  /** Initial text handed to a freshly opened SQL/Mongo-console tab, keyed by
+   *  its tab key. openSql/openMongoConsole(..., text) stashes it here; the
+   *  tab reads it once on mount and closeTab deletes the entry. */
   sqlSeeds: Record<string, string>;
+  /** Set alongside sqlSeeds ONLY when the seed came from an actual file on
+   *  disk (openFileTab), never from generated content (e.g. action-bar's
+   *  "open pending edits as SQL"). When present, the tab treats the seed as
+   *  already-saved (clean baseline + this filename) instead of unsaved new
+   *  work — same lifecycle as sqlSeeds (set once, deleted by closeTab). */
+  seedFileNames: Record<string, string>;
 
   /** Generic notification center (action-bar bell). Any feature can push a
    *  notification — e.g. applied schema changes, export results, failed
@@ -385,14 +391,25 @@ export interface StudioStore {
     initialFilters?: GridFilter[],
   ) => void;
   openStructure: (connId: string, name: string) => void;
-  openSql: (connId: string, seedText?: string) => void;
+  /** `seedFileName`, when given, marks `seedText` as loaded from that real
+   *  file (openFileTab) — the tab starts clean (not dirty) and shows this as
+   *  its name, instead of treating the seed as unsaved new work. */
+  openSql: (connId: string, seedText?: string, seedFileName?: string) => void;
   openNewTable: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
   openActivityTab: (connId: string) => void;
   /** Open a MongoDB collection tab (data view). */
   openMongo: (connId: string, database: string, collection: string) => void;
-  /** Open a MongoDB console tab for the given connection & database. */
-  openMongoConsole: (connId: string, database: string) => void;
+  /** Open a MongoDB console tab for the given connection & database.
+   *  `seedText`, when given, becomes the new console's initial script —
+   *  mirrors `openSql`'s seed mechanism (e.g. opening a picked .js file).
+   *  `seedFileName` — see `openSql`'s doc. */
+  openMongoConsole: (
+    connId: string,
+    database: string,
+    seedText?: string,
+    seedFileName?: string,
+  ) => void;
   selectTab: (connId: string, tab: StudioTab) => void;
   closeTab: (connId: string, tab: StudioTab) => void;
   /** Move `tab` so it ends up at index `toIndex` of the tab strip. */
@@ -419,11 +436,16 @@ export interface StudioStore {
       connections: {
         id: string;
         name: string;
+        kind: "postgres" | "mongodb";
         host: string;
         port: number;
         user: string;
         database: string;
         ssl_mode?: string | null;
+        /** MongoDB only. */
+        auth_db?: string;
+        srv?: boolean;
+        tls?: boolean;
         data_access: "readonly" | "readwrite";
         can_edit: boolean;
         can_delete: boolean;

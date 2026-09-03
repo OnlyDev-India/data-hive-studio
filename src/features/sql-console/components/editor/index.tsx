@@ -32,7 +32,7 @@ import {
 import { cn, statementRanges } from "@/shared/lib/utils";
 import { useShortcuts, type Shortcut } from "@/shared/hooks/use-shortcut";
 
-export interface SqlEditorHandle {
+export interface QueryEditorHandle {
   /** If text is selected: that selection. Otherwise: the statement around the
    * cursor. Null when there's nothing to run. */
   getTarget: () => string | null;
@@ -242,7 +242,7 @@ function mongoConsoleCompletions(
   };
 }
 
-interface SqlEditorProps {
+interface QueryEditorProps {
   value: string;
   onChange: (value: string) => void;
   onRun: () => void;
@@ -277,8 +277,8 @@ interface SqlEditorProps {
  * Set `language` to "js" to highlight JavaScript shell commands instead
  * (MongoDB console).
  */
-export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(
-  function SqlEditor(
+export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
+  function QueryEditor(
     {
       value,
       onChange,

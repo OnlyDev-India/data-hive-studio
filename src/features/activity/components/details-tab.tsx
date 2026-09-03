@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/shared/components/ui/button";
 import { useStudioStore } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
-import { SqlEditor } from "@/features/sql-console";
+import { QueryEditor } from "@/features/sql-console";
 
 const KIND_LABELS: Record<string, string> = {
   select: "SELECT",
@@ -101,7 +101,7 @@ export function ActivityDetailsTab({
             <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
               Statement
             </span>
-            <SqlEditor
+            <QueryEditor
               value={entry.sql || ""}
               onChange={() => {}}
               onRun={() => {}}

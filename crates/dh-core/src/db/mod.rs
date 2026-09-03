@@ -66,7 +66,7 @@ pub struct OpOutcome {
 
 /// Sidebar bootstrap data for one Postgres connection, fetched in a single
 /// catalog round trip.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CatalogOverview {
     pub schemas: Vec<String>,
     pub databases: Vec<String>,

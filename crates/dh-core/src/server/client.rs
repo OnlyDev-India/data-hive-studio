@@ -1,7 +1,14 @@
 //! Typed HTTP client used by desktop builds to talk to a dh-server.
 
-use crate::api::{QueryOp, QueryResult, TableInfo, TableSchema};
-use crate::server::router::{SqlBody, TokenMintBody};
+use crate::api::{
+    MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult, QueryOp, QueryResult,
+    SchemaOp, TableInfo, TableSchema,
+};
+use crate::db::CatalogOverview;
+use crate::server::router::{
+    ActiveSchemaBody, CreateCollectionBody, DuplicateBody, InsertDocumentBody,
+    MongoDocumentsBody, RunMongoBody, SaveDocumentBody, SchemaOpsBody, SqlBody, TokenMintBody,
+};
 use crate::server::grants::Grant;
 use crate::server::identity::{AuthCtx, TokenGrantSpec};
 use crate::server::router::GrantBody;
@@ -120,6 +127,150 @@ impl ServerClient {
 
     pub async fn execute_op(&self, conn_id: &str, op: &QueryOp) -> Result<QueryResult, String> {
         self.send(reqwest::Method::POST, &format!("/v1/c/{conn_id}/op"), op).await
+    }
+
+    // ---- MongoDB / generic-catalog surface --------------------------
+
+    pub async fn list_databases(&self, conn_id: &str) -> Result<Vec<String>, String> {
+        self.get(&format!("/v1/c/{conn_id}/databases")).await
+    }
+
+    pub async fn catalog_overview(&self, conn_id: &str) -> Result<CatalogOverview, String> {
+        self.get(&format!("/v1/c/{conn_id}/catalog")).await
+    }
+
+    pub async fn active_schema(&self, conn_id: &str) -> Result<String, String> {
+        self.get(&format!("/v1/c/{conn_id}/active-schema")).await
+    }
+
+    pub async fn set_active_schema(&self, conn_id: &str, schema: &str) -> Result<(), String> {
+        self.empty_with_body(
+            reqwest::Method::PUT,
+            &format!("/v1/c/{conn_id}/active-schema"),
+            ActiveSchemaBody { schema: schema.into() },
+        )
+        .await
+    }
+
+    pub async fn apply_schema_ops_batch(
+        &self,
+        conn_id: &str,
+        ops: &[SchemaOp],
+    ) -> Result<Vec<String>, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/schema-ops"),
+            SchemaOpsBody { ops: ops.to_vec() },
+        )
+        .await
+    }
+
+    pub async fn duplicate_table(
+        &self,
+        conn_id: &str,
+        source: &str,
+        target: &str,
+        copy_data: bool,
+    ) -> Result<Vec<String>, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/duplicate"),
+            DuplicateBody { source: source.into(), target: target.into(), copy_data },
+        )
+        .await
+    }
+
+    pub async fn list_documents(
+        &self,
+        conn_id: &str,
+        collection: &str,
+        filter: Option<serde_json::Value>,
+        skip: u64,
+        limit: u64,
+    ) -> Result<MongoDocumentsResult, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/mongo/documents"),
+            MongoDocumentsBody { collection: collection.into(), filter, skip, limit },
+        )
+        .await
+    }
+
+    pub async fn list_documents_ext(
+        &self,
+        conn_id: &str,
+        collection: &str,
+        filter: Option<serde_json::Value>,
+        skip: u64,
+        limit: u64,
+    ) -> Result<MongoExtDocumentsResult, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/mongo/documents/ext"),
+            MongoDocumentsBody { collection: collection.into(), filter, skip, limit },
+        )
+        .await
+    }
+
+    pub async fn save_document(
+        &self,
+        conn_id: &str,
+        collection: &str,
+        id: &str,
+        document_text: &str,
+    ) -> Result<bool, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/mongo/documents/save"),
+            SaveDocumentBody {
+                collection: collection.into(),
+                id: id.into(),
+                document_text: document_text.into(),
+            },
+        )
+        .await
+    }
+
+    pub async fn insert_document(
+        &self,
+        conn_id: &str,
+        collection: &str,
+        document_text: &str,
+    ) -> Result<(), String> {
+        self.empty_with_body(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/mongo/documents/insert"),
+            InsertDocumentBody { collection: collection.into(), document_text: document_text.into() },
+        )
+        .await
+    }
+
+    pub async fn run_mongo(
+        &self,
+        conn_id: &str,
+        database: &str,
+        collection: Option<&str>,
+        script: &str,
+    ) -> Result<MongoRunResult, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/mongo/run"),
+            RunMongoBody {
+                database: database.into(),
+                collection: collection.map(|s| s.into()),
+                script: script.into(),
+            },
+        )
+        .await
+    }
+
+    pub async fn create_collection(&self, conn_id: &str, name: &str) -> Result<(), String> {
+        self.empty_with_body(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/mongo/collections"),
+            CreateCollectionBody { name: name.into() },
+        )
+        .await
     }
 
     // Admin surface

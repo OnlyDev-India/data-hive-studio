@@ -1,11 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WEB } from "./web";
-import {
-  dedupe,
-  dispatchDbCall,
-  isServerConn,
-  serverUnsupported,
-} from "./dispatch";
+import { dedupe, dispatchDbCall, serverUnsupported } from "./dispatch";
 import type {
   ActivityEntry,
   CatalogOverview,
@@ -114,16 +109,24 @@ export async function listSchemas(connId: string): Promise<string[]> {
 export async function catalogOverview(
   connId: string,
 ): Promise<CatalogOverview> {
-  if (isServerConn(connId) || WEB) {
-    return { schemas: [], databases: [], active_schema: "public" };
-  }
-  return invoke("catalog_overview", { connId });
+  return dispatchDbCall<CatalogOverview>(connId, {
+    httpMethod: "GET",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/catalog`,
+    serverCmd: "server_catalog_overview",
+    localCmd: "catalog_overview",
+    args: { connId },
+  });
 }
 
 /** Databases reachable with this connection's server credentials (Postgres). */
 export async function listDatabases(connId: string): Promise<string[]> {
-  if (isServerConn(connId) || WEB) return [];
-  return invoke("list_databases", { connId });
+  return dispatchDbCall<string[]>(connId, {
+    httpMethod: "GET",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/databases`,
+    serverCmd: "server_list_databases",
+    localCmd: "list_databases",
+    args: { connId },
+  });
 }
 
 /** Fetch a page of documents from a MongoDB collection. */
@@ -143,13 +146,20 @@ export async function listDocuments(
   collection: string,
   params?: ListDocumentsParams,
 ): Promise<MongoDocumentsResult> {
-  if (isServerConn(connId) || WEB) return { documents: [], total: 0 };
-  return invoke("list_documents", {
+  const args = {
     connId,
     collection,
     filter: params?.filter ?? null,
     skip: params?.skip ?? 0,
     limit: params?.limit ?? 50,
+  };
+  return dispatchDbCall<MongoDocumentsResult>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/documents`,
+    httpBody: { collection, filter: args.filter, skip: args.skip, limit: args.limit },
+    serverCmd: "server_list_documents",
+    localCmd: "list_documents",
+    args,
   });
 }
 
@@ -165,13 +175,20 @@ export async function listDocumentsExt(
   collection: string,
   params?: ListDocumentsParams,
 ): Promise<MongoExtDocumentsResult> {
-  if (isServerConn(connId) || WEB) return { documents: [], total: 0 };
-  return invoke("list_documents_ext", {
+  const args = {
     connId,
     collection,
     filter: params?.filter ?? null,
     skip: params?.skip ?? 0,
     limit: params?.limit ?? 50,
+  };
+  return dispatchDbCall<MongoExtDocumentsResult>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/documents/ext`,
+    httpBody: { collection, filter: args.filter, skip: args.skip, limit: args.limit },
+    serverCmd: "server_list_documents_ext",
+    localCmd: "list_documents_ext",
+    args,
   });
 }
 
@@ -183,12 +200,13 @@ export async function saveDocument(
   id: string,
   documentText: string,
 ): Promise<boolean> {
-  if (isServerConn(connId) || WEB) return false;
-  return invoke("save_document", {
-    connId,
-    collection,
-    id,
-    documentText,
+  return dispatchDbCall<boolean>(connId, {
+    httpMethod: "POST",
+    httpPath: (cid) => `/v1/c/${encodeURIComponent(cid)}/mongo/documents/save`,
+    httpBody: { collection, id, document_text: documentText },
+    serverCmd: "server_save_document",
+    localCmd: "save_document",
+    args: { connId, collection, id, documentText },
   });
 }
 
@@ -198,11 +216,13 @@ export async function insertDocument(
   collection: string,
   documentText: string,
 ): Promise<void> {
-  if (isServerConn(connId) || WEB) return;
-  return invoke("insert_document", {
-    connId,
-    collection,
-    documentText,
+  return dispatchDbCall<void>(connId, {
+    httpMethod: "POST",
+    httpPath: (cid) => `/v1/c/${encodeURIComponent(cid)}/mongo/documents/insert`,
+    httpBody: { collection, document_text: documentText },
+    serverCmd: "server_insert_document",
+    localCmd: "insert_document",
+    args: { connId, collection, documentText },
   });
 }
 
@@ -229,8 +249,14 @@ export async function runMongo(
   collection: string | null,
   script: string,
 ): Promise<MongoRunResult> {
-  serverUnsupported(connId);
-  return invoke("run_mongo", { connId, database, collection, script });
+  return dispatchDbCall<MongoRunResult>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/run`,
+    httpBody: { database, collection, script },
+    serverCmd: "server_run_mongo",
+    localCmd: "run_mongo",
+    args: { connId, database, collection, script },
+  });
 }
 
 /** Point every unqualified operation at `schema` (Postgres). */
@@ -238,8 +264,14 @@ export async function setActiveSchema(
   connId: string,
   schema: string,
 ): Promise<void> {
-  serverUnsupported(connId);
-  return invoke("set_active_schema", { connId, schema });
+  return dispatchDbCall<void>(connId, {
+    httpMethod: "PUT",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/active-schema`,
+    httpBody: { schema },
+    serverCmd: "server_set_active_schema",
+    localCmd: "set_active_schema",
+    args: { connId, schema },
+  });
 }
 
 /** Create a database on the same server (Postgres). */
@@ -274,8 +306,14 @@ export async function createMongoCollection(
   connId: string,
   name: string,
 ): Promise<void> {
-  serverUnsupported(connId);
-  return invoke("create_mongo_collection", { connId, name });
+  return dispatchDbCall<void>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/collections`,
+    httpBody: { name },
+    serverCmd: "server_create_collection",
+    localCmd: "create_mongo_collection",
+    args: { connId, name },
+  });
 }
 
 /** Drop a schema; `cascade` also drops every object inside it (Postgres). */
@@ -299,8 +337,13 @@ export async function refreshMatview(
 
 /** The schema unqualified operations currently target (Postgres). */
 export async function getActiveSchema(connId: string): Promise<string> {
-  if (WEB) return "public";
-  return invoke("active_schema", { connId });
+  return dispatchDbCall<string>(connId, {
+    httpMethod: "GET",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/active-schema`,
+    serverCmd: "server_active_schema",
+    localCmd: "active_schema",
+    args: { connId },
+  });
 }
 
 /** Fetch the schema (columns, FKs, indexes) for a table. Concurrent calls
@@ -309,7 +352,7 @@ export function tableSchema(
   connId: string,
   table: string,
 ): Promise<TableSchema> {
-  return dedupe(`schema:${connId} ${table}`, () =>
+  return dedupe(`schema:${connId} ${table}`, () =>
     dispatchDbCall<TableSchema>(connId, {
       httpMethod: "GET",
       httpPath: (id) =>
@@ -339,9 +382,14 @@ export async function applySchemaOps(
   connId: string,
   ops: SchemaOp[],
 ): Promise<string[]> {
-  serverUnsupported(connId);
-
-  return invoke("apply_schema_ops", { connId, ops });
+  return dispatchDbCall<string[]>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schema-ops`,
+    httpBody: { ops },
+    serverCmd: "server_apply_schema_ops_batch",
+    localCmd: "apply_schema_ops",
+    args: { connId, ops },
+  });
 }
 
 /** Serialize the database back to bytes for save. */
@@ -362,9 +410,14 @@ export async function duplicateTable(
   target: string,
   copyData = true,
 ): Promise<string[]> {
-  serverUnsupported(connId);
-
-  return invoke("duplicate_table", { connId, source, target, copyData });
+  return dispatchDbCall<string[]>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/duplicate`,
+    httpBody: { source, target, copy_data: copyData },
+    serverCmd: "server_duplicate_table",
+    localCmd: "duplicate_table",
+    args: { connId, source, target, copyData },
+  });
 }
 
 /** Read a file from disk as raw bytes (opened via the native dialog). */

@@ -3,7 +3,13 @@ import { Input } from "@/shared/components/ui/input";
 import {
   Checkbox,
 } from "@/shared/components/ui/checkbox";
-import { Copy, Link2, Check, Save } from "lucide-react";
+import { Check, Cloud, Copy, Eraser, HardDrive, Link2, Save } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui/dropdown-menu";
 
 export interface MongoFormValues {
   name: string;
@@ -36,11 +42,17 @@ export interface MongoPanelProps {
   copied: boolean;
   onImport: () => void;
   onExport: () => void;
-  // Save (local device — Mongo connects have no team-server sharing)
+  // Save (local device, or a team server the caller is admin on)
+  saving_to: string | null;
+  admin_servers: { profile: { id: string; name: string } }[];
   editing: boolean;
   onSaveLocal: () => void;
+  onSaveServer: (profileId: string, serverName: string) => void;
   onUpdate: () => void;
   onCancelEdit: () => void;
+
+  // Clear all fields back to defaults
+  onClear: () => void;
 }
 
 export function MongoPanel({
@@ -58,10 +70,14 @@ export function MongoPanel({
   copied,
   onImport,
   onExport,
+  saving_to,
+  admin_servers,
   editing,
   onSaveLocal,
+  onSaveServer,
   onUpdate,
   onCancelEdit,
+  onClear,
 }: MongoPanelProps) {
   const disabled = connecting || testing || form.database.trim().length === 0;
 
@@ -187,16 +203,16 @@ export function MongoPanel({
           <>
             <Button
               variant="secondary"
-              disabled={!form.database.trim()}
+              disabled={saving_to !== null || !form.database.trim()}
               onClick={onUpdate}
             >
-              Update
+              {saving_to ? "Updating…" : "Update"}
             </Button>
             <Button variant="outline" onClick={onCancelEdit}>
               Cancel
             </Button>
           </>
-        ) : (
+        ) : admin_servers.length === 0 ? (
           <Button
             variant="secondary"
             onClick={onSaveLocal}
@@ -205,7 +221,46 @@ export function MongoPanel({
           >
             <Save className="size-4" /> Save
           </Button>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  disabled={!form.database.trim() || saving_to !== null}
+                >
+                  <Save className="size-4" />
+                  {saving_to ? "Saving…" : "Save"}
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuItem onClick={onSaveLocal}>
+                <HardDrive className="size-3.5" /> This device
+              </DropdownMenuItem>
+              {admin_servers.map((s) => (
+                <DropdownMenuItem
+                  key={s.profile.id}
+                  onClick={() => onSaveServer(s.profile.id, s.profile.name)}
+                >
+                  <Cloud className="size-3.5" />
+                  {s.profile.name}
+                  <span className="text-muted-foreground ml-auto text-[10px]">
+                    shared
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
+        <Button
+          variant="ghost"
+          onClick={onClear}
+          title="Clear all fields"
+          className="ml-auto"
+        >
+          <Eraser className="size-4" /> Clear
+        </Button>
       </div>
 
       {test_ok === true && (

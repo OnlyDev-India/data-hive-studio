@@ -273,7 +273,7 @@ pub enum DefaultMode {
 /// dialect (including falling back to a full table rebuild when SQLite has no
 /// in-place ALTER for the requested change). Each op executes to completion —
 /// the adapter returns every statement it ran so the UI can show it.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SchemaOp {
     RenameTable { table: String, new_name: String },

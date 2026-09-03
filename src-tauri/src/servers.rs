@@ -241,6 +241,136 @@ pub async fn server_execute_op(
     .await
 }
 
+// ---- MongoDB / generic-catalog surface --------------------------------------
+//
+// Same `with_remote` passthrough pattern as `server_execute_op` above — these
+// exist so a desktop app pointed at a shared team-server connection gets the
+// same Mongo features (document grid, console, index manager, collection
+// create/drop/rename/duplicate, database switcher) as a local connection.
+
+#[tauri::command]
+pub async fn server_list_databases(conn_id: String) -> Result<Vec<String>, String> {
+    with_remote(&conn_id, |c, r| Box::pin(async move { c.list_databases(&r).await })).await
+}
+
+#[tauri::command]
+pub async fn server_catalog_overview(
+    conn_id: String,
+) -> Result<dh_core::db::CatalogOverview, String> {
+    with_remote(&conn_id, |c, r| Box::pin(async move { c.catalog_overview(&r).await })).await
+}
+
+#[tauri::command]
+pub async fn server_active_schema(conn_id: String) -> Result<String, String> {
+    with_remote(&conn_id, |c, r| Box::pin(async move { c.active_schema(&r).await })).await
+}
+
+#[tauri::command]
+pub async fn server_set_active_schema(conn_id: String, schema: String) -> Result<(), String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.set_active_schema(&r, &schema).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_apply_schema_ops_batch(
+    conn_id: String,
+    ops: Vec<dh_core::api::SchemaOp>,
+) -> Result<Vec<String>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.apply_schema_ops_batch(&r, &ops).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_duplicate_table(
+    conn_id: String,
+    source: String,
+    target: String,
+    copy_data: bool,
+) -> Result<Vec<String>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.duplicate_table(&r, &source, &target, copy_data).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_list_documents(
+    conn_id: String,
+    collection: String,
+    filter: Option<serde_json::Value>,
+    skip: u64,
+    limit: u64,
+) -> Result<dh_core::api::MongoDocumentsResult, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.list_documents(&r, &collection, filter, skip, limit).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_list_documents_ext(
+    conn_id: String,
+    collection: String,
+    filter: Option<serde_json::Value>,
+    skip: u64,
+    limit: u64,
+) -> Result<dh_core::api::MongoExtDocumentsResult, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.list_documents_ext(&r, &collection, filter, skip, limit).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_save_document(
+    conn_id: String,
+    collection: String,
+    id: String,
+    document_text: String,
+) -> Result<bool, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.save_document(&r, &collection, &id, &document_text).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_insert_document(
+    conn_id: String,
+    collection: String,
+    document_text: String,
+) -> Result<(), String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.insert_document(&r, &collection, &document_text).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_run_mongo(
+    conn_id: String,
+    database: String,
+    collection: Option<String>,
+    script: String,
+) -> Result<dh_core::api::MongoRunResult, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.run_mongo(&r, &database, collection.as_deref(), &script).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_create_collection(conn_id: String, name: String) -> Result<(), String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.create_collection(&r, &name).await })
+    })
+    .await
+}
+
 // ---- Admin surface ----------------------------------------------------------
 //
 // All admin calls run through the stored ServerClient so the token never

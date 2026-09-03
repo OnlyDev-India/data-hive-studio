@@ -19,6 +19,8 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { useStudioStore } from "@/shared/store";
 import type { SavedConnParams } from "@/shared/store";
+import { DBIcons } from "@/shared/components/icons/types";
+import type { DbKind } from "@/shared/api";
 
 /** Collapsible sidebar section. An OPEN section stretches to fill all
  *  remaining height; CLOSED ones shrink to just their header row, stacking
@@ -159,6 +161,7 @@ export function HomeView({
     const out: {
       id: string;
       label: string;
+      kind: DbKind;
       source: string;
       connect_title: string;
       on_click: () => void;
@@ -174,7 +177,8 @@ export function HomeView({
         out.push({
           id,
           label: name,
-          source: kind === "mongodb" ? "mongodb" : "local",
+          kind,
+          source: "local",
           connect_title: "Double-click to connect",
           on_click: () => request_prefill(kind, { ...params }),
           on_double_click: () => request_prefill(kind, { ...params }, true),
@@ -188,6 +192,7 @@ export function HomeView({
         out.push({
           id,
           label: c.name,
+          kind: "postgres",
           source: sess.profile.name,
           connect_title: "Single click loads details; double-click connects",
           on_click: () =>
@@ -259,33 +264,36 @@ export function HomeView({
           on_toggle={() => toggle_section("pinned")}
         >
           <ul className="flex flex-col gap-0.5">
-            {pinned_entries.map((entry) => (
-              <li key={entry.id}>
-                <Button
-                  variant="ghost"
-                  title={entry.connect_title}
-                  onClick={entry.on_click}
-                  onDoubleClick={entry.on_double_click}
-                  className="hover:bg-accent group h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
-                >
-                  <Pin className="size-4 shrink-0 text-amber-500" />
-                  <span className="truncate font-medium">{entry.label}</span>
-                  <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
-                    {entry.source}
-                  </span>
-                  <span
-                    aria-label="Unpin"
-                    className="text-muted-foreground hover:text-destructive invisible shrink-0 group-hover:visible"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggle_pin(entry.id);
-                    }}
+            {pinned_entries.map((entry) => {
+              const DBIcon = DBIcons[entry.kind] ?? Database;
+              return (
+                <li key={entry.id}>
+                  <Button
+                    variant="ghost"
+                    title={entry.connect_title}
+                    onClick={entry.on_click}
+                    onDoubleClick={entry.on_double_click}
+                    className="hover:bg-accent group h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                   >
-                    <X className="size-3.5" />
-                  </span>
-                </Button>
-              </li>
-            ))}
+                    {DBIcon && <DBIcon className="size-4 shrink-0" />}
+                    <span className="truncate font-medium">{entry.label}</span>
+                    <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
+                      {entry.source}
+                    </span>
+                    <span
+                      aria-label="Unpin"
+                      className="text-muted-foreground hover:text-destructive invisible shrink-0 group-hover:visible"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle_pin(entry.id);
+                      }}
+                    >
+                      <X className="size-3.5" />
+                    </span>
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         </Collapse>
       )}
@@ -310,6 +318,7 @@ export function HomeView({
               {rows.map((c) => {
                 const is_pinned = pins.includes(c.id);
                 const can_delete = c.can_delete || sess.me.is_admin;
+                const DBIcon = DBIcons[c.kind] || Database;
                 return (
                   <li key={c.id}>
                     <Button
@@ -323,23 +332,41 @@ export function HomeView({
                             profileId,
                             remote_id,
                           );
-                          request_prefill("postgres", {
-                            host: creds.host,
-                            port: creds.port,
-                            user: creds.user,
-                            password: creds.password,
-                            database: creds.database,
-                            kind: "postgres",
-                          }, false);
+                          request_prefill(
+                            c.kind,
+                            {
+                              host: creds.host,
+                              port: creds.port,
+                              user: creds.user,
+                              password: creds.password,
+                              database: creds.database,
+                              kind: c.kind,
+                              ...(c.kind === "mongodb"
+                                ? {
+                                    auth_db: creds.auth_db,
+                                    srv: creds.srv,
+                                    tls: creds.tls,
+                                  }
+                                : { ssl_mode: creds.ssl_mode ?? undefined }),
+                            },
+                            false,
+                          );
                         } catch {
-                          request_prefill("postgres", {
-                            host: c.host,
-                            port: c.port,
-                            user: c.user,
-                            password: "",
-                            database: c.database,
-                            kind: "postgres",
-                          }, false);
+                          request_prefill(
+                            c.kind,
+                            {
+                              host: c.host,
+                              port: c.port,
+                              user: c.user,
+                              password: "",
+                              database: c.database,
+                              kind: c.kind,
+                              ...(c.kind === "mongodb"
+                                ? { auth_db: c.auth_db, srv: c.srv, tls: c.tls }
+                                : { ssl_mode: c.ssl_mode ?? undefined }),
+                            },
+                            false,
+                          );
                         }
                       }}
                       onDoubleClick={() => {
@@ -348,13 +375,13 @@ export function HomeView({
                         open_conn({
                           id: srv_id,
                           name: c.name,
-                          kind: "postgres",
+                          kind: c.kind,
                           source_path: null,
                         });
                       }}
                       className="hover:bg-accent h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                     >
-                      <Cloud className="text-muted-foreground size-4 shrink-0" />
+                      <DBIcon className="text-muted-foreground size-4 shrink-0" />
                       <span className="truncate font-medium">{c.name}</span>
                       <span className="ml-auto flex shrink-0 items-center gap-1">
                         {can_delete && (
@@ -450,6 +477,7 @@ export function HomeView({
             {saved_rows.map((row) => {
               const { id: pin_id, name, kind, params } = row;
               const is_pinned = pins.includes(pin_id);
+              const DBIcon = DBIcons[kind] ?? Database;
               return (
                 <li key={name}>
                   <Button
@@ -461,13 +489,8 @@ export function HomeView({
                     }
                     className="hover:bg-accent group h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                   >
-                    <Save className="text-muted-foreground size-4 shrink-0" />
+                    <DBIcon className="text-muted-foreground size-4 shrink-0" />
                     <span className="truncate font-medium">{name}</span>
-                    {kind === "mongodb" && (
-                      <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
-                        mongo
-                      </span>
-                    )}
                     <span className="ml-auto flex shrink-0 items-center gap-1">
                       <span
                         aria-label={`Delete ${name}`}
@@ -524,6 +547,7 @@ export function HomeView({
               const srv_profile = is_srv ? conn.id.split(":")[1] : null;
               const server_connected =
                 is_srv && srv_profile ? srv_profile in server_sessions : true;
+              const DBIcon = DBIcons[conn.kind] ?? Database;
               return (
                 <li key={conn.id}>
                   <Button
@@ -573,13 +597,8 @@ export function HomeView({
                         "text-muted-foreground/50 line-through",
                     )}
                   >
-                    <Database className="text-muted-foreground size-4 shrink-0" />
+                    <DBIcon className="text-muted-foreground size-4 shrink-0" />
                     <span className="truncate font-medium">{conn.name}</span>
-                    {conn.kind === "postgres" && (
-                      <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
-                        pg
-                      </span>
-                    )}
                   </Button>
                 </li>
               );

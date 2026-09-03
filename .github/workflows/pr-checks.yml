@@ -85,8 +85,6 @@ jobs:
 
       # Matches package.json's "test" script. Runs dh-core's unit tests plus
       # its tests/sqlite_registry.rs integration test (self-contained, no
-      # external services). Deliberately NOT running
-      # src-tauri/tests/pg_ddl_probe.rs here — it needs a live local Postgres
-      # and is documented as manual-only.
+      # external services).
       - name: Backend tests
         run: cargo test -p dh-core

@@ -5,6 +5,7 @@ import { Button } from "@/shared/components/ui";
 import PanelRightIcon from "@/shared/components/icons/panel-right";
 import PanelLeftIcon from "@/shared/components/icons/panel-left";
 import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
+import { DBIcons } from "@/shared/components/icons/types";
 
 interface ConnectionTabsProps {
   conns: ConnectionInfo[];
@@ -27,6 +28,7 @@ export function ConnectionTabs({
       <div className="bg-background flex items-end gap-1 overflow-x-auto border-b px-2 pt-1.5">
         {conns.map((conn) => {
           const active = conn.id === active_id;
+          const DBIcon = DBIcons[conn.kind];
           return (
             <div key={conn.id} className="relative flex items-center">
               <Button
@@ -39,6 +41,7 @@ export function ConnectionTabs({
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
                 )}
               >
+                {DBIcon && <DBIcon className="size-4"/>}
                 <span className="truncate">{conn.name}</span>
                 <DisconnectDbBtn conn={conn} />
               </Button>
