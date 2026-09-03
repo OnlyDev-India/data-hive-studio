@@ -12,7 +12,7 @@ import {
 import {
   SqlEditor,
   type SqlEditorHandle,
-} from "@/features/sql-console/editor/sql-editor";
+} from "./editor/sql-editor";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import {
   runSqlStream,
