@@ -1,0 +1,13 @@
+[package]
+name = "dh-server"
+version = "0.1.0"
+edition = "2021"
+description = "dh-studio team server: encrypted connection vault, grants, query gateway"
+
+[dependencies]
+dh-core = { path = "../dh-core" }
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+tower-http.workspace = true
+axum.workspace = true
+rand.workspace = true
+hex.workspace = true

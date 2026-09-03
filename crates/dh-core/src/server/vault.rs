@@ -1,0 +1,557 @@
+//! Shared connection details, encrypted at rest. Passwords are AES-256-GCM
+//! sealed with the server master key and never included in metadata
+//! listings.
+//!
+//! Every shared connection predates the `kind` column and was implicitly
+//! Postgres, so the column defaults to `'postgres'` and the common
+//! host/port/user/password/database/ssl_mode shape below covers it exactly.
+//! MongoDB (see [`AdapterParams`]) reuses the same common columns plus three
+//! Mongo-only ones (`auth_db`/`srv`/`tls`, all optional/defaulted so Postgres
+//! rows are unaffected).
+
+use super::crypto;
+use super::store::{now_ms, Store, StorePool};
+use crate::api::DbKind;
+use uuid::Uuid;
+
+/// Everything a client may see about a shared connection — never the password.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConnMeta {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub kind: DbKind,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub database: String,
+    pub ssl_mode: Option<String>,
+    /// MongoDB only: auth source database.
+    #[serde(default)]
+    pub auth_db: Option<String>,
+    /// MongoDB only: use mongodb+srv:// (DNS seedlist).
+    #[serde(default)]
+    pub srv: bool,
+    /// MongoDB only: require TLS on a plain mongodb:// connection.
+    #[serde(default)]
+    pub tls: bool,
+    pub created_by: String,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+}
+
+/// Payload for creating or editing a connection's stored details.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConnInput {
+    pub name: String,
+    /// Immutable after creation — `conn_update` never changes it.
+    #[serde(default)]
+    pub kind: DbKind,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    /// `None` on update = keep the existing password.
+    pub password: Option<String>,
+    pub database: String,
+    #[serde(default)]
+    pub ssl_mode: Option<String>,
+    /// MongoDB only: auth source database (defaults to "admin" when None).
+    #[serde(default)]
+    pub auth_db: Option<String>,
+    /// MongoDB only: use mongodb+srv:// (DNS seedlist) instead of mongodb://.
+    #[serde(default)]
+    pub srv: bool,
+    /// MongoDB only: require TLS on a plain mongodb:// connection.
+    #[serde(default)]
+    pub tls: bool,
+}
+
+/// Decrypted connection parameters ready to hand to the matching adapter's
+/// `connect()`. One variant per [`DbKind`] the team-server can proxy;
+/// [`super::gateway::Gateway`] matches on this to build the right
+/// `Arc<dyn DbAdapter>` instead of being hardcoded to Postgres.
+pub enum AdapterParams {
+    Postgres(crate::db::PgParams),
+    Mongodb(crate::db::MongoParams),
+}
+
+fn kind_to_str(kind: DbKind) -> &'static str {
+    match kind {
+        DbKind::Sqlite => "sqlite",
+        DbKind::Postgres => "postgres",
+        DbKind::Mysql => "mysql",
+        DbKind::Mongodb => "mongodb",
+    }
+}
+
+fn kind_from_str(s: &str) -> DbKind {
+    match s {
+        "sqlite" => DbKind::Sqlite,
+        "mysql" => DbKind::Mysql,
+        "mongodb" => DbKind::Mongodb,
+        // Covers "postgres" and any unrecognized/legacy value — matches the
+        // column's own DEFAULT 'postgres'.
+        _ => DbKind::Postgres,
+    }
+}
+
+pub const ERR_NOT_FOUND: &str = "connection not found";
+
+macro_rules! parse_conn_row {
+    ($r:expr) => {{
+        use sqlx::Row;
+        ConnRow {
+            id: $r.get("id"),
+            name: $r.get("name"),
+            kind: $r.get("kind"),
+            host: $r.get("host"),
+            port: $r.get::<i64, _>("port"),
+            user: $r.get("user"),
+            password_enc: $r.get("password_enc"),
+            database: $r.get("database"),
+            ssl_mode: $r.get("ssl_mode"),
+            auth_db: $r.get("auth_db"),
+            srv: $r.get::<i64, _>("srv"),
+            tls: $r.get::<i64, _>("tls"),
+            created_by: $r.get("created_by"),
+            created_ms: $r.get::<i64, _>("created_ms"),
+            updated_ms: $r.get::<i64, _>("updated_ms"),
+            archived: $r.get::<i64, _>("archived"),
+        }
+    }};
+}
+
+impl Store {
+    pub async fn conn_add(
+        &self,
+        input: &ConnInput,
+        created_by: &str,
+    ) -> Result<ConnMeta, String> {
+        let password = input.password.clone().unwrap_or_default();
+        let enc = crypto::encrypt(&self.master_key, password.as_bytes())?;
+        let id = Uuid::new_v4().to_string();
+        let ts = now_ms();
+        let (sql, _) = self.query_ph(
+            r#"INSERT INTO connections
+               (id, name, kind, host, port, user, password_enc, database, ssl_mode, auth_db, srv, tls, created_by, created_ms, updated_ms)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"#,
+        );
+        let kind_str = kind_to_str(input.kind);
+        match &self.pool {
+            StorePool::Sqlite(p) => {
+                sqlx::query(&sql)
+                    .bind(&id)
+                    .bind(&input.name)
+                    .bind(kind_str)
+                    .bind(&input.host)
+                    .bind(input.port as i64)
+                    .bind(&input.user)
+                    .bind(&enc)
+                    .bind(&input.database)
+                    .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
+                    .bind(created_by)
+                    .bind(ts)
+                    .bind(ts)
+                    .execute(p)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            StorePool::Postgres(p) => {
+                sqlx::query(&sql)
+                    .bind(&id)
+                    .bind(&input.name)
+                    .bind(kind_str)
+                    .bind(&input.host)
+                    .bind(input.port as i64)
+                    .bind(&input.user)
+                    .bind(&enc)
+                    .bind(&input.database)
+                    .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
+                    .bind(created_by)
+                    .bind(ts)
+                    .bind(ts)
+                    .execute(p)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(ConnMeta {
+            id,
+            name: input.name.clone(),
+            kind: input.kind,
+            host: input.host.clone(),
+            port: input.port,
+            user: input.user.clone(),
+            database: input.database.clone(),
+            ssl_mode: input.ssl_mode.clone(),
+            auth_db: input.auth_db.clone(),
+            srv: input.srv,
+            tls: input.tls,
+            created_by: created_by.to_string(),
+            created_ms: ts,
+            updated_ms: ts,
+        })
+    }
+
+    /// Edit stored details. Requires edit access (checked by callers).
+    /// A `None` password in the input keeps the current one.
+    pub async fn conn_update(
+        &self,
+        id: &str,
+        input: &ConnInput,
+    ) -> Result<ConnMeta, String> {
+        let existing = self.conn_get_row(id).await?.ok_or(ERR_NOT_FOUND)?;
+        let enc = match &input.password {
+            Some(p) => crypto::encrypt(&self.master_key, p.as_bytes())?,
+            None => existing.password_enc,
+        };
+        let ts = now_ms();
+        let (sql, _) = self.query_ph(
+            r#"UPDATE connections
+               SET name=?, host=?, port=?, user=?, password_enc=?, database=?, ssl_mode=?, auth_db=?, srv=?, tls=?, updated_ms=?
+               WHERE id=?"#,
+        );
+        match &self.pool {
+            StorePool::Sqlite(p) => {
+                sqlx::query(&sql)
+                    .bind(&input.name)
+                    .bind(&input.host)
+                    .bind(input.port as i64)
+                    .bind(&input.user)
+                    .bind(&enc)
+                    .bind(&input.database)
+                    .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
+                    .bind(ts)
+                    .bind(id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            StorePool::Postgres(p) => {
+                sqlx::query(&sql)
+                    .bind(&input.name)
+                    .bind(&input.host)
+                    .bind(input.port as i64)
+                    .bind(&input.user)
+                    .bind(&enc)
+                    .bind(&input.database)
+                    .bind(&input.ssl_mode)
+                    .bind(&input.auth_db)
+                    .bind(input.srv as i64)
+                    .bind(input.tls as i64)
+                    .bind(ts)
+                    .bind(id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        self.conn_get(id).await?.ok_or_else(|| ERR_NOT_FOUND.into())
+    }
+
+    pub async fn conn_archive(&self, id: &str) -> Result<(), String> {
+        let (sql, _) = self.query_ph("UPDATE connections SET archived=1 WHERE id=?");
+        let n = match &self.pool {
+            StorePool::Sqlite(p) => {
+                sqlx::query(&sql)
+                    .bind(id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .rows_affected()
+            }
+            StorePool::Postgres(p) => {
+                sqlx::query(&sql)
+                    .bind(id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .rows_affected()
+            }
+        };
+        if n == 0 {
+            Err(ERR_NOT_FOUND.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Metadata only — safe to send to any granted client.
+    pub async fn conn_get(&self, id: &str) -> Result<Option<ConnMeta>, String> {
+        let row = self.conn_get_row(id).await?;
+        row.map(Self::row_to_meta).transpose()
+    }
+
+    pub async fn conn_list_active(&self) -> Result<Vec<ConnMeta>, String> {
+        let (sql, _) = self.query_ph(
+            "SELECT * FROM connections WHERE archived=0 ORDER BY created_ms DESC",
+        );
+        let rows = match &self.pool {
+            StorePool::Sqlite(p) => sqlx::query(&sql)
+                .fetch_all(p)
+                .await
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|r| parse_conn_row!(r))
+                .collect::<Vec<_>>(),
+            StorePool::Postgres(p) => sqlx::query(&sql)
+                .fetch_all(p)
+                .await
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|r| parse_conn_row!(r))
+                .collect::<Vec<_>>(),
+        };
+        rows.into_iter()
+            .map(Self::row_to_meta)
+            .collect()
+    }
+
+    /// Decrypt the password and build the params for whichever adapter this
+    /// connection's `kind` needs. Gateway-internal; never serialize this type.
+    pub async fn conn_secret_params(
+        &self,
+        id: &str,
+    ) -> Result<AdapterParams, String> {
+        let row = self.conn_get_row(id).await?.ok_or(ERR_NOT_FOUND)?;
+        let password = String::from_utf8(
+            crypto::decrypt(&self.master_key, &row.password_enc)?,
+        )
+        .map_err(|_| "stored password is not utf-8".to_string())?;
+        Ok(match kind_from_str(&row.kind) {
+            DbKind::Mongodb => AdapterParams::Mongodb(crate::db::MongoParams {
+                host: row.host,
+                port: row.port as u16,
+                user: row.user,
+                password,
+                database: row.database,
+                auth_db: row.auth_db,
+                srv: row.srv != 0,
+                tls: row.tls != 0,
+            }),
+            // Postgres, and every other kind until it gets its own adapter
+            // params shape — matches the column's own default.
+            _ => AdapterParams::Postgres(crate::db::PgParams {
+                host: row.host,
+                port: row.port as u16,
+                user: row.user,
+                password,
+                database: row.database,
+                ssl_mode: row.ssl_mode,
+            }),
+        })
+    }
+
+    async fn conn_get_row(&self, id: &str) -> Result<Option<ConnRow>, String> {
+        let (sql, _) = self.query_ph("SELECT * FROM connections WHERE id=?");
+        let rec = match &self.pool {
+            StorePool::Sqlite(p) => sqlx::query(&sql)
+                .bind(id)
+                .fetch_optional(p)
+                .await
+                .map_err(|e| e.to_string())?
+                .map(|r| parse_conn_row!(r)),
+            StorePool::Postgres(p) => sqlx::query(&sql)
+                .bind(id)
+                .fetch_optional(p)
+                .await
+                .map_err(|e| e.to_string())?
+                .map(|r| parse_conn_row!(r)),
+        };
+        Ok(rec)
+    }
+
+    fn row_to_meta(r: ConnRow) -> Result<ConnMeta, String> {
+        Ok(ConnMeta {
+            id: r.id.clone(),
+            name: r.name.clone(),
+            kind: kind_from_str(&r.kind),
+            host: r.host.clone(),
+            port: r.port as u16,
+            user: r.user.clone(),
+            database: r.database.clone(),
+            ssl_mode: r.ssl_mode.clone(),
+            auth_db: r.auth_db.clone(),
+            srv: r.srv != 0,
+            tls: r.tls != 0,
+            created_by: r.created_by.clone(),
+            created_ms: r.created_ms,
+            updated_ms: r.updated_ms,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ConnRow {
+    id: String,
+    name: String,
+    kind: String,
+    host: String,
+    port: i64,
+    user: String,
+    #[allow(dead_code)]
+    password_enc: Vec<u8>,
+    database: String,
+    ssl_mode: Option<String>,
+    auth_db: Option<String>,
+    srv: i64,
+    tls: i64,
+    created_by: String,
+    created_ms: i64,
+    updated_ms: i64,
+    #[allow(dead_code)]
+    archived: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Row;
+
+    fn input(name: &str, pw: &str) -> ConnInput {
+        ConnInput {
+            name: name.into(),
+            kind: DbKind::Postgres,
+            host: "db.internal".into(),
+            port: 5432,
+            user: "alice".into(),
+            password: Some(pw.into()),
+            database: "appdb".into(),
+            ssl_mode: Some("require".into()),
+            auth_db: None,
+            srv: false,
+            tls: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn add_list_update_archive() {
+        let store = super::super::store::test_store().await;
+        let meta = store.conn_add(&input("prod", "s3cret"), "dev1").await.unwrap();
+
+        // Metadata must never contain the secret.
+        let listed = store.conn_list_active().await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, meta.id);
+        assert!(!serde_json::to_string(&listed).unwrap().contains("s3cret"));
+
+        // Secret roundtrips through encryption with correct params.
+        let params = pg_password_and_host(&store, &meta.id).await;
+        assert_eq!(params.0, "s3cret");
+        assert_eq!(params.1, "db.internal");
+
+        // Update without password keeps the stored one.
+        let mut edit = input("prod-renamed", "");
+        edit.password = None;
+        let updated = store.conn_update(&meta.id, &edit).await.unwrap();
+        assert_eq!(updated.name, "prod-renamed");
+        assert_eq!(updated.kind, DbKind::Postgres);
+        assert!(pg_password_and_host(&store, &meta.id).await.0 == "s3cret");
+
+        // Update WITH password rotates it.
+        let mut rotate = edit.clone();
+        rotate.password = Some("newpw".into());
+        store.conn_update(&meta.id, &rotate).await.unwrap();
+        assert!(pg_password_and_host(&store, &meta.id).await.0 == "newpw");
+
+        // Archive hides from listing but secret stays intact internally.
+        store.conn_archive(&meta.id).await.unwrap();
+        assert!(store.conn_list_active().await.unwrap().is_empty());
+        assert_eq!(pg_password_and_host(&store, &meta.id).await.0, "newpw");
+        assert_eq!(store.conn_get(&meta.id).await.unwrap().unwrap().name, "prod-renamed");
+    }
+
+    /// Unwrap `conn_secret_params`'s Postgres variant (every test connection
+    /// here is Postgres) into (password, host) for easy assertions.
+    async fn pg_password_and_host(store: &Store, id: &str) -> (String, String) {
+        match store.conn_secret_params(id).await.unwrap() {
+            AdapterParams::Postgres(p) => (p.password, p.host),
+            AdapterParams::Mongodb(_) => panic!("expected Postgres params"),
+        }
+    }
+
+    /// Mongo's auth_db/srv/tls must round-trip through storage — these are
+    /// the fields `conn_secret_params` used to hardcode to None/false/false
+    /// for every Mongo shared connection regardless of what was stored.
+    #[tokio::test]
+    async fn mongo_auth_db_srv_tls_round_trip() {
+        let store = super::super::store::test_store().await;
+        let input = ConnInput {
+            name: "mongo-prod".into(),
+            kind: DbKind::Mongodb,
+            host: "cluster0.mongodb.net".into(),
+            port: 27017,
+            user: "mongo-user".into(),
+            password: Some("mongo-pw".into()),
+            database: "app".into(),
+            ssl_mode: None,
+            auth_db: Some("admin".into()),
+            srv: true,
+            tls: true,
+        };
+        let meta = store.conn_add(&input, "dev1").await.unwrap();
+        assert_eq!(meta.kind, DbKind::Mongodb);
+        assert_eq!(meta.auth_db.as_deref(), Some("admin"));
+        assert!(meta.srv);
+        assert!(meta.tls);
+
+        match store.conn_secret_params(&meta.id).await.unwrap() {
+            AdapterParams::Mongodb(p) => {
+                assert_eq!(p.password, "mongo-pw");
+                assert_eq!(p.auth_db.as_deref(), Some("admin"));
+                assert!(p.srv);
+                assert!(p.tls);
+            }
+            AdapterParams::Postgres(_) => panic!("expected Mongodb params"),
+        }
+
+        // conn_get (metadata-only path) also carries the flags.
+        let fetched = store.conn_get(&meta.id).await.unwrap().unwrap();
+        assert!(fetched.srv && fetched.tls);
+    }
+
+    #[tokio::test]
+    async fn missing_and_wrong_key() {
+        let store = super::super::store::test_store().await;
+        assert_eq!(
+            store.conn_secret_params("nope").await.err().unwrap(),
+            super::ERR_NOT_FOUND
+        );
+
+        let other = Store::open(super::super::store::StoreConfig {
+            path: ":memory:".into(),
+            master_key: [9u8; 32],
+            pg_url: None,
+        })
+        .await
+        .unwrap();
+        let meta = other.conn_add(&input("x", "pw"), "d").await.unwrap();
+
+        // Same logical db content under a different key must fail to decrypt.
+        let (sql, _) = other.query_ph("SELECT password_enc FROM connections WHERE id=?");
+        let raw: Vec<u8> = match &other.pool {
+            StorePool::Sqlite(p) => sqlx::query(&sql)
+                .bind(&meta.id)
+                .fetch_one(p)
+                .await
+                .unwrap()
+                .get("password_enc"),
+            StorePool::Postgres(p) => sqlx::query(&sql)
+                .bind(&meta.id)
+                .fetch_one(p)
+                .await
+                .unwrap()
+                .get("password_enc"),
+        };
+        assert!(crypto::decrypt(&[1u8; 32], &raw).is_err());
+    }
+}

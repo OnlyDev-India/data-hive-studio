@@ -1,0 +1,801 @@
+import { useEffect, useRef, useState } from "react";
+import { Card, CardContent } from "@/shared/components/ui/card";
+import { cn } from "@/shared/lib/utils";
+import {
+  closeConnection,
+  connectMongo,
+  connectPostgres,
+  openDatabasePath,
+  serversCreateConnection,
+  serversUpdateConnection,
+  type ConnectionInfo,
+} from "@/shared/api";
+import { WEB } from "@/shared/api/web";
+import { pickDatabaseFile } from "@/shared/lib/platform";
+import { useStudioStore } from "@/shared/store";
+import type { LandingEditTarget } from "@/shared/store";
+
+import { EditBanner } from "./edit-banner";
+import { MongoPanel, type MongoFormValues } from "./mongo-panel";
+import { PgPanel, type PgFormValues } from "./pg-panel";
+import { SqlitePanel } from "./sqlite-panel";
+import { DBIcons, type IconProps } from "@/shared/components/icons/types";
+
+type DbKindChoice = "sqlite" | "postgres" | "mongodb";
+
+/** Connection-kind bar, styled like the editor's tab strip (top of page). */
+function KindBar({
+  value,
+  on_change,
+}: {
+  value: DbKindChoice;
+  on_change: (v: DbKindChoice) => void;
+}) {
+  const items: {
+    id: DbKindChoice;
+    label: string;
+    icon: React.ComponentType<IconProps>;
+  }[] = [
+    { id: "sqlite", label: "SQLite", icon: DBIcons.sqlite },
+    { id: "postgres", label: "PostgreSQL", icon: DBIcons.postgres },
+    { id: "mongodb", label: "MongoDB", icon: DBIcons.mongodb },
+  ];
+  return (
+    <div
+      role="tablist"
+      className="bg-background flex w-full shrink-0 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
+    >
+      {items.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={value === id}
+          onClick={() => on_change(id)}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-t-md border-b-2 px-3 py-2 text-sm whitespace-nowrap",
+            value === id
+              ? "border-primary text-foreground"
+              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
+          )}
+        >
+          <Icon className="size-4" />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Landing() {
+  const openConn = useStudioStore((s) => s.openConn);
+
+  const [kind, setKind] = useState<DbKindChoice>("sqlite");
+  const [opening, setOpening] = useState(false);
+  /** Path of a recent SQLite file prefilled into the form (single-click). */
+  const [sqlite_path, setSqlitePath] = useState<string | null>(null);
+
+  // Pick a file and open it right away — no second "Open" step.
+  const open_file_click = async () => {
+    if (opening) return;
+    const file = await pickDatabaseFile();
+    if (!file) return;
+    setOpening(true);
+    try {
+      const conn = await openDatabasePath(file.path);
+      openConn(conn);
+    } catch (e) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Failed to open database",
+        detail: String(e),
+      });
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  // ---- PostgreSQL connect form ----
+  const PG_DEFAULTS: PgFormValues = {
+    name: "",
+    host: "localhost",
+    port: "5432",
+    user: "postgres",
+    password: "",
+    database: "",
+    ssl_mode: "prefer",
+  };
+  const [pg, setPg] = useState<PgFormValues>(PG_DEFAULTS);
+  /** GLOBAL connect flag — navigating home mid-connect keeps the spinner
+   *  truthful and blocks a second auto-connect from the replayed prefill. */
+  const pg_connecting = useStudioStore((st) => st.pgConnecting);
+  const setPgConnecting = useStudioStore((st) => st.setPgConnecting);
+  const mongo_connecting = useStudioStore((st) => st.mongoConnecting);
+  const setMongoConnecting = useStudioStore((st) => st.setMongoConnecting);
+  const clearLandingPrefill = useStudioStore((st) => st.clearLandingPrefill);
+  const push_recent_params = useStudioStore((st) => st.pushRecentParams);
+  const landing_prefill = useStudioStore((st) => st.landingPrefill);
+  const [url_text, setUrlText] = useState("");
+  const [url_error, setUrlError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  // Test-connection state: verifies the form without opening a workspace.
+  const [testing, setTesting] = useState(false);
+  const [test_ok, setTestOk] = useState<boolean | null>(null);
+  const [test_error, setTestError] = useState<string | null>(null);
+
+  // ---- MongoDB connect form ----
+  const MONGO_DEFAULTS: MongoFormValues = {
+    name: "",
+    host: "localhost",
+    port: "27017",
+    user: "",
+    password: "",
+    database: "",
+    auth_db: "admin",
+    srv: false,
+    tls: false,
+  };
+  const [mongo, setMongo] = useState<MongoFormValues>(MONGO_DEFAULTS);
+  const [mongo_testing, setMongoTesting] = useState(false);
+  const [mongo_test_ok, setMongoTestOk] = useState<boolean | null>(null);
+  const [mongo_test_error, setMongoTestError] = useState<string | null>(null);
+
+  // MongoDB URL import/export
+  const [mongo_url_text, setMongoUrlText] = useState("");
+  const [mongo_url_error, setMongoUrlError] = useState<string | null>(null);
+  const [mongo_copied, setMongoCopied] = useState(false);
+
+  const build_params = () => ({
+    host: pg.host.trim() || "localhost",
+    port: Number(pg.port) || 5432,
+    user: pg.user.trim(),
+    password: pg.password,
+    database: pg.database.trim(),
+    ssl_mode: pg.ssl_mode,
+  });
+
+  const display_name = () =>
+    pg.name.trim() ||
+    pg.database.trim() ||
+    `${pg.user.trim()}@${pg.host.trim() || "localhost"}`;
+
+  // Latest form values, readable from effects without stale-closure races.
+  const form_ref = useRef(build_params());
+  useEffect(() => {
+    form_ref.current = build_params();
+  });
+
+  const test_click = async () => {
+    if (testing || !pg.database.trim()) return;
+    setTesting(true);
+    setTestOk(null);
+    setTestError(null);
+    try {
+      const conn = await connectPostgres(build_params());
+      await closeConnection(conn.id); // release it — testing only
+      setTestOk(true);
+    } catch (e) {
+      setTestOk(false);
+      setTestError(String(e));
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Connection test failed",
+        detail: String(e),
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const import_url = () => {
+    const raw = url_text.trim();
+    if (!raw) return;
+    try {
+      const u = new URL(raw);
+      setPg((p) => ({
+        ...p,
+        user: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+        host: u.hostname,
+        port: u.port || p.port,
+        database: u.pathname.replace(/^\/+/, ""),
+        ssl_mode: u.searchParams.get("sslmode") ?? p.ssl_mode,
+      }));
+      setUrlText("");
+      setUrlError(null);
+    } catch {
+      setUrlError("Could not parse that connection URL.");
+    }
+  };
+
+  const export_url = async () => {
+    const auth = `${encodeURIComponent(pg.user.trim())}:${encodeURIComponent(pg.password)}`;
+    const ssl = pg.ssl_mode === "prefer" ? "" : `?sslmode=${pg.ssl_mode}`;
+    const url = `postgres://${auth}@${pg.host.trim() || "localhost"}:${Number(pg.port) || 5432}/${pg.database.trim()}${ssl}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard unavailable
+    }
+  };
+
+  const clear_pg_form = () => {
+    setPg(PG_DEFAULTS);
+    setUrlText("");
+    setUrlError(null);
+    setTestOk(null);
+    setTestError(null);
+  };
+
+  // ---- MongoDB URL import/export ----
+  const import_mongo_url = () => {
+    const raw = mongo_url_text.trim();
+    if (!raw) return;
+    try {
+      const u = new URL(raw);
+      // Detect mongodb+srv:// vs mongodb://
+      const isSrv = u.protocol === "mongodb+srv:";
+      setMongo((m) => ({
+        ...m,
+        srv: isSrv,
+        user: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+        host: u.hostname,
+        port: u.port && !isSrv ? u.port : m.port,
+        database: u.pathname.replace(/^\/+/, ""),
+        auth_db: u.searchParams.get("authSource") ?? m.auth_db,
+        tls: u.searchParams.get("tls") === "true" || isSrv,
+      }));
+      setMongoUrlError(null);
+      setMongoUrlText("");
+    } catch {
+      setMongoUrlError("Could not parse that connection URL.");
+    }
+  };
+
+  const export_mongo_url = async () => {
+    const auth = `${encodeURIComponent(mongo.user.trim())}:${encodeURIComponent(mongo.password)}`;
+    const query: string[] = [];
+    if (mongo.auth_db.trim())
+      query.push(`authSource=${encodeURIComponent(mongo.auth_db)}`);
+    // mongodb+srv:// gets TLS by default — only a plain mongodb:// URL needs
+    // it spelled out.
+    if (mongo.tls && !mongo.srv) query.push("tls=true");
+    const qs = query.length > 0 ? `?${query.join("&")}` : "";
+    const url = mongo.srv
+      ? `mongodb+srv://${auth}@${mongo.host.trim() || "localhost"}/${mongo.database.trim()}${qs}`
+      : `mongodb://${auth}@${mongo.host.trim() || "localhost"}:${Number(mongo.port) || 27017}/${mongo.database.trim()}${qs}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setMongoCopied(true);
+      setTimeout(() => setMongoCopied(false), 1500);
+    } catch {
+      // clipboard unavailable
+    }
+  };
+
+  const clear_mongo_form = () => {
+    setMongo(MONGO_DEFAULTS);
+    setMongoUrlText("");
+    setMongoUrlError(null);
+    setMongoTestOk(null);
+    setMongoTestError(null);
+  };
+
+  // Sidebar click hands PG details here; switch to the PG tab + fill. When
+  // the request carries connect=true (double-click), chain a connect right
+  // after the prefilled fields have committed.
+  const last_prefill = useRef(0);
+  const want_connect = useRef(false);
+  /** Which connect form a pending double-click targets; consumed by the
+   *  auto-connect effect once its fields commit. */
+  const want_kind = useRef<"postgres" | "mongodb" | null>(null);
+
+  const pg_connect_click = async () => {
+    if (pg_connecting || !pg.database.trim()) return;
+    setPgConnecting(true);
+    try {
+      if (WEB) {
+        const params = form_ref.current;
+        const sessions = useStudioStore.getState().serverSessions;
+        let matched: { id: string; name: string } | undefined;
+        for (const sess of Object.values(sessions)) {
+          for (const c of sess.connections) {
+            if (
+              c.host === params.host &&
+              Number(c.port) === Number(params.port) &&
+              c.database === params.database
+            ) {
+              matched = { id: c.id, name: c.name };
+              break;
+            }
+          }
+          if (matched) break;
+        }
+        if (!matched) {
+          useStudioStore.getState().pushNotification({
+            kind: "error",
+            title: "No matching server connection",
+            detail:
+              "No matching server connection found for these details. Connect to a team server first.",
+          });
+          return;
+        }
+        openConn({
+          id: matched.id,
+          name: matched.name,
+          kind: "postgres",
+          source_path: null,
+        });
+        return;
+      }
+      const conn: ConnectionInfo = await connectPostgres(form_ref.current);
+      push_recent_params(conn.id, {
+        ...form_ref.current,
+        kind: "postgres",
+        name: pg.name.trim() || undefined,
+      });
+      openConn(conn);
+    } catch (e) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Connection failed",
+        detail: String(e),
+      });
+    } finally {
+      setPgConnecting(false);
+    }
+  };
+
+  const mongo_build_params = () => ({
+    host: mongo.host.trim() || "localhost",
+    port: Number(mongo.port) || 27017,
+    user: mongo.user.trim(),
+    password: mongo.password,
+    database: mongo.database.trim(),
+    auth_db: mongo.auth_db.trim() || "admin",
+    srv: mongo.srv,
+    tls: mongo.tls,
+  });
+
+  const mongo_test_click = async () => {
+    if (mongo_testing || !mongo.database.trim()) return;
+    setMongoTesting(true);
+    setMongoTestOk(null);
+    setMongoTestError(null);
+    try {
+      const conn = await connectMongo(mongo_build_params());
+      await closeConnection(conn.id);
+      setMongoTestOk(true);
+    } catch (e) {
+      setMongoTestOk(false);
+      setMongoTestError(String(e));
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "MongoDB connection test failed",
+        detail: String(e),
+      });
+    } finally {
+      setMongoTesting(false);
+    }
+  };
+
+  const mongo_connect_click = async () => {
+    if (mongo_connecting || !mongo.database.trim()) return;
+    setMongoConnecting(true);
+    try {
+      const conn: ConnectionInfo = await connectMongo(mongo_build_params());
+      openConn(conn);
+    } catch (e) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "MongoDB connection failed",
+        detail: String(e),
+      });
+    } finally {
+      setMongoConnecting(false);
+    }
+  };
+
+  // ---- Save connection (local device; Mongo has no team-server sharing) ----
+  const serverSessions = useStudioStore((st) => st.serverSessions);
+  const saveLocal = useStudioStore((st) => st.saveLocal);
+  const updateSavedLocal = useStudioStore((st) => st.updateSavedLocal);
+  const pushNotification = useStudioStore((st) => st.pushNotification);
+  /** Servers whose active session may publish connections (admin scope only). */
+  const admin_servers = Object.values(serverSessions).filter(
+    (s) => s.me.is_admin,
+  );
+  const [saving_to, setSavingTo] = useState<string | null>(null);
+  const [editing, setEditing] = useState<LandingEditTarget | null>(null);
+
+  /** Full saved record for the PG form — `kind` routes it on reopen. */
+  const pg_saved_params = () => ({
+    ...build_params(),
+    kind: "postgres" as const,
+  });
+
+  const save_local = () => {
+    if (editing?.source === "local") {
+      updateSavedLocal(editing.oldName, display_name(), pg_saved_params());
+      pushNotification({
+        kind: "success",
+        title: "Updated saved connection",
+        detail: display_name(),
+      });
+      setEditing(null);
+      return;
+    }
+    saveLocal(display_name(), pg_saved_params());
+    pushNotification({
+      kind: "success",
+      title: "Saved on this device",
+      detail: display_name(),
+    });
+  };
+
+  const mongo_display_name = () =>
+    mongo.name.trim() ||
+    mongo.database.trim() ||
+    `${mongo.user.trim()}@${mongo.host.trim() || "localhost"}`;
+
+  /** Full saved record for the Mongo form — `kind` routes it on reopen. */
+  const mongo_saved_params = () => ({
+    ...mongo_build_params(),
+    kind: "mongodb" as const,
+  });
+
+  const save_mongo_local = () => {
+    if (editing?.source === "local") {
+      updateSavedLocal(
+        editing.oldName,
+        mongo_display_name(),
+        mongo_saved_params(),
+      );
+      pushNotification({
+        kind: "success",
+        title: "Updated saved MongoDB connection",
+        detail: mongo_display_name(),
+      });
+      setEditing(null);
+      return;
+    }
+    saveLocal(mongo_display_name(), mongo_saved_params());
+    pushNotification({
+      kind: "success",
+      title: "Saved on this device",
+      detail: mongo_display_name(),
+    });
+  };
+
+  const update_server = async () => {
+    if (editing?.source !== "server") return;
+    setSavingTo(editing.remoteId);
+    try {
+      const p = form_ref.current;
+      await serversUpdateConnection(editing.profileId, editing.remoteId, {
+        name: display_name(),
+        host: p.host,
+        port: p.port,
+        user: p.user,
+        // blank password = keep the stored one
+        password: "",
+        database: p.database,
+        ssl_mode: p.ssl_mode,
+      });
+      pushNotification({
+        kind: "success",
+        title: "Connection updated",
+        detail: display_name(),
+      });
+      setEditing(null);
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Update failed",
+        detail: String(e),
+      });
+    } finally {
+      setSavingTo(null);
+    }
+  };
+
+  const mongo_update_server = async () => {
+    if (editing?.source !== "server") return;
+    setSavingTo(editing.remoteId);
+    try {
+      const p = mongo_build_params();
+      await serversUpdateConnection(editing.profileId, editing.remoteId, {
+        name: mongo_display_name(),
+        kind: "mongodb",
+        host: p.host,
+        port: p.port,
+        user: p.user,
+        // blank password = keep the stored one
+        password: "",
+        database: p.database,
+        auth_db: p.auth_db,
+        srv: p.srv,
+        tls: p.tls,
+      });
+      pushNotification({
+        kind: "success",
+        title: "Connection updated",
+        detail: mongo_display_name(),
+      });
+      setEditing(null);
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Update failed",
+        detail: String(e),
+      });
+    } finally {
+      setSavingTo(null);
+    }
+  };
+
+  const edit_server_name =
+    editing?.source === "server"
+      ? (Object.values(serverSessions).find(
+          (x) => x.profile.id === editing.profileId,
+        )?.profile.name ?? "")
+      : "";
+
+  const save_to_server = async (profileId: string, serverName: string) => {
+    if (saving_to) return;
+    setSavingTo(profileId);
+    try {
+      // Re-verify eligibility before attempting to create — permissions may
+      // have changed since the session was last refreshed (e.g. an admin
+      // revoked this device's token while the tab was open).
+      await useStudioStore.getState().refreshServers();
+      const fresh = useStudioStore.getState().serverSessions[profileId];
+      if (!fresh || !fresh.me.is_admin) {
+        pushNotification({
+          kind: "error",
+          title: "Not eligible",
+          detail:
+            "Your account no longer has permission to create shared connections on this server.",
+        });
+        return;
+      }
+      const p = form_ref.current;
+      await serversCreateConnection(profileId, {
+        name: display_name(),
+        host: p.host,
+        port: p.port,
+        user: p.user,
+        password: p.password,
+        database: p.database,
+        ssl_mode: p.ssl_mode,
+      });
+      pushNotification({
+        kind: "success",
+        title: `Shared on ${serverName}`,
+        detail: display_name(),
+      });
+      // Pull the new record into the connected server's sidebar group.
+      await useStudioStore.getState().refreshServers();
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Save failed",
+        detail: String(e),
+      });
+    } finally {
+      setSavingTo(null);
+    }
+  };
+
+  const mongo_save_to_server = async (profileId: string, serverName: string) => {
+    if (saving_to) return;
+    setSavingTo(profileId);
+    try {
+      // Re-verify eligibility before attempting to create — permissions may
+      // have changed since the session was last refreshed (e.g. an admin
+      // revoked this device's token while the tab was open).
+      await useStudioStore.getState().refreshServers();
+      const fresh = useStudioStore.getState().serverSessions[profileId];
+      if (!fresh || !fresh.me.is_admin) {
+        pushNotification({
+          kind: "error",
+          title: "Not eligible",
+          detail:
+            "Your account no longer has permission to create shared connections on this server.",
+        });
+        return;
+      }
+      const p = mongo_build_params();
+      await serversCreateConnection(profileId, {
+        name: mongo_display_name(),
+        kind: "mongodb",
+        host: p.host,
+        port: p.port,
+        user: p.user,
+        password: p.password,
+        database: p.database,
+        auth_db: p.auth_db,
+        srv: p.srv,
+        tls: p.tls,
+      });
+      pushNotification({
+        kind: "success",
+        title: `Shared on ${serverName}`,
+        detail: mongo_display_name(),
+      });
+      // Pull the new record into the connected server's sidebar group.
+      await useStudioStore.getState().refreshServers();
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Save failed",
+        detail: String(e),
+      });
+    } finally {
+      setSavingTo(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!landing_prefill || landing_prefill.n === last_prefill.current) return;
+    last_prefill.current = landing_prefill.n;
+    const kind = landing_prefill.kind;
+    const p = landing_prefill.params;
+    setEditing(landing_prefill.edit ?? null);
+    want_connect.current = landing_prefill.connect;
+    if (kind === "postgres" || kind === "mongodb") {
+      want_kind.current = kind;
+    }
+    // Consume immediately: navigating home and back must NOT replay this
+    // (that used to auto-open a duplicate connection on every visit).
+    clearLandingPrefill();
+    // Apply outside the effect body (no cascading renders).
+    queueMicrotask(() => {
+      if (kind === "mongodb") {
+        const m = p;
+        setKind("mongodb");
+        setMongo((prev) => ({
+          ...prev,
+          name: m.name ?? "",
+          host: m.host,
+          port: String(m.port),
+          user: m.user,
+          password: m.password,
+          database: m.database,
+          auth_db: m.auth_db || "admin",
+          srv: m.srv ?? false,
+          tls: m.tls ?? false,
+        }));
+      } else if (kind === "sqlite") {
+        setKind("sqlite");
+        setSqlitePath(p.source_path ?? null);
+      } else {
+        const pgv = p;
+        setKind("postgres");
+        setPg((prev) => ({
+          ...prev,
+          host: pgv.host,
+          port: String(pgv.port),
+          user: pgv.user,
+          password: pgv.password,
+          database: pgv.database,
+          ssl_mode: pgv.ssl_mode ?? prev.ssl_mode,
+        }));
+      }
+    });
+  }, [landing_prefill, clearLandingPrefill]);
+
+  // Runs after the prefilled values commit; fires the Connect flow so its
+  // spinner/state drives from the form itself. The global connecting flags
+  // keep this safe across home/studio navigation.
+  useEffect(() => {
+    if (want_kind.current !== "postgres" || !want_connect.current) return;
+    if (!pg.database.trim() || pg_connecting) return;
+    want_kind.current = null;
+    want_connect.current = false;
+    // Microtask keeps setState out of the effect body itself.
+    queueMicrotask(() => void pg_connect_click());
+  });
+
+  useEffect(() => {
+    if (want_kind.current !== "mongodb" || !want_connect.current) return;
+    if (!mongo.database.trim() || mongo_connecting) return;
+    want_kind.current = null;
+    want_connect.current = false;
+    // Microtask keeps setState out of the effect body itself.
+    queueMicrotask(() => void mongo_connect_click());
+  });
+
+  // PG form field setter — keeps form_ref in sync via the effect above.
+  const setPgField = (key: keyof PgFormValues, value: string) => {
+    setPg((p) => ({ ...p, [key]: value }));
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <KindBar value={kind} on_change={setKind} />
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-xl flex-col items-center gap-6 px-6 py-10">
+          {editing && (
+            <EditBanner
+              editing={editing}
+              server_name={edit_server_name}
+              onCancel={() => setEditing(null)}
+            />
+          )}
+
+          <Card className="w-full">
+            <CardContent className="flex flex-col gap-4 pt-4">
+              {kind === "sqlite" ? (
+                <SqlitePanel
+                  opening={opening}
+                  onOpen={() => void open_file_click()}
+                  path={sqlite_path}
+                />
+              ) : kind === "mongodb" ? (
+                <MongoPanel
+                  form={mongo}
+                  setField={(key, value) => {
+                    setMongo((m) => ({ ...m, [key]: value }));
+                  }}
+                  testing={mongo_testing}
+                  test_ok={mongo_test_ok}
+                  test_error={mongo_test_error}
+                  onTest={() => void mongo_test_click()}
+                  connecting={mongo_connecting}
+                  onConnect={() => void mongo_connect_click()}
+                  saving_to={saving_to}
+                  admin_servers={admin_servers}
+                  editing={editing !== null}
+                  onSaveLocal={save_mongo_local}
+                  onSaveServer={(pid, name) => void mongo_save_to_server(pid, name)}
+                  onUpdate={() =>
+                    editing?.source === "server"
+                      ? void mongo_update_server()
+                      : save_mongo_local()
+                  }
+                  onCancelEdit={() => setEditing(null)}
+                  onClear={clear_mongo_form}
+                  url_text={mongo_url_text}
+                  setUrlText={setMongoUrlText}
+                  url_error={mongo_url_error}
+                  copied={mongo_copied}
+                  onImport={() => void import_mongo_url()}
+                  onExport={() => void export_mongo_url()}
+                />
+              ) : (
+                <PgPanel
+                  form={pg}
+                  setField={setPgField}
+                  url_text={url_text}
+                  setUrlText={setUrlText}
+                  url_error={url_error}
+                  copied={copied}
+                  onImport={import_url}
+                  onExport={() => void export_url()}
+                  testing={testing}
+                  test_ok={test_ok}
+                  test_error={test_error}
+                  onTest={() => void test_click()}
+                  connecting={pg_connecting}
+                  onConnect={() => void pg_connect_click()}
+                  saving_to={saving_to}
+                  admin_servers={admin_servers}
+                  editing={editing}
+                  onSaveLocal={save_local}
+                  onSaveServer={(pid, name) => void save_to_server(pid, name)}
+                  onUpdate={() => void update_server()}
+                  onCancelEdit={() => setEditing(null)}
+                  onClear={clear_pg_form}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

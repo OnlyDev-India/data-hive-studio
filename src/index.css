@@ -1,0 +1,220 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(0.985 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --primary-light: oklch(0.95 0 0);
+  --primary-dark: oklch(0.145 0 0);
+  --secondary: oklch(0.92 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.985 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-light: oklch(0.95 0.08 27.325);
+  --destructive-dark: oklch(0.35 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+
+  --success: oklch(0.65 0.16 145);
+  --success-foreground: oklch(0.985 0 0);
+  --success-light: oklch(0.95 0.08 145);
+  --success-dark: oklch(0.35 0.16 145);
+  --warning: oklch(0.65 0.16 55);
+  --warning-foreground: oklch(0.985 0 0);
+  --warning-light: oklch(0.95 0.08 55);
+  --warning-dark: oklch(0.35 0.16 55);
+  --info: oklch(0.55 0.18 250);
+  --info-foreground: oklch(0.985 0 0);
+  --info-light: oklch(0.95 0.08 250);
+  --info-dark: oklch(0.35 0.18 250);
+  --bson-ctor: oklch(0.42 0.17 292);
+  --selection: oklch(0.65 0.16 55);
+  --selection-foreground: oklch(1 0 0);
+  --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
+  --scrollbar-thumb: #ccc;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.18 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --primary-light: oklch(0.25 0 0);
+  --primary-dark: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-light: oklch(0.25 0.08 22.216);
+  --destructive-dark: oklch(0.85 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+
+  --success: oklch(0.65 0.16 145);
+  --success-foreground: oklch(0.205 0 0);
+  --success-light: oklch(0.25 0.08 145);
+  --success-dark: oklch(0.75 0.16 145);
+  --warning: oklch(0.65 0.16 55);
+  --warning-foreground: oklch(0.205 0 0);
+  --warning-light: oklch(0.25 0.08 55);
+  --warning-dark: oklch(0.75 0.16 55);
+  --info: oklch(0.65 0.18 250);
+  --info-foreground: oklch(0.985 0 0);
+  --info-light: oklch(0.25 0.08 250);
+  --info-dark: oklch(0.75 0.18 250);
+  --bson-ctor: oklch(0.8 0.16 292);
+  --selection: oklch(0.55 0.18 55);
+  --selection-foreground: oklch(0.205 0 0);
+  --scrollbar-thumb: #555;
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-light: var(--primary-light);
+  --color-primary-dark: var(--primary-dark);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-light: var(--destructive-light);
+  --color-destructive-dark: var(--destructive-dark);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-light: var(--success-light);
+  --color-success-dark: var(--success-dark);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-light: var(--warning-light);
+  --color-warning-dark: var(--warning-dark);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-light: var(--info-light);
+  --color-info-dark: var(--info-dark);
+  --color-selection: var(--selection);
+  --color-selection-foreground: var(--selection-foreground);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply bg-background;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-background text-foreground h-full;
+    margin: 0;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Selection highlight: a light wash of the primary color, text keeps its
+     own color so it stays readable in both themes. */
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 22%, transparent);
+    color: inherit;
+  }
+
+  /* Text selection is opt-in: UI chrome (tabs, buttons, panels) doesn't
+     highlight when clicked or dragged; real content re-enables it below. */
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  input,
+  textarea,
+  select,
+  [contenteditable="true"],
+  pre,
+  code,
+  [data-selectable] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 5px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+}
+
+@utility no__scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ---- BSON JSON editor (JSON view) syntax accents ---- */
+/* The key/ctor marks wrap the token's own highlight span, so the inner span
+   (e.g. `.ͼ39` for strings) must be targeted directly to override it. */
+.bson-ctor,
+.bson-ctor span {
+  color: var(--bson-ctor) !important;
+  font-weight: 650;
+}
+.json-key,
+.json-key span {
+  color: var(--info-dark) !important;
+}
+.cm-mongo-error {
+  text-decoration: underline wavy var(--destructive);
+  text-decoration-skip-ink: none;
+}
