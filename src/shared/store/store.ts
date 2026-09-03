@@ -34,14 +34,34 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
 
         sidebarOpen: true,
         sidebarWidth: 256,
-        toggleSidebar() {
-          set((s) => ({ sidebarOpen: !s.sidebarOpen }));
-        },
         setSidebarOpen(open) {
           set({ sidebarOpen: open });
         },
         setSidebarWidth(px) {
           set({ sidebarWidth: px });
+        },
+
+        sidebarLastMode: "tables",
+        toggleLeftPanel() {
+          set((s) => {
+            if (s.activityOpen) {
+              return {
+                activityOpen: false,
+                sidebarOpen: false,
+                sidebarLastMode: "activity",
+              };
+            }
+            if (s.sidebarOpen) {
+              return {
+                activityOpen: false,
+                sidebarOpen: false,
+                sidebarLastMode: "tables",
+              };
+            }
+            return s.sidebarLastMode === "activity"
+              ? { activityOpen: true, sidebarOpen: false }
+              : { activityOpen: false, sidebarOpen: true };
+          });
         },
 
         rightSidebarOpen: false,
@@ -288,6 +308,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           recent: s.recent,
           sidebarOpen: s.sidebarOpen,
           sidebarWidth: s.sidebarWidth,
+          sidebarLastMode: s.sidebarLastMode,
           rightSidebarWidth: s.rightSidebarWidth,
         }),
       },

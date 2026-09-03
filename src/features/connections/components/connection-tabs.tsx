@@ -19,9 +19,11 @@ export function ConnectionTabs({
   on_switch,
 }: ConnectionTabsProps) {
   const sidebarOpen = useStudioStore((s) => s.sidebarOpen);
-  const toggleSidebar = useStudioStore((s) => s.toggleSidebar);
+  const activityOpen = useStudioStore((s) => s.activityOpen);
+  const toggleLeftPanel = useStudioStore((s) => s.toggleLeftPanel);
   const rightSidebarOpen = useStudioStore((s) => s.rightSidebarOpen);
   const toggleRightSidebar = useStudioStore((s) => s.toggleRightSidebar);
+  const leftPanelOpen = sidebarOpen || activityOpen;
 
   return (
     <>
@@ -54,11 +56,11 @@ export function ConnectionTabs({
             size={"iconSm"}
             aria-label="Toggle the left sidebar"
             title={
-              sidebarOpen ? "Hide the left sidebar" : "Show the left sidebar"
+              leftPanelOpen ? "Hide the left sidebar" : "Show the left sidebar"
             }
-            onClick={toggleSidebar}
+            onClick={toggleLeftPanel}
           >
-            <PanelLeftIcon className="size-4" isOpen={sidebarOpen} />
+            <PanelLeftIcon className="size-4" isOpen={leftPanelOpen} />
           </Button>
           <Button
             variant={"ghost"}

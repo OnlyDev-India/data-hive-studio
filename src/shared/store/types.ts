@@ -224,9 +224,15 @@ export interface StudioStore {
   // Sidebar chrome
   sidebarOpen: boolean;
   sidebarWidth: number;
-  toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (px: number) => void;
+  /** Which content the left panel slot last showed (tables sidebar or the
+   *  Activity feed) — restored when `toggleLeftPanel` reopens a closed slot. */
+  sidebarLastMode: "tables" | "activity";
+  /** VSCode-style "toggle sidebar visibility": closes the whole left panel
+   *  slot regardless of whether it's currently showing the tables sidebar or
+   *  the Activity feed, and reopens it to whichever was last visible. */
+  toggleLeftPanel: () => void;
 
   // Right sidebar (JSON row viewer)
   rightSidebarOpen: boolean;
