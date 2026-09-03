@@ -111,6 +111,36 @@ export interface SchemaPaneHandle {
   drop: () => void;
 }
 
+/** Registered by every SQL editor tab while mounted: `has_text` marks the
+ *  tab dirty (dot in the strip); `save` writes the queries to a file the
+ *  user picks, resolving false when cancelled; `run_all`/`run_target` drive
+ *  the status bar's run controls. Generic — every SQL-shaped connection
+ *  registers this much, independent of which database kind it targets. */
+export interface SqlTabHandleBase {
+  has_text: boolean;
+  save: () => Promise<boolean>;
+  /** Run all queries in the editor. */
+  run_all?: () => void;
+  /** Whether a target (selection) can be run. */
+  can_run_target?: boolean;
+  /** Run the selected query target. */
+  run_target?: () => void;
+}
+
+/** Extra fields table-explorer's Mongo console pane registers on top of the
+ *  base handle — collection introspection/switching has no SQL equivalent,
+ *  so it's kept as an addition rather than folded into the generic shape. */
+export interface MongoSqlTabExtras {
+  /** List of collections in the current database. */
+  mongo_collections?: string[];
+  /** Currently selected collection. */
+  mongo_collection?: string;
+  /** Change the selected collection. */
+  set_mongo_collection?: (c: string) => void;
+}
+
+export type SqlTabHandle = SqlTabHandleBase & MongoSqlTabExtras;
+
 /** One entry in the action-bar notification popover. */
 export interface StudioNotification {
   id: string;
@@ -226,42 +256,9 @@ export interface StudioStore {
   ) => void;
   clearNewTable: (key: string) => void;
 
-  /** Registered by every SQL editor tab while mounted: `has_text` marks the
-   *  tab dirty (dot in the strip); `save` writes the queries to a file the
-   *  user picks, resolving false when cancelled. For MongoDB connections,
-   *  additional fields provide collection introspection and query execution. */
-  sqlTabs: Record<
-    string,
-    {
-      has_text: boolean;
-      save: () => Promise<boolean>;
-      /** MongoDB: list of collections in the current database. */
-      mongo_collections?: string[];
-      /** MongoDB: currently selected collection. */
-      mongo_collection?: string;
-      /** MongoDB: change the selected collection. */
-      set_mongo_collection?: (c: string) => void;
-      /** Run all queries in the editor. */
-      run_all?: () => void;
-      /** Whether a target (selection) can be run. */
-      can_run_target?: boolean;
-      /** Run the selected query target. */
-      run_target?: () => void;
-    }
-  >;
-  setSqlTab: (
-    key: string,
-    handle: {
-      has_text: boolean;
-      save: () => Promise<boolean>;
-      mongo_collections?: string[];
-      mongo_collection?: string;
-      set_mongo_collection?: (c: string) => void;
-      run_all?: () => void;
-      can_run_target?: boolean;
-      run_target?: () => void;
-    },
-  ) => void;
+  /** Registered by every SQL editor tab while mounted. */
+  sqlTabs: Record<string, SqlTabHandle>;
+  setSqlTab: (key: string, handle: SqlTabHandle) => void;
   clearSqlTab: (key: string) => void;
 
   /** Initial text handed to a freshly opened SQL tab, keyed by its tab key.

@@ -1,49 +1,24 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { persist } from "zustand/middleware";
-import {
-  serversConnect as apiServersConnect,
-  serversDisconnect as apiServersDisconnect,
-  serversDeleteConnection as apiServersDeleteConnection,
-  srvConnId,
-} from "../api/client";
+import { activityActions } from "@/features/activity/store/activity-slice";
+import { notificationsActions } from "@/features/notifications/store/notifications-slice";
+import { schemaDesignerActions } from "@/features/schema-designer/store/schema-designer-slice";
+import { sharingActions } from "@/features/sharing/store/sharing-slice";
+import { tableExplorerActions } from "@/features/table-explorer/store/table-explorer-slice";
 import { connectionActions } from "./connections";
-import type {
-  SavedConnParams,
-  StudioNotification,
-  StudioStore,
-} from "./types";
+import type { SavedConnParams, StudioStore } from "./types";
 import { workspaceActions } from "./workspace";
 
-let notif_seq = 0;
 /** Monotonic id for landing prefill requests — never resets, so rapid
  *  consecutive sidebar clicks each get a distinct `n` (the prefill is
  *  cleared after applying, which would otherwise recycle counter values and
  *  make the landing form's dedupe drop the next click). */
 let prefill_seq = 0;
 
-type ServerSessionPayload = Awaited<ReturnType<typeof apiServersConnect>>;
-
-/** Normalize a server payload into session-connection entries keyed by the
- *  namespaced `srv:<profile>:<conn>` id. */
-function mapSessionConns(profileId: string, session: ServerSessionPayload) {
-  return session.connections.map((c) => ({
-    id: srvConnId(profileId, c.id),
-    name: c.name,
-    host: c.host,
-    port: c.port,
-    user: c.user,
-    database: c.database,
-    ssl_mode: c.ssl_mode ?? null,
-    data_access: c.data_access,
-    can_edit: c.can_edit,
-    can_delete: c.can_delete,
-  }));
-}
-
 export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
   create<StudioStore>()(
     persist<StudioStore>(
-      (set) => ({
+      (set, get) => ({
         open: [],
         activeId: null,
         recent: [],
@@ -96,49 +71,6 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             const next = { ...s.gridBridges };
             delete next[key];
             return { gridBridges: next };
-          });
-        },
-
-        mongoViews: {},
-        setMongoView(key, view) {
-          set((s) => ({
-            mongoViews: { ...s.mongoViews, [key]: view },
-          }));
-        },
-
-        schemaEdits: {},
-        setSchemaEdit(key, handle) {
-          set((s) => ({ schemaEdits: { ...s.schemaEdits, [key]: handle } }));
-        },
-        clearSchemaEdit(key) {
-          set((s) => {
-            const next = { ...s.schemaEdits };
-            delete next[key];
-            return { schemaEdits: next };
-          });
-        },
-
-        schemaPanes: {},
-        setSchemaPane(key, handle) {
-          set((s) => ({ schemaPanes: { ...s.schemaPanes, [key]: handle } }));
-        },
-        clearSchemaPane(key) {
-          set((s) => {
-            const next = { ...s.schemaPanes };
-            delete next[key];
-            return { schemaPanes: next };
-          });
-        },
-
-        newTables: {},
-        setNewTable(key, handle) {
-          set((s) => ({ newTables: { ...s.newTables, [key]: handle } }));
-        },
-        clearNewTable(key) {
-          set((s) => {
-            const next = { ...s.newTables };
-            delete next[key];
-            return { newTables: next };
           });
         },
 
@@ -337,196 +269,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           }));
         },
 
-        notifications: [],
-        toastQueue: [],
-        pushNotification(n) {
-          const item = {
-            id: `n${Date.now()}-${++notif_seq}`,
-            at: Date.now(),
-            read: false,
-            ...n,
-          };
-          set((s) => ({
-            notifications: [item, ...s.notifications].slice(0, 50),
-            toastQueue: [...s.toastQueue, item],
-          }));
-        },
-        dismissNotification(id) {
-          set((s) => ({
-            notifications: s.notifications.filter((x) => x.id !== id),
-          }));
-        },
-        clearNotifications() {
-          set({ notifications: [] });
-        },
-        markRead(id) {
-          set((s) => ({
-            notifications: s.notifications.map((n) =>
-              n.id === id ? { ...n, read: true } : n,
-            ),
-          }));
-        },
-        markAllRead() {
-          set((s) => ({
-            notifications: s.notifications.map((n) => ({ ...n, read: true })),
-          }));
-        },
-        unreadCount() {
-          return useStudioStore
-            .getState()
-            .notifications.filter((n: StudioNotification) => !n.read).length;
-        },
-        dismissToast(id) {
-          set((s) => ({ toastQueue: s.toastQueue.filter((x) => x.id !== id) }));
-        },
-
-        activityOpen: false,
-        toggleActivityOpen() {
-          set((s) => ({ activityOpen: !s.activityOpen }));
-        },
-        setActivityOpen(open) {
-          set({ activityOpen: open });
-        },
-        // Backend caps the ring buffer at 500; the store mirrors that bound.
-        activity: [],
-        pushActivity(entry) {
-          // Idempotent by id: a duplicated Tauri event (leaked listener, dev
-          // remount) must never render the same command twice — identical ids
-          // were also the "multiple selected rows" bug.
-          set((s) =>
-            s.activity.some((e) => e.id === entry.id)
-              ? s
-              : { activity: [entry, ...s.activity].slice(0, 500) },
-          );
-        },
-        // Hydration merge: snapshot entries that were ALSO delivered live are
-        // skipped (same id); live entries pushed before hydration finished are
-        // newer than anything in the snapshot and stay on top.
-        setActivity(entries) {
-          set((s) => {
-            const snap_ids = new Set(entries.map((e) => e.id));
-            const live_only = s.activity.filter((e) => !snap_ids.has(e.id));
-            return { activity: [...live_only, ...entries].slice(0, 500) };
-          });
-        },
-        clearActivityEntries() {
-          set({ activity: [] });
-        },
-        activityDetail: null,
-        setActivityDetail(detail) {
-          set({ activityDetail: detail });
-        },
-
-        serverSessions: {},
-        serverBusy: false,
-        /** Connect to a team server: fetch its shared-connection catalog into
-         *  the session. Does NOT open anything — the landing sidebar lists
-         *  what's shared and the user connects explicitly. */
-        async connectServer(profileId) {
-          set({ serverBusy: true });
-          try {
-            const session = await apiServersConnect(profileId);
-            const conns = mapSessionConns(profileId, session);
-            set((s) => {
-              // Drop any stale tabs from a previous session of this profile.
-              for (const c of conns) useStudioStore.getState().closeConn(c.id);
-              return {
-                serverSessions: {
-                  ...s.serverSessions,
-                  [profileId]: {
-                    profile: session.profile,
-                    me: session.me,
-                    connIds: conns.map((c) => c.id),
-                    connections: conns,
-                  },
-                },
-              };
-            });
-          } finally {
-            set({ serverBusy: false });
-          }
-        },
-
-        /** Refresh every connected server's catalog in place — open tabs and
-         *  workspaces stay untouched; new/removed shares reflect in lists. */
-        async refreshServers() {
-          const ids = Object.keys(useStudioStore.getState().serverSessions);
-          if (ids.length === 0) return;
-          set({ serverBusy: true });
-          try {
-            await Promise.all(
-              ids.map(async (profileId) => {
-                try {
-                  const session = await apiServersConnect(profileId);
-                  const conns = mapSessionConns(profileId, session);
-                  set((s) => {
-                    const cur = s.serverSessions[profileId];
-                    if (!cur) return {};
-                    return {
-                      serverSessions: {
-                        ...s.serverSessions,
-                        [profileId]: {
-                          ...cur,
-                          profile: session.profile,
-                          me: session.me,
-                          connIds: conns.map((c) => c.id),
-                          connections: conns,
-                        },
-                      },
-                    };
-                  });
-                } catch {
-                  // offline/unreachable — keep current catalog until next try
-                }
-              }),
-            );
-          } finally {
-            set({ serverBusy: false });
-          }
-        },
-        async disconnectServer(profileId) {
-          await apiServersDisconnect(profileId);
-          set((s) => {
-            const sess = s.serverSessions[profileId];
-            if (!sess) return {};
-            for (const id of sess.connIds)
-              useStudioStore.getState().closeConn(id);
-            const next = { ...s.serverSessions };
-            delete next[profileId];
-            // Leaving the admin page when its session is gone.
-            const still_admin = Object.values(next).some((x) => x.me.is_admin);
-            if (s.view === "admin" && !still_admin)
-              return { serverSessions: next, view: "home" };
-            return { serverSessions: next };
-          });
-        },
-        async deleteServerConnection(
-          profileId: string,
-          connId: string,
-          srvId: string,
-        ) {
-          await apiServersDeleteConnection(profileId, connId);
-          set((s) => {
-            useStudioStore.getState().closeConn(srvId);
-            const sess = s.serverSessions[profileId];
-            if (!sess) return {};
-            return {
-              serverSessions: {
-                ...s.serverSessions,
-                [profileId]: {
-                  ...sess,
-                  connections: sess.connections.filter((c) => c.id !== connId),
-                  connIds: sess.connIds.filter((id) => id !== srvId),
-                },
-              },
-              pins: s.pins.filter((p) => p !== srvId),
-            };
-          });
-          // Resync with the server so any drift (e.g. deletions from other
-          // devices) also reflects immediately.
-          void useStudioStore.getState().refreshServers();
-        },
-
+        ...activityActions(set),
+        ...notificationsActions(set, get),
+        ...schemaDesignerActions(set),
+        ...tableExplorerActions(set),
+        ...sharingActions(set, get),
         ...connectionActions(set),
         ...workspaceActions(set),
       }),
