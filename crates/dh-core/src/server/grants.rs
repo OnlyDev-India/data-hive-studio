@@ -232,7 +232,7 @@ mod tests {
     async fn grant_lifecycle_and_checks() {
         let store = crate::server::store::test_store().await;
         let meta = store
-            .conn_add(&ConnInput { name: "c".into(), host: "h".into(), port: 5432, user: "u".into(), password: Some("p".into()), database: "d".into(), ssl_mode: None }, "creator")
+            .conn_add(&ConnInput { name: "c".into(), kind: crate::api::DbKind::Postgres, host: "h".into(), port: 5432, user: "u".into(), password: Some("p".into()), database: "d".into(), ssl_mode: None }, "creator")
             .await
             .unwrap();
         // Mint a team token — grants are per-token now.

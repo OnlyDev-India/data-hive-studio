@@ -83,6 +83,16 @@ impl Store {
             }
             StorePool::Postgres(p) => {
                 sqlx::query(PG_DDL).execute(p).await?;
+                // CREATE TABLE IF NOT EXISTS only helps fresh installs — an
+                // existing store predates the `kind` column, so add it here
+                // too (Postgres's IF NOT EXISTS on ADD COLUMN makes this
+                // idempotent, unlike SQLite which needs the introspection
+                // path above).
+                sqlx::query(
+                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'postgres'",
+                )
+                .execute(p)
+                .await?;
             }
         }
         Ok(())
@@ -219,6 +229,7 @@ const SQLITE_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS connections (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'postgres',
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 5432,
     "user" TEXT NOT NULL,
@@ -262,7 +273,11 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 "#;
 
-const SQLITE_ALTER_COLUMNS: &[(&str, &str, &str)] = &[];
+const SQLITE_ALTER_COLUMNS: &[(&str, &str, &str)] = &[
+    // Existing sqlite-backed stores predate the `kind` column — every prior
+    // row was implicitly Postgres, so the default backfills them correctly.
+    ("connections", "kind", "TEXT NOT NULL DEFAULT 'postgres'"),
+];
 
 // ---------------------------------------------------------------------------
 //  PostgreSQL DDL
@@ -272,6 +287,7 @@ const PG_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS connections (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'postgres',
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 5432,
     "user" TEXT NOT NULL,

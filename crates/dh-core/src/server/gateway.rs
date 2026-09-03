@@ -1,16 +1,21 @@
 //! Grant-checked execution against shared PostgreSQL connections.
 //!
-//! The gateway owns one `PgAdapter` per active shared connection. Clients
-//! never see credentials — they address connections by id, and every call
-//! re-checks the caller's grant (admins bypass data-access checks but still
-//! go through the same execution path so everything lands in the audit log).
+//! The gateway owns one adapter per active shared connection, dispatched by
+//! the connection's `kind` (see [`crate::server::vault::AdapterParams`]) so
+//! adding a new database to the team-server means adding a variant there
+//! plus a match arm in [`Gateway::adapter`] — not touching pooling,
+//! authorization, or auditing below, which all go through the `DbAdapter`
+//! trait object. Clients never see credentials — they address connections by
+//! id, and every call re-checks the caller's grant (admins bypass
+//! data-access checks but still go through the same execution path so
+//! everything lands in the audit log).
 
 use crate::api::{QueryOp, QueryResult};
-use crate::db::{DbAdapter, PgAdapter};
+use crate::db::{DbAdapter, MongoAdapter, PgAdapter};
 use crate::server::grants::DataAccess;
 use crate::server::identity::AuthCtx;
 use crate::server::store::Store;
-use crate::server::vault::ConnInput;
+use crate::server::vault::{AdapterParams, ConnInput};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -35,7 +40,7 @@ pub struct ConnWithAccess {
 
 pub struct Gateway {
     pub store: Store,
-    pools: Mutex<HashMap<String, (Arc<PgAdapter>, Instant)>>,
+    pools: Mutex<HashMap<String, (Arc<dyn DbAdapter>, Instant)>>,
     /// Serialize pool creation per connection id.
     opening: AsyncMutex<()>,
 }
@@ -67,12 +72,12 @@ impl Gateway {
     }
 
     /// Evict pools idle longer than `IDLE_TIMEOUT`.
-    fn evict_idle(pools: &mut HashMap<String, (Arc<PgAdapter>, Instant)>) {
+    fn evict_idle(pools: &mut HashMap<String, (Arc<dyn DbAdapter>, Instant)>) {
         let now = Instant::now();
         pools.retain(|_, (_, last)| now.duration_since(*last) < IDLE_TIMEOUT);
     }
 
-    async fn adapter(&self, conn_id: &str) -> Result<Arc<PgAdapter>, String> {
+    async fn adapter(&self, conn_id: &str) -> Result<Arc<dyn DbAdapter>, String> {
         {
             let mut guard = self.pools.lock().unwrap();
             Self::evict_idle(&mut guard);
@@ -91,8 +96,14 @@ impl Gateway {
             }
         }
         let params = self.store.conn_secret_params(conn_id).await?;
-        let adapter = PgAdapter::connect(&params).await.map_err(|e| e.to_string())?;
-        let arc = Arc::new(adapter);
+        let arc: Arc<dyn DbAdapter> = match params {
+            AdapterParams::Postgres(p) => {
+                Arc::new(PgAdapter::connect(&p).await.map_err(|e| e.to_string())?)
+            }
+            AdapterParams::Mongodb(p) => {
+                Arc::new(MongoAdapter::connect(&p).await.map_err(|e| e.to_string())?)
+            }
+        };
         self.pools.lock().unwrap().insert(conn_id.to_string(), (arc.clone(), Instant::now()));
         Ok(arc)
     }
@@ -267,14 +278,23 @@ impl Gateway {
             }
         }
         let params = self.store.conn_secret_params(conn_id).await?;
-        Ok(serde_json::json!({
-            "host": params.host,
-            "port": params.port,
-            "user": params.user,
-            "password": params.password,
-            "database": params.database,
-            "ssl_mode": params.ssl_mode,
-        }))
+        Ok(match params {
+            AdapterParams::Postgres(p) => serde_json::json!({
+                "host": p.host,
+                "port": p.port,
+                "user": p.user,
+                "password": p.password,
+                "database": p.database,
+                "ssl_mode": p.ssl_mode,
+            }),
+            AdapterParams::Mongodb(p) => serde_json::json!({
+                "host": p.host,
+                "port": p.port,
+                "user": p.user,
+                "password": p.password,
+                "database": p.database,
+            }),
+        })
     }
 
     /// Release (close) the cached pool for a connection. Used when a web client
@@ -301,6 +321,7 @@ mod tests {
     fn input() -> ConnInput {
         ConnInput {
             name: "gw".into(),
+            kind: crate::api::DbKind::Postgres,
             host: "127.0.0.1".into(),
             port: 1, // nothing listens here; connect must fail cleanly
             user: "u".into(),
@@ -380,5 +401,25 @@ mod tests {
         assert_eq!(vis.len(), 1);
         assert_eq!(vis[0].meta.id, m1.id);
         assert!(!serde_json::to_string(&vis).unwrap().contains("password"));
+    }
+
+    /// A non-Postgres `kind` connection dispatches to the matching adapter
+    /// (`MongoAdapter::connect`, per its distinctive error text) instead of
+    /// always going through Postgres — the point of generalizing `pools` to
+    /// `Arc<dyn DbAdapter>` and matching on `AdapterParams` in `adapter()`.
+    #[tokio::test]
+    async fn dispatches_by_connection_kind() {
+        let store = test_store().await;
+        let gw = Gateway::new(store.clone());
+        let mut mongo_input = input();
+        mongo_input.kind = crate::api::DbKind::Mongodb;
+        let meta = store.conn_add(&mongo_input, "admin-dev").await.unwrap();
+        assert_eq!(meta.kind, crate::api::DbKind::Mongodb);
+
+        let admin = AuthCtx { token: "admin-dev".into(), user_name: "admin".into(), prefix: "adm_".into(), team_name: None, is_admin: true };
+        let err = gw.list_tables(&admin, &meta.id).await.err().unwrap();
+        // Postgres's connect error never mentions "mongo" — this fails via
+        // MongoAdapter::connect's own error text, confirming dispatch.
+        assert!(err.contains("mongo"), "expected a Mongo connect error, got: {err}");
     }
 }

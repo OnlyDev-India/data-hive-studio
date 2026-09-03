@@ -1,9 +1,17 @@
-//! Shared PostgreSQL connection details, encrypted at rest. Passwords are
-//! AES-256-GCM sealed with the server master key and never included in
-//! metadata listings.
+//! Shared connection details, encrypted at rest. Passwords are AES-256-GCM
+//! sealed with the server master key and never included in metadata
+//! listings.
+//!
+//! Every shared connection predates the `kind` column and was implicitly
+//! Postgres, so the column defaults to `'postgres'` and the common
+//! host/port/user/password/database/ssl_mode shape below covers it exactly.
+//! Other kinds (see [`AdapterParams`]) reuse the same common columns and
+//! fill their own extra fields with defaults — adding a real shared
+//! connection UI for a new kind is future work, not part of this hardening.
 
 use super::crypto;
 use super::store::{now_ms, Store, StorePool};
+use crate::api::DbKind;
 use uuid::Uuid;
 
 /// Everything a client may see about a shared connection — never the password.
@@ -11,6 +19,8 @@ use uuid::Uuid;
 pub struct ConnMeta {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub kind: DbKind,
     pub host: String,
     pub port: u16,
     pub user: String,
@@ -25,6 +35,9 @@ pub struct ConnMeta {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConnInput {
     pub name: String,
+    /// Immutable after creation — `conn_update` never changes it.
+    #[serde(default)]
+    pub kind: DbKind,
     pub host: String,
     pub port: u16,
     pub user: String,
@@ -35,6 +48,35 @@ pub struct ConnInput {
     pub ssl_mode: Option<String>,
 }
 
+/// Decrypted connection parameters ready to hand to the matching adapter's
+/// `connect()`. One variant per [`DbKind`] the team-server can proxy;
+/// [`super::gateway::Gateway`] matches on this to build the right
+/// `Arc<dyn DbAdapter>` instead of being hardcoded to Postgres.
+pub enum AdapterParams {
+    Postgres(crate::db::PgParams),
+    Mongodb(crate::db::MongoParams),
+}
+
+fn kind_to_str(kind: DbKind) -> &'static str {
+    match kind {
+        DbKind::Sqlite => "sqlite",
+        DbKind::Postgres => "postgres",
+        DbKind::Mysql => "mysql",
+        DbKind::Mongodb => "mongodb",
+    }
+}
+
+fn kind_from_str(s: &str) -> DbKind {
+    match s {
+        "sqlite" => DbKind::Sqlite,
+        "mysql" => DbKind::Mysql,
+        "mongodb" => DbKind::Mongodb,
+        // Covers "postgres" and any unrecognized/legacy value — matches the
+        // column's own DEFAULT 'postgres'.
+        _ => DbKind::Postgres,
+    }
+}
+
 pub const ERR_NOT_FOUND: &str = "connection not found";
 
 macro_rules! parse_conn_row {
@@ -43,6 +85,7 @@ macro_rules! parse_conn_row {
         ConnRow {
             id: $r.get("id"),
             name: $r.get("name"),
+            kind: $r.get("kind"),
             host: $r.get("host"),
             port: $r.get::<i64, _>("port"),
             user: $r.get("user"),
@@ -69,14 +112,16 @@ impl Store {
         let ts = now_ms();
         let (sql, _) = self.query_ph(
             r#"INSERT INTO connections
-               (id, name, host, port, user, password_enc, database, ssl_mode, created_by, created_ms, updated_ms)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)"#,
+               (id, name, kind, host, port, user, password_enc, database, ssl_mode, created_by, created_ms, updated_ms)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"#,
         );
+        let kind_str = kind_to_str(input.kind);
         match &self.pool {
             StorePool::Sqlite(p) => {
                 sqlx::query(&sql)
                     .bind(&id)
                     .bind(&input.name)
+                    .bind(kind_str)
                     .bind(&input.host)
                     .bind(input.port as i64)
                     .bind(&input.user)
@@ -94,6 +139,7 @@ impl Store {
                 sqlx::query(&sql)
                     .bind(&id)
                     .bind(&input.name)
+                    .bind(kind_str)
                     .bind(&input.host)
                     .bind(input.port as i64)
                     .bind(&input.user)
@@ -111,6 +157,7 @@ impl Store {
         Ok(ConnMeta {
             id,
             name: input.name.clone(),
+            kind: input.kind,
             host: input.host.clone(),
             port: input.port,
             user: input.user.clone(),
@@ -233,23 +280,41 @@ impl Store {
             .collect()
     }
 
-    /// Decrypt the password. Gateway-internal; never serialize this type.
+    /// Decrypt the password and build the params for whichever adapter this
+    /// connection's `kind` needs. Gateway-internal; never serialize this type.
     pub async fn conn_secret_params(
         &self,
         id: &str,
-    ) -> Result<crate::db::PgParams, String> {
+    ) -> Result<AdapterParams, String> {
         let row = self.conn_get_row(id).await?.ok_or(ERR_NOT_FOUND)?;
         let password = String::from_utf8(
             crypto::decrypt(&self.master_key, &row.password_enc)?,
         )
         .map_err(|_| "stored password is not utf-8".to_string())?;
-        Ok(crate::db::PgParams {
-            host: row.host,
-            port: row.port as u16,
-            user: row.user,
-            password,
-            database: row.database,
-            ssl_mode: row.ssl_mode,
+        Ok(match kind_from_str(&row.kind) {
+            DbKind::Mongodb => AdapterParams::Mongodb(crate::db::MongoParams {
+                host: row.host,
+                port: row.port as u16,
+                user: row.user,
+                password,
+                database: row.database,
+                // Not carried by the shared-connection schema yet — a real
+                // Mongo shared-connection UI would need its own input
+                // fields (and columns) for these; out of scope here.
+                auth_db: None,
+                srv: false,
+                tls: false,
+            }),
+            // Postgres, and every other kind until it gets its own adapter
+            // params shape — matches the column's own default.
+            _ => AdapterParams::Postgres(crate::db::PgParams {
+                host: row.host,
+                port: row.port as u16,
+                user: row.user,
+                password,
+                database: row.database,
+                ssl_mode: row.ssl_mode,
+            }),
         })
     }
 
@@ -276,6 +341,7 @@ impl Store {
         Ok(ConnMeta {
             id: r.id.clone(),
             name: r.name.clone(),
+            kind: kind_from_str(&r.kind),
             host: r.host.clone(),
             port: r.port as u16,
             user: r.user.clone(),
@@ -292,6 +358,7 @@ impl Store {
 struct ConnRow {
     id: String,
     name: String,
+    kind: String,
     host: String,
     port: i64,
     user: String,
@@ -314,6 +381,7 @@ mod tests {
     fn input(name: &str, pw: &str) -> ConnInput {
         ConnInput {
             name: name.into(),
+            kind: DbKind::Postgres,
             host: "db.internal".into(),
             port: 5432,
             user: "alice".into(),
@@ -335,28 +403,38 @@ mod tests {
         assert!(!serde_json::to_string(&listed).unwrap().contains("s3cret"));
 
         // Secret roundtrips through encryption with correct params.
-        let params = store.conn_secret_params(&meta.id).await.unwrap();
-        assert_eq!(params.password, "s3cret");
-        assert_eq!(params.host, "db.internal");
+        let params = pg_password_and_host(&store, &meta.id).await;
+        assert_eq!(params.0, "s3cret");
+        assert_eq!(params.1, "db.internal");
 
         // Update without password keeps the stored one.
         let mut edit = input("prod-renamed", "");
         edit.password = None;
         let updated = store.conn_update(&meta.id, &edit).await.unwrap();
         assert_eq!(updated.name, "prod-renamed");
-        assert!(store.conn_secret_params(&meta.id).await.unwrap().password == "s3cret");
+        assert_eq!(updated.kind, DbKind::Postgres);
+        assert!(pg_password_and_host(&store, &meta.id).await.0 == "s3cret");
 
         // Update WITH password rotates it.
         let mut rotate = edit.clone();
         rotate.password = Some("newpw".into());
         store.conn_update(&meta.id, &rotate).await.unwrap();
-        assert!(store.conn_secret_params(&meta.id).await.unwrap().password == "newpw");
+        assert!(pg_password_and_host(&store, &meta.id).await.0 == "newpw");
 
         // Archive hides from listing but secret stays intact internally.
         store.conn_archive(&meta.id).await.unwrap();
         assert!(store.conn_list_active().await.unwrap().is_empty());
-        assert_eq!(store.conn_secret_params(&meta.id).await.unwrap().password, "newpw");
+        assert_eq!(pg_password_and_host(&store, &meta.id).await.0, "newpw");
         assert_eq!(store.conn_get(&meta.id).await.unwrap().unwrap().name, "prod-renamed");
+    }
+
+    /// Unwrap `conn_secret_params`'s Postgres variant (every test connection
+    /// here is Postgres) into (password, host) for easy assertions.
+    async fn pg_password_and_host(store: &Store, id: &str) -> (String, String) {
+        match store.conn_secret_params(id).await.unwrap() {
+            AdapterParams::Postgres(p) => (p.password, p.host),
+            AdapterParams::Mongodb(_) => panic!("expected Postgres params"),
+        }
     }
 
     #[tokio::test]
