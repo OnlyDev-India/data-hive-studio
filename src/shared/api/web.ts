@@ -38,22 +38,56 @@ const SERVERS_KEY = "dh.web.servers";
 const LEGACY_TOKEN_KEY = "dh.web.token";
 
 function readServers(): Record<string, WebServerConfig> {
+  let servers: Record<string, WebServerConfig>;
   try {
-    return JSON.parse(localStorage.getItem(SERVERS_KEY) ?? "{}") as Record<
+    servers = JSON.parse(localStorage.getItem(SERVERS_KEY) ?? "{}") as Record<
       string,
       WebServerConfig
     >;
   } catch {
     return {};
   }
+  return repairBrokenIds(servers);
 }
 
-/** Look up the team name for a given server URL from stored configs. */
-function teamNameFor(url: string): string | undefined {
-  const base = url.replace(/\/+$/, "");
+/** One-time self-heal for entries an older build could save with a broken
+ *  id — e.g. a blank same-origin URL slugified to "", so the entry got
+ *  stored under key "" and silently overwrote/collided with anything else
+ *  keyed the same way. Only touches entries that are actually broken (empty
+ *  or inconsistent with their own map key); well-formed entries — including
+ *  older non-empty ids like `web_<timestamp>` — are left exactly as they
+ *  are, so this never reshuffles a working profile's id. */
+function repairBrokenIds(
+  servers: Record<string, WebServerConfig>,
+): Record<string, WebServerConfig> {
+  let changed = false;
+  const fixed: Record<string, WebServerConfig> = {};
+  for (const [key, cfg] of Object.entries(servers)) {
+    if (key !== "" && cfg.id === key) {
+      fixed[key] = cfg;
+      continue;
+    }
+    changed = true;
+    const id = deriveServerId(cfg.url, cfg.team_name);
+    fixed[id] = { ...cfg, id };
+  }
+  if (changed) {
+    try {
+      localStorage.setItem(SERVERS_KEY, JSON.stringify(fixed));
+    } catch {
+      // storage unavailable — repaired map still returned for this session
+    }
+  }
+  return fixed;
+}
+
+/** Look up the team name for a given bearer token from stored configs.
+ *  Matched by TOKEN, not URL — several server profiles can share the same
+ *  origin (e.g. multiple teams enrolled against one same-origin deployment),
+ *  so URL alone can't tell them apart, but each token is unique. */
+function teamNameForToken(token: string): string | undefined {
   for (const cfg of Object.values(readServers())) {
-    if (cfg.url === base || cfg.url.replace(/\/+$/, "") === base)
-      return cfg.team_name;
+    if (cfg.token === token) return cfg.team_name;
   }
   return undefined;
 }
@@ -166,6 +200,17 @@ export function slugifyUrl(url: string): string {
     .slice(0, 40);
 }
 
+/** Derive a stable, non-empty profile id for a server config. URL-derived
+ *  (or "same_origin" for the default same-origin blank URL), disambiguated
+ *  by team name so multiple teams enrolled against the SAME origin — the
+ *  common case for a same-origin WEB deployment — get distinct ids instead
+ *  of colliding into one storage slot. Deterministic per (url, team) so
+ *  re-connecting overwrites the existing entry rather than duplicating it. */
+export function deriveServerId(url: string, team_name?: string): string {
+  const base = slugifyUrl(url) || "same_origin";
+  return team_name ? `${base}__${slugifyUrl(team_name)}` : base;
+}
+
 // ---------------------------------------------------------------------------
 //  Authenticated fetch — supports per-server URL + token
 // ---------------------------------------------------------------------------
@@ -180,13 +225,12 @@ export async function wcall<T>(
 ): Promise<T> {
   const base = serverUrl ?? apiUrl();
   const auth = token ?? webToken();
+  const team = teamNameForToken(auth);
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${auth}`,
-      ...(teamNameFor(serverUrl ?? apiUrl())
-        ? { "X-Team": teamNameFor(serverUrl ?? apiUrl()) }
-        : {}),
+      ...(team ? { "X-Team": team } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -204,13 +248,12 @@ export async function wcallEmpty(
 ): Promise<void> {
   const base = serverUrl ?? apiUrl();
   const auth = token ?? webToken();
+  const team = teamNameForToken(auth);
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${auth}`,
-      ...(teamNameFor(serverUrl ?? apiUrl())
-        ? { "X-Team": teamNameFor(serverUrl ?? apiUrl()) }
-        : {}),
+      ...(team ? { "X-Team": team } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,

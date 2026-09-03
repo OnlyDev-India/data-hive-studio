@@ -1,4 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import { Loader2 } from "lucide-react";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -22,12 +30,13 @@ import { pickSqlFile } from "@/shared/lib/platform";
 import {
   useStudioStore,
   useWorkspace,
-  tabEquals,
   tabKey,
   tabLabel,
+  findOwnerLeaf,
+  type PaneNode,
   type StudioTab,
 } from "@/shared/store";
-import { Sidebar, TabBar } from "@/features/workspace";
+import { DragGhost, PaneView, Sidebar, useTabDrag } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
 import {
   TablePane,
@@ -123,13 +132,18 @@ export default function Workspace({
   const ws = useWorkspace(conn_id);
   const tabs = ws.tabs;
   const active = ws.active;
+  // Registry of every open tab by key — panes render their own subset (via
+  // ws.layout) but content lookup/mounting stays keyed off the flat list.
+  const tabsByKey = useMemo(() => {
+    const m = new Map<string, StudioTab>();
+    for (const t of tabs) m.set(tabKey(t), t);
+    return m;
+  }, [tabs]);
   const open_table = useStudioStore((s) => s.openTable);
   const open_sql = useStudioStore((s) => s.openSql);
   const open_new_table = useStudioStore((s) => s.openNewTable);
   const open_mongo_console = useStudioStore((s) => s.openMongoConsole);
-  const select_tab = useStudioStore((s) => s.selectTab);
   const close_tab = useStudioStore((s) => s.closeTab);
-  const move_tab = useStudioStore((s) => s.moveTab);
   const sidebarOpen = useStudioStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStudioStore((s) => s.setSidebarOpen);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
@@ -236,10 +250,6 @@ export default function Workspace({
       }
     })();
   }, [open_sql, conn_id, openMongoConsoleTab]);
-  const selectTab = useCallback(
-    (tab: StudioTab) => select_tab(conn_id, tab),
-    [select_tab, conn_id],
-  );
   // ---- Close guard -------------------------------------------------------
   // A tab is "dirty" when it holds unapplied work: schema drafts, unsaved
   // grid row edits, or an unfinished new-table definition. Closing such tabs
@@ -339,15 +349,26 @@ export default function Workspace({
     performClose(list);
   }, [confirm_close, performClose]);
 
-  /** Which tabs a bulk-close action would remove (for the guard dialog). */
+  /** Which tabs a bulk-close action would remove (for the guard dialog).
+   *  "left"/"right" are scoped to the anchor's own pane (matches the
+   *  store's `closeToLeft`/`closeToRight`), not every open tab. */
   const bulkTargets = useCallback(
     (mode: "all" | "left" | "right", anchor: StudioTab | null): StudioTab[] => {
       if (mode === "all") return tabs;
-      const idx = anchor ? tabs.findIndex((t) => tabEquals(t, anchor)) : -1;
+      if (!anchor) return [];
+      const owner = findOwnerLeaf(ws.layout, tabKey(anchor));
+      if (!owner) return [];
+      const idx = owner.tabKeys.indexOf(tabKey(anchor));
       if (idx < 0) return [];
-      return mode === "left" ? tabs.slice(0, idx) : tabs.slice(idx + 1);
+      const keys =
+        mode === "left"
+          ? owner.tabKeys.slice(0, idx)
+          : owner.tabKeys.slice(idx + 1);
+      return keys
+        .map((k) => tabsByKey.get(k))
+        .filter((t): t is StudioTab => !!t);
     },
-    [tabs],
+    [tabs, ws.layout, tabsByKey],
   );
   // ------------------------------------------------------------------------
 
@@ -421,110 +442,35 @@ export default function Workspace({
                   ))}
                 </div>
               ) : (
-                <div className="flex h-full flex-col">
-                  <TabBar
-                    tabs={tabs}
-                    active={active}
-                    on_select={selectTab}
-                    on_close={(tab) => requestClose([tab])}
-                    on_reorder={(tab, to_index) =>
-                      move_tab(conn_id, tab, to_index)
-                    }
-                    on_close_all={() => requestClose(bulkTargets("all", null))}
-                    on_close_to_left={(tab) =>
-                      requestClose(bulkTargets("left", tab))
-                    }
-                    on_close_to_right={(tab) =>
-                      requestClose(bulkTargets("right", tab))
-                    }
-                    on_new_sql={openNewSql}
-                    on_new_table={openNewTableTab}
-                    on_new_mongo_console={openMongoConsoleTab}
-                    on_open_file={openFileTab}
-                    dirty_keys={
-                      new Set(dirty_keys.split("\u0000").filter(Boolean))
-                    }
-                  />
-                  <div className="min-h-0 flex-1 overflow-hidden">
-                    {tabs.length === 0 ? (
-                      <div className="flex h-full items-center justify-center p-6 text-center">
-                        <h2 className="text-muted-foreground text-lg font-semibold">
-                          Open a table from the sidebar, or press + to open a
-                          SQL editor.
-                        </h2>
-                      </div>
-                    ) : (
-                      tabs.map((tab) => {
-                        const is_active = tabEquals(tab, active);
-                        return (
-                          <div
-                            key={tabKey(tab)}
-                            className={is_active ? "h-full" : "hidden"}
-                          >
-                            {tab.kind === "table" ? (
-                              <TablePane
-                                conn_id={conn_id}
-                                tab_key={tabKey(tab)}
-                                table={tab.name}
-                                revision={revision}
-                                on_modified={bump}
-                                initial_filters={tab.initialFilters}
-                                on_open_reference={openReference}
-                              />
-                            ) : tab.kind === "sql" ? (
-                              <Suspense fallback={<TabFallback />}>
-                                <SqlTab
-                                  conn_id={conn_id}
-                                  tab_key={tabKey(tab)}
-                                  tables={tables?.map((t) => t.name)}
-                                  on_modified={bumpTables}
-                                />
-                              </Suspense>
-                            ) : tab.kind === "mongo" ? (
-                              <MongoCollectionPane
-                                conn_id={conn_id}
-                                tab_key={tabKey(tab)}
-                                database={tab.database}
-                                collection={tab.collection}
-                                on_modified={bumpTables}
-                              />
-                            ) : tab.kind === "mongo-console" ? (
-                              <Suspense fallback={<TabFallback />}>
-                                <MongoConsolePane
-                                  conn_id={conn_id}
-                                  tab_key={tabKey(tab)}
-                                  database={tab.database}
-                                />
-                              </Suspense>
-                            ) : tab.kind === "activity" ? (
-                              <ActivityDetailsTab
-                                conn_id={conn_id}
-                                tab_key={tabKey(tab)}
-                              />
-                            ) : conn.kind === "mongodb" ? (
-                              <MongoNewCollectionTab
-                                conn_id={conn_id}
-                                tab_key={tabKey(tab)}
-                                active={is_active}
-                                on_modified={bump}
-                              />
-                            ) : (
-                              <Suspense fallback={<TabFallback />}>
-                                <NewTableTab
-                                  conn_id={conn_id}
-                                  tab_key={tabKey(tab)}
-                                  active={is_active}
-                                  on_modified={bump}
-                                  on_created={openTable}
-                                />
-                              </Suspense>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
+                <WorkspaceContent
+                  conn_id={conn_id}
+                  conn={conn}
+                  layout={ws.layout}
+                  focusedPaneId={ws.focusedPaneId}
+                  tabs={tabs}
+                  tabsByKey={tabsByKey}
+                  dirty_keys={
+                    new Set(dirty_keys.split("\u0000").filter(Boolean))
+                  }
+                  revision={revision}
+                  tables={tables}
+                  bump={bump}
+                  bumpTables={bumpTables}
+                  openReference={openReference}
+                  openTable={openTable}
+                  on_close={(tab) => requestClose([tab])}
+                  on_close_all={() => requestClose(bulkTargets("all", null))}
+                  on_close_to_left={(tab) =>
+                    requestClose(bulkTargets("left", tab))
+                  }
+                  on_close_to_right={(tab) =>
+                    requestClose(bulkTargets("right", tab))
+                  }
+                  on_new_sql={openNewSql}
+                  on_new_table={openNewTableTab}
+                  on_new_mongo_console={openMongoConsoleTab}
+                  on_open_file={openFileTab}
+                />
               )}
             </div>
           </div>
@@ -639,6 +585,218 @@ function TabFallback() {
       {Array.from({ length: 3 }).map((_, i) => (
         <Skeleton key={i} className="h-8 w-full" />
       ))}
+    </div>
+  );
+}
+
+/** Renders the connection's pane tree (via `PaneView`) plus a single global
+ *  mount for every open tab's content — each is portaled into a persistent,
+ *  per-tab DOM node (`getTabSlot`) that leaves reattach imperatively as
+ *  panes change. Because the portal's container never changes identity,
+ *  React never remounts a tab's component as it moves/splits across panes:
+ *  in-progress state (pending grid edits, scroll position, editor state)
+ *  survives. */
+function WorkspaceContent({
+  conn_id,
+  conn,
+  layout,
+  focusedPaneId,
+  tabs,
+  tabsByKey,
+  dirty_keys,
+  revision,
+  tables,
+  bump,
+  bumpTables,
+  openReference,
+  openTable,
+  on_close,
+  on_close_all,
+  on_close_to_left,
+  on_close_to_right,
+  on_new_sql,
+  on_new_table,
+  on_new_mongo_console,
+  on_open_file,
+}: {
+  conn_id: string;
+  conn: ConnectionInfo;
+  layout: PaneNode;
+  focusedPaneId: string;
+  tabs: StudioTab[];
+  tabsByKey: Map<string, StudioTab>;
+  dirty_keys: Set<string>;
+  revision: number;
+  tables: Awaited<ReturnType<typeof listTables>> | null;
+  bump: () => void;
+  bumpTables: () => void;
+  openReference: (
+    refTable: string,
+    refColumn: string,
+    value: string | null,
+  ) => void;
+  openTable: (name: string, filters?: GridFilter[]) => void;
+  on_close: (tab: StudioTab) => void;
+  on_close_all: () => void;
+  on_close_to_left: (tab: StudioTab) => void;
+  on_close_to_right: (tab: StudioTab) => void;
+  on_new_sql: () => void;
+  on_new_table: () => void;
+  on_new_mongo_console: () => void;
+  on_open_file: () => void;
+}) {
+  // Persistent per-TAB portal targets, created eagerly (synchronously, on
+  // first access — not gated on any render/ref-callback round trip) so a
+  // tab's content is NEVER dropped from the tree just because its owning
+  // pane's wrapper hasn't mounted yet. Stable for the tab's whole lifetime;
+  // panes reattach the node imperatively (see PaneView's LeafPaneView).
+  // A `useState`-held Map (setter unused) rather than a ref — `getTabSlot`
+  // is called during render (inside the .map() below), and reading/writing
+  // a ref's `.current` there trips the `react-hooks/refs` lint rule; state
+  // values are fine to read (and, for a stable cache like this, mutate)
+  // during render.
+  const [tabSlots] = useState<Map<string, HTMLDivElement>>(() => new Map());
+  const getTabSlot = useCallback(
+    (key: string): HTMLDivElement => {
+      let el = tabSlots.get(key);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "h-full";
+        tabSlots.set(key, el);
+      }
+      return el;
+    },
+    [tabSlots],
+  );
+  // Drop slots for tabs that no longer exist — the portal below already
+  // stops rendering into a closed tab's slot (it drops out of `tabs`), this
+  // just prevents the Map from growing unbounded over a long session.
+  useEffect(() => {
+    const live = new Set(tabs.map((t) => tabKey(t)));
+    for (const key of tabSlots.keys()) {
+      if (!live.has(key)) tabSlots.delete(key);
+    }
+  }, [tabs, tabSlots]);
+
+  const { begin_drag } = useTabDrag(conn_id);
+  const focusPane = useStudioStore((s) => s.focusPane);
+  // A single capture-phase listener here (not one per pane) — tab content
+  // is portaled in from THIS component, so React's synthetic-event tree
+  // for clicks inside it is rooted here too, even though the DOM node has
+  // been imperatively moved into a specific pane's wrapper elsewhere.
+  // Portals propagate events by React-tree position, not DOM position (see
+  // https://react.dev/reference/react-dom/createPortal#rendering-to-a-different-part), so a
+  // handler placed on the pane's own wrapper div never sees these clicks —
+  // this falls back to the actual DOM ancestry instead, which IS correct
+  // since that's where the node was physically attached.
+  const on_content_pointer_down = useCallback(
+    (e: React.PointerEvent) => {
+      const paneEl = (e.target as HTMLElement).closest(
+        "[data-pane-content-id]",
+      );
+      const paneId = paneEl?.getAttribute("data-pane-content-id");
+      if (paneId) focusPane(conn_id, paneId);
+    },
+    [focusPane, conn_id],
+  );
+
+  return (
+    <div
+      className="flex h-full min-h-0 flex-1 overflow-hidden"
+      onPointerDownCapture={on_content_pointer_down}
+    >
+      <PaneView
+        node={layout}
+        connId={conn_id}
+        focusedPaneId={focusedPaneId}
+        tabsByKey={tabsByKey}
+        dirty_keys={dirty_keys}
+        getTabSlot={getTabSlot}
+        begin_drag={begin_drag}
+        on_close={on_close}
+        on_close_all={on_close_all}
+        on_close_to_left={on_close_to_left}
+        on_close_to_right={on_close_to_right}
+        on_new_sql={on_new_sql}
+        on_new_table={on_new_table}
+        on_new_mongo_console={on_new_mongo_console}
+        on_open_file={on_open_file}
+      />
+      <DragGhost />
+      {tabs.map((tab) => {
+        const key = tabKey(tab);
+        const owner = findOwnerLeaf(layout, key);
+        const is_active = owner?.activeTabKey === key;
+        // The slot node itself is a plain, persistent DOM element outside
+        // React's tree (see getTabSlot). Its own visibility (display:
+        // none when inactive — a pane can hold several tabs' slots as
+        // siblings, and an inactive one's `h-full` would otherwise still
+        // occupy space) is toggled imperatively by LeafPaneView's
+        // useLayoutEffect, not here — mutating DOM style is a side
+        // effect that belongs in an effect, not this render pass.
+        const slot = getTabSlot(key);
+        return createPortal(
+          <div className="h-full">
+            {tab.kind === "table" ? (
+              <TablePane
+                conn_id={conn_id}
+                tab_key={key}
+                table={tab.name}
+                revision={revision}
+                on_modified={bump}
+                initial_filters={tab.initialFilters}
+                on_open_reference={openReference}
+              />
+            ) : tab.kind === "sql" ? (
+              <Suspense fallback={<TabFallback />}>
+                <SqlTab
+                  conn_id={conn_id}
+                  tab_key={key}
+                  tables={tables?.map((t) => t.name)}
+                  on_modified={bumpTables}
+                />
+              </Suspense>
+            ) : tab.kind === "mongo" ? (
+              <MongoCollectionPane
+                conn_id={conn_id}
+                tab_key={key}
+                database={tab.database}
+                collection={tab.collection}
+                on_modified={bumpTables}
+              />
+            ) : tab.kind === "mongo-console" ? (
+              <Suspense fallback={<TabFallback />}>
+                <MongoConsolePane
+                  conn_id={conn_id}
+                  tab_key={key}
+                  database={tab.database}
+                />
+              </Suspense>
+            ) : tab.kind === "activity" ? (
+              <ActivityDetailsTab conn_id={conn_id} tab_key={key} />
+            ) : conn.kind === "mongodb" ? (
+              <MongoNewCollectionTab
+                conn_id={conn_id}
+                tab_key={key}
+                active={is_active}
+                on_modified={bump}
+              />
+            ) : (
+              <Suspense fallback={<TabFallback />}>
+                <NewTableTab
+                  conn_id={conn_id}
+                  tab_key={key}
+                  active={is_active}
+                  on_modified={bump}
+                  on_created={openTable}
+                />
+              </Suspense>
+            )}
+          </div>,
+          slot,
+          key,
+        );
+      })}
     </div>
   );
 }

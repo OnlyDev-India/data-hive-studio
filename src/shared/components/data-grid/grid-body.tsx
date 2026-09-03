@@ -51,7 +51,7 @@ export function GridBody() {
     >
       {/* Header: corner cell (row-number gutter header) then column headers.
           Sticks to the top of the scroller while rows window underneath. */}
-      <div className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium">
+      <div className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium select-none">
         <div className="border-border/40 bg-muted sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r text-[11px]">
           <span>#</span>
         </div>

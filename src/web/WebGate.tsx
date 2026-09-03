@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import {
   WEB,
   apiUrl,
-  slugifyUrl,
+  deriveServerId,
   webAddServer,
   webListServers,
   type WebServerConfig,
@@ -95,11 +95,13 @@ export function WebGate({ children }: GateProps) {
   }, []);
 
   function handle_connect(result: ConnectResult) {
-    // Use a deterministic ID derived from the server URL so re-connecting
-    // to the same server overwrites the existing config instead of appending
-    // a new one every time (previously web_${Date.now()} leaked duplicates).
+    // Use a deterministic ID derived from the server URL (+ team, so multiple
+    // teams on one same-origin deployment don't collide) so re-connecting to
+    // the same server/team overwrites the existing config instead of
+    // appending a new one every time (previously web_${Date.now()} leaked
+    // duplicates).
     const base_url = (result.server_url ?? apiUrl()).replace(/\/+$/, "");
-    const id = slugifyUrl(base_url);
+    const id = deriveServerId(base_url, result.team_name);
     const cfg: WebServerConfig = {
       id,
       url: base_url,

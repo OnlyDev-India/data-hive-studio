@@ -4,6 +4,7 @@ import {
   wcall,
   wcallEmpty,
   apiUrl,
+  deriveServerId,
   hasWebToken,
   webServerConfig,
   webListServers,
@@ -94,13 +95,11 @@ export function serversAdd(
   team_name?: string,
 ): Promise<ServerProfileView> {
   if (WEB) {
-    const id = url
-      .replace(/^https?:\/\//, "")
-      .replace(/[^a-zA-Z0-9]/g, "_")
-      .slice(0, 40);
+    const base = (url || apiUrl()).replace(/\/+$/, "");
+    const id = deriveServerId(base, team_name);
     const cfg: WebServerConfig = {
       id,
-      url: url.replace(/\/+$/, ""),
+      url: base,
       token,
       name,
       ...(team_name ? { team_name } : {}),

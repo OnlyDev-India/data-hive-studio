@@ -7,6 +7,7 @@ import type {
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
 import type { PendingChange } from "../components/data-grid/grid-context";
+import type { PaneNode } from "./pane-layout";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace" | "admin";
@@ -75,6 +76,9 @@ export interface JsonRow {
 /** Per-connection tab/workspace state. */
 export interface WorkspaceTabs {
   tabs: StudioTab[];
+  /** The active tab of the FOCUSED pane (see `focusedPaneId`) — kept in
+   *  sync by every pane-aware mutator. With no splits (the common case)
+   *  this behaves exactly like a single global "active tab". */
   active: StudioTab | null;
   nextSqlId: number;
   nextNewTableId: number;
@@ -82,6 +86,13 @@ export interface WorkspaceTabs {
   nextMongoTabId: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
   paneModes: Record<string, "data" | "schema">;
+  /** Split-view pane tree. A never-split workspace is a single leaf holding
+   *  every open tab — see `pane-layout.ts` for the shape/invariants. */
+  layout: PaneNode;
+  /** Id of the leaf pane last interacted with (clicked into, selected a tab
+   *  in, etc). New tabs open into this pane; the action bar reads `active`
+   *  (this pane's active tab) to decide what it drives. */
+  focusedPaneId: string;
 }
 
 /** Live handle from an open Schema tab with unsaved DDL drafts; the status
@@ -389,6 +400,25 @@ export interface StudioStore {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  // ---- Split-view drag-to-split (ephemeral, session/UI-only — never
+  // persisted; see partialize in store.ts) --------------------------------
+  /** The tab currently being dragged, if any. `sourcePaneId` is where the
+   *  drag started — informational only; the store always looks up a tab's
+   *  CURRENT owner pane fresh on every move/drop. */
+  dragTab: { connId: string; sourcePaneId: string; tab: StudioTab } | null;
+  setDragTab: (v: StudioStore["dragTab"]) => void;
+  /** Live cursor position while dragging, for the floating ghost chip. */
+  dragPointer: { x: number; y: number } | null;
+  setDragPointer: (v: StudioStore["dragPointer"]) => void;
+  /** Where a drag is currently hovering: a specific pane, and which edge
+   *  (split) or "center" (plain move, no split) it would land on if
+   *  dropped now. Drives the pane edge/center highlight overlay. */
+  dropTarget: {
+    paneId: string;
+    edge: "left" | "right" | "top" | "bottom" | "center";
+  } | null;
+  setDropTarget: (v: StudioStore["dropTarget"]) => void;
+
   // Per-connection workspaces (tabs)
   workspaces: Record<string, WorkspaceTabs>;
   openTable: (
@@ -416,10 +446,32 @@ export interface StudioStore {
     seedText?: string,
     seedFileName?: string,
   ) => void;
-  selectTab: (connId: string, tab: StudioTab) => void;
+  /** Select `tab` within pane `paneId`, and focus that pane. */
+  selectTab: (connId: string, paneId: string, tab: StudioTab) => void;
   closeTab: (connId: string, tab: StudioTab) => void;
-  /** Move `tab` so it ends up at index `toIndex` of the tab strip. */
-  moveTab: (connId: string, tab: StudioTab, toIndex: number) => void;
+  /** Move `tab` so it ends up at index `toIndex` of pane `toPaneId`'s strip
+   *  — same-pane reorder, or a cross-pane relocate (tab moves OUT of its
+   *  current pane, never mirrored). */
+  movePaneTab: (
+    connId: string,
+    tab: StudioTab,
+    toPaneId: string,
+    toIndex: number,
+  ) => void;
+  /** Split pane `targetPaneId` on `edge`, moving `tab` (out of wherever it
+   *  currently lives) into a brand-new leaf on that side. */
+  splitPane: (
+    connId: string,
+    targetPaneId: string,
+    tab: StudioTab,
+    edge: "left" | "right" | "top" | "bottom",
+  ) => void;
+  /** Mark `paneId` as the focused pane (mirrors its active tab into
+   *  `active`). Fired on click/select-tab/other interaction inside a pane. */
+  focusPane: (connId: string, paneId: string) => void;
+  /** Persist a completed resize of split `splitId`'s children (percentages,
+   *  same order as its children). Session-only, like the rest of `tabs`. */
+  resizeSplit: (connId: string, splitId: string, sizes: number[]) => void;
   closeAllTabs: (connId: string) => void;
   closeToLeft: (connId: string, tab: StudioTab) => void;
   closeToRight: (connId: string, tab: StudioTab) => void;

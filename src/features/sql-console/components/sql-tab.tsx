@@ -46,9 +46,16 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   // Seed text handed over by other features (e.g. "open edits in SQL editor"):
   // openSql(connId, text) stashes it under this tab's key; read it once here.
   // The store entry itself is removed when the tab closes.
-  const [sql, setSql] = useState(
+  const [sql, setSqlRaw] = useState(
     () => useStudioStore.getState().sqlSeeds[tab_key] ?? "",
   );
+  // Guards every `.trim()` call below (is_dirty, has_text, can_run_target)
+  // against ever seeing a non-string value — see the identical guard (and
+  // its comment) in mongo-console-pane.tsx's `script` state.
+  const setSql = useCallback((v: string) => setSqlRaw(v ?? ""), []);
+  // Belt-and-suspenders: every consumer below reads THIS, never `sql`
+  // directly — see mongo-console-pane.tsx's `script_text` for why.
+  const sql_text = typeof sql === "string" ? sql : String(sql ?? "");
   const [tabs, setTabs] = useState<ResultTab[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const editorRef = useRef<QueryEditorHandle>(null);
@@ -196,15 +203,15 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   );
 
   const run_all = useCallback(() => {
-    const stmts = statementRanges(sql)
-      .map((r) => sql.slice(r.start, r.end).trim())
+    const stmts = statementRanges(sql_text)
+      .map((r) => sql_text.slice(r.start, r.end).trim())
       .filter(Boolean);
     if (stmts.length === 0) return;
     for (const stmt of stmts) {
       const id = add_tab();
       void run_query(id, stmt);
     }
-  }, [sql, add_tab, run_query]);
+  }, [sql_text, add_tab, run_query]);
 
   const run_target = useCallback(() => {
     const target = editorRef.current?.getTarget();
@@ -239,9 +246,9 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   // editor. Closing while dirty offers to save the queries to a file.
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
-  const sql_ref = useRef(sql);
+  const sql_ref = useRef(sql_text);
   useEffect(() => {
-    sql_ref.current = sql;
+    sql_ref.current = sql_text;
   });
   // A seed that came from a real file (openFileTab, via seedFileNames) starts
   // clean — the tab reflects that file's saved content, not new unsaved
@@ -256,7 +263,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   const [file_name, setFileName] = useState<string | null>(
     () => useStudioStore.getState().seedFileNames[tab_key] ?? null,
   );
-  const is_dirty = sql.trim().length > 0 && sql !== saved_baseline;
+  const is_dirty = sql_text.trim().length > 0 && sql_text !== saved_baseline;
   const save_sql = useCallback(async (): Promise<boolean> => {
     const path = await pickSqlSavePath();
     if (!path) return false;
@@ -268,9 +275,9 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
   }, []);
   useEffect(() => {
     set_sql_tab(tab_key, {
-      has_text: sql.trim().length > 0,
+      has_text: sql_text.trim().length > 0,
       is_dirty,
-      can_run_target: sql.trim().length > 0,
+      can_run_target: sql_text.trim().length > 0,
       save: save_sql,
       run_all,
       run_target,
@@ -282,7 +289,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
     return () => clear_sql_tab(tab_key);
   }, [
     tab_key,
-    sql,
+    sql_text,
     is_dirty,
     file_name,
     save_sql,
@@ -301,7 +308,7 @@ export function SqlTab({ conn_id, tab_key, tables, on_modified }: SqlTabProps) {
           <div className="flex h-full min-h-0 flex-col gap-3">
             <QueryEditor
               ref={editorRef}
-              value={sql}
+              value={sql_text}
               onChange={setSql}
               onRun={() => void run_all()}
               onRunTarget={run_target}

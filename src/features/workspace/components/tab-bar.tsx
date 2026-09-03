@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   ChevronDown,
   Code,
   FileText,
   Plus,
+  SplitSquareHorizontal,
+  SplitSquareVertical,
   SquarePlus,
   Terminal,
   X,
@@ -32,16 +32,22 @@ import {
   useStudioStore,
   type StudioTab,
 } from "@/shared/store";
+import { shouldSuppressTabClick } from "../lib/use-tab-drag";
 
 interface TabBarProps {
+  /** Id of the leaf pane this strip belongs to — stamped on each tab item
+   *  (`data-tab-pane`) so the shared cross-pane drag hook can tell strips
+   *  apart when several are mounted at once. */
+  paneId: string;
   tabs: StudioTab[];
   active: StudioTab | null;
   /** Keys of tabs holding unapplied work — shown as a dot until hovered. */
   dirty_keys: Set<string>;
   on_select: (tab: StudioTab) => void;
   on_close: (tab: StudioTab) => void;
-  /** Drop `tab` so it ends up at `to_index` of the strip. */
-  on_reorder: (tab: StudioTab, to_index: number) => void;
+  /** Pointer went down on `tab` — hands off to the shared drag hook, which
+   *  owns activation threshold, live reorder, and drop-zone detection. */
+  on_drag_start: (tab: StudioTab, clientX: number, clientY: number) => void;
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
@@ -51,15 +57,19 @@ interface TabBarProps {
   /** Opens a local .sql file into a new SQL editor tab, seeded with its
    *  contents. */
   on_open_file: () => void;
+  /** Split this pane, moving `tab` into a brand-new pane on that side. */
+  on_split_right: (tab: StudioTab) => void;
+  on_split_down: (tab: StudioTab) => void;
 }
 
 export function TabBar({
+  paneId,
   tabs,
   active,
   dirty_keys,
   on_select,
   on_close,
-  on_reorder,
+  on_drag_start,
   on_close_all,
   on_close_to_left,
   on_close_to_right,
@@ -67,92 +77,20 @@ export function TabBar({
   on_new_table,
   on_new_mongo_console,
   on_open_file,
+  on_split_right,
+  on_split_down,
 }: TabBarProps) {
-  // ---- Drag to rearrange (pointer-based; HTML5 DnD is flaky in WebViews) --
-  // pointerdown records a candidate; after >4px the drag activates and tabs
-  // LIVE-REORDER under the pointer (Chrome-style): crossing a neighbour's
-  // midpoint shifts the strip immediately, so the dragged tab visibly
-  // travels with the cursor. A ghost chip also follows the pointer.
-  const [drag_key, setDragKey] = useState<string | null>(null);
-  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
-  const pending = useRef<{
-    key: string;
-    start_x: number;
-    moved: boolean;
-  } | null>(null);
-  const suppress_click = useRef(false);
-  const tabs_ref = useRef(tabs);
-  const reorder_ref = useRef(on_reorder);
-  // Keep latest values reachable from the always-on window listeners.
-  useEffect(() => {
-    tabs_ref.current = tabs;
-    reorder_ref.current = on_reorder;
-  });
-
   const on_strip_pointer_down = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button")) return; // close X, +, menu buttons
     const el = target.closest("[data-tab-key]");
     if (!el) return;
-    pending.current = {
-      key: el.getAttribute("data-tab-key") ?? "",
-      start_x: e.clientX,
-      moved: false,
-    };
+    const key = el.getAttribute("data-tab-key");
+    const tab = tabs.find((t) => tabKey(t) === key);
+    if (!tab) return;
+    on_drag_start(tab, e.clientX, e.clientY);
   };
-
-  useEffect(() => {
-    /** Strip position the pointer currently points at (insert index). */
-    const hovered_index = (client_x: number): number | null => {
-      const items = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-tab-index]"),
-      );
-      for (const it of items) {
-        const r = it.getBoundingClientRect();
-        if (client_x < r.left + r.width / 2) return Number(it.dataset.tabIndex);
-      }
-      return items.length > 0 ? items.length : null;
-    };
-
-    const on_move = (e: PointerEvent) => {
-      const p = pending.current;
-      if (!p) return;
-      if (!p.moved) {
-        if (Math.abs(e.clientX - p.start_x) < 4) return;
-        p.moved = true;
-        setDragKey(p.key);
-      }
-      setGhost({ x: e.clientX, y: e.clientY });
-      // Live reorder: move the tab the moment the cursor crosses a
-      // neighbour's midpoint, so it travels with the pointer.
-      const idx = hovered_index(e.clientX);
-      if (idx == null) return;
-      const cur = tabs_ref.current;
-      const from = cur.findIndex((t) => tabKey(t) === p.key);
-      if (from < 0) return;
-      let target = idx;
-      if (target > from) target -= 1;
-      if (target !== from && target >= 0 && target < cur.length) {
-        reorder_ref.current(cur[from], target);
-      }
-    };
-
-    const on_up = () => {
-      const p = pending.current;
-      pending.current = null;
-      setDragKey(null);
-      setGhost(null);
-      if (p?.moved) suppress_click.current = true;
-    };
-
-    window.addEventListener("pointermove", on_move);
-    window.addEventListener("pointerup", on_up);
-    return () => {
-      window.removeEventListener("pointermove", on_move);
-      window.removeEventListener("pointerup", on_up);
-    };
-  });
 
   return (
     <div
@@ -160,10 +98,7 @@ export function TabBar({
       onPointerDown={on_strip_pointer_down}
       // A real drag suppresses the follow-up click so tabs don't get selected.
       onClickCapture={(e) => {
-        if (suppress_click.current) {
-          e.stopPropagation();
-          suppress_click.current = false;
-        }
+        if (shouldSuppressTabClick()) e.stopPropagation();
       }}
     >
       {tabs.map((tab, idx) => {
@@ -171,17 +106,19 @@ export function TabBar({
         return (
           <TabItem
             key={key}
+            pane_id={paneId}
             tab={tab}
             index={idx}
             total={tabs.length}
             active={tabEquals(tab, active)}
             dirty={dirty_keys.has(key)}
-            dragging={drag_key === key}
             on_select={on_select}
             on_close={on_close}
             on_close_all={on_close_all}
             on_close_to_left={on_close_to_left}
             on_close_to_right={on_close_to_right}
+            on_split_right={on_split_right}
+            on_split_down={on_split_down}
           />
         );
       })}
@@ -192,7 +129,7 @@ export function TabBar({
           size="iconXs"
           aria-label="Open a new SQL editor"
           title="New SQL editor"
-          onClick={on_new_sql}
+          onClick={() => on_new_sql()}
         >
           <Plus className="size-4" />
         </Button>
@@ -210,77 +147,70 @@ export function TabBar({
             }
           />
           <DropdownMenuContent align="end" className={"w-full"}>
-            <DropdownMenuItem onClick={on_new_sql}>
+            {/* Every handler here is wrapped in a no-arg arrow — passed
+                directly, onClick would call it with the click event as the
+                first argument, which for on_new_mongo_console (optional
+                seedText/seedFileName params) silently became a bogus seed
+                (rendered as "[object Object]" once the editor stringified
+                it) instead of a real open-console call. */}
+            <DropdownMenuItem onClick={() => on_new_sql()}>
               <Code className="text-muted-foreground size-4" />
               SQL editor
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={on_new_mongo_console}>
+            <DropdownMenuItem onClick={() => on_new_mongo_console()}>
               <Terminal className="text-muted-foreground size-4" />
               NoSQL console
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={on_new_table}>
+            <DropdownMenuItem onClick={() => on_new_table()}>
               <SquarePlus className="text-muted-foreground size-4" />
               Create table
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={on_open_file}>
+            <DropdownMenuItem onClick={() => on_open_file()}>
               <FileText className="text-muted-foreground size-4" />
               Open file…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      {/* Floating drag ghost following the pointer. */}
-      {drag_key !== null &&
-        ghost !== null &&
-        createPortal(
-          (() => {
-            const t = tabs.find((x) => tabKey(x) === drag_key);
-            if (!t) return null;
-            const file_name = useStudioStore.getState().sqlTabs[tabKey(t)]?.file_name;
-            return (
-              <div
-                className="bg-popover text-foreground pointer-events-none fixed z-50 flex max-w-56 -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm whitespace-nowrap shadow-lg"
-                style={{ left: ghost.x, top: ghost.y }}
-              >
-                <TabTypeIcon tab={t} />
-                <span className="truncate">{tabLabel(t, file_name)}</span>
-              </div>
-            );
-          })(),
-          document.body,
-        )}
     </div>
   );
 }
 
 function TabItem({
+  pane_id,
   tab,
   index,
   total,
   active,
   dirty,
-  dragging,
   on_select,
   on_close,
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_split_right,
+  on_split_down,
 }: {
+  pane_id: string;
   tab: StudioTab;
   /** Strip position of this tab (0-based) and the total tab count. */
   index: number;
   total: number;
   active: boolean;
   dirty: boolean;
-  dragging: boolean;
   on_select: (tab: StudioTab) => void;
   on_close: (tab: StudioTab) => void;
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_split_right: (tab: StudioTab) => void;
+  on_split_down: (tab: StudioTab) => void;
 }) {
-  const file_name = useStudioStore((s) => s.sqlTabs[tabKey(tab)]?.file_name);
+  const key = tabKey(tab);
+  const file_name = useStudioStore((s) => s.sqlTabs[key]?.file_name);
+  const dragging = useStudioStore(
+    (s) => !!s.dragTab && tabKey(s.dragTab.tab) === key,
+  );
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -288,8 +218,9 @@ function TabItem({
           <div
             role="button"
             tabIndex={0}
-            data-tab-key={tabKey(tab)}
+            data-tab-key={key}
             data-tab-index={index}
+            data-tab-pane={pane_id}
             onClick={() => on_select(tab)}
             className={cn(
               "relative flex max-w-[16rem] min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-b-2 px-2.5 py-1.5 text-sm whitespace-nowrap select-none",
@@ -357,6 +288,15 @@ function TabItem({
           onClick={() => on_close_to_right(tab)}
         >
           Close to the right
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={total <= 1} onClick={() => on_split_right(tab)}>
+          <SplitSquareHorizontal className="text-muted-foreground size-4" />
+          Split right
+        </ContextMenuItem>
+        <ContextMenuItem disabled={total <= 1} onClick={() => on_split_down(tab)}>
+          <SplitSquareVertical className="text-muted-foreground size-4" />
+          Split down
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

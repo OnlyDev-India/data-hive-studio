@@ -60,9 +60,23 @@ export function MongoConsolePane({
   // openMongoConsole(connId, database, text) stashes it under this tab's key;
   // read it once here. The store entry itself is removed when the tab closes
   // (same one-shot mechanism sql-tab.tsx uses for openSql).
-  const [script, setScript] = useState(
+  const [script, setScriptRaw] = useState(
     () => useStudioStore.getState().sqlSeeds[tab_key] ?? DEFAULT_SCRIPT,
   );
+  // Guards every `.trim()` call below (is_dirty, has_text, can_run_target)
+  // against ever seeing a non-string value, whatever the actual source of a
+  // bad update turns out to be — cheaper and more robust than scattering
+  // `?? ""` at each call site.
+  const setScript = useCallback(
+    (v: string) => setScriptRaw(v ?? DEFAULT_SCRIPT),
+    [],
+  );
+  // Belt-and-suspenders: every consumer below reads THIS, never the raw
+  // state directly — closes off any path (even one the setter guard above
+  // doesn't cover, e.g. dev-mode HMR preserving a stale/mismatched state
+  // shape across an edit to this file) that could hand a non-string to
+  // `.trim()`/`.slice()`/CodeMirror's `value` prop.
+  const script_text = typeof script === "string" ? script : String(script ?? "");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const editorRef = useRef<QueryEditorHandle>(null);
@@ -135,13 +149,13 @@ export function MongoConsolePane({
   );
 
   const run_all = useCallback(() => {
-    const stmts = statementRanges(script)
-      .map((r) => strip_comments(script.slice(r.start, r.end)))
+    const stmts = statementRanges(script_text)
+      .map((r) => strip_comments(script_text.slice(r.start, r.end)))
       .filter(Boolean);
     if (stmts.length === 0) return;
     // Each statement runs as its own result tab, exactly like the SQL editor.
     for (const stmt of stmts) add_tab(stmt);
-  }, [script, add_tab]);
+  }, [script_text, add_tab]);
 
   const run_target = useCallback(() => {
     const target = editorRef.current?.getTarget();
@@ -181,26 +195,26 @@ export function MongoConsolePane({
   const [file_name, setFileName] = useState<string | null>(
     () => useStudioStore.getState().seedFileNames[tab_key] ?? null,
   );
-  const is_dirty = script.trim().length > 0 && script !== saved_baseline;
+  const is_dirty = script_text.trim().length > 0 && script_text !== saved_baseline;
   const save_script = useCallback(async (): Promise<boolean> => {
     const path = await save({
       defaultPath: "console.js",
       filters: [{ name: "JavaScript console", extensions: ["js"] }],
     });
     if (!path || Array.isArray(path)) return false;
-    const bytes = Array.from(new TextEncoder().encode(script));
+    const bytes = Array.from(new TextEncoder().encode(script_text));
     await writeFile(path, bytes);
-    setSavedBaseline(script);
+    setSavedBaseline(script_text);
     setFileName(basename(path));
     return true;
-  }, [script]);
+  }, [script_text]);
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
   useEffect(() => {
     set_sql_tab(tab_key, {
-      has_text: script.trim().length > 0,
+      has_text: script_text.trim().length > 0,
       is_dirty,
-      can_run_target: script.trim().length > 0,
+      can_run_target: script_text.trim().length > 0,
       save: save_script,
       run_all,
       run_target,
@@ -212,7 +226,7 @@ export function MongoConsolePane({
     return () => clear_sql_tab(tab_key);
   }, [
     tab_key,
-    script,
+    script_text,
     is_dirty,
     file_name,
     save_script,
@@ -248,7 +262,7 @@ export function MongoConsolePane({
           <div className="flex h-full min-h-0 flex-col gap-3">
             <QueryEditor
               ref={editorRef}
-              value={script}
+              value={script_text}
               onChange={setScript}
               onRun={() => void run_all()}
               onRunTarget={run_target}

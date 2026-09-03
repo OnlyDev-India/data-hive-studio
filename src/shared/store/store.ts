@@ -32,6 +32,19 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ commandPaletteOpen: open });
         },
 
+        dragTab: null,
+        setDragTab(v) {
+          set({ dragTab: v });
+        },
+        dragPointer: null,
+        setDragPointer(v) {
+          set({ dragPointer: v });
+        },
+        dropTarget: null,
+        setDropTarget(v) {
+          set({ dropTarget: v });
+        },
+
         sidebarOpen: true,
         sidebarWidth: 256,
         setSidebarOpen(open) {
