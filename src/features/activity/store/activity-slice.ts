@@ -15,7 +15,11 @@ export function activityActions(set: SetState) {
       set({ activityOpen: open });
     },
     // Backend caps the ring buffer at 500; the store mirrors that bound.
-    activity: [],
+    // Explicit type (not just `[]`, which TS infers as `never[]`) so this
+    // slice's own return type is correct standalone, not just when spread
+    // into `create<StudioStore>()` where contextual typing papers over it —
+    // matters for testing the slice in isolation (see activity-slice.test.ts).
+    activity: [] as StudioStore["activity"],
     pushActivity(entry: StudioStore["activity"][number]) {
       // Idempotent by id: a duplicated Tauri event (leaked listener, dev
       // remount) must never render the same command twice — identical ids

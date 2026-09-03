@@ -3,8 +3,17 @@ import { create } from "zustand";
 import { notificationsActions } from "./notifications-slice";
 
 function makeStore() {
+  // notificationsActions is typed against the FULL StudioStore's set/get
+  // (it's designed to be spread into the real store) — a store created
+  // from just this slice's own shape has narrower set/get types, which
+  // TS correctly flags as incompatible. Safe to cast here: at runtime
+  // set/get just read/merge whatever state exists, and this slice only
+  // ever touches its own fields.
   return create<ReturnType<typeof notificationsActions>>()((set, get) =>
-    notificationsActions(set, get),
+    notificationsActions(
+      set as unknown as Parameters<typeof notificationsActions>[0],
+      get as unknown as Parameters<typeof notificationsActions>[1],
+    ),
   );
 }
 
