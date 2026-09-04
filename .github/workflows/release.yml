@@ -99,7 +99,22 @@ jobs:
         with:
           tagName: ${{ needs.check-version.outputs.tag }}
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
-          releaseBody: "Automated build from ${{ github.sha }}. See the commit history for what changed."
+          releaseBody: |
+            Automated build from ${{ github.sha }}. See the commit history for what changed.
+
+            **macOS:** these builds aren't notarized yet, so opening the app normally after installing will show "**\"DH Studio\" is damaged and can't be opened**." That's Gatekeeper blocking an unsigned app, not actual corruption. Fix (Terminal, one-time): run
+            ```
+            xattr -cr "/Applications/DH Studio.app"
+            ```
+            (adjust the path if you installed it elsewhere), then open the app normally.
+
+            **Windows:** SmartScreen will show "Windows protected your PC" since these builds aren't code-signed. Click **More info**, then **Run anyway**. You only need to do this once.
+
+            **Linux:** no extra step needed for the `.deb`/`.rpm` — install via your package manager as usual. If you use the `.AppImage` instead, mark it executable first:
+            ```
+            chmod +x "DH Studio_0.1.0_amd64.AppImage"
+            ```
+            then double-click it (or run it) to launch. If it fails with a FUSE error, install `libfuse2` (e.g. `sudo apt install libfuse2` on Ubuntu 22.04+) first.
           releaseDraft: false
           prerelease: ${{ needs.check-version.outputs.prerelease }}
           args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
