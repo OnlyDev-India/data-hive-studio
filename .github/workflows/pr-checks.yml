@@ -11,9 +11,14 @@ name: PR Checks
 on:
   pull_request:
     branches: [main, develop]
+  push:
+    branches: [main, develop]
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
+  # `github.event.pull_request.number` is unset for push events — falling
+  # back to `github.ref` keeps push runs on different branches from
+  # colliding into the same (empty) group and cancelling each other.
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -2,7 +2,12 @@
 //! re-exports keep `crate::api` / `crate::db` / `crate::activity` paths in
 //! `commands.rs` valid.
 
-use tauri::{Listener, Manager};
+use tauri::Listener;
+// Only used by the macOS-only native-menu setup below (`app.manage(...)`) —
+// Windows/Linux never call a `Manager` method, so an unconditional import
+// warns as unused on those targets.
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 pub use dh_core::{activity, api, db};
 pub mod activity_store;
 pub mod app_menu;
@@ -186,18 +191,22 @@ pub fn run() {
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|app_handle, event| {
+    .run(|_app_handle, _event| {
       // macOS (any start) and a warm second-open on any platform: the OS
       // hands us the file via this event instead of argv. Buffer it the
       // same way as the argv case (file_open::check_argv) and also emit a
       // live event for the (already-running) frontend to pick up right
-      // away.
-      if let tauri::RunEvent::Opened { urls } = event {
+      // away. `RunEvent::Opened` only exists on macOS/iOS/Android —
+      // Windows/Linux deliver the file path via argv instead (see
+      // `file_open::check_argv` above), leaving both closure params unused
+      // there.
+      #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+      if let tauri::RunEvent::Opened { urls } = _event {
         if let Some(path) = urls.first().and_then(|u| u.to_file_path().ok()) {
           let path = path.to_string_lossy().to_string();
           file_open::set_pending(path.clone());
           use tauri::Emitter;
-          let _ = app_handle.emit("file-associations://open", path);
+          let _ = _app_handle.emit("file-associations://open", path);
         }
       }
     });
