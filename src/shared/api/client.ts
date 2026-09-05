@@ -8,3 +8,5 @@ export * from "./server-admin";
 export * from "./connection";
 export * from "./query";
 export * from "./streaming";
+export * from "./local-connections";
+export * from "./workspace-state";

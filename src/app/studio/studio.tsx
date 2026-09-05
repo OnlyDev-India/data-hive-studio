@@ -14,7 +14,7 @@ import {
   type ActivityEntry
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
-import { useStudioStore } from "@/shared/store";
+import { bootstrapWorkspaceRestore, useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { ActivityBar } from "./activity-bar";
 import { ActionBar } from "./action-bar";
@@ -24,6 +24,7 @@ import { AdminConsole } from "@/features/sharing";
 import { Sidebar } from "@/features/workspace";
 import { CommandPalette } from "./command-palette";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
+import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 
 /** Per-connection workspaces are code-split away from the shell. */
 const Workspace = lazy(() => import("./workspace"));
@@ -34,9 +35,9 @@ export function Studio() {
   const view = useStudioStore((s) => s.view);
   const setView = useStudioStore((s) => s.setView);
   const setActive = useStudioStore((s) => s.setActive);
-  const sidebarOpen = useStudioStore((s) => s.sidebarOpen);
+  const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
+  const leftPanelMode = useStudioStore((s) => s.leftPanelMode);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
-  const activityOpen = useStudioStore((s) => s.activityOpen);
 
   // Web mode: intercept reload shortcuts with an in-app confirm dialog while
   // at least one server session is connected. No native beforeunload popup —
@@ -81,6 +82,107 @@ export function Studio() {
     };
   }, []);
 
+  // Load saved connections (+ their keychain passwords) once at startup,
+  // migrating any pre-keychain localStorage data on first run. See
+  // hydrateSavedLocal's doc comment.
+  useEffect(() => {
+    void useStudioStore.getState().hydrateSavedLocal();
+  }, []);
+
+  // Warm the per-connection workspace chunk as soon as the shell mounts —
+  // filling in a connection form and waiting on the connect round-trip
+  // easily takes longer than this chunk takes to fetch, so by the time
+  // `open` actually gains an entry the dynamic import below has already
+  // resolved and Suspense renders it inline with no fallback flash (which
+  // would otherwise blank out the sidebar/activity bar for a moment, since
+  // they're mounted inside Workspace for the connected-view branch).
+  useEffect(() => {
+    void import("./workspace");
+  }, []);
+
+  // Load the previous session's saved workspace (open connections' tabs,
+  // layout, unsaved query text) once at startup — connections are NOT
+  // auto-reconnected; this only stages the tabs/text to be restored the
+  // moment the user manually reconnects to a matching target (openConn
+  // claims it). See workspace-persistence.ts.
+  useEffect(() => {
+    void bootstrapWorkspaceRestore();
+  }, []);
+
+  // "Open with DH Studio" / double-clicking a .db file with it set as the
+  // default app (tauri.conf.json's bundle.fileAssociations). Two delivery
+  // paths, both handled: a live event for while the app is already running,
+  // and a one-shot buffered fetch for cold start — the live event can fire
+  // (Rust-side) before this listener has mounted, so it'd otherwise be lost.
+  // Desktop-only; web mode has no OS file-open concept.
+  useEffect(() => {
+    if (WEB) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const [{ listen }, { openFileFromOs }, { invoke }] = await Promise.all([
+        import("@tauri-apps/api/event"),
+        import("@/features/connections/lib/reopen"),
+        import("@tauri-apps/api/core"),
+      ]);
+      const un = await listen<string>("file-associations://open", (e) => {
+        void openFileFromOs(e.payload);
+      });
+      if (cancelled) {
+        un();
+        return;
+      }
+      unlisten = un;
+      try {
+        const pending = await invoke<string | null>("take_pending_open_path");
+        if (pending && !cancelled) void openFileFromOs(pending);
+      } catch {
+        /* backend not ready yet */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      unlisten = null;
+    };
+  }, []);
+
+  // Native menu bar (src-tauri/src/app_menu.rs): dispatch clicks into the
+  // store, and keep the File menu's connection-only items enabled only
+  // while a connection's workspace is actually showing — matches the
+  // in-app dropdown's behavior of only offering those from within a
+  // connection, not the Home screen. Desktop-only.
+  useEffect(() => {
+    if (WEB) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const [{ listen }, { handleMenuAction }] = await Promise.all([
+        import("@tauri-apps/api/event"),
+        import("./native-menu"),
+      ]);
+      const un = await listen<string>("menu-action", (e) => {
+        handleMenuAction(e.payload);
+      });
+      if (cancelled) {
+        un();
+        return;
+      }
+      unlisten = un;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      unlisten = null;
+    };
+  }, []);
+  useEffect(() => {
+    if (WEB) return;
+    void import("./native-menu").then(({ syncMenuContext }) =>
+      syncMenuContext(view === "workspace" && open.length > 0),
+    );
+  }, [view, open.length]);
+
   // Hydrate the backend command log once, then live-subscribe to new entries.
   // Mounted at the shell level so the feed runs regardless of which view or
   // connection is active.
@@ -124,33 +226,27 @@ export function Studio() {
     };
   }, []);
 
-  // The left edge holds ONE panel slot with two contents: the database
-  // sidebar and the Activity feed. Rules:
-  //   • switching database <-> activity KEEPS an open panel open (it swaps)
-  //   • if the slot is closed, either button OPENS it
-  //   • clicking the button whose panel is showing AGAIN closes the slot
+  // The left edge holds ONE panel slot; the activity bar's icons just pick
+  // which mode it shows (see `selectLeftPanel`/`openLeftPanel` in the
+  // store) — open/closed behaves identically no matter which mode that is.
   const on_home = useCallback(() => {
     const s = useStudioStore.getState();
-    s.setActivityOpen(false);
     if (view === "home") {
-      s.setSidebarOpen(!s.sidebarOpen);
+      s.selectLeftPanel("tables");
       return;
     }
     setView("home");
-    s.setSidebarOpen(true);
+    s.openLeftPanel("tables");
   }, [view, setView]);
 
   const show_tables = useCallback(() => {
     const s = useStudioStore.getState();
     if (view !== "workspace") {
-      s.setActivityOpen(false);
       setView("workspace");
-      s.setSidebarOpen(true);
+      s.openLeftPanel("tables");
       return;
     }
-    const was_showing_activity = s.activityOpen;
-    s.setActivityOpen(false);
-    s.setSidebarOpen(was_showing_activity ? true : !s.sidebarOpen);
+    s.selectLeftPanel("tables");
   }, [view, setView]);
 
   const show_activity = useCallback(() => {
@@ -158,26 +254,12 @@ export function Studio() {
     // From the landing page, Activity navigates INTO the studio (same
     // semantics as the Tables button) with the feed panel open.
     if (view !== "workspace") {
-      s.setActivityOpen(true);
-      s.setSidebarOpen(false);
       setView("workspace");
+      s.openLeftPanel("activity");
       return;
     }
-    if (s.activityOpen) {
-      // Active button clicked again — close the whole panel slot.
-      s.setActivityOpen(false);
-      s.setSidebarOpen(false);
-      return;
-    }
-    s.setActivityOpen(true);
-    s.setSidebarOpen(false);
+    s.selectLeftPanel("activity");
   }, [view, setView]);
-
-  /** Fully collapse the panel slot (X button / explicit close). */
-  const close_panel = useCallback(() => {
-    useStudioStore.getState().setActivityOpen(false);
-    useStudioStore.getState().setSidebarOpen(false);
-  }, []);
 
   const noop = useCallback(() => {}, []);
   const open_table_noop = useCallback(() => {}, []);
@@ -194,15 +276,15 @@ export function Studio() {
   const show_admin = effective_view === "admin";
 
   return (
-    <div className="bg-muted/20 flex h-screen flex-col overflow-hidden border-t">
+    <div className="bg-muted/20 flex h-full flex-col overflow-hidden border-t">
       <WebWarningBanner />
       <div className="flex min-h-0 flex-1">
         {open.length === 0 && !show_admin ? (
           <>
             <ActivityBar
               home_active={landing}
-              tables_active={!landing && !activityOpen}
-              activity_active={activityOpen}
+              tables_active={!landing && leftPanelOpen && leftPanelMode === "tables"}
+              activity_active={leftPanelOpen && leftPanelMode === "activity"}
               actions_disabled
               on_home={on_home}
               on_tables={show_tables}
@@ -210,10 +292,7 @@ export function Studio() {
               on_sql={noop}
               on_activity={show_activity}
             />
-            <LeftPanelSlot
-              open={activityOpen || sidebarOpen}
-              width={sidebarWidth}
-            >
+            <LeftPanelSlot open={leftPanelOpen} width={sidebarWidth}>
               {/* No connection open → the feed shows EVERYTHING (including
                   failed connect attempts, whose ids match no connection). */}
               <Sidebar
@@ -223,8 +302,7 @@ export function Studio() {
                 on_open_table={open_table_noop}
                 show_table_tools={false}
                 on_refresh={noop}
-                mode={activityOpen ? "activity" : "tables"}
-                on_activity_close={close_panel}
+                mode={leftPanelMode}
               />
             </LeftPanelSlot>
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -273,6 +351,7 @@ export function Studio() {
       </div>
       <ActionBar />
       <CommandPalette />
+      <DisconnectDialog />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
     </div>

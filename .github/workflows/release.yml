@@ -100,7 +100,24 @@ jobs:
           tagName: ${{ needs.check-version.outputs.tag }}
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
-            Automated build from ${{ github.sha }}. See the commit history for what changed.
+            **New**
+            - Split view: drag a tab to an edge to split the workspace
+            - Saved connections + query history now persist across restarts (passwords stored in the OS keychain)
+            - "Open with DH Studio" support for `.db`/`.sqlite`/`.sqlite3` files
+            - Disconnect a connection from the Command Palette
+            - MongoDB filters/queries now accept unquoted keys, e.g. `{name: "test"}`
+            - NoSQL console: working autocomplete (fields, `$` operators, `db.aggregate()`) and auto-closing brackets
+            - Running a multi-statement selection now runs every statement, with errors shown inline in the editor
+
+            **Fixed**
+            - NoSQL console no longer shown for SQL (Postgres/SQLite) connections
+            - SQL editor no longer hidden for MongoDB in the Command Palette
+            - Several split-view bugs: data reloading on split, blank second tab, JSON viewer showing the wrong pane, drag-to-split not working
+            - Crash opening the SQL/NoSQL editor in some cases
+            - Clearing query history now only clears the current connection's history, not all of it
+            - Activity sidebar getting stuck showing after disconnecting
+
+            Full commit history: ${{ github.sha }}
 
             **macOS:** these builds aren't notarized yet, so opening the app normally after installing will show "**\"DH Studio\" is damaged and can't be opened**." That's Gatekeeper blocking an unsigned app, not actual corruption. Fix (Terminal, one-time): run
             ```
@@ -112,7 +129,7 @@ jobs:
 
             **Linux:** no extra step needed for the `.deb`/`.rpm` — install via your package manager as usual. If you use the `.AppImage` instead, mark it executable first:
             ```
-            chmod +x "DH Studio_0.1.0_amd64.AppImage"
+            chmod +x "DH Studio_${{ needs.check-version.outputs.version }}_amd64.AppImage"
             ```
             then double-click it (or run it) to launch. If it fails with a FUSE error, install `libfuse2` (e.g. `sudo apt install libfuse2` on Ubuntu 22.04+) first.
           releaseDraft: false

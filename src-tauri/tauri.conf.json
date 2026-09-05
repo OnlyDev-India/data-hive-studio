@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DH Studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.dh-studio.dev",
   "build": {
     "frontendDist": "../dist",
@@ -32,6 +32,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["db", "sqlite", "sqlite3"],
+        "name": "SQLite Database",
+        "description": "SQLite database file",
+        "role": "Editor"
+      }
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"

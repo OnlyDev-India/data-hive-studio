@@ -5,7 +5,6 @@ import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { TreeControls } from "./tree-controls";
-import { BsonEditor } from "@/shared/components/bson-editor";
 import {
   parseMongoJson,
   renderMongoDocument,
@@ -15,6 +14,7 @@ import {
 } from "@/shared/lib/mongo-json";
 import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import { Prec, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { BsonEditor } from "@/features/query-editor";
 
 const layoutTransition: Transition = { duration: 0.3, ease: "easeInOut" };
 

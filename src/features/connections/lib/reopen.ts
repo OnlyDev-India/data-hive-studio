@@ -18,3 +18,21 @@ export async function reopenRecent(conn: ConnectionInfo) {
     // File may have been moved or deleted; fall through to the home screen.
   }
 }
+
+/** Open a .db/.sqlite/.sqlite3 file the OS handed us — "Open with DH
+ *  Studio", double-clicking a file with DH Studio set as the default app,
+ *  or a file dropped on the Dock icon. Unlike `reopenRecent`, a failure
+ *  here is a deliberate user action gone wrong, so it's surfaced as a
+ *  notification rather than silently falling back to the home screen. */
+export async function openFileFromOs(path: string) {
+  try {
+    const conn = await openDatabasePath(path);
+    useStudioStore.getState().openConn(conn);
+  } catch (e) {
+    useStudioStore.getState().pushNotification({
+      kind: "error",
+      title: "Couldn't open file",
+      detail: e instanceof Error ? e.message : String(e),
+    });
+  }
+}

@@ -9,14 +9,14 @@ import {
   type SchemaEditHandle,
   type SchemaPaneHandle,
 } from "@/shared/store";
+import { IndexesPanel } from "./schema-tab/indexes-panel";
+import { DropTableDialog } from "./schema-tab/drop-table-dialog";
 import {
   build_index_ops,
   idx_is_dirty,
   idxs_from_schema,
   type IdxDraft,
-  IndexesPanel,
-  DropTableDialog,
-} from "@/features/schema-designer";
+} from "./schema-tab/drafts";
 
 /** Schema editor for a MongoDB collection: rename + index list/create/drop.
  *  Reuses the SQL schema designer's `IndexesPanel`/draft machinery and

@@ -145,11 +145,12 @@ fn build_filter(
     custom_where: Option<&str>,
 ) -> DbResult<Option<bson::Document>> {
     if let Some(cw) = custom_where.map(str::trim).filter(|s| !s.is_empty()) {
-        let parsed: serde_json::Value = serde_json::from_str(cw).map_err(|e| {
-            DbError::InvalidOperation(format!(
-                "custom_where must be a Mongo query JSON object: {e}"
-            ))
-        })?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&super::mongo_json::quote_bare_keys(cw)).map_err(|e| {
+                DbError::InvalidOperation(format!(
+                    "custom_where must be a Mongo query JSON object: {e}"
+                ))
+            })?;
         return Ok(bson::to_document(&parsed).ok());
     }
     if filters.is_empty() {
@@ -447,7 +448,7 @@ fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
     if first.is_empty() {
         return Ok(None);
     }
-    let v: serde_json::Value = serde_json::from_str(first)
+    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(first))
         .map_err(|e| DbError::InvalidOperation(format!("invalid query JSON: {e}")))?;
     if !v.is_object() {
         return Err(DbError::InvalidOperation(
@@ -1149,7 +1150,9 @@ impl MongoAdapter {
                 let is_one = call.method == "findOne";
                 let mut opts = mongodb::options::FindOptions::builder().build();
                 if let Some(sort) = &chain.sort {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(sort) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(
+                        &super::mongo_json::quote_bare_keys(sort),
+                    ) {
                         if let Ok(d) = bson::to_document(&v) {
                             opts.sort = Some(d);
                         }
@@ -1244,8 +1247,9 @@ impl MongoAdapter {
                 })
             }
             "aggregate" => {
-                let parsed: serde_json::Value = serde_json::from_str(&call.args)
-                    .map_err(|e| DbError::InvalidOperation(format!("invalid pipeline JSON: {e}")))?;
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&super::mongo_json::quote_bare_keys(&call.args))
+                        .map_err(|e| DbError::InvalidOperation(format!("invalid pipeline JSON: {e}")))?;
                 if !parsed.is_array() {
                     return Ok(f("aggregate pipeline must be a JSON array".into()));
                 }
@@ -1296,7 +1300,7 @@ impl MongoAdapter {
         start: std::time::Instant,
     ) -> DbResult<crate::api::MongoRunResult> {
         let col = self.client.database(db).collection::<bson::Document>(coll);
-        let v: serde_json::Value = serde_json::from_str(s)
+        let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
             .map_err(|e| DbError::InvalidOperation(format!("invalid JSON: {e}")))?;
         if let serde_json::Value::Object(_) = v {
             let filter = bson::to_document(&v)
@@ -2164,6 +2168,17 @@ mod tests {
         // A non-object (scalar / array) query is rejected.
         assert!(parse_filter("[1,2]").is_err());
         assert!(parse_filter("not json").is_err());
+        // Unquoted (mongosh-style) keys are accepted, same as quoted ones.
+        let d = parse_filter("{name:\"test\"}").unwrap().unwrap();
+        assert_eq!(d.get_str("name"), Ok("test"));
+    }
+
+    #[test]
+    fn build_filter_accepts_unquoted_keys() {
+        let d = build_filter(&[], Some("{name:\"test\"}"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(d.get_str("name"), Ok("test"));
     }
 
     #[test]

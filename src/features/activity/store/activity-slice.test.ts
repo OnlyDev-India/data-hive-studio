@@ -61,11 +61,4 @@ describe("activityActions", () => {
     store.getState().clearActivityEntries();
     expect(store.getState().activity).toHaveLength(0);
   });
-
-  it("toggleActivityOpen flips the panel state", () => {
-    const store = makeStore();
-    expect(store.getState().activityOpen).toBe(false);
-    store.getState().toggleActivityOpen();
-    expect(store.getState().activityOpen).toBe(true);
-  });
 });

@@ -275,6 +275,38 @@ fn registry() -> &'static Mutex<Registry> {
     }))
 }
 
+/// Identity a connection's activity-log entries are filed under — stable
+/// across reconnects/restarts, unlike `ConnectionInfo.id` (a fresh UUID
+/// every connect, minted below in every `open_database`/`connect_*`). A
+/// file path is the most precise identity available for SQLite; everything
+/// else falls back to kind+name.
+fn stable_conn_key(info: &ConnectionInfo) -> String {
+    if info.kind == DbKind::Sqlite {
+        if let Some(p) = &info.source_path {
+            return format!("sqlite:{p}");
+        }
+    }
+    let kind = serde_json::to_value(info.kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "unknown".to_string());
+    format!("{kind}:{}", info.name)
+}
+
+/// Resolve a live `conn_id` to its stable key — registered with
+/// `activity::set_conn_key_resolver` at host startup so every logged entry
+/// can be matched across reconnects. `None` once the connection's gone (or,
+/// briefly, before it's registered) — entries logged in that window just
+/// don't get a `conn_key`, same as any pre-this-feature entry.
+pub fn connection_stable_key(conn_id: &str) -> Option<String> {
+    registry()
+        .lock()
+        .unwrap()
+        .connections
+        .get(conn_id)
+        .map(|(info, _)| stable_conn_key(info))
+}
+
 /// Open (or create) a database and register a connection in the registry.
 pub async fn open_database(
     kind: &DbKind,
@@ -294,8 +326,10 @@ pub async fn open_database(
         kind: *kind,
         source_path: None,
     };
-    crate::activity::log_ok(&info.id, "connect", &format!("sqlite:{name}"), t, 0);
+    // Register BEFORE logging, so the resolver can already find it and this
+    // very first entry gets a `conn_key` too.
     insert_connection(info.clone(), adapter);
+    crate::activity::log_ok_origin(&info.id, "connect", &format!("sqlite:{name}"), t, 0, "app");
     Ok(info)
 }
 
@@ -316,8 +350,8 @@ pub async fn open_database_path(path: &str) -> DbResult<ConnectionInfo> {
         kind: DbKind::Sqlite,
         source_path: Some(path.to_string()),
     };
-    crate::activity::log_ok(&info.id, "connect", &format!("sqlite:{}", path), t, 0);
     insert_connection(info.clone(), adapter);
+    crate::activity::log_ok_origin(&info.id, "connect", &format!("sqlite:{}", path), t, 0, "app");
     Ok(info)
 }
 
@@ -345,6 +379,11 @@ fn insert_connection(info: ConnectionInfo, adapter: Arc<dyn DbAdapter>) {
 /// deleted — only temp copies for freshly-created databases.
 pub async fn close_connection(conn_id: &str) -> DbResult<()> {
     let t = std::time::Instant::now();
+    // Logged BEFORE removing from the registry — the conn_key resolver
+    // looks the connection up by id, and can't find one that's already
+    // gone, so this would otherwise be the one entry per session that never
+    // gets a `conn_key`.
+    crate::activity::log_ok_origin(conn_id, "disconnect", "connection closed", t, 0, "app");
     let adapter = registry()
         .lock()
         .unwrap()
@@ -356,7 +395,6 @@ pub async fn close_connection(conn_id: &str) -> DbResult<()> {
         // plain pool close for network databases.
         adapter.close().await;
     }
-    crate::activity::log_ok(conn_id, "disconnect", "connection closed", t, 0);
     Ok(())
 }
 
@@ -612,20 +650,25 @@ pub async fn active_schema(conn_id: &str) -> DbResult<String> {
     with_connection(conn_id, |a| async move { a.active_schema().await }).await
 }
 
-pub async fn table_schema(conn_id: &str, table: &str) -> DbResult<TableSchema> {
+/// `background` distinguishes an explicit "view schema" from the app's own
+/// prefetching (autocomplete field lists, the sidebar tree warming its
+/// cache) — both call this same function, so the activity log can't tell
+/// them apart from `kind` alone (`kind` is `"schema"` either way).
+pub async fn table_schema(conn_id: &str, table: &str, background: bool) -> DbResult<TableSchema> {
     let t = std::time::Instant::now();
     let target = format!("describe {table}");
     let table = table.to_string();
+    let origin = if background { "app" } else { "user" };
     // The adapter hands back its introspection statements with the schema —
     // per-call ownership, so concurrent describes can't interleave captures.
     let res = with_connection(conn_id, move |a| async move { a.table_schema(&table).await })
         .await;
     match &res {
         Ok((_, stmts)) if !stmts.is_empty() => {
-            crate::activity::log_stmt_ok(conn_id, "schema", &stmts.join("\n\n"), t, 0)
+            crate::activity::log_stmt_ok_origin(conn_id, "schema", &stmts.join("\n\n"), t, 0, origin)
         }
-        Ok(_) => crate::activity::log_ok(conn_id, "schema", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "schema", &target, t, e),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "schema", &target, t, 0, origin),
+        Err(e) => crate::activity::log_err_origin(conn_id, "schema", &target, t, e, origin),
     }
     res.map(|(schema, _)| schema)
 }
@@ -842,18 +885,20 @@ pub async fn connect_postgres(params: PgParams) -> DbResult<ConnectionInfo> {
     let label = format!("{}@{}", params.user, params.database);
     match PgAdapter::connect(&params).await {
         Ok(adapter) => {
-            crate::activity::log_ok(&conn_id, "connect", &label, t, 0);
             let info = ConnectionInfo {
                 id: conn_id,
                 name: params.database.clone(),
                 kind: DbKind::Postgres,
                 source_path: None,
             };
+            // Register BEFORE logging, so the resolver can already find it
+            // and this very first entry gets a `conn_key` too.
             insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);
+            crate::activity::log_ok_origin(&info.id, "connect", &label, t, 0, "app");
             Ok(info)
         }
         Err(e) => {
-            crate::activity::log_err(&conn_id, "connect", &label, t, &e);
+            crate::activity::log_err_origin(&conn_id, "connect", &label, t, &e, "app");
             Err(e)
         }
     }
@@ -866,18 +911,20 @@ pub async fn connect_mongodb(params: MongoParams) -> DbResult<ConnectionInfo> {
     let label = format!("{}@{}/{}", params.user, params.host, params.database);
     match MongoAdapter::connect(&params).await {
         Ok(adapter) => {
-            crate::activity::log_ok(&conn_id, "connect", &label, t, 0);
             let info = ConnectionInfo {
                 id: conn_id,
                 name: params.database.clone(),
                 kind: DbKind::Mongodb,
                 source_path: None,
             };
+            // Register BEFORE logging, so the resolver can already find it
+            // and this very first entry gets a `conn_key` too.
             insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);
+            crate::activity::log_ok_origin(&info.id, "connect", &label, t, 0, "app");
             Ok(info)
         }
         Err(e) => {
-            crate::activity::log_err(&conn_id, "connect", &label, t, &e);
+            crate::activity::log_err_origin(&conn_id, "connect", &label, t, &e, "app");
             Err(e)
         }
     }

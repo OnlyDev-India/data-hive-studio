@@ -13,9 +13,15 @@ export function toJsonValue(
   const t = (sqlType ?? "").toLowerCase();
   if (t.includes("bool")) return v === "1" || v.toLowerCase() === "true";
   // Mongo object / array columns arrive as embedded JSON strings (nested
-  // documents are flattened into a single cell). Re-parse them so the JSON
-  // drill-down shows the real nested structure instead of an escaped string.
-  if (t.includes("object") || t.includes("array") || t.startsWith("bson")) {
+  // documents are flattened into a single cell), and so does a real SQL
+  // json/jsonb column. Re-parse them so the JSON viewer shows the real
+  // nested structure instead of an escaped string.
+  if (
+    t.includes("object") ||
+    t.includes("array") ||
+    t.startsWith("bson") ||
+    t.includes("json")
+  ) {
     try {
       return JSON.parse(v);
     } catch {
@@ -25,6 +31,24 @@ export function toJsonValue(
   if (/(int|real|float|double|numeric|decimal)/.test(t)) {
     const n = Number(v);
     if (Number.isFinite(n) && String(n) === v.trim()) return n;
+  }
+  // No declared type at all (an arbitrary query's results have none — see
+  // `QueryResultsGrid`) or a generic text type: still worth checking whether
+  // the value ITSELF looks like a JSON object/array and re-parsing it if so,
+  // same reasoning as the object/array/json branch above — otherwise it
+  // shows up in the viewer as an escaped string (`"{\"a\":1}"`) instead of
+  // real nested JSON.
+  const trimmed = v.trim();
+  const looksLikeJson =
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"));
+  if (looksLikeJson) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed !== null && typeof parsed === "object") return parsed;
+    } catch {
+      /* not actually valid JSON — keep the raw string below */
+    }
   }
   return v;
 }

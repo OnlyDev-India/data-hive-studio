@@ -12,7 +12,9 @@ import {
   Search,
   Table2,
   TextCursorInput,
-  Trash2, X
+  TextSelect,
+  Trash2,
+  X,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { prettyKind } from "@/shared/api";
@@ -74,7 +76,7 @@ export function ActionBar() {
       ? (s.schemaPanes[active_key] ?? null)
       : null,
   );
-  const sidebarOpen = useStudioStore((s) => s.sidebarOpen);
+  const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
   const openSql = useStudioStore((s) => s.openSql);
   // New-table tab registers its create action under its tab key — the button
@@ -106,10 +108,10 @@ export function ActionBar() {
         <div
           className={cn(
             "flex shrink-0 items-center gap-2 overflow-hidden border-r px-3",
-            !sidebarOpen && "hidden",
+            !leftPanelOpen && "hidden",
           )}
           style={{ width: sidebarWidth }}
-          aria-hidden={!sidebarOpen}
+          aria-hidden={!leftPanelOpen}
         >
           <span className="text-foreground/80 max-w-40 truncate font-medium">
             {conn ? conn.name : "No connection"}
@@ -190,7 +192,9 @@ export function ActionBar() {
                       className="h-6 rounded-r-none px-2 text-xs"
                       disabled={bridge.loading}
                       title="Review and apply the pending changes"
-                      onClick={() => setApplyChanges(bridge.get_pending_changes())}
+                      onClick={() =>
+                        setApplyChanges(bridge.get_pending_changes())
+                      }
                     >
                       {bridge.loading ? (
                         <Loader2 className="size-3.5 animate-spin" />
@@ -314,47 +318,43 @@ export function ActionBar() {
               </>
             )}
 
-            {is_schema_pane_kind &&
-              paneMode === "schema" &&
-              schemaPane && (
-                <>
-                  <ActionBarTooltip
-                    label={
+            {is_schema_pane_kind && paneMode === "schema" && schemaPane && (
+              <>
+                <ActionBarTooltip
+                  label={
+                    active?.kind === "mongo" ? "Drop collection" : "Drop table"
+                  }
+                >
+                  <Button
+                    variant="ghost"
+                    size="iconXs"
+                    aria-label={
                       active?.kind === "mongo"
                         ? "Drop collection"
                         : "Drop table"
                     }
+                    disabled={schemaPane.busy}
+                    onClick={() => schemaPane.drop()}
+                    className={
+                      "text-destructive/70 bg-destructive/10 hover:text-destructive hover:bg-destructive/20"
+                    }
                   >
-                    <Button
-                      variant="ghost"
-                      size="iconXs"
-                      aria-label={
-                        active?.kind === "mongo"
-                          ? "Drop collection"
-                          : "Drop table"
-                      }
-                      disabled={schemaPane.busy}
-                      onClick={() => schemaPane.drop()}
-                      className={
-                        "text-destructive/70 bg-destructive/10 hover:text-destructive hover:bg-destructive/20"
-                      }
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </ActionBarTooltip>
-                  <ActionBarTooltip label="Refresh schema">
-                    <Button
-                      variant="ghost"
-                      size="iconXs"
-                      aria-label="Refresh schema"
-                      disabled={schemaPane.busy}
-                      onClick={() => schemaPane.refresh()}
-                    >
-                      <RefreshCw className="size-3.5" />
-                    </Button>
-                  </ActionBarTooltip>
-                </>
-              )}
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </ActionBarTooltip>
+                <ActionBarTooltip label="Refresh schema">
+                  <Button
+                    variant="ghost"
+                    size="iconXs"
+                    aria-label="Refresh schema"
+                    disabled={schemaPane.busy}
+                    onClick={() => schemaPane.refresh()}
+                  >
+                    <RefreshCw className="size-3.5" />
+                  </Button>
+                </ActionBarTooltip>
+              </>
+            )}
             {newTable && (
               <ActionBarTooltip
                 label={
@@ -386,32 +386,43 @@ export function ActionBar() {
               />
             )}
             {sqlConsole && (
+              <ActionBarTooltip
+                label={
+                  sqlConsole.has_selection
+                    ? "Run the selected statement(s)"
+                    : "Run the query at the cursor"
+                }
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 bg-transparent px-2 text-xs"
+                  disabled={
+                    !sqlConsole.can_run_target || !sqlConsole.run_target
+                  }
+                  onClick={() => sqlConsole.run_target?.()}
+                >
+                  {sqlConsole.has_selection ? (
+                    <TextSelect className="size-3.5" />
+                  ) : (
+                    <TextCursorInput className="size-3.5" />
+                  )}
+                  {sqlConsole.has_selection ? "Run selection" : "Run query"}
+                </Button>
+              </ActionBarTooltip>
+            )}
+            {sqlConsole && (
               <ActionBarTooltip label="Run all statements">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-xs bg-transparent"
+                  className="h-6 bg-transparent px-2 text-xs"
                   disabled={!sqlConsole.has_text || !sqlConsole.run_all}
                   title="Run all statements"
                   onClick={() => sqlConsole.run_all?.()}
                 >
                   <Play className="size-3.5" />
                   Run all
-                </Button>
-              </ActionBarTooltip>
-            )}
-            {sqlConsole && (
-              <ActionBarTooltip label="Run the selection, or the statement under the cursor">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 px-2 text-xs bg-transparent"
-                  disabled={!sqlConsole.can_run_target || !sqlConsole.run_target}
-                  title="Run the selected text, or the statement under the cursor"
-                  onClick={() => sqlConsole.run_target?.()}
-                >
-                  <TextCursorInput className="size-3.5" />
-                  Run selection
                 </Button>
               </ActionBarTooltip>
             )}
@@ -535,15 +546,13 @@ function MongoCollectionPicker({
     c.toLowerCase().includes(query.toLowerCase()),
   );
   return (
-    <DropdownMenu
-      onOpenChange={() => setQuery("")}
-    >
+    <DropdownMenu onOpenChange={() => setQuery("")}>
       <DropdownMenuTrigger
         render={
           <Button
             variant="outline"
             size="sm"
-            className="h-6 max-w-44 gap-1 px-2 text-xs bg-transparent"
+            className="h-6 max-w-44 gap-1 bg-transparent px-2 text-xs"
             title="Collection (bare JSON queries)"
           >
             <Table2 className="size-3.5 shrink-0" />
@@ -564,7 +573,7 @@ function MongoCollectionPicker({
               autoCorrect="off"
               autoComplete="off"
               spellCheck={false}
-              className="h-full w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+              className="placeholder:text-muted-foreground h-full w-full bg-transparent text-xs outline-none"
             />
           </div>
         </div>

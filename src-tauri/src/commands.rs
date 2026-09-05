@@ -30,10 +30,16 @@ pub fn get_activity(limit: Option<usize>) -> Vec<crate::activity::ActivityEntry>
     crate::activity::snapshot(limit.unwrap_or(200))
 }
 
-/// Wipe the activity log (panel trash button).
+/// Wipe the activity log (panel trash button) — in memory and on disk.
+/// `conn_key`/`conn_id` scope the clear to one connection's entries (the
+/// feed is usually filtered to one connection when this is clicked, and
+/// wiping every OTHER connection's history too would be a surprising
+/// side effect); both omitted clears everything, same as before this param
+/// existed.
 #[tauri::command]
-pub fn clear_activity() {
-    crate::activity::clear();
+pub fn clear_activity(app: tauri::AppHandle, conn_key: Option<String>, conn_id: Option<String>) {
+    crate::activity::clear_matching(conn_key.as_deref(), conn_id.as_deref());
+    crate::activity_store::persist(&app);
 }
 
 /// Open an existing database from raw bytes and register a connection.
@@ -203,9 +209,17 @@ forward_cmd! {
     refresh_matview(conn_id: String, name: String) -> () => refresh_matview
 }
 
-forward_cmd! {
-    /// Fetch the schema (columns, FKs, indexes) for a table.
-    table_schema(conn_id: String, table: String) -> TableSchema => table_schema
+/// Fetch the schema (columns, FKs, indexes) for a table. `background` tags
+/// the activity-log entry as app- vs user-initiated — hand-written (not
+/// `forward_cmd!`) since that macro forwards every argument by reference,
+/// which doesn't fit a plain `bool`.
+#[tauri::command]
+pub async fn table_schema(
+    conn_id: String,
+    table: String,
+    background: bool,
+) -> Result<TableSchema, String> {
+    crate::db::table_schema(&conn_id, &table, background).await.map_err(to_err)
 }
 
 forward_cmd! {

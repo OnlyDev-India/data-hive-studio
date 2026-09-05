@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
 } from "react";
@@ -33,25 +34,23 @@ import {
   tabKey,
   tabLabel,
   findOwnerLeaf,
+  stableConnKey,
   type PaneNode,
   type StudioTab,
 } from "@/shared/store";
 import { DragGhost, PaneView, Sidebar, useTabDrag } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
-import {
-  TablePane,
-  MongoCollectionPane,
-  MongoConsolePane,
-  MongoNewCollectionTab,
-} from "@/features/table-explorer";
+import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
+import { MongoNewCollectionTab } from "@/features/schema-designer";
 import { ActivityBar } from "./activity-bar";
 import { LeftPanelSlot } from "./left-panel";
 import { ConnectionTabs, Landing } from "@/features/connections";
 
-// Heavy tab contents are code-split: the SQL console pulls in CodeMirror and
-// the table designer is a large editor surface, neither needed at startup.
-const SqlTab = lazy(() =>
-  import("@/features/sql-console").then((m) => ({ default: m.SqlTab })),
+// Heavy tab contents are code-split: the query console (SQL + Mongo shell,
+// one file — see EditorTab's own doc comment) pulls in CodeMirror, and the
+// table designer is a large editor surface, neither needed at startup.
+const EditorTab = lazy(() =>
+  import("@/features/query-editor").then((m) => ({ default: m.EditorTab })),
 );
 const NewTableTab = lazy(() =>
   import("@/features/schema-designer").then((m) => ({
@@ -84,6 +83,9 @@ export default function Workspace({
   on_activity: () => void;
 }) {
   const conn_id = conn.id;
+  // Stable across reconnects (unlike conn_id, a fresh id every connect) —
+  // scopes the Activity feed to "this database", not just "this session".
+  const conn_key = useMemo(() => stableConnKey(conn), [conn]);
 
   // Revision counter so creating/dropping tables reloads sidebar + tabs.
   const [revision, setRevision] = useState(0);
@@ -144,22 +146,13 @@ export default function Workspace({
   const open_new_table = useStudioStore((s) => s.openNewTable);
   const open_mongo_console = useStudioStore((s) => s.openMongoConsole);
   const close_tab = useStudioStore((s) => s.closeTab);
-  const sidebarOpen = useStudioStore((s) => s.sidebarOpen);
-  const setSidebarOpen = useStudioStore((s) => s.setSidebarOpen);
+  const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
+  const leftPanelMode = useStudioStore((s) => s.leftPanelMode);
+  const openLeftPanel = useStudioStore((s) => s.openLeftPanel);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
   const rightSidebarOpen = useStudioStore((s) => s.rightSidebarOpen);
-  // The Activity feed replaces the tables sidebar while it's open (the shell
-  // owns the toggle; this component only renders the swap).
-  const activityOpen = useStudioStore((s) => s.activityOpen);
-  const setActivityOpen = useStudioStore((s) => s.setActivityOpen);
   const openActivityTab = useStudioStore((s) => s.openActivityTab);
   const setActivityDetail = useStudioStore((s) => s.setActivityDetail);
-
-  /** X on the Activity panel: collapse the whole left panel slot. */
-  const close_panel = useCallback(() => {
-    setActivityOpen(false);
-    setSidebarOpen(false);
-  }, [setActivityOpen, setSidebarOpen]);
 
   /** Clicking an entry in the feed opens (or updates) the single Activity
    *  tab for this connection and shows the selected command. */
@@ -377,23 +370,23 @@ export default function Workspace({
   const new_table_click = useCallback(() => {
     if (!landing) {
       openNewTableTab();
-      setSidebarOpen(true);
+      openLeftPanel("tables");
     }
-  }, [landing, openNewTableTab, setSidebarOpen]);
+  }, [landing, openNewTableTab, openLeftPanel]);
 
   const sql_click = useCallback(() => {
     if (!landing) {
       openNewSql();
-      setSidebarOpen(true);
+      openLeftPanel("tables");
     }
-  }, [landing, openNewSql, setSidebarOpen]);
+  }, [landing, openNewSql, openLeftPanel]);
 
   return (
     <div className="bg-muted/20 flex h-full w-full overflow-hidden">
       <ActivityBar
         home_active={landing}
-        tables_active={!landing && !activityOpen}
-        activity_active={activityOpen}
+        tables_active={!landing && leftPanelOpen && leftPanelMode === "tables"}
+        activity_active={leftPanelOpen && leftPanelMode === "activity"}
         on_home={on_home}
         on_tables={on_tables}
         on_new_table={new_table_click}
@@ -411,20 +404,17 @@ export default function Workspace({
           />
         )}
         <div className="flex min-h-0 flex-1">
-          <LeftPanelSlot
-            open={activityOpen || sidebarOpen}
-            width={sidebarWidth}
-          >
+          <LeftPanelSlot open={leftPanelOpen} width={sidebarWidth}>
             <Sidebar
               conn_id={conn_id}
+              conn_key={conn_key}
               tables={tables}
               active_table={active_table}
               on_open_table={openTable}
               show_table_tools={!landing}
               on_refresh={reloadAll}
               reloading={tables_reloading || tables === null}
-              mode={activityOpen ? "activity" : "tables"}
-              on_activity_close={close_panel}
+              mode={leftPanelMode}
               on_activity_select={on_activity_select}
             />
           </LeftPanelSlot>
@@ -669,12 +659,24 @@ function WorkspaceContent({
     [tabSlots],
   );
   // Drop slots for tabs that no longer exist — the portal below already
-  // stops rendering into a closed tab's slot (it drops out of `tabs`), this
-  // just prevents the Map from growing unbounded over a long session.
-  useEffect(() => {
+  // stops rendering into a closed tab's slot (it drops out of `tabs`), but
+  // the slot's DOM element itself was never physically attached via React,
+  // so React unmounting the portal does NOT remove it: `.remove()` here is
+  // what actually detaches it. Without this, a closed tab's now-empty,
+  // still-visible (no explicit display:none — nothing sets that once its
+  // key leaves the layout) slot div stays in the wrapper forever, and being
+  // earlier in DOM order than tabs opened after it, pushes their real
+  // content below the clipped viewport — a "blank pane" with the new tab's
+  // content rendered and portaled, just visually shoved out of view.
+  // useLayoutEffect (not useEffect) so a closed tab's ghost is gone before
+  // the browser paints the next frame, not one frame after.
+  useLayoutEffect(() => {
     const live = new Set(tabs.map((t) => tabKey(t)));
-    for (const key of tabSlots.keys()) {
-      if (!live.has(key)) tabSlots.delete(key);
+    for (const [key, slot] of tabSlots) {
+      if (!live.has(key)) {
+        slot.remove();
+        tabSlots.delete(key);
+      }
     }
   }, [tabs, tabSlots]);
 
@@ -708,6 +710,7 @@ function WorkspaceContent({
       <PaneView
         node={layout}
         connId={conn_id}
+        is_mongo={conn.kind === "mongodb"}
         focusedPaneId={focusedPaneId}
         tabsByKey={tabsByKey}
         dirty_keys={dirty_keys}
@@ -749,7 +752,8 @@ function WorkspaceContent({
               />
             ) : tab.kind === "sql" ? (
               <Suspense fallback={<TabFallback />}>
-                <SqlTab
+                <EditorTab
+                  kind="sql"
                   conn_id={conn_id}
                   tab_key={key}
                   tables={tables?.map((t) => t.name)}
@@ -766,7 +770,8 @@ function WorkspaceContent({
               />
             ) : tab.kind === "mongo-console" ? (
               <Suspense fallback={<TabFallback />}>
-                <MongoConsolePane
+                <EditorTab
+                  kind="mongo-console"
                   conn_id={conn_id}
                   tab_key={key}
                   database={tab.database}

@@ -107,6 +107,18 @@ export interface ActivityEntry {
   error: string | null;
   /** Full statement text for `sql` entries (multi-line, comments kept). */
   sql?: string | null;
+  /** "user" for something the user directly asked for, "app" for work the
+   *  app ran on its own (background schema prefetching, etc.) — explicit
+   *  per entry rather than inferred from `kind`, since e.g. `kind ===
+   *  "schema"` covers both. Absent on entries logged before this field
+   *  existed; treat as "user" (the entire log used to be user-only). */
+  origin?: string;
+  /** Stable identity of the connection this entry belongs to (a file path
+   *  for SQLite, kind+name otherwise) — NOT `conn_id`, which is a fresh id
+   *  every connect and can't match a past session's entries for the same
+   *  database. Absent on entries logged before this field existed, or
+   *  logged in the brief window before a brand-new connection registers. */
+  conn_key?: string | null;
 }
 
 /** One trigger on a table (read-only — SQLite has no ALTER TRIGGER). */

@@ -18,6 +18,8 @@ import { PaneDropOverlay } from "./pane-drop-overlay";
  *  open-file) is workspace-wide and passed straight through unchanged. */
 export interface PaneViewSharedProps {
   connId: string;
+  /** True for MongoDB connections — passed straight through to `TabBar`. */
+  is_mongo: boolean;
   /** Id of the leaf pane last interacted with — the non-focused panes dim
    *  slightly so it's clear which one is "live". */
   focusedPaneId: string;
@@ -104,6 +106,7 @@ function SplitPaneView({
 function LeafPaneView({
   node,
   connId,
+  is_mongo,
   focusedPaneId,
   tabsByKey,
   dirty_keys,
@@ -158,6 +161,7 @@ function LeafPaneView({
     >
       <TabBar
         paneId={node.id}
+        is_mongo={is_mongo}
         tabs={tabs}
         active={active}
         dirty_keys={dirty_keys}
