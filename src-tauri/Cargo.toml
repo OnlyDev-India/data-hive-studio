@@ -1,6 +1,6 @@
 [package]
 name = "dh-studio"
-version = "0.1.0"
+version = "0.2.0"
 description = "DH Studio — a native desktop client for SQLite, PostgreSQL, and MongoDB"
 authors = ["you"]
 license = ""

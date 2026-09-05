@@ -189,9 +189,15 @@ const readonlyHintField = StateField.define<Tooltip | null>({
 /** Printable/edit keys only — arrow keys, copy/paste, Escape, etc. should
  *  navigate or act normally without triggering the read-only warning. */
 function isEditAttempt(e: KeyboardEvent): boolean {
+  // Backspace/Delete/Enter are edit attempts even with a modifier held —
+  // Cmd+Backspace (delete line) and Option+Backspace/Delete (delete word)
+  // are standard Mac editing shortcuts that still modify the document, so
+  // they must trigger the read-only warning too.
+  if (e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
+    return true;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
-  if (e.key.length === 1) return true;
-  return e.key === "Backspace" || e.key === "Delete" || e.key === "Enter";
+  return e.key.length === 1;
 }
 
 function readonlyHint(readOnly: boolean, onReadonlyClick?: () => void) {

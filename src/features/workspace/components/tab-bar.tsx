@@ -39,6 +39,10 @@ interface TabBarProps {
    *  (`data-tab-pane`) so the shared cross-pane drag hook can tell strips
    *  apart when several are mounted at once. */
   paneId: string;
+  /** True for MongoDB connections — gates the NoSQL-only console entry.
+   *  SQL editor/table creation stay visible regardless of kind (Mongo is
+   *  full-featured, not SQL-restricted — see the SQL-on-Mongo work). */
+  is_mongo: boolean;
   tabs: StudioTab[];
   active: StudioTab | null;
   /** Keys of tabs holding unapplied work — shown as a dot until hovered. */
@@ -64,6 +68,7 @@ interface TabBarProps {
 
 export function TabBar({
   paneId,
+  is_mongo,
   tabs,
   active,
   dirty_keys,
@@ -89,6 +94,10 @@ export function TabBar({
     const key = el.getAttribute("data-tab-key");
     const tab = tabs.find((t) => tabKey(t) === key);
     if (!tab) return;
+    // Otherwise the browser's native click-drag text selection runs alongside
+    // the pointer-based drag, selecting whatever grid/editor text the pointer
+    // passes over while a tab is being dragged.
+    e.preventDefault();
     on_drag_start(tab, e.clientX, e.clientY);
   };
 
@@ -157,10 +166,12 @@ export function TabBar({
               <Code className="text-muted-foreground size-4" />
               SQL editor
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => on_new_mongo_console()}>
-              <Terminal className="text-muted-foreground size-4" />
-              NoSQL console
-            </DropdownMenuItem>
+            {is_mongo && (
+              <DropdownMenuItem onClick={() => on_new_mongo_console()}>
+                <Terminal className="text-muted-foreground size-4" />
+                NoSQL console
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => on_new_table()}>
               <SquarePlus className="text-muted-foreground size-4" />
               Create table

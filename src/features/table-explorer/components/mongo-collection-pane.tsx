@@ -6,7 +6,7 @@ import {
 } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { ModeTabs } from "./mode-tabs";
-import { MongoSchemaEditor } from "./mongo-schema-editor";
+import { MongoSchemaEditor } from "@/features/schema-designer";
 import { useStudioStore, usePaneMode } from "@/shared/store";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { AlertCircle, Loader2, KeyRound } from "lucide-react";

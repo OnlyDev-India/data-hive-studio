@@ -386,6 +386,13 @@ export function Landing() {
     setMongoConnecting(true);
     try {
       const conn: ConnectionInfo = await connectMongo(mongo_build_params());
+      // Recorded before openConn — its same-connection dedup reads
+      // recentParams to recognize "already open" across separate connects.
+      push_recent_params(conn.id, {
+        ...mongo_build_params(),
+        kind: "mongodb",
+        name: mongo.name.trim() || undefined,
+      });
       openConn(conn);
     } catch (e) {
       useStudioStore.getState().pushNotification({

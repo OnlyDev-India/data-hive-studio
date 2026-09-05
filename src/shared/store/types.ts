@@ -12,6 +12,33 @@ import type { PaneNode } from "./pane-layout";
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace" | "admin";
 
+/** A connection's saved tabs/layout + live editor text, as persisted to
+ *  (and restored from) workspace_state.json — see
+ *  `shared/store/workspace-persistence.ts`. */
+export interface SavedWorkspace {
+  workspace: WorkspaceTabs;
+  sqlSeeds: Record<string, string>;
+}
+
+/** User-customizable trigger prefixes for the command palette's quick-open
+ *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
+ *  `>` (app commands) is reserved and not part of this set. */
+export interface PaletteKeywords {
+  schema: string;
+  table: string;
+  conn: string;
+  tab: string;
+  diss: string;
+}
+
+export const DEFAULT_PALETTE_KEYWORDS: PaletteKeywords = {
+  schema: "schema:",
+  table: "table:",
+  conn: "conn:",
+  tab: "tab:",
+  diss: "diss:",
+};
+
 /** Handle a grid exposes to the status bar so it can show tab info and drive
  * the active table's limit/pagination/actions from the bottom bar. */
 export interface GridBridge {
@@ -143,6 +170,10 @@ export interface SqlTabHandleBase {
   can_run_target?: boolean;
   /** Run the selected query target. */
   run_target?: () => void;
+  /** Whether the editor currently has a non-empty selection — lets the
+   *  action bar's run-target button say "Run selection" only when that's
+   *  actually true, and "Run query" (meaning: at the cursor) otherwise. */
+  has_selection?: boolean;
   /** Summary of the currently active result tab, for the action bar's
    *  rows/time display — SQL query results have no GridBridge (they're not
    *  paginated/editable), so this is how that info reaches the action bar
@@ -228,22 +259,41 @@ export interface StudioStore {
   closeConn: (id: string) => void;
   updateConn: (id: string, patch: Partial<ConnectionInfo>) => void;
 
+  /** Loaded once at startup from the last-saved workspace snapshot — a
+   *  connection's saved tabs/layout/editor-text, waiting to be re-applied
+   *  the instant the user reconnects to that same target (matched via
+   *  `stableConnKey` in workspace-persistence.ts). `openConn` claims (and
+   *  removes) the matching entry; nothing here ever auto-reconnects. */
+  pendingWorkspaceRestore: Record<string, SavedWorkspace>;
+  setPendingWorkspaceRestore: (map: Record<string, SavedWorkspace>) => void;
+
   // View
   view: StudioView;
   setView: (view: StudioView) => void;
 
-  // Sidebar chrome
-  sidebarOpen: boolean;
+  // Sidebar chrome — ONE panel slot, one open flag, one "what's inside"
+  // mode. The activity bar's icons just pick the mode (see
+  // `selectLeftPanel`); open/closed behaves the same regardless of which
+  // mode is showing.
   sidebarWidth: number;
-  setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (px: number) => void;
-  /** Which content the left panel slot last showed (tables sidebar or the
-   *  Activity feed) — restored when `toggleLeftPanel` reopens a closed slot. */
-  sidebarLastMode: "tables" | "activity";
-  /** VSCode-style "toggle sidebar visibility": closes the whole left panel
-   *  slot regardless of whether it's currently showing the tables sidebar or
-   *  the Activity feed, and reopens it to whichever was last visible. */
-  toggleLeftPanel: () => void;
+  leftPanelOpen: boolean;
+  /** Which content the left panel slot shows. Doubles as its own memory of
+   *  "what was showing" — unlike `leftPanelOpen`, it's never reset on
+   *  close, so `toggleLeftPanelOpen` always comes back to the same mode. */
+  leftPanelMode: "tables" | "activity";
+  setLeftPanelOpen: (open: boolean) => void;
+  /** Force the panel open on `mode` — for call sites that mean "show me
+   *  this" unconditionally (command palette entries, navigating into a
+   *  fresh view), not "toggle this". */
+  openLeftPanel: (mode: "tables" | "activity") => void;
+  /** Activity-bar icon click: switch to `mode` (opening if closed), or
+   *  close if that exact mode is already showing. */
+  selectLeftPanel: (mode: "tables" | "activity") => void;
+  /** Generic open/closed toggle that doesn't touch which mode is selected —
+   *  the connection-tabs collapse/expand button, the native menu's "Toggle
+   *  Sidebar". */
+  toggleLeftPanelOpen: () => void;
 
   // Right sidebar (JSON row viewer)
   rightSidebarOpen: boolean;
@@ -299,8 +349,11 @@ export interface StudioStore {
 
   /** Initial text handed to a freshly opened SQL/Mongo-console tab, keyed by
    *  its tab key. openSql/openMongoConsole(..., text) stashes it here; the
-   *  tab reads it once on mount and closeTab deletes the entry. */
+   *  tab reads it once on mount and closeTab deletes the entry. Also kept
+   *  live thereafter via `updateSqlSeed` (called on every edit), so this
+   *  doubles as "current unsaved text per tab" for workspace-persistence.ts. */
   sqlSeeds: Record<string, string>;
+  updateSqlSeed: (key: string, text: string) => void;
   /** Set alongside sqlSeeds ONLY when the seed came from an actual file on
    *  disk (openFileTab), never from generated content (e.g. action-bar's
    *  "open pending edits as SQL"). When present, the tab treats the seed as
@@ -333,15 +386,23 @@ export interface StudioStore {
   dismissToast: (id: string) => void;
 
   /** Live feed of backend commands (Activity sidebar). Fed by the
-   *  `activity://entry` Tauri event; newest first, capped, session-only. */
-  activityOpen: boolean;
-  toggleActivityOpen: () => void;
-  setActivityOpen: (open: boolean) => void;
+   *  `activity://entry` Tauri event; newest first, capped, session-only.
+   *  Whether the feed is actually showing is `leftPanelOpen &&
+   *  leftPanelMode === "activity"` (see the sidebar-chrome fields above) —
+   *  it's not a separate flag here. */
+  /** Off by default — whether "app"-origin entries (background schema
+   *  prefetching, etc.) show in the feed alongside "user" ones. Persisted. */
+  showAppActivity: boolean;
+  setShowAppActivity: (show: boolean) => void;
   activity: ActivityEntry[];
   pushActivity: (entry: ActivityEntry) => void;
   /** Replace the whole list (hydration from get_activity on startup). */
   setActivity: (entries: ActivityEntry[]) => void;
   clearActivityEntries: () => void;
+  /** Scoped clear — removes only entries for one connection (matched by
+   *  `conn_key`, falling back to `conn_id` for entries logged before that
+   *  field existed). Both omitted clears everything. */
+  clearActivityEntriesFor: (connKey?: string, connId?: string) => void;
 
   /** The entry shown in the (singleton) Activity details tab. Tagged with its
    *  connection so a tab on connection A never shows B's entry. */
@@ -353,19 +414,27 @@ export interface StudioStore {
   /** Saved connection params per connection id (recents), includes `kind`. */
   recentParams: Record<string, SavedConnParams>;
   pushRecentParams: (connId: string, params: SavedConnParams) => void;
-  /** Locally saved connections keyed by display name ('saved.local').
-   *  Each entry carries `kind` ("postgres" | "mongodb") so it reopens correctly. */
+  /** Locally saved connections keyed by display name. Metadata lives in an
+   *  app-data JSON file and passwords in the OS keychain (see
+   *  `src-tauri/src/local_connections.rs`); this map is the in-memory
+   *  hydration of both, populated by `hydrateSavedLocal`. Each entry
+   *  carries `kind` ("postgres" | "mongodb" | "sqlite") so it reopens
+   *  correctly. */
   savedLocal: Record<string, SavedConnParams>;
+  /** Load saved connections (+ their passwords) from the backend, migrating
+   *  any pre-keychain `localStorage` data on first run. Call once at
+   *  startup. No-op in web mode. */
+  hydrateSavedLocal: () => Promise<void>;
   /** Save a local connection (any kind). */
-  saveLocal: (name: string, params: SavedConnParams) => void;
+  saveLocal: (name: string, params: SavedConnParams) => Promise<void>;
   /** Rename/update a saved local connection. */
   updateSavedLocal: (
     oldName: string,
     name: string,
     params: SavedConnParams,
-  ) => void;
+  ) => Promise<void>;
   /** Delete a saved local connection. */
-  deleteSavedLocal: (name: string) => void;
+  deleteSavedLocal: (name: string) => Promise<void>;
   /** Pinned ids across sources: 'local:<name>' or 'srv:<profile>:<conn>' ('pg.pins'). */
   pins: string[];
   togglePin: (id: string) => void;
@@ -399,6 +468,23 @@ export interface StudioStore {
   /** Command palette open state. */
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
+
+  /** Id of the connection the disconnect-confirm dialog is asking about, or
+   *  null when closed. Shared state (not per-`DisconnectDbBtn`-instance
+   *  local state) so any trigger — the tab-strip icon, the action bar, or
+   *  the command palette's "Disconnect" commands — opens the same singleton
+   *  dialog (`DisconnectDialog`, mounted once in `Studio`). */
+  disconnectPendingId: string | null;
+  setDisconnectPendingId: (id: string | null) => void;
+
+  /** User-customizable trigger prefixes for the command palette's quick-open
+   *  sub-modes (Settings → Command Palette). `>` (app commands) is fixed and
+   *  not part of this — these four are the only ones a user can rename. */
+  paletteKeywords: PaletteKeywords;
+  /** Set one keyword; empty/duplicate/`>`-colliding values are rejected by
+   *  the caller (the settings UI), not here — this just persists a valid one. */
+  setPaletteKeyword: (key: keyof PaletteKeywords, value: string) => void;
+  resetPaletteKeywords: () => void;
 
   // ---- Split-view drag-to-split (ephemeral, session/UI-only — never
   // persisted; see partialize in store.ts) --------------------------------

@@ -36,6 +36,30 @@ describe("toJsonValue", () => {
     expect(toJsonValue("hello", "text")).toBe("hello");
     expect(toJsonValue("hello", undefined)).toBe("hello");
   });
+
+  it("re-parses embedded JSON for a declared json/jsonb column", () => {
+    expect(toJsonValue('{"name":"name","desc":"desc1"}', "jsonb")).toEqual({
+      name: "name",
+      desc: "desc1",
+    });
+  });
+
+  it("re-parses a JSON-object/array-shaped value even with no declared type (arbitrary query results)", () => {
+    // The reported bug: an arbitrary SQL query has no column types at all
+    // (see QueryResultsGrid), so a JSON string value used to come back
+    // untouched and get double-escaped by JSON.stringify in the viewer —
+    // `{"testing": "{\"name\":\"name\",\"desc\":\"desc1\"}"}` instead of a
+    // real nested object.
+    expect(
+      toJsonValue('{"name":"name","desc":"desc1"}', undefined),
+    ).toEqual({ name: "name", desc: "desc1" });
+    expect(toJsonValue("[1,2,3]", undefined)).toEqual([1, 2, 3]);
+    expect(toJsonValue('{"name":"name"}', "text")).toEqual({ name: "name" });
+  });
+
+  it("leaves a non-JSON string that merely starts/ends with braces as-is", () => {
+    expect(toJsonValue("{not json}", undefined)).toBe("{not json}");
+  });
 });
 
 describe("toSqlLiteral", () => {

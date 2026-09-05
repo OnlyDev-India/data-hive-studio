@@ -84,6 +84,10 @@ export const appEditorTheme = EditorView.theme({
   },
   ".cm-completionIcon-property": {
     color: "var(--warning-dark)",
+    // Override the library default (a plain hollow box, "□") with a filled
+    // diamond so field/column suggestions read as a distinct icon rather
+    // than an empty placeholder box.
+    "&::after": { content: "'◆'" },
   },
   ".cm-completionIcon-table": {
     color: "var(--success-dark)",

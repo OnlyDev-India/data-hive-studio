@@ -36,38 +36,25 @@ const PanelLeftIcon = ({
         x="3"
         y="3"
         rx="2"
-        className={cn("fill-muted-foreground/60", {
+        className={cn("fill-transparent stroke-2 stroke-muted-foreground", {
           "fill-primary/60": active,
         })}
       />
 
       {/* Left panel */}
       <rect
-        x={"3"}
-        y="3"
-        width={isOpen ? "8" : "0"}
-        height="18"
+        x={"6"}
+        y="5"
+        width={"8"}
+        height="14"
         rx="2"
         className={cn(
-          "fill-muted-foreground transition-all",
-          isOpen ? "opacity-100" : "opacity-80",
+          "fill-muted-foreground transition-opacity",
+          isOpen ? "opacity-100" : "opacity-60",
           { "fill-primary": active },
         )}
         stroke="none"
       />
-      {!isOpen && (
-        <rect
-          x={"10"}
-          y="3"
-          width={"3"}
-          height="18"
-          rx="2"
-          className={cn(
-            "fill-muted-foreground",
-            { "fill-primary": active },
-          )}
-        />
-      )}
 
       {/* Divider */}
       <path d="M9 3v18" />

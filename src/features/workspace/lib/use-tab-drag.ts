@@ -107,9 +107,21 @@ export function useTabDrag(connId: string) {
       const panes = Array.from(
         document.querySelectorAll<HTMLElement>("[data-pane-content-id]"),
       );
+      // Subpixel slack: a drop right at (or a couple px past) a pane's outer
+      // edge can otherwise fall just outside its fractional getBoundingClientRect
+      // against the integer pointer coordinate — most visible for a single,
+      // unsplit pane, where that edge IS the window edge and every drop meant
+      // to create the first split lands exactly there.
+      const EDGE_SLOP = 8;
       for (const el of panes) {
         const r = el.getBoundingClientRect();
-        if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+        if (
+          x < r.left - EDGE_SLOP ||
+          x > r.right + EDGE_SLOP ||
+          y < r.top - EDGE_SLOP ||
+          y > r.bottom + EDGE_SLOP
+        )
+          continue;
         const candidates: [number, "left" | "right" | "top" | "bottom", number][] =
           [
             [x - r.left, "left", r.width],

@@ -7,12 +7,13 @@ type SetState = StoreApi<StudioStore>["setState"];
  *  `activity://entry` Tauri event; newest first, capped, session-only. */
 export function activityActions(set: SetState) {
   return {
-    activityOpen: false,
-    toggleActivityOpen() {
-      set((s) => ({ activityOpen: !s.activityOpen }));
-    },
-    setActivityOpen(open: boolean) {
-      set({ activityOpen: open });
+    // Off by default — most entries logged as "app" origin are background
+    // schema-introspection noise (autocomplete prefetch, sidebar cache
+    // warming), not something the user asked to see. Persisted (see
+    // store.ts's `partialize`) so the choice survives a restart.
+    showAppActivity: false,
+    setShowAppActivity(show: boolean) {
+      set({ showAppActivity: show });
     },
     // Backend caps the ring buffer at 500; the store mirrors that bound.
     // Explicit type (not just `[]`, which TS infers as `never[]`) so this
@@ -42,6 +43,20 @@ export function activityActions(set: SetState) {
     },
     clearActivityEntries() {
       set({ activity: [] });
+    },
+    // Mirrors the backend's clear_activity(conn_key, conn_id) scoping (see
+    // activity.rs's clear_matching) — both omitted clears everything, same
+    // as clearActivityEntries.
+    clearActivityEntriesFor(connKey?: string, connId?: string) {
+      if (!connKey && !connId) {
+        set({ activity: [] });
+        return;
+      }
+      set((s) => ({
+        activity: s.activity.filter((e) =>
+          e.conn_key ? e.conn_key !== connKey : e.conn_id !== connId,
+        ),
+      }));
     },
     activityDetail: null,
     setActivityDetail(detail: StudioStore["activityDetail"]) {

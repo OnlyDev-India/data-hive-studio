@@ -2,24 +2,67 @@
 //! re-exports keep `crate::api` / `crate::db` / `crate::activity` paths in
 //! `commands.rs` valid.
 
-use tauri::Listener;
+use tauri::{Listener, Manager};
 pub use dh_core::{activity, api, db};
+pub mod activity_store;
+pub mod app_menu;
 pub mod commands;
+pub mod file_open;
+pub mod local_connections;
 pub mod servers;
+pub mod workspace_state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_window_state::Builder::default().build())
+    .on_menu_event(|app_handle, event| {
+      use tauri::Emitter;
+      let _ = app_handle.emit("menu-action", event.id().as_ref());
+    })
     .setup(|app| {
-      // Forward activity entries to the frontend as Tauri events.
+      // macOS only: the real system menu bar. Windows/Linux get a custom,
+      // VS-Code-style title bar drawn by the frontend instead (see
+      // `src/app/studio/title-bar.tsx`) — those platforms run with
+      // `decorations: false` (tauri.windows.conf.json / tauri.linux.conf.json)
+      // and no native menu at all, since the custom one lives entirely in
+      // the webview and dispatches straight into the store without needing
+      // this round trip.
+      #[cfg(target_os = "macos")]
+      {
+        let (menu, file_menu_items) = app_menu::build(app.handle())?;
+        app.set_menu(menu)?;
+        app.manage(file_menu_items);
+      }
+
+      // Windows/Linux: "Open with DH Studio" on a .db/.sqlite/.sqlite3 file
+      // passes the path as a CLI argument on cold start. (macOS instead
+      // delivers it via RunEvent::Opened, handled in run() below.)
+      file_open::check_argv();
+
+      // Hydrate the in-memory activity log from the previous run's
+      // persisted snapshot before anything can log a fresh entry.
       let handle = app.handle().clone();
+      activity::restore(activity_store::load(&handle));
+
+      // Lets every logged entry carry a STABLE connection identity (see
+      // `db::connection_stable_key`) instead of just the ephemeral runtime
+      // conn_id — a fresh UUID every connect, so it can never match a past
+      // session's entries for the same database. `db` owns the connection
+      // registry this needs; `activity` stays free of a `db` dependency
+      // otherwise (this indirection is the same reasoning as `set_emitter`).
+      activity::set_conn_key_resolver(std::sync::Arc::new(db::connection_stable_key));
+
+      // Forward activity entries to the frontend as Tauri events, and
+      // persist the updated snapshot to disk so query history survives a
+      // restart.
       activity::set_emitter(std::sync::Arc::new(move |entry| {
         {
           use tauri::Emitter;
           let _ = handle.emit("activity://entry", entry);
         }
+        activity_store::persist(&handle);
       }));
 
       // Gracefully close all database pools on app shutdown.
@@ -92,6 +135,18 @@ pub fn run() {
       commands::apply_schema_ops,
       commands::read_file,
       commands::write_file,
+      local_connections::list_local_connections,
+      local_connections::save_local_connection,
+      local_connections::update_local_connection,
+      local_connections::delete_local_connection,
+      local_connections::get_local_connection_secret,
+      local_connections::migrate_local_connections,
+      file_open::take_pending_open_path,
+      #[cfg(target_os = "macos")]
+      app_menu::set_menu_context,
+      workspace_state::load_workspace_state,
+      workspace_state::save_workspace_state,
+      workspace_state::clear_workspace_state,
       servers::servers_list,
       servers::servers_add,
       servers::servers_remove,
@@ -129,6 +184,21 @@ pub fn run() {
       servers::servers_fetch_credentials,
       servers::servers_admin_audit,
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app_handle, event| {
+      // macOS (any start) and a warm second-open on any platform: the OS
+      // hands us the file via this event instead of argv. Buffer it the
+      // same way as the argv case (file_open::check_argv) and also emit a
+      // live event for the (already-running) frontend to pick up right
+      // away.
+      if let tauri::RunEvent::Opened { urls } = event {
+        if let Some(path) = urls.first().and_then(|u| u.to_file_path().ok()) {
+          let path = path.to_string_lossy().to_string();
+          file_open::set_pending(path.clone());
+          use tauri::Emitter;
+          let _ = app_handle.emit("file-associations://open", path);
+        }
+      }
+    });
 }

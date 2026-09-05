@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/shared/components/ui/button";
 import { useStudioStore } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
-import { QueryEditor } from "@/features/sql-console";
+import { QueryEditor } from "@/features/query-editor";
 
 const KIND_LABELS: Record<string, string> = {
   select: "SELECT",

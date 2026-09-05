@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Palette } from "lucide-react";
+import { Palette, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,10 +12,11 @@ import {
 } from "@/shared/components/ui/resizable";
 import { cn } from "@/shared/lib/utils";
 import { AppearanceSection } from "./appearance";
+import { CommandPaletteSection } from "./command-palette-section";
 import { Button } from "@/shared/components/ui";
 import { useTheme } from "@/shared/theme/theme";
 
-type SectionId = "appearance";
+type SectionId = "appearance" | "command-palette";
 
 interface SectionMeta {
   id: SectionId;
@@ -25,6 +26,7 @@ interface SectionMeta {
 
 const SECTIONS: SectionMeta[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "command-palette", label: "Command Palette", icon: Search },
 ];
 
 export function SettingsDialog({
@@ -46,7 +48,12 @@ export function SettingsDialog({
             tall enough that we don't add a title bar here. */}
         <div className="-mx-6 -mt-6 flex overflow-hidden rounded-t-2xl border-b">
           <ResizablePanelGroup orientation="horizontal" className="h-full">
-            <ResizablePanel defaultSize="26%" minSize="22%" maxSize="40%">
+            <ResizablePanel
+              defaultSize="26%"
+              minSize="22%"
+              maxSize="40%"
+              className="border-r"
+            >
               <div className="flex h-full w-full flex-col gap-1 p-4">
                 {SECTIONS.map(({ id, label, icon: Icon }) => (
                   <Button
@@ -58,7 +65,7 @@ export function SettingsDialog({
                       section === id
                         ? "bg-primary hover:bg-primary/60 font-medium text-white"
                         : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                      isGraphite && dark && "text-black",
+                      section === id && isGraphite && dark && "text-black",
                     )}
                   >
                     <Icon className="size-4" />
@@ -67,10 +74,11 @@ export function SettingsDialog({
                 ))}
               </div>
             </ResizablePanel>
-            <ResizableHandle withHandle />
+            <ResizableHandle className="bg-transparent hover:bg-accent active:bg-primary/60" />
             <ResizablePanel defaultSize="74%" minSize="50%">
               <div className="h-full w-full overflow-y-auto p-6">
                 {section === "appearance" && <AppearanceSection />}
+                {section === "command-palette" && <CommandPaletteSection />}
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>

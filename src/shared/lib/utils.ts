@@ -16,7 +16,12 @@ export function basename(path: string): string {
 /** Split raw SQL (or console commands) into statement ranges, ignoring `;`
  * inside string literals and `--` / `//` / `/* *&#47;` comments. Offsets are
  * in the input string. `//` is valid JS/console syntax (MongoDB shell); it is
- * never valid SQL, so accepting it here is safe for both. */
+ * never valid SQL, so accepting it here is safe for both. NoSQL console text
+ * with no `;` at all comes back as ONE statement spanning everything —
+ * intentional: this console only runs one query per `;`-delimited chunk, so
+ * several commands typed without a `;` between them ARE meant to be treated
+ * (and, if invalid together, flagged) as a single one — see
+ * `nosql-lint.ts`'s multi-statement check. */
 export function statementRanges(sql: string): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
   let i = 0;

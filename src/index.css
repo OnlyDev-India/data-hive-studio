@@ -152,6 +152,14 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
   }
+  /* No explicit height by default — a plain block just shrinks to its
+     content. The custom title bar (title-bar.tsx) needs #root to actually
+     fill the viewport so it can lay the title bar + app content out as
+     flex siblings instead of the app content claiming the whole viewport
+     on its own via `h-screen` regardless of what's above it. */
+  #root {
+    height: 100%;
+  }
 
   /* Selection highlight: a light wash of the primary color, text keeps its
      own color so it stays readable in both themes. */

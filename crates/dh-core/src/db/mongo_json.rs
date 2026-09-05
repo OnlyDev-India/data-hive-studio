@@ -534,6 +534,63 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Quote unquoted (Mongo-shell-style) object keys so `serde_json::from_str`
+/// accepts relaxed filter/query text like `{name: "test"}` the same way
+/// `mongosh` does. Left untouched inside double-quoted strings. A bare
+/// identifier is only quoted when followed (modulo whitespace) by `:` — the
+/// one position a JS/JSON object key can occur — so it never mistakes a bare
+/// value, `true`/`false`/`null`, or a BSON constructor call for a key.
+pub fn quote_bare_keys(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len() + 8);
+    let mut i = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            let start = i;
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '"' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.extend(chars[start..i.min(chars.len())].iter());
+            continue;
+        }
+        if c.is_alphabetic() || c == '_' || c == '$' {
+            let start = i;
+            let mut j = i;
+            while j < chars.len()
+                && (chars[j].is_alphanumeric() || chars[j] == '_' || chars[j] == '$')
+            {
+                j += 1;
+            }
+            let mut k = j;
+            while k < chars.len() && chars[k].is_whitespace() {
+                k += 1;
+            }
+            if k < chars.len() && chars[k] == ':' {
+                out.push('"');
+                out.extend(chars[start..j].iter());
+                out.push('"');
+            } else {
+                out.extend(chars[start..j].iter());
+            }
+            i = j;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 /// Render a BSON document to MQL extended JSON text.
 pub fn render(doc: &Document) -> String {
     let mut out = String::new();
@@ -709,5 +766,22 @@ mod tests {
         let arr = a.get_array("b").unwrap();
         assert_eq!(arr.len(), 2);
         assert!(matches!(arr[0], Bson::ObjectId(_)));
+    }
+
+    #[test]
+    fn quotes_bare_keys() {
+        assert_eq!(quote_bare_keys(r#"{name:"test"}"#), r#"{"name":"test"}"#);
+        assert_eq!(
+            quote_bare_keys(r#"{ name : "test", age: 5 }"#),
+            r#"{ "name" : "test", "age": 5 }"#
+        );
+        // Already-quoted keys and string contents (incl. a colon inside a
+        // string) are left untouched.
+        assert_eq!(
+            quote_bare_keys(r#"{"a": "b:c", $or: [{x:1}]}"#),
+            r#"{"a": "b:c", "$or": [{"x":1}]}"#
+        );
+        // No trailing `:` — not a key position, must not be quoted.
+        assert_eq!(quote_bare_keys("true"), "true");
     }
 }

@@ -8,6 +8,9 @@ import { TablesBrowser } from "./tables-view";
 
 interface SidebarProps {
   conn_id: string;
+  /** This connection's stable identity — see `stableConnKey` in
+   *  workspace-persistence.ts. Only meaningful in "activity" mode. */
+  conn_key?: string;
   tables: TableInfo[] | null;
   active_table: string | null;
   on_open_table: (name: string) => void;
@@ -19,8 +22,6 @@ interface SidebarProps {
    *  showing the backend-command feed — one persistent sidebar, only its
    *  content switches. */
   mode?: "tables" | "activity";
-  /** Activity mode: X button collapses the left panel slot. */
-  on_activity_close?: () => void;
   /** Activity mode: clicking an entry opens/updates the details tab. */
   on_activity_select?: (entry: ActivityEntry) => void;
 }
@@ -29,6 +30,7 @@ interface SidebarProps {
  *  database browser, landing connections list, or the activity feed. */
 export function Sidebar({
   conn_id,
+  conn_key,
   tables,
   active_table,
   on_open_table,
@@ -36,7 +38,6 @@ export function Sidebar({
   on_refresh,
   reloading = false,
   mode = "tables",
-  on_activity_close,
   on_activity_select,
 }: SidebarProps) {
   const [search, setSearch] = useState("");
@@ -75,7 +76,7 @@ export function Sidebar({
       {mode === "activity" ? (
         <ActivityView
           conn_id={conn_id}
-          on_close={on_activity_close}
+          conn_key={conn_key}
           on_select={on_activity_select}
         />
       ) : show_table_tools ? (
