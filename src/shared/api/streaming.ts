@@ -64,7 +64,8 @@ export async function runSqlStream(
   onChunk?: ChunkSink,
 ): Promise<QueryResult> {
   if (isServerConn(connId) || WEB) {
-    const res = await runSql(connId, sql);
+    // Still the editor's own "Run" — just a different transport.
+    const res = await runSql(connId, sql, "user");
     emitAsChunk(res, onChunk);
     return res;
   }

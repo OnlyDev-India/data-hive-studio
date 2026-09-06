@@ -102,6 +102,7 @@ export function ActivityDetailsTab({
               Statement
             </span>
             <QueryEditor
+              enableWrapping={true}
               value={entry.sql || ""}
               onChange={() => {}}
               onRun={() => {}}
