@@ -515,9 +515,17 @@ export interface StudioStore {
   openStructure: (connId: string, name: string) => void;
   /** `seedFileName`, when given, marks `seedText` as loaded from that real
    *  file (openFileTab) — the tab starts clean (not dirty) and shows this as
-   *  its name, instead of treating the seed as unsaved new work. */
-  openSql: (connId: string, seedText?: string, seedFileName?: string) => void;
-  openNewTable: (connId: string) => void;
+   *  its name, instead of treating the seed as unsaved new work. `paneId`,
+   *  when given, opens (and focuses) that exact pane instead of whichever
+   *  pane is currently focused — used when the action was triggered from a
+   *  specific pane's own tab strip (see `PaneView`'s `LeafPaneView`). */
+  openSql: (
+    connId: string,
+    seedText?: string,
+    seedFileName?: string,
+    paneId?: string,
+  ) => void;
+  openNewTable: (connId: string, paneId?: string) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
   openActivityTab: (connId: string) => void;
   /** Open a MongoDB collection tab (data view). */
@@ -525,12 +533,13 @@ export interface StudioStore {
   /** Open a MongoDB console tab for the given connection & database.
    *  `seedText`, when given, becomes the new console's initial script —
    *  mirrors `openSql`'s seed mechanism (e.g. opening a picked .js file).
-   *  `seedFileName` — see `openSql`'s doc. */
+   *  `seedFileName` — see `openSql`'s doc. `paneId` — see `openSql`'s doc. */
   openMongoConsole: (
     connId: string,
     database: string,
     seedText?: string,
     seedFileName?: string,
+    paneId?: string,
   ) => void;
   /** Select `tab` within pane `paneId`, and focus that pane. */
   selectTab: (connId: string, paneId: string, tab: StudioTab) => void;

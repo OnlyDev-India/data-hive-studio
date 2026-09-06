@@ -5,6 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>dh-studio</title>
+    <style>
+      /* Paints the correct background the instant the HTML parses — before
+       * the real stylesheet (and its `bg-background` rule, index.css) has
+       * loaded, and before React/the splash screen ever mounts. Without
+       * this, the browser's own default (white) shows through for that
+       * gap, which in dev mode (non-render-blocking, JS-injected CSS) is
+       * long enough to see. Values must mirror index.css's `--background`
+       * tokens exactly. */
+      html,
+      body {
+        background: oklch(1 0 0);
+      }
+      html.dark,
+      html.dark body {
+        background: oklch(0.18 0 0);
+      }
+    </style>
     <script>
       // Apply the theme class BEFORE first paint to avoid a white flash on
       // reload. Must mirror readIsDark() in src/shared/theme/theme.tsx.

@@ -101,21 +101,18 @@ jobs:
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - Split view: drag a tab to an edge to split the workspace
-            - Saved connections + query history now persist across restarts (passwords stored in the OS keychain)
-            - "Open with DH Studio" support for `.db`/`.sqlite`/`.sqlite3` files
-            - Disconnect a connection from the Command Palette
-            - MongoDB filters/queries now accept unquoted keys, e.g. `{name: "test"}`
-            - NoSQL console: working autocomplete (fields, `$` operators, `db.aggregate()`) and auto-closing brackets
-            - Running a multi-statement selection now runs every statement, with errors shown inline in the editor
+            - Multiple windows: File → New Window (`Ctrl/Cmd+Shift+N`) opens another independent window sharing the same connections
+            - Startup splash screen while saved connections/workspace state restore, instead of a blank-then-populated flash
+            - Command Palette: theme now has its own section listing all three options (Light/Dark/System) instead of a single toggle
+            - Real-time SQL/NoSQL editor linting: unknown table/collection names, and multi-statement detection when a `;` is missing
 
             **Fixed**
-            - NoSQL console no longer shown for SQL (Postgres/SQLite) connections
-            - SQL editor no longer hidden for MongoDB in the Command Palette
-            - Several split-view bugs: data reloading on split, blank second tab, JSON viewer showing the wrong pane, drag-to-split not working
-            - Crash opening the SQL/NoSQL editor in some cases
-            - Clearing query history now only clears the current connection's history, not all of it
-            - Activity sidebar getting stuck showing after disconnecting
+            - Windows: the native title bar sometimes stayed visible despite the custom one — `tauri-plugin-window-state` was restoring a stale `decorated: true` from before the custom title bar existed
+            - All database connections are now closed gracefully on quit (WAL merge, pool shutdown) instead of being abandoned on process kill — the previous shutdown hook never actually fired
+            - NoSQL console option is now disabled (not just silently wrong) in both the title bar and native menu unless the active connection is MongoDB
+            - Opening a new tab (SQL editor, table, NoSQL console) from a specific split pane's "+" button now opens it in — and focuses — that pane, instead of whichever pane was last focused
+            - JSON viewer no longer double-escapes a JSON value nested inside an arbitrary query result (e.g. `jsonb` columns, or any column with no declared type)
+            - Mongo console commands now show up correctly in the Activity log
 
             Full commit history: ${{ github.sha }}
 

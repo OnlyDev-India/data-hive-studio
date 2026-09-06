@@ -222,7 +222,3 @@
 .json-key span {
   color: var(--info-dark) !important;
 }
-.cm-mongo-error {
-  text-decoration: underline wavy var(--destructive);
-  text-decoration-skip-ink: none;
-}

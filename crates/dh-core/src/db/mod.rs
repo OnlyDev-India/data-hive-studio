@@ -438,6 +438,16 @@ fn activity_rows(r: &QueryResult) -> i64 {
     }
 }
 
+/// Like `activity_rows`, but for a Mongo console result — rows OR documents
+/// carries the returned count depending on which shape the command produced.
+fn activity_rows_mongo(r: &MongoRunResult) -> i64 {
+    if r.is_select {
+        r.rows.len().max(r.documents.len()) as i64
+    } else {
+        r.rows_affected as i64
+    }
+}
+
 /// Render one bound parameter as an inline SQL literal for the activity
 /// log's full-statement view (`VALUES ('O''Brien', 42)` instead of ($1,$2)).
 pub(crate) fn sql_literal(v: Option<&str>) -> String {
@@ -582,16 +592,36 @@ pub async fn insert_document(
 /// Run a MongoDB console command (JSON find/aggregate or a shell-subset
 /// statement) against database `db`. `collection` is the console's current
 /// collection, used only for bare JSON query/pipeline input.
+///
+/// Only ever called from the Mongo console (the editor) — always logged as
+/// user-initiated, same as `run_sql_stream`. A Mongo run can fail two
+/// different ways: the connection/adapter call itself errors (`Err`), or it
+/// succeeds at the transport level but carries a logical failure in
+/// `MongoRunResult::error` (e.g. a bad script) — both need to show up as a
+/// failed activity entry, so the `error` field is checked inside the `Ok`
+/// arm too.
 pub async fn run_mongo(
     conn_id: &str,
     db: &str,
     collection: Option<&str>,
     script: &str,
 ) -> DbResult<MongoRunResult> {
-    with_connection(conn_id, |a| async move {
+    let t = std::time::Instant::now();
+    let res = with_connection(conn_id, |a| async move {
         a.run_mongo(db, collection, script).await
     })
-    .await
+    .await;
+    match &res {
+        Ok(r) if r.error.is_none() => {
+            crate::activity::log_stmt_ok(conn_id, "mongo", script, t, activity_rows_mongo(r))
+        }
+        Ok(r) => {
+            let err = DbError::InvalidOperation(r.error.clone().unwrap_or_default());
+            crate::activity::log_stmt_err(conn_id, "mongo", script, t, &err)
+        }
+        Err(e) => crate::activity::log_stmt_err(conn_id, "mongo", script, t, e),
+    }
+    res
 }
 
 /// Schemas + databases + active schema in ONE catalog round trip.
@@ -602,7 +632,8 @@ pub async fn catalog_overview(conn_id: &str) -> DbResult<CatalogOverview> {
 /// Runs a single-name, no-result operation through `with_connection` and logs
 /// success/failure to the activity log — the shape shared by every simple
 /// server-catalog DDL op below (only the adapter method, activity kind, and
-/// target label text differ per call).
+/// target label text differ per call). All sidebar/schema-designer actions,
+/// never the editor — always logged as app-initiated.
 macro_rules! named_ddl_op {
     ($fn_name:ident, $adapter_method:ident, $kind:literal, $target_fmt:literal) => {
         pub async fn $fn_name(conn_id: &str, name: &str) -> DbResult<()> {
@@ -614,8 +645,8 @@ macro_rules! named_ddl_op {
             })
             .await;
             match &res {
-                Ok(()) => crate::activity::log_ok(conn_id, $kind, &target, t, 0),
-                Err(e) => crate::activity::log_err(conn_id, $kind, &target, t, e),
+                Ok(()) => crate::activity::log_ok_origin(conn_id, $kind, &target, t, 0, "app"),
+                Err(e) => crate::activity::log_err_origin(conn_id, $kind, &target, t, e, "app"),
             }
             res
         }
@@ -629,7 +660,8 @@ named_ddl_op!(create_collection, create_collection, "ddl", "db.createCollection(
 named_ddl_op!(set_active_schema, set_active_schema, "schema", "SET SCHEMA {}");
 named_ddl_op!(refresh_matview, refresh_matview, "ddl", "REFRESH MATERIALIZED VIEW {}");
 
-/// Drop a schema; `cascade` also drops every object inside it.
+/// Drop a schema; `cascade` also drops every object inside it. A
+/// sidebar/schema-designer action, never the editor — app-initiated.
 pub async fn drop_schema(conn_id: &str, name: &str, cascade: bool) -> DbResult<()> {
     let t = std::time::Instant::now();
     let target = format!("DROP SCHEMA {}{}", name, if cascade { " CASCADE" } else { "" });
@@ -639,8 +671,8 @@ pub async fn drop_schema(conn_id: &str, name: &str, cascade: bool) -> DbResult<(
     })
     .await;
     match &res {
-        Ok(()) => crate::activity::log_ok(conn_id, "drop_table", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "drop_table", &target, t, e),
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "drop_table", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "drop_table", &target, t, e, "app"),
     }
     res
 }
@@ -650,42 +682,48 @@ pub async fn active_schema(conn_id: &str) -> DbResult<String> {
     with_connection(conn_id, |a| async move { a.active_schema().await }).await
 }
 
-/// `background` distinguishes an explicit "view schema" from the app's own
-/// prefetching (autocomplete field lists, the sidebar tree warming its
-/// cache) — both call this same function, so the activity log can't tell
-/// them apart from `kind` alone (`kind` is `"schema"` either way).
-pub async fn table_schema(conn_id: &str, table: &str, background: bool) -> DbResult<TableSchema> {
+/// Schema introspection — the Schema tab, the sidebar tree, and autocomplete
+/// prefetching all funnel through here, and none of them are the SQL/Mongo
+/// editor, so this always logs as app-initiated (see `run_sql`/`run_mongo`
+/// for the only "user" sources).
+pub async fn table_schema(conn_id: &str, table: &str) -> DbResult<TableSchema> {
     let t = std::time::Instant::now();
     let target = format!("describe {table}");
     let table = table.to_string();
-    let origin = if background { "app" } else { "user" };
     // The adapter hands back its introspection statements with the schema —
     // per-call ownership, so concurrent describes can't interleave captures.
     let res = with_connection(conn_id, move |a| async move { a.table_schema(&table).await })
         .await;
     match &res {
         Ok((_, stmts)) if !stmts.is_empty() => {
-            crate::activity::log_stmt_ok_origin(conn_id, "schema", &stmts.join("\n\n"), t, 0, origin)
+            crate::activity::log_stmt_ok_origin(conn_id, "schema", &stmts.join("\n\n"), t, 0, "app")
         }
-        Ok(_) => crate::activity::log_ok_origin(conn_id, "schema", &target, t, 0, origin),
-        Err(e) => crate::activity::log_err_origin(conn_id, "schema", &target, t, e, origin),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "schema", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "schema", &target, t, e, "app"),
     }
     res.map(|(schema, _)| schema)
 }
 
-pub async fn run_sql(conn_id: &str, sql: &str) -> DbResult<QueryResult> {
+/// `origin` distinguishes the SQL editor's "Run" (its non-streaming
+/// fallback transport, used over HTTP/web — see `run_sql_stream`'s doc
+/// comment) from every other caller of this same function (the sidebar's
+/// own housekeeping queries, the schema designer's "create table" apply):
+/// only the former is a query the user actually wrote and ran themselves.
+pub async fn run_sql(conn_id: &str, sql: &str, origin: &str) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     // Owned copy for the activity log — the closure below consumes a clone.
     let full_sql = sql.to_string();
     let sql = full_sql.clone();
     let res = with_connection(conn_id, move |a| async move { a.run_sql(&sql).await }).await;
     match &res {
-        Ok(r) => crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, activity_rows(r)),
-        Err(e) => crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, e),
+        Ok(r) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, activity_rows(r), origin),
+        Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, origin),
     }
     res
 }
 
+/// Only ever called for a grid-built DML/DDL statement (never free-form
+/// editor SQL) — always logged as app-initiated.
 pub async fn execute_params(conn_id: &str, sql: &str, params: &[Option<String>]) -> DbResult<u64> {
     let t = std::time::Instant::now();
     let full_sql = sql.to_string();
@@ -695,13 +733,14 @@ pub async fn execute_params(conn_id: &str, sql: &str, params: &[Option<String>])
         with_connection(conn_id, move |a| async move { a.execute_params(&sql, &params).await })
             .await;
     match &res {
-        Ok(n) => crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, *n as i64),
-        Err(e) => crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, e),
+        Ok(n) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, *n as i64, "app"),
+        Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, "app"),
     }
     res
 }
 
-/// Run a SELECT with bound parameters (used by UI-built filters).
+/// Run a SELECT with bound parameters (used by UI-built filters — never the
+/// SQL editor, so always logged as app-initiated).
 pub async fn run_sql_params(
     conn_id: &str,
     sql: &str,
@@ -714,8 +753,8 @@ pub async fn run_sql_params(
     let res = with_connection(conn_id, move |a| async move { a.run_sql_params(&sql, &params).await })
         .await;
     match &res {
-        Ok(r) => crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, activity_rows(r)),
-        Err(e) => crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, e),
+        Ok(r) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, activity_rows(r), "app"),
+        Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, "app"),
     }
     res
 }
@@ -747,6 +786,9 @@ fn op_label(op: &QueryOp) -> (&'static str, String) {
     }
 }
 
+/// The data grid's structured select/count/insert/update/delete actions —
+/// never the SQL editor (which always goes through `run_sql`/
+/// `run_sql_stream` instead) — so always logged as app-initiated.
 pub async fn execute_op(conn_id: &str, op: &QueryOp) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let (kind, target) = op_label(op);
@@ -755,17 +797,18 @@ pub async fn execute_op(conn_id: &str, op: &QueryOp) -> DbResult<QueryResult> {
     match &res {
         Ok(outcome) => match &outcome.sql {
             Some(sql) => {
-                crate::activity::log_stmt_ok(conn_id, kind, sql, t, activity_rows(&outcome.result))
+                crate::activity::log_stmt_ok_origin(conn_id, kind, sql, t, activity_rows(&outcome.result), "app")
             }
-            None => crate::activity::log_ok(
+            None => crate::activity::log_ok_origin(
                 conn_id,
                 kind,
                 &target,
                 t,
                 activity_rows(&outcome.result),
+                "app",
             ),
         },
-        Err(e) => crate::activity::log_err(conn_id, kind, &target, t, e),
+        Err(e) => crate::activity::log_err_origin(conn_id, kind, &target, t, e, "app"),
     }
     res.map(|outcome| outcome.result)
 }
@@ -773,6 +816,7 @@ pub async fn execute_op(conn_id: &str, op: &QueryOp) -> DbResult<QueryResult> {
 /// Streaming variant of [`execute_op`]: SELECT-shaped ops push row batches
 /// through `on_batch` as they arrive; the returned result omits rows (the
 /// caller assembles those from the chunks). Writes never touch the channel.
+/// Same app-initiated origin as `execute_op` — see its doc comment.
 pub async fn execute_op_stream(
     conn_id: &str,
     op: &QueryOp,
@@ -789,17 +833,21 @@ pub async fn execute_op_stream(
     match &res {
         // Streamed rows never land in the result — log 0 and rely on duration.
         Ok(outcome) => match &outcome.sql {
-            Some(sql) => crate::activity::log_stmt_ok(conn_id, kind, sql, t, 0),
-            None => crate::activity::log_ok(conn_id, kind, &target, t, 0),
+            Some(sql) => crate::activity::log_stmt_ok_origin(conn_id, kind, sql, t, 0, "app"),
+            None => crate::activity::log_ok_origin(conn_id, kind, &target, t, 0, "app"),
         },
-        Err(e) => crate::activity::log_err(conn_id, kind, &target, t, e),
+        Err(e) => crate::activity::log_err_origin(conn_id, kind, &target, t, e, "app"),
     }
     res.map(|outcome| outcome.result)
 }
 
 /// Streaming variant of [`run_sql`]: SELECT-shaped statements push row
 /// batches through `on_batch`; the returned result omits rows. Other
-/// statements run normally and never touch the channel.
+/// statements run normally and never touch the channel. Unlike `run_sql`,
+/// this is ONLY ever called from the SQL editor's "Run" (desktop transport;
+/// web/server connections fall back to non-streaming `run_sql` instead — see
+/// `runSqlStream` on the frontend), so it's unconditionally user-initiated,
+/// same as `log_stmt_ok`/`log_stmt_err`'s default below.
 pub async fn run_sql_stream(
     conn_id: &str,
     sql: &str,
@@ -828,7 +876,8 @@ pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {
 /// Duplicate a table/collection under a new name. `copy_data` controls
 /// whether documents are copied too (MongoDB only for now — SQL adapters
 /// always copy structure + indexes + data regardless of this flag, pending
-/// the same UI for SQL tables).
+/// the same UI for SQL tables). A sidebar action, never the editor —
+/// app-initiated.
 pub async fn duplicate_table(
     conn_id: &str,
     source: &str,
@@ -849,17 +898,18 @@ pub async fn duplicate_table(
     match &res {
         // The adapter returns every statement it ran — one entry, its own SQL.
         Ok(stmts) if !stmts.is_empty() => {
-            crate::activity::log_stmt_ok(conn_id, "duplicate", &format!("{};", stmts.join("\n\n")), t, 0)
+            crate::activity::log_stmt_ok_origin(conn_id, "duplicate", &format!("{};", stmts.join("\n\n")), t, 0, "app")
         }
-        Ok(_) => crate::activity::log_ok(conn_id, "duplicate", &label, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "duplicate", &label, t, e),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "duplicate", &label, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "duplicate", &label, t, e, "app"),
     }
     res
 }
 
 /// Apply staged schema (DDL) ops as ONE transaction — all statements commit
 /// together, or a failure on any op rolls the whole batch back. Returns every
-/// statement that ran so the UI can show/copy what happened.
+/// statement that ran so the UI can show/copy what happened. The schema
+/// designer's "Apply" button, never the editor — app-initiated.
 pub async fn apply_schema_ops(conn_id: &str, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
     let t = std::time::Instant::now();
     let target = format!("{} DDL statement(s)", ops.len());
@@ -871,10 +921,10 @@ pub async fn apply_schema_ops(conn_id: &str, ops: &[SchemaOp]) -> DbResult<Vec<S
     match &res {
         // The batch already returns every executed statement — log them all.
         Ok(stmts) if !stmts.is_empty() => {
-            crate::activity::log_stmt_ok(conn_id, "ddl", &format!("{};", stmts.join(";\n")), t, stmts.len() as i64)
+            crate::activity::log_stmt_ok_origin(conn_id, "ddl", &format!("{};", stmts.join(";\n")), t, stmts.len() as i64, "app")
         }
-        Ok(_) => crate::activity::log_ok(conn_id, "ddl", &target, t, 0),
-        Err(e) => crate::activity::log_err(conn_id, "ddl", &target, t, e),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "app"),
     }
     res
 }

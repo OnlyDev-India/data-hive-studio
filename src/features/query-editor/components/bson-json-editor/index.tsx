@@ -6,6 +6,7 @@ import {
   EditorView,
   ViewPlugin,
   showTooltip,
+  tooltips,
   type DecorationSet,
   type Tooltip,
   type ViewUpdate,
@@ -15,6 +16,7 @@ import {
   syntaxHighlighting,
   HighlightStyle,
 } from "@codemirror/language";
+import { linter } from "@codemirror/lint";
 import { tags as t } from "@lezer/highlight";
 import {
   EditorState,
@@ -31,6 +33,17 @@ import {
   type MongoParseError,
 } from "@/shared/lib/mongo-json";
 import { cn } from "@/shared/lib/utils";
+import { inlineDiagnostics } from "../editor/inline-diagnostics";
+import { bsonSyntaxLinter } from "./bson-lint";
+
+// CodeMirror parents lint/hover tooltips inside the editor's own DOM by
+// default, positioned `fixed` — normally viewport-relative, but a
+// `transform` on any ancestor (or, here, the JSON inspector's own
+// `overflow-hidden` modal — json-viewer/index.tsx) clips a tooltip that
+// would otherwise open outside it. Rendering into `document.body`
+// sidesteps that entirely — same fix `editor/index.tsx` already applies
+// for the SQL/Mongo console's own lint tooltips.
+const editorTooltips = tooltips({ parent: document.body });
 
 const CTR_SET = new Set<string>(MONGO_BSON_CONSTRUCTORS);
 
@@ -55,7 +68,6 @@ const bsonHighlightStyle = HighlightStyle.define([
 
 const ctorMark = Decoration.mark({ class: "bson-ctor" });
 const keyMark = Decoration.mark({ class: "json-key" });
-const errorMark = Decoration.mark({ class: "cm-mongo-error" });
 
 /** Mark every quoted object key. The `javascript()` grammar parses these
  *  documents as block/sequence expressions (no PropertyName nodes), so the key
@@ -101,9 +113,12 @@ function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const doc = view.state.doc.toString();
 
-  // Ranges are collected from several passes (key scan, syntax tree, parse
-  // error) and added in a single sorted pass: RangeSetBuilder demands ranges
-  // be supplied with non-decreasing `from` positions.
+  // Ranges are collected from several passes (key scan, syntax tree) and
+  // added in a single sorted pass: RangeSetBuilder demands ranges be
+  // supplied with non-decreasing `from` positions. The parse-error span used
+  // to be marked here too — now handled by `bsonSyntaxLinter` instead, which
+  // gets a real hover message via `@codemirror/lint` instead of a bare
+  // always-on underline.
   const pending: DecorationRange[] = [];
 
   markQuotedKeys(doc, pending);
@@ -121,15 +136,6 @@ function buildDecorations(view: EditorView): DecorationSet {
       }
     },
   });
-
-  const { error } = parseMongoJson(doc);
-  if (error) {
-    const from = Math.min(error.offset, doc.length);
-    let to = doc.indexOf("\n", from);
-    if (to === -1) to = doc.length;
-    if (to <= from) to = Math.min(doc.length, from + 1);
-    pending.push({ from, to, mark: errorMark });
-  }
 
   pending.sort((a, b) => a.from - b.from || a.to - b.to);
   for (const r of pending) builder.add(r.from, r.to, r.mark);
@@ -155,6 +161,37 @@ function bsonDecorator() {
 
 // ---- Read-only hint: a small tooltip at the cursor, shown when the user
 // tries to type into a read-only editor (instead of silently doing nothing).
+function createReadonlyHintDom(): HTMLDivElement {
+  const dom = document.createElement("div");
+  // Own class so the arrow-color override below (readonlyHintArrowTheme)
+  // targets only this tooltip, not every `.cm-tooltip-arrow` in the app —
+  // `create()`'s returned `dom` IS the `.cm-tooltip` element CodeMirror
+  // appends the arrow into, so a class here is enough to scope it.
+  dom.classList.add("dh-readonly-hint");
+  dom.textContent = "Read-only — click the pencil to edit";
+  dom.style.cssText =
+    "padding:4px 8px;border-radius:6px;font-size:11px;" +
+    "background:var(--warning-light);color:var(--warning-dark);" +
+    "border:1px solid var(--warning);white-space:nowrap;";
+  return dom;
+}
+
+/** CodeMirror's own tooltip arrow is hardcoded to the base theme's tooltip
+ *  colors (`#f5f5f5` fill / `#bbb` border) — it has no idea this tooltip
+ *  uses the warning palette instead, so left alone the arrow tip shows as a
+ *  mismatched white sliver. Overridden here to match `createReadonlyHintDom`'s
+ *  own background/border exactly. */
+const readonlyHintArrowTheme = EditorView.baseTheme({
+  ".dh-readonly-hint.cm-tooltip-above .cm-tooltip-arrow": {
+    "&:before": { borderTopColor: "var(--warning)" },
+    "&:after": { borderTopColor: "var(--warning-light)" },
+  },
+  ".dh-readonly-hint.cm-tooltip-below .cm-tooltip-arrow": {
+    "&:before": { borderBottomColor: "var(--warning)" },
+    "&:after": { borderBottomColor: "var(--warning-light)" },
+  },
+});
+
 const setReadonlyHint = StateEffect.define<number | null>();
 
 const readonlyHintField = StateField.define<Tooltip | null>({
@@ -168,15 +205,7 @@ const readonlyHintField = StateField.define<Tooltip | null>({
           above: true,
           strictSide: true,
           arrow: true,
-          create: () => {
-            const dom = document.createElement("div");
-            dom.textContent = "Read-only — click the pencil to edit";
-            dom.style.cssText =
-              "padding:4px 8px;border-radius:6px;font-size:11px;" +
-              "background:var(--warning-light);color:var(--warning-dark);" +
-              "border:1px solid var(--warning);white-space:nowrap;";
-            return { dom };
-          },
+          create: () => ({ dom: createReadonlyHintDom() }),
         };
       }
     }
@@ -290,6 +319,14 @@ export function BsonEditor({
               { autocomplete: constructorCompletions },
             ])),
         readonlyHint(readOnly, onReadonlyClick),
+        readonlyHintArrowTheme,
+        // Real-time syntax linting (see bson-lint.ts) — skipped read-only,
+        // same reasoning as the SQL/Mongo console editor: nothing to type,
+        // nothing to fix, so it'd only ever flag already-saved, unchangeable
+        // content as an error.
+        ...(readOnly
+          ? []
+          : [editorTooltips, linter(bsonSyntaxLinter()), inlineDiagnostics]),
         ...(extraExtensions ?? []),
       ];
     },

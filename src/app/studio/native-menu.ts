@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { WEB } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
 import { pickSqlFile } from "@/shared/lib/platform";
@@ -9,6 +10,10 @@ import { activeConn, openMongoDatabaseAndConsole } from "./command-palette-items
 export function handleMenuAction(id: string) {
   const s = useStudioStore.getState();
   switch (id) {
+    case "file.new_window": {
+      void invoke("open_new_window");
+      break;
+    }
     case "file.new_sql": {
       const conn = activeConn();
       if (conn) s.openSql(conn.id);
@@ -68,13 +73,13 @@ export function handleMenuAction(id: string) {
 
 /** Keeps the native File menu's connection-only items (New SQL Editor, New
  *  Table, New NoSQL Console, Open File…) enabled only while a connection's
- *  workspace is actually showing, not on the Home screen — see
+ *  workspace is actually showing, not on the Home screen; New NoSQL Console
+ *  additionally needs `isNoSql` (the active connection is MongoDB) — see
  *  `set_menu_context` in `src-tauri/src/app_menu.rs`. */
-export async function syncMenuContext(hasConnection: boolean) {
+export async function syncMenuContext(hasConnection: boolean, isNoSql: boolean) {
   if (WEB) return;
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("set_menu_context", { hasConnection });
+    await invoke("set_menu_context", { hasConnection, isNoSql });
   } catch {
     /* backend not ready yet */
   }
