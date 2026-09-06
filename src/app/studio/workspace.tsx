@@ -8,7 +8,6 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence } from "motion/react";
 import { Loader2 } from "lucide-react";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
@@ -151,6 +150,21 @@ export default function Workspace({
   const openLeftPanel = useStudioStore((s) => s.openLeftPanel);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
   const rightSidebarOpen = useStudioStore((s) => s.rightSidebarOpen);
+  // Mounted lazily on first open, then kept mounted for the rest of this
+  // workspace's lifetime — JsonViewer reads `rightSidebarOpen` itself and
+  // toggles its own internal AnimatePresence/motion.aside, rather than this
+  // component tearing the whole thing down and rebuilding it every close.
+  // (Rebuilding it broke the shared-layout ("Open in dialog") transition:
+  // reopening left the panel stuck at its exit-animation values since there
+  // was no longer a "from" element for framer to animate against.)
+  //
+  // Set during render, not an effect — React's documented pattern for
+  // deriving state from a prop/store value change (react.dev: "storing
+  // information from previous renders"). Safe from re-render loops: the
+  // `!jsonPanelMounted` guard means this can only ever fire once, the
+  // transition false→true.
+  const [jsonPanelMounted, setJsonPanelMounted] = useState(rightSidebarOpen);
+  if (rightSidebarOpen && !jsonPanelMounted) setJsonPanelMounted(true);
   const openActivityTab = useStudioStore((s) => s.openActivityTab);
   const setActivityDetail = useStudioStore((s) => s.setActivityDetail);
 
@@ -194,16 +208,24 @@ export default function Workspace({
     },
     [open_table, conn_id],
   );
-  const openNewSql = useCallback(() => open_sql(conn_id), [open_sql, conn_id]);
+  // Every one of these takes an optional `paneId` — absent (e.g. the
+  // ActivityBar's "New SQL"/"New Table" buttons below) it falls back to
+  // whichever pane is currently focused, same as before; given (a specific
+  // pane's own "+" button — see PaneView's LeafPaneView) it opens into, and
+  // focuses, THAT pane instead.
+  const openNewSql = useCallback(
+    (paneId?: string) => open_sql(conn_id, undefined, undefined, paneId),
+    [open_sql, conn_id],
+  );
   const openNewTableTab = useCallback(
-    () => open_new_table(conn_id),
+    (paneId?: string) => open_new_table(conn_id, paneId),
     [open_new_table, conn_id],
   );
   /** Opens (or focuses a fresh) Mongo console tab. `seedText`, when given,
    *  becomes the console's initial script — used by openFileTab for a picked
    *  .js file. `seedFileName` marks it as already-saved to that file. */
   const openMongoConsoleTab = useCallback(
-    (seedText?: string, seedFileName?: string) => {
+    (seedText?: string, seedFileName?: string, paneId?: string) => {
       void (async () => {
         const s = useStudioStore.getState();
         let database = s.recentParams[conn_id]?.database ?? "";
@@ -215,7 +237,7 @@ export default function Workspace({
             /* console still opens — `use <db>` sets context */
           }
         }
-        open_mongo_console(conn_id, database, seedText, seedFileName);
+        open_mongo_console(conn_id, database, seedText, seedFileName, paneId);
       })();
     },
     [open_mongo_console, conn_id],
@@ -224,25 +246,28 @@ export default function Workspace({
   // pickSqlFile()'s own dialog filter already accepts both extensions. Either
   // way the tab starts clean (not dirty) and shows the file's name, since
   // this is exactly what's on disk — nothing to save yet.
-  const openFileTab = useCallback(() => {
-    void (async () => {
-      try {
-        const file = await pickSqlFile();
-        if (!file) return;
-        if (file.name.toLowerCase().endsWith(".js")) {
-          openMongoConsoleTab(file.text, file.name);
-        } else {
-          open_sql(conn_id, file.text, file.name);
+  const openFileTab = useCallback(
+    (paneId?: string) => {
+      void (async () => {
+        try {
+          const file = await pickSqlFile();
+          if (!file) return;
+          if (file.name.toLowerCase().endsWith(".js")) {
+            openMongoConsoleTab(file.text, file.name, paneId);
+          } else {
+            open_sql(conn_id, file.text, file.name, paneId);
+          }
+        } catch (e) {
+          useStudioStore.getState().pushNotification({
+            kind: "error",
+            title: "Could not open file",
+            detail: String(e),
+          });
         }
-      } catch (e) {
-        useStudioStore.getState().pushNotification({
-          kind: "error",
-          title: "Could not open file",
-          detail: String(e),
-        });
-      }
-    })();
-  }, [open_sql, conn_id, openMongoConsoleTab]);
+      })();
+    },
+    [open_sql, conn_id, openMongoConsoleTab],
+  );
   // ---- Close guard -------------------------------------------------------
   // A tab is "dirty" when it holds unapplied work: schema drafts, unsaved
   // grid row edits, or an unfinished new-table definition. Closing such tabs
@@ -464,16 +489,14 @@ export default function Workspace({
               )}
             </div>
           </div>
-          <AnimatePresence initial={false}>
-            {rightSidebarOpen && (
-              <Suspense fallback={null}>
-                <JsonViewer
-                  conn_id={conn_id}
-                  tab_key={active ? tabKey(active) : null}
-                />
-              </Suspense>
-            )}
-          </AnimatePresence>
+          {jsonPanelMounted && (
+            <Suspense fallback={null}>
+              <JsonViewer
+                conn_id={conn_id}
+                tab_key={active ? tabKey(active) : null}
+              />
+            </Suspense>
+          )}
         </div>
       </div>
 
@@ -630,10 +653,10 @@ function WorkspaceContent({
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
-  on_new_sql: () => void;
-  on_new_table: () => void;
-  on_new_mongo_console: () => void;
-  on_open_file: () => void;
+  on_new_sql: (paneId?: string) => void;
+  on_new_table: (paneId?: string) => void;
+  on_new_mongo_console: (seedText?: string, seedFileName?: string, paneId?: string) => void;
+  on_open_file: (paneId?: string) => void;
 }) {
   // Persistent per-TAB portal targets, created eagerly (synchronously, on
   // first access — not gated on any render/ref-callback round trip) so a
@@ -722,7 +745,12 @@ function WorkspaceContent({
         on_close_to_right={on_close_to_right}
         on_new_sql={on_new_sql}
         on_new_table={on_new_table}
-        on_new_mongo_console={on_new_mongo_console}
+        // `on_new_mongo_console` takes optional seed args before its
+        // trailing `paneId` (see `openMongoConsoleTab`) — `PaneView` only
+        // ever passes a pane id, so adapt it to a single-arg call here.
+        on_new_mongo_console={(paneId) =>
+          on_new_mongo_console(undefined, undefined, paneId)
+        }
         on_open_file={on_open_file}
       />
       <DragGhost />

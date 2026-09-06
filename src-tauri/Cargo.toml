@@ -1,6 +1,6 @@
 [package]
 name = "dh-studio"
-version = "0.2.0"
+version = "0.3.0"
 description = "DH Studio — a native desktop client for SQLite, PostgreSQL, and MongoDB"
 authors = ["you"]
 license = ""
@@ -28,3 +28,12 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2.4.1"
+
+# Windows only: simulates the native Win+Z shortcut so hovering our custom
+# maximize button shows the real Snap Layout flyout (see
+# `show_snap_overlay` in commands.rs) — decorations:false on Windows means
+# there's no native maximize caption button for the DWM shell to hook hover
+# detection onto, so this is the same trick tauri-plugin-decorum uses
+# internally, without pulling in that plugin's own titlebar DOM/CSS.
+[target.'cfg(target_os = "windows")'.dependencies]
+enigo = "0.6"

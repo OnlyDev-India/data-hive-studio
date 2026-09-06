@@ -31,6 +31,10 @@ export const TITLE_BAR_MENUS: MenuDef[] = [
   {
     label: "File",
     items: [
+      // Opening another window doesn't need a connection — unlike every
+      // other item here, not `requiresConnection`.
+      { id: "file.new_window", label: "New Window", accel: "Ctrl+Shift+N" },
+      { separator: true },
       {
         id: "file.new_sql",
         label: "New SQL Editor",
