@@ -45,10 +45,13 @@ export interface PaneViewSharedProps {
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
-  on_new_sql: () => void;
-  on_new_table: () => void;
-  on_new_mongo_console: () => void;
-  on_open_file: () => void;
+  /** Each takes the id of the pane the action was triggered from — a leaf
+   *  binds its own `node.id` (see `LeafPaneView`) so a new tab opens into
+   *  (and focuses) THAT pane, not whichever pane last had focus. */
+  on_new_sql: (paneId: string) => void;
+  on_new_table: (paneId: string) => void;
+  on_new_mongo_console: (paneId: string) => void;
+  on_open_file: (paneId: string) => void;
 }
 
 /** Recursively renders a connection's split-view pane tree: nested
@@ -171,10 +174,10 @@ function LeafPaneView({
         on_close_all={on_close_all}
         on_close_to_left={on_close_to_left}
         on_close_to_right={on_close_to_right}
-        on_new_sql={on_new_sql}
-        on_new_table={on_new_table}
-        on_new_mongo_console={on_new_mongo_console}
-        on_open_file={on_open_file}
+        on_new_sql={() => on_new_sql(node.id)}
+        on_new_table={() => on_new_table(node.id)}
+        on_new_mongo_console={() => on_new_mongo_console(node.id)}
+        on_open_file={() => on_open_file(node.id)}
         on_split_right={(tab) => splitPane(connId, node.id, tab, "right")}
         on_split_down={(tab) => splitPane(connId, node.id, tab, "bottom")}
       />

@@ -40,19 +40,26 @@ const putWs = (
   next: WorkspaceTabs,
 ): Record<string, WorkspaceTabs> => ({ ...workspaces, [connId]: next });
 
-/** Insert `tab` (already added to `cur.tabs`) into the currently-focused
- *  pane, making it that pane's — and the workspace's — active tab. Every
+/** Insert `tab` (already added to `cur.tabs`) into `paneId` if given and
+ *  still a real leaf, otherwise the currently-focused pane, making it that
+ *  pane's — and the workspace's — active tab, and focusing it. Every
  *  `open*` action funnels through this so new tabs land in whichever pane
- *  the user most recently interacted with. Falls back to the first leaf if
- *  `focusedPaneId` is somehow stale. */
+ *  the user actually triggered the action from (an explicit `paneId`, e.g.
+ *  a specific pane's own "+" button — see `PaneView`'s `LeafPaneView`) or,
+ *  absent that, whichever pane was most recently interacted with. Falls
+ *  back to the first leaf if neither is a real leaf (stale id). */
 function addTabToFocusedPane(
   cur: WorkspaceTabs,
   tab: StudioTab,
+  paneId?: string,
 ): WorkspaceTabs {
   const key = tabKey(tab);
-  const focusedId = findLeaf(cur.layout, cur.focusedPaneId)
-    ? cur.focusedPaneId
-    : (allLeaves(cur.layout)[0]?.id ?? cur.focusedPaneId);
+  const requested = paneId && findLeaf(cur.layout, paneId) ? paneId : undefined;
+  const focusedId =
+    requested ??
+    (findLeaf(cur.layout, cur.focusedPaneId)
+      ? cur.focusedPaneId
+      : (allLeaves(cur.layout)[0]?.id ?? cur.focusedPaneId));
   return {
     ...cur,
     layout: addKeyToLeaf(cur.layout, focusedId, key),
@@ -225,7 +232,12 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
-    openSql(connId: string, seedText?: string, seedFileName?: string) {
+    openSql(
+      connId: string,
+      seedText?: string,
+      seedFileName?: string,
+      paneId?: string,
+    ) {
       set((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = { kind: "sql", id: cur.nextSqlId };
@@ -236,6 +248,7 @@ export function workspaceActions(set: SetState) {
             nextSqlId: cur.nextSqlId + 1,
           },
           tab,
+          paneId,
         );
         return {
           workspaces: putWs(state.workspaces, connId, next),
@@ -284,7 +297,7 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
-    openNewTable(connId: string) {
+    openNewTable(connId: string, paneId?: string) {
       set((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = { kind: "new-table", id: cur.nextNewTableId };
@@ -299,6 +312,7 @@ export function workspaceActions(set: SetState) {
                 nextNewTableId: cur.nextNewTableId + 1,
               },
               tab,
+              paneId,
             ),
           ),
         };
@@ -311,6 +325,7 @@ export function workspaceActions(set: SetState) {
       database: string,
       seedText?: string,
       seedFileName?: string,
+      paneId?: string,
     ) {
       set((state) => {
         const cur = getWs(state.workspaces, connId);
@@ -327,6 +342,7 @@ export function workspaceActions(set: SetState) {
             nextMongoTabId: cur.nextMongoTabId + 1,
           },
           tab,
+          paneId,
         );
         return {
           workspaces: putWs(state.workspaces, connId, next),

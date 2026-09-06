@@ -2,7 +2,6 @@
 //! re-exports keep `crate::api` / `crate::db` / `crate::activity` paths in
 //! `commands.rs` valid.
 
-use tauri::Listener;
 // Only used by the macOS-only native-menu setup below (`app.manage(...)`) —
 // Windows/Linux never call a `Manager` method, so an unconditional import
 // warns as unused on those targets.
@@ -21,7 +20,21 @@ pub mod workspace_state;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
-    .plugin(tauri_plugin_window_state::Builder::default().build())
+    // `Builder::default()`'s `StateFlags` include DECORATIONS, which
+    // restores a saved `decorated` value on top of the window AFTER it's
+    // created — silently overriding `decorations: false` from
+    // tauri.windows.conf.json / tauri.linux.conf.json with whatever was
+    // last saved (e.g. `true`, from before the custom title bar existed).
+    // Decorations here are static per platform, never toggled at runtime,
+    // so this plugin has no business tracking or restoring that field.
+    .plugin(
+      tauri_plugin_window_state::Builder::default()
+        .with_state_flags(
+          tauri_plugin_window_state::StateFlags::all()
+            & !tauri_plugin_window_state::StateFlags::DECORATIONS,
+        )
+        .build(),
+    )
     .on_menu_event(|app_handle, event| {
       use tauri::Emitter;
       let _ = app_handle.emit("menu-action", event.id().as_ref());
@@ -70,15 +83,6 @@ pub fn run() {
         activity_store::persist(&handle);
       }));
 
-      // Gracefully close all database pools on app shutdown.
-      let app_handle = app.handle().clone();
-      app.listen("tauri://close-requested", move |_| {
-        let h = app_handle.clone();
-        tauri::async_runtime::spawn(async move {
-          db::close_all().await;
-          h.exit(0);
-        });
-      });
       // Visible proof of which backend build is running — bump Cargo.toml
       // version when touching backend behavior so staleness is detectable.
       println!(
@@ -140,6 +144,8 @@ pub fn run() {
       commands::apply_schema_ops,
       commands::read_file,
       commands::write_file,
+      commands::show_snap_overlay,
+      commands::open_new_window,
       local_connections::list_local_connections,
       local_connections::save_local_connection,
       local_connections::update_local_connection,
@@ -191,22 +197,44 @@ pub fn run() {
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|_app_handle, _event| {
+    .run(|app_handle, event| {
       // macOS (any start) and a warm second-open on any platform: the OS
       // hands us the file via this event instead of argv. Buffer it the
       // same way as the argv case (file_open::check_argv) and also emit a
       // live event for the (already-running) frontend to pick up right
       // away. `RunEvent::Opened` only exists on macOS/iOS/Android —
       // Windows/Linux deliver the file path via argv instead (see
-      // `file_open::check_argv` above), leaving both closure params unused
-      // there.
+      // `file_open::check_argv` above).
       #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
-      if let tauri::RunEvent::Opened { urls } = _event {
+      if let tauri::RunEvent::Opened { urls } = &event {
         if let Some(path) = urls.first().and_then(|u| u.to_file_path().ok()) {
           let path = path.to_string_lossy().to_string();
           file_open::set_pending(path.clone());
           use tauri::Emitter;
-          let _ = _app_handle.emit("file-associations://open", path);
+          let _ = app_handle.emit("file-associations://open", path);
+        }
+      }
+
+      // Gracefully close every open database connection (PG pools, SQLite
+      // WAL merge…) before the app actually quits, instead of leaving them
+      // to a bare process kill. Multi-window aware: `ExitRequested` only
+      // fires once, when the app as a whole is really about to exit (e.g.
+      // the last window closed, or Cmd+Q) — not per-window, so closing one
+      // of several open windows doesn't tear down connections the others
+      // still need. `close_all` is async, so the exit is deferred
+      // (`prevent_exit`) until it finishes, then `exit(0)` — which itself
+      // re-fires `ExitRequested`; `EXITING` stops that second pass from
+      // spawning another cleanup and deferring forever.
+      if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static EXITING: AtomicBool = AtomicBool::new(false);
+        if !EXITING.swap(true, Ordering::SeqCst) {
+          api.prevent_exit();
+          let handle = app_handle.clone();
+          tauri::async_runtime::spawn(async move {
+            db::close_all().await;
+            handle.exit(0);
+          });
         }
       }
     });

@@ -25,24 +25,31 @@ pub struct FileMenuItems<R: Runtime> {
 }
 
 impl<R: Runtime> FileMenuItems<R> {
-    fn set_enabled(&self, enabled: bool) -> tauri::Result<()> {
-        self.new_sql.set_enabled(enabled)?;
-        self.new_table.set_enabled(enabled)?;
-        self.new_mongo_console.set_enabled(enabled)?;
-        self.open_file.set_enabled(enabled)?;
+    fn set_enabled(&self, has_connection: bool, is_no_sql: bool) -> tauri::Result<()> {
+        self.new_sql.set_enabled(has_connection)?;
+        self.new_table.set_enabled(has_connection)?;
+        // NoSQL console only makes sense against a MongoDB connection — an
+        // extra gate on top of `has_connection`, matching the same check the
+        // custom Windows/Linux title bar and command palette already apply.
+        self.new_mongo_console.set_enabled(has_connection && is_no_sql)?;
+        self.open_file.set_enabled(has_connection)?;
         Ok(())
     }
 }
 
 /// Enable/disable the connection-only File-menu items — called by the
 /// frontend whenever it switches between the Home screen and a connection's
-/// workspace (see `native-menu.ts`).
+/// workspace, or between connections of different kinds (see
+/// `native-menu.ts`).
 #[tauri::command]
 pub fn set_menu_context(
     state: tauri::State<FileMenuItems<tauri::Wry>>,
     has_connection: bool,
+    is_no_sql: bool,
 ) -> Result<(), String> {
-    state.set_enabled(has_connection).map_err(|e| e.to_string())
+    state
+        .set_enabled(has_connection, is_no_sql)
+        .map_err(|e| e.to_string())
 }
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<(Menu<R>, FileMenuItems<R>)> {
@@ -52,6 +59,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<(Menu<R>, FileMenu
         version: Some(pkg_info.version.to_string()),
         ..Default::default()
     };
+
+    // Always enabled — opening another window doesn't need a connection
+    // (see `open_new_window` in commands.rs).
+    let new_window = MenuItem::with_id(
+        app,
+        "file.new_window",
+        "New Window",
+        true,
+        Some("CmdOrCtrl+Shift+N"),
+    )?;
 
     // Disabled by default — nothing's open until the frontend's first
     // `set_menu_context(true)` call once a connection is active.
@@ -72,6 +89,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<(Menu<R>, FileMenu
         "File",
         true,
         &[
+            &new_window,
+            &PredefinedMenuItem::separator(app)?,
             &new_sql,
             &new_table,
             &new_mongo_console,

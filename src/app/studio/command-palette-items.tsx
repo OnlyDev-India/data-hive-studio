@@ -3,6 +3,7 @@ import {
   Code,
   History,
   House,
+  Monitor,
   Moon,
   Plug,
   SlidersHorizontal,
@@ -19,6 +20,7 @@ import {
   useStudioStore,
   type PaletteKeywords,
 } from "@/shared/store";
+import type { ThemeMode } from "@/shared/theme/theme";
 import { TabTypeIcon } from "@/shared/components/tab-type-icon";
 import { DBIcons } from "@/shared/components/icons/types";
 import type { TableInfo } from "@/shared/api";
@@ -165,10 +167,10 @@ async function openMongoCollectionSchema(connId: string, name: string) {
 }
 
 /** `>` mode — the app-level command list (unchanged behavior/commands),
- *  plus a theme toggle. */
+ *  plus a "Theme" section listing all three modes explicitly. */
 export function buildCommandItems(theme: {
-  toggle: () => void;
-  dark: boolean;
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
 }): PaletteItem[] {
   const s = useStudioStore.getState();
   const list: PaletteItem[] = [];
@@ -252,17 +254,21 @@ export function buildCommandItems(theme: {
     });
   }
 
-  list.push({
-    id: "theme.toggle",
-    label: "Toggle dark/light mode",
-    hint: theme.dark ? "Switch to light theme" : "Switch to dark theme",
-    icon: theme.dark ? (
-      <Sun className="size-4" />
-    ) : (
-      <Moon className="size-4" />
-    ),
-    run: theme.toggle,
-  });
+  const theme_options: { id: ThemeMode; label: string; icon: ReactNode }[] = [
+    { id: "light", label: "Light", icon: <Sun className="size-4" /> },
+    { id: "dark", label: "Dark", icon: <Moon className="size-4" /> },
+    { id: "system", label: "System", icon: <Monitor className="size-4" /> },
+  ];
+  for (const opt of theme_options) {
+    list.push({
+      id: `theme.${opt.id}`,
+      label: opt.label,
+      section: "Theme",
+      scope: theme.mode === opt.id ? "Current" : undefined,
+      icon: opt.icon,
+      run: () => theme.setMode(opt.id),
+    });
+  }
 
   return list;
 }

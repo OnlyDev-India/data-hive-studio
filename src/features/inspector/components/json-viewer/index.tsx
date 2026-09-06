@@ -86,6 +86,16 @@ export function JsonViewer({
   const jsonRow = useStudioStore((s) =>
     tab_key ? s.jsonRows[`${conn_id}\u0000${tab_key}`] ?? null : null,
   );
+  // Read directly rather than relying on the host (workspace.tsx) to
+  // mount/unmount this whole component per toggle — this component (and its
+  // `motion.aside`'s `layoutId="json-panel"` shared-layout transition with
+  // the dialog below) needs to stay mounted continuously for its own
+  // AnimatePresence to animate cleanly; tearing the whole tree down and
+  // rebuilding it on every close/reopen left the reopened panel stuck at
+  // its exit-animation values (opacity: 0, pointer-events: none) since
+  // there was no longer a "from" element for the shared layout animation to
+  // resolve against.
+  const open = useStudioStore((s) => s.rightSidebarOpen);
   const width = useStudioStore((s) => s.rightSidebarWidth);
   const setWidth = useStudioStore((s) => s.setRightSidebarWidth);
   const close = useStudioStore((s) => s.setRightSidebarOpen);
@@ -384,7 +394,7 @@ export function JsonViewer({
 
   return (
     <AnimatePresence>
-      {!dialogOpen && (
+      {open && !dialogOpen && (
         <motion.aside
           key="json-sidebar"
           layoutId="json-panel"
@@ -434,7 +444,7 @@ export function JsonViewer({
           />
         </motion.aside>
       )}
-      {dialogOpen && jsonRow && (
+      {open && dialogOpen && jsonRow && (
         <motion.div
           key="json-dialog"
           className="fixed inset-0 z-100 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm"

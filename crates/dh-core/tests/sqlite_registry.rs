@@ -16,7 +16,7 @@ async fn fresh_database_has_no_tables() {
 #[tokio::test]
 async fn created_table_is_visible_via_list_tables() {
     let conn_id = temp_sqlite_conn().await;
-    dh_core::db::run_sql(&conn_id, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)")
+    dh_core::db::run_sql(&conn_id, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT)", "app")
         .await
         .unwrap();
 

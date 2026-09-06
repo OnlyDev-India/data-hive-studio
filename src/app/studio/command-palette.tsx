@@ -164,7 +164,7 @@ export function CommandPalette() {
     if (!open) return [];
     switch (mode) {
       case "commands":
-        return buildCommandItems({ toggle: theme.toggle, dark: theme.dark });
+        return buildCommandItems({ mode: theme.mode, setMode: theme.setMode });
       case "schema-open":
         return buildSchemaOpenItems(tables, tablesLoading);
       case "tables-only":
@@ -178,7 +178,7 @@ export function CommandPalette() {
       case "quick-open":
         return buildQuickOpenItems(tables, tablesLoading, paletteKeywords);
     }
-  }, [open, mode, tables, tablesLoading, theme.toggle, theme.dark, paletteKeywords]);
+  }, [open, mode, tables, tablesLoading, theme.mode, theme.setMode, paletteKeywords]);
 
   const filtered = useMemo(() => {
     const q = rest.trim().toLowerCase();

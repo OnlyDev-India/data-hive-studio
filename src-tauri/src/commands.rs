@@ -209,22 +209,20 @@ forward_cmd! {
     refresh_matview(conn_id: String, name: String) -> () => refresh_matview
 }
 
-/// Fetch the schema (columns, FKs, indexes) for a table. `background` tags
-/// the activity-log entry as app- vs user-initiated — hand-written (not
-/// `forward_cmd!`) since that macro forwards every argument by reference,
-/// which doesn't fit a plain `bool`.
-#[tauri::command]
-pub async fn table_schema(
-    conn_id: String,
-    table: String,
-    background: bool,
-) -> Result<TableSchema, String> {
-    crate::db::table_schema(&conn_id, &table, background).await.map_err(to_err)
+forward_cmd! {
+    /// Fetch the schema (columns, FKs, indexes) for a table.
+    table_schema(conn_id: String, table: String) -> TableSchema => table_schema
 }
 
-forward_cmd! {
-    /// Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
-    run_sql(conn_id: String, sql: String) -> QueryResult => run_sql
+/// Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
+/// `origin` tags the activity-log entry as user- vs app-initiated (only the
+/// SQL editor's own non-streaming fallback passes "user" — see
+/// `crate::db::run_sql`'s doc comment) — hand-written (not `forward_cmd!`)
+/// since that macro forwards every argument by reference, which doesn't fit
+/// a plain `&str`/`String` origin tag cleanly alongside it.
+#[tauri::command]
+pub async fn run_sql(conn_id: String, sql: String, origin: String) -> Result<QueryResult, String> {
+    crate::db::run_sql(&conn_id, &sql, &origin).await.map_err(to_err)
 }
 
 forward_cmd! {
@@ -315,4 +313,75 @@ pub fn read_file(path: String) -> Result<Vec<u8>, String> {
 #[tauri::command]
 pub fn write_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
     std::fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
+/// Open a brand-new, independent app window (File → New Window). Each window
+/// is its own webview with its own frontend state (open tabs, active
+/// connection…) — like a new browser window, not a duplicate of the current
+/// one — but they all talk to the same backend, so connections opened in one
+/// are reusable from another. Mirrors the main window's chrome (custom
+/// title bar on Windows/Linux via `decorations(false)`, native overlay title
+/// bar on macOS) since this is built at runtime rather than from
+/// `tauri.conf.json`, which only configures the window(s) present at
+/// startup. Must stay `async` — building a window synchronously from a
+/// command deadlocks on Windows (see `WebviewWindowBuilder::new`'s docs).
+#[tauri::command]
+pub async fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+    let label = format!("window-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+
+    #[allow(unused_mut)]
+    let mut builder =
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+            .title("DH Studio")
+            .inner_size(800.0, 600.0)
+            .resizable(true);
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        builder = builder.decorations(false);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    builder.build().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Show Windows 11's native Snap Layout flyout, called when the pointer
+/// enters our custom-drawn maximize button (see `title-bar.tsx`). We run
+/// with `decorations: false` on Windows (custom title bar, like every
+/// platform here), so there's no real native maximize caption button for
+/// the DWM shell to hover-detect on its own. Rather than reimplementing
+/// DWM's window-chrome/hit-testing machinery, this simulates the OS's own
+/// Win+Z shortcut — the same trick `tauri-plugin-decorum` uses internally —
+/// which pops the identical flyout without touching window decorations at
+/// all. The trailing Alt tap clears the ghost keyboard-focus rectangle Win+Z
+/// leaves on the taskbar/desktop afterward.
+#[tauri::command]
+pub fn show_snap_overlay() {
+    #[cfg(target_os = "windows")]
+    {
+        use enigo::{
+            Direction::{Click, Press, Release},
+            Enigo, Key, Keyboard, Settings,
+        };
+        std::thread::spawn(|| {
+            let Ok(mut enigo) = Enigo::new(&Settings::default()) else {
+                return;
+            };
+            let _ = enigo.key(Key::Meta, Press);
+            let _ = enigo.key(Key::Unicode('z'), Click);
+            let _ = enigo.key(Key::Meta, Release);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _ = enigo.key(Key::Alt, Click);
+        });
+    }
 }
