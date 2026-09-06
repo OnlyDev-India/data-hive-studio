@@ -347,15 +347,12 @@ export async function getActiveSchema(connId: string): Promise<string> {
 }
 
 /** Fetch the schema (columns, FKs, indexes) for a table. Concurrent calls
- *  for the same table share one round trip (StrictMode / multi-tab effects). */
-/** `background`: true for the app's own prefetching (autocomplete field
- *  lists, cache warming) so the activity log tags it "app" instead of
- *  "user" — pass true only when the user didn't explicitly ask to see this
- *  table's schema (e.g. opening a Schema tab is a `false`/omitted call). */
+ *  for the same table share one round trip (StrictMode / multi-tab effects).
+ *  Never the SQL/Mongo editor, so the backend always logs this as an
+ *  app-initiated activity entry — see `crate::db::table_schema`. */
 export function tableSchema(
   connId: string,
   table: string,
-  background = false,
 ): Promise<TableSchema> {
   return dedupe(`schema:${connId} ${table}`, () =>
     dispatchDbCall<TableSchema>(connId, {
@@ -364,7 +361,7 @@ export function tableSchema(
         `/v1/c/${encodeURIComponent(id)}/schema/${encodeURIComponent(table)}`,
       serverCmd: "server_table_schema",
       localCmd: "table_schema",
-      args: { connId, table, background },
+      args: { connId, table },
     }),
   );
 }

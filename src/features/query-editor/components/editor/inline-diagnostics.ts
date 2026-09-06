@@ -95,7 +95,20 @@ const inlineDiagnosticsTheme = EditorView.baseTheme({
     fontStyle: "italic",
     fontSize: "0.85em",
     pointerEvents: "none",
-    whiteSpace: "pre",
+    display: "inline !important",
+    // `pre-wrap` (not `pre`) so this widget wraps along with the rest of
+    // the line when the editor has `EditorView.lineWrapping` enabled —
+    // `pre` forced it to always overflow past the visible width instead.
+    // `!important`: CodeMirror's own base theme sets `.cm-content`'s
+    // white-space (`pre`, or `break-spaces` when wrapping) at the same
+    // `baseTheme` precedence tier as this rule, and while a directly-set
+    // property normally beats an inherited one regardless, forcing it here
+    // removes any doubt. No effect when wrapping is off: without a bounded
+    // line width there's nowhere for either the code or this text to break
+    // anyway.
+    whiteSpace: "pre-wrap !important",
+    wordBreak: "break-word !important",
+    overflowWrap: "anywhere !important",
   },
   ".cm-inline-diagnostic-error": { color: "var(--destructive)" },
   ".cm-inline-diagnostic-warning": { color: "var(--warning-dark)" },

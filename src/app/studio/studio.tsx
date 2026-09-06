@@ -14,7 +14,7 @@ import {
   type ActivityEntry
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
-import { bootstrapWorkspaceRestore, useStudioStore } from "@/shared/store";
+import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { ActivityBar } from "./activity-bar";
 import { ActionBar } from "./action-bar";
@@ -82,13 +82,6 @@ export function Studio() {
     };
   }, []);
 
-  // Load saved connections (+ their keychain passwords) once at startup,
-  // migrating any pre-keychain localStorage data on first run. See
-  // hydrateSavedLocal's doc comment.
-  useEffect(() => {
-    void useStudioStore.getState().hydrateSavedLocal();
-  }, []);
-
   // Warm the per-connection workspace chunk as soon as the shell mounts —
   // filling in a connection form and waiting on the connect round-trip
   // easily takes longer than this chunk takes to fetch, so by the time
@@ -100,30 +93,21 @@ export function Studio() {
     void import("./workspace");
   }, []);
 
-  // Load the previous session's saved workspace (open connections' tabs,
-  // layout, unsaved query text) once at startup — connections are NOT
-  // auto-reconnected; this only stages the tabs/text to be restored the
-  // moment the user manually reconnects to a matching target (openConn
-  // claims it). See workspace-persistence.ts.
-  useEffect(() => {
-    void bootstrapWorkspaceRestore();
-  }, []);
-
   // "Open with DH Studio" / double-clicking a .db file with it set as the
-  // default app (tauri.conf.json's bundle.fileAssociations). Two delivery
-  // paths, both handled: a live event for while the app is already running,
-  // and a one-shot buffered fetch for cold start — the live event can fire
-  // (Rust-side) before this listener has mounted, so it'd otherwise be lost.
+  // default app (tauri.conf.json's bundle.fileAssociations), WHILE the app
+  // is already running — the cold-start case (app not running yet) is
+  // instead handled by `runStartupBootstrap` (src/app/bootstrap.ts) before
+  // Studio ever mounts, so the workspace it opens is there from this
+  // component's very first render instead of flashing Landing first.
   // Desktop-only; web mode has no OS file-open concept.
   useEffect(() => {
     if (WEB) return;
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
-      const [{ listen }, { openFileFromOs }, { invoke }] = await Promise.all([
+      const [{ listen }, { openFileFromOs }] = await Promise.all([
         import("@tauri-apps/api/event"),
         import("@/features/connections/lib/reopen"),
-        import("@tauri-apps/api/core"),
       ]);
       const un = await listen<string>("file-associations://open", (e) => {
         void openFileFromOs(e.payload);
@@ -133,12 +117,6 @@ export function Studio() {
         return;
       }
       unlisten = un;
-      try {
-        const pending = await invoke<string | null>("take_pending_open_path");
-        if (pending && !cancelled) void openFileFromOs(pending);
-      } catch {
-        /* backend not ready yet */
-      }
     })();
     return () => {
       cancelled = true;
@@ -178,10 +156,11 @@ export function Studio() {
   }, []);
   useEffect(() => {
     if (WEB) return;
+    const active = open.length === 0 ? null : (open.find((c) => c.id === activeId) ?? open[0]);
     void import("./native-menu").then(({ syncMenuContext }) =>
-      syncMenuContext(view === "workspace" && open.length > 0),
+      syncMenuContext(view === "workspace" && open.length > 0, active?.kind === "mongodb"),
     );
-  }, [view, open.length]);
+  }, [view, open, activeId]);
 
   // Hydrate the backend command log once, then live-subscribe to new entries.
   // Mounted at the shell level so the feed runs regardless of which view or

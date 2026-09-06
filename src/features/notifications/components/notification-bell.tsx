@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { Bell, CheckCheck } from "lucide-react";
+import { Bell, CheckCheck, Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
   Popover,
@@ -19,6 +19,7 @@ export function NotificationBell() {
   const items = useStudioStore((s) => s.notifications);
   const dismiss = useStudioStore((s) => s.dismissNotification);
   const markAllRead = useStudioStore((s) => s.markAllRead);
+  const clearAll = useStudioStore((s) => s.clearNotifications);
   const unreadCount = useStudioStore(
     (s) => s.notifications.filter((n) => !n.read).length,
   );
@@ -78,6 +79,16 @@ export function NotificationBell() {
               >
                 <CheckCheck className="mr-1 size-3" />
                 Mark all read
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground h-5 px-1.5 text-[11px]"
+                onClick={clearAll}
+                title="Clear all notifications"
+              >
+                <Trash2 className="mr-1 size-3" />
+                Clear all
               </Button>
             </>
           )}

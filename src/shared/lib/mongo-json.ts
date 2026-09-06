@@ -61,6 +61,50 @@ export const MONGO_BSON_CONSTRUCTORS = [
   "Symbol",
 ] as const;
 
+/** Minimal Levenshtein distance — `MONGO_BSON_CONSTRUCTORS` is tiny (16
+ *  entries), so running this against every entry on a typo is cheap and
+ *  needs no library. */
+function levenshtein(a: string, b: string): number {
+  const dp: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] =
+        a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+/** Best-guess correction for an unrecognized constructor name, so the parse
+ *  error can say "did you mean `ISODate`?" instead of just "unknown".
+ *  Prefers a case-insensitive prefix match either direction (covers both
+ *  still-typing, e.g. "ISODat", and wrong case, e.g. "isodate"), falling
+ *  back to the closest by edit distance for a genuine typo (e.g.
+ *  "ISODATEE"). Returns null rather than a low-confidence guess when
+ *  nothing is close enough to be useful. */
+function suggestConstructor(name: string): string | null {
+  const lower = name.toLowerCase();
+  const prefixMatch = MONGO_BSON_CONSTRUCTORS.find(
+    (c) =>
+      c.toLowerCase().startsWith(lower) || lower.startsWith(c.toLowerCase()),
+  );
+  if (prefixMatch) return prefixMatch;
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const c of MONGO_BSON_CONSTRUCTORS) {
+    const d = levenshtein(lower, c.toLowerCase());
+    if (d < bestDist) {
+      bestDist = d;
+      best = c;
+    }
+  }
+  return best && bestDist <= 2 ? best : null;
+}
+
 export function parseMongoJson(input: string): {
   value: MongoJsonValue;
   error: MongoParseError | null;
@@ -538,7 +582,14 @@ class Parser {
   private parseConstructor(): MongoJsonValue | null {
     const name = this.readIdent();
     if (name === null) return null;
-    if (!CTRS.has(name)) return this.err(`unknown BSON constructor \`${name}()\``);
+    if (!CTRS.has(name)) {
+      const suggestion = suggestConstructor(name);
+      return this.err(
+        suggestion
+          ? `unknown BSON constructor \`${name}()\` — did you mean \`${suggestion}()\`?`
+          : `unknown BSON constructor \`${name}()\``,
+      );
+    }
     if (!this.expect("(", "(")) return null;
     const args: string[] = [];
     this.skipWs();

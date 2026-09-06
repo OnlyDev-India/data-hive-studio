@@ -12,10 +12,17 @@ import {
 import type { QueryOp, QueryResult } from "./types";
 
 /** Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
- * Rejects (throws) when the statement fails. */
+ * Rejects (throws) when the statement fails.
+ *
+ * `origin` tags the activity-log entry: "user" for a query the user
+ * actually wrote and ran (the SQL editor's own fallback transport — see
+ * `runSqlStream`), "app" (the default) for everything else that happens to
+ * share this same call — the sidebar's housekeeping queries, the schema
+ * designer's "create table" apply, etc. */
 export async function runSql(
   connId: string,
   sql: string,
+  origin: "user" | "app" = "app",
 ): Promise<QueryResult> {
   return dispatchDbCall<QueryResult>(connId, {
     httpMethod: "POST",
@@ -23,7 +30,7 @@ export async function runSql(
     httpBody: { sql },
     serverCmd: "server_run_sql",
     localCmd: "run_sql",
-    args: { connId, sql },
+    args: { connId, sql, origin },
   });
 }
 

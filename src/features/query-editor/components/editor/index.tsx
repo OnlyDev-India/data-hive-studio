@@ -320,9 +320,13 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           completionDismissKeymap,
           // Manually-pushed inline error markers (see `setErrors`) plus
           // real-time syntax linting as the user types (see `nosql-lint.ts`)
-          // — both render through the same underline UI.
+          // — both render through the same underline UI. Read-only views
+          // (e.g. the Activity tab showing a past command) never call
+          // `setErrors` and have nothing to "type", so the live linter would
+          // only ever flag already-run, unchangeable text as an error —
+          // skip it there.
           errorLinter,
-          linter(nosqlSyntaxLinter(jsCompletions ?? [])),
+          ...(readOnly ? [] : [linter(nosqlSyntaxLinter(jsCompletions ?? []))]),
           editorTooltips,
           inlineDiagnostics,
           ...(enableWrapping ? [EditorView.lineWrapping] : []),
@@ -345,9 +349,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         // Manually-pushed inline error markers (see `setErrors`) plus
         // real-time syntax + unknown-table/-column linting as the user
         // types (see `sql-lint.ts`) — both render through the same
-        // underline UI.
+        // underline UI. Skipped for read-only views (e.g. the Activity tab
+        // showing a past command): there's no schema/tables context passed
+        // there, so every table/column reference would falsely lint as
+        // unknown, and the text can't be edited anyway.
         errorLinter,
-        linter(sqlLinter(tables ?? [], schema ?? {})),
+        ...(readOnly ? [] : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
         editorTooltips,
         inlineDiagnostics,
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
@@ -360,6 +367,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       connId,
       enableWrapping,
       completionDismissKeymap,
+      readOnly,
     ]);
 
     // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set

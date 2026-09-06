@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Minus, Square, SquareStack, X } from "lucide-react";
 import { WEB } from "@/shared/api/web";
 import { cn } from "@/shared/lib/utils";
-import { useStudioStore } from "@/shared/store";
+import { useActiveConnection, useStudioStore } from "@/shared/store";
 import PanelLeftIcon from "@/shared/components/icons/panel-left";
 import PanelRightIcon from "@/shared/components/icons/panel-right";
 import {
@@ -18,6 +18,8 @@ import { handleMenuAction } from "./native-menu";
 
 const IS_MAC =
   typeof navigator !== "undefined" && /mac/i.test(navigator.userAgent);
+const IS_WINDOWS =
+  typeof navigator !== "undefined" && /win/i.test(navigator.userAgent);
 
 /** Every desktop platform gets a custom top bar now (matches VS Code on all
  *  three), always three sections: whichever side the OS puts its own
@@ -116,6 +118,10 @@ function WindowsLinuxTitleBar() {
   const view = useStudioStore((s) => s.view);
   const openLen = useStudioStore((s) => s.open.length);
   const has_connection = view === "workspace" && openLen > 0;
+  // NoSQL console only makes sense against a MongoDB connection — matches
+  // the same `is_mongo` gate the tab-bar's "+" dropdown and command palette
+  // already use (see command-palette-items.tsx / tab-bar.tsx).
+  const is_mongo = useActiveConnection()?.kind === "mongodb";
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -159,14 +165,22 @@ function WindowsLinuxTitleBar() {
                 </button>
               }
             />
-            <DropdownMenuContent align="start">
-              {menu.items.map((item, i) =>
-                "separator" in item ? (
-                  <DropdownMenuSeparator key={i} />
-                ) : (
+            <DropdownMenuContent align="start" className={"w-full"}>
+              {menu.items.map((item, i) => {
+                if ("separator" in item) return <DropdownMenuSeparator key={i} />;
+                const needs_mongo = item.id === "file.new_mongo_console";
+                const disabled =
+                  (item.requiresConnection && !has_connection) ||
+                  (needs_mongo && !is_mongo);
+                return (
                   <DropdownMenuItem
                     key={item.id}
-                    disabled={item.requiresConnection && !has_connection}
+                    disabled={disabled}
+                    title={
+                      needs_mongo && has_connection && !is_mongo
+                        ? "Only available for MongoDB connections"
+                        : undefined
+                    }
                     onClick={() => handleMenuAction(item.id)}
                   >
                     {item.label}
@@ -174,8 +188,8 @@ function WindowsLinuxTitleBar() {
                       <DropdownMenuShortcut>{item.accel}</DropdownMenuShortcut>
                     )}
                   </DropdownMenuItem>
-                ),
-              )}
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         ))}
@@ -210,6 +224,17 @@ function WindowsLinuxTitleBar() {
           aria-label={maximized ? "Restore" : "Maximize"}
           className="hover:bg-muted flex w-11 items-center justify-center"
           onClick={() => withWindow((w) => w.toggleMaximize())}
+          onMouseEnter={() => {
+            // Windows 11 only: with decorations off there's no native
+            // maximize caption button for the shell to hover-detect on its
+            // own, so simulate its Win+Z shortcut to pop the real Snap
+            // Layout flyout in the same spot (see `show_snap_overlay` in
+            // src-tauri/src/commands.rs — a no-op on other platforms).
+            if (!IS_WINDOWS) return;
+            void import("@tauri-apps/api/core").then(({ invoke }) =>
+              invoke("show_snap_overlay"),
+            );
+          }}
         >
           {maximized ? (
             <SquareStack className="size-3" />
