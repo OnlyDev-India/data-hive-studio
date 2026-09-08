@@ -22,9 +22,9 @@ import {
   TooltipTrigger,
 } from "@/shared/components/ui/tooltip";
 import {
-  serversAdd,
   serversList,
   serversRemove,
+  friendlyConnectError,
   type ServerProfileView,
 } from "@/shared/api/client";
 import { useStudioStore } from "@/shared/store";
@@ -40,6 +40,7 @@ export function ServerMenu() {
   const connectServer = useStudioStore((s) => s.connectServer);
   const disconnectServer = useStudioStore((s) => s.disconnectServer);
   const serverBusy = useStudioStore((s) => s.serverBusy);
+  const pushNotification = useStudioStore((s) => s.pushNotification);
 
   async function refresh() {
     try {
@@ -88,8 +89,16 @@ export function ServerMenu() {
                   key={p.id}
                   className="items-center gap-2"
                   onClick={async () => {
-                    if (session) await disconnectServer(p.id);
-                    else await connectServer(p.id);
+                    try {
+                      if (session) await disconnectServer(p.id);
+                      else await connectServer(p.id);
+                    } catch (e) {
+                      pushNotification({
+                        kind: "error",
+                        title: "Server connection failed",
+                        detail: friendlyConnectError(p.name, e),
+                      });
+                    }
                     void refresh();
                   }}
                 >
@@ -113,8 +122,16 @@ export function ServerMenu() {
                     className="opacity-50 hover:opacity-100"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (session) await disconnectServer(p.id);
-                      await serversRemove(p.id);
+                      try {
+                        if (session) await disconnectServer(p.id);
+                        await serversRemove(p.id);
+                      } catch (err) {
+                        pushNotification({
+                          kind: "error",
+                          title: "Couldn't remove server",
+                          detail: String(err),
+                        });
+                      }
                       void refresh();
                     }}
                   >
@@ -150,16 +167,12 @@ function AddServerDialog({
   onAdded: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const connectServer = useStudioStore((s) => s.connectServer);
 
   async function handle_connect(result: ConnectResult) {
     setError(null);
     try {
-      await serversAdd(
-        result.server_name || "team-server",
-        result.server_url || "",
-        result.token,
-        result.team_name,
-      );
+      await connectServer(result.profileId);
       onOpenChange(false);
       onAdded();
     } catch (e) {

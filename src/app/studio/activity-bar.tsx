@@ -3,6 +3,7 @@ import { History, Settings, ShieldCheck, Terminal } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { useStudioStore } from "@/shared/store";
+import { canManageOrg } from "@/shared/api/client";
 import { SettingsDialog } from "@/features/settings";
 import { ServerMenu } from "@/features/sharing";
 import {
@@ -87,7 +88,9 @@ export function ActivityBar({
   // admin scope. Reads the store directly so both landing and workspace
   // instances stay in sync.
   const admin_visible = useStudioStore((s) =>
-    Object.values(s.serverSessions).some((sess) => sess.me.is_admin),
+    Object.values(s.serverSessions).some((sess) =>
+      canManageOrg(sess.me, sess.profile.org_id),
+    ),
   );
   const admin_active = useStudioStore((s) => s.view === "admin");
   const setView = useStudioStore((s) => s.setView);

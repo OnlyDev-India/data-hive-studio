@@ -12,7 +12,12 @@ import {
 import { IndexesPanel } from "./schema-tab/indexes-panel";
 import { DropTableDialog } from "./schema-tab/drop-table-dialog";
 import {
+  ApplyChangesDialog,
+  type DiffChange,
+} from "@/shared/components/apply-changes-dialog";
+import {
   build_index_ops,
+  describe_schema_changes,
   idx_is_dirty,
   idxs_from_schema,
   type IdxDraft,
@@ -94,8 +99,25 @@ export function MongoSchemaEditor({
     setEditingName(false);
   };
 
-  const do_apply = async () => {
+  const [confirm_apply, setConfirmApply] = useState<DiffChange[] | null>(
+    null,
+  );
+
+  /** Direct apply, no review dialog — close-guards and the dropdown's
+   *  "Apply" option (mirrors the grid's Review & Apply / Apply split). */
+  const apply_now = () => {
     if (applying || ops.length === 0) return;
+    void run_apply();
+  };
+
+  const open_review = () => {
+    if (applying || ops.length === 0) return;
+    setConfirmApply(
+      describe_schema_changes(collection, target_name, [], idxs, (n) => n),
+    );
+  };
+
+  const run_apply = async () => {
     setApplying(true);
     try {
       const ran = await applySchemaOps(conn_id, ops);
@@ -118,10 +140,12 @@ export function MongoSchemaEditor({
     }
   };
 
-  const apply_ref = useRef(do_apply);
+  const apply_ref = useRef(apply_now);
+  const review_ref = useRef(open_review);
   const discard_ref = useRef(discard);
   useEffect(() => {
-    apply_ref.current = do_apply;
+    apply_ref.current = apply_now;
+    review_ref.current = open_review;
     discard_ref.current = discard;
   });
 
@@ -131,6 +155,7 @@ export function MongoSchemaEditor({
       count: ops.length,
       busy: applying,
       apply: () => apply_ref.current(),
+      review: () => review_ref.current(),
       discard: () => discard_ref.current(),
     };
     setSchemaEdit(store_key, handle);
@@ -191,6 +216,16 @@ export function MongoSchemaEditor({
         on_open_change={setConfirmDrop}
         on_dropped={on_dropped}
       />
+
+      {confirm_apply && (
+        <ApplyChangesDialog
+          title="Review schema changes"
+          changes={confirm_apply}
+          applying={applying}
+          on_apply={() => void run_apply()}
+          on_close={() => setConfirmApply(null)}
+        />
+      )}
     </div>
   );
 }
