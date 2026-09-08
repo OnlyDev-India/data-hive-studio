@@ -1,4 +1,20 @@
-export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb";
+// "documentdb" is never what a live `ConnectionInfo` actually reports (a
+// DocumentDB connection is opened via `connect_mongodb` like any other
+// Mongo server, so `ConnectionInfo.kind` there is genuinely "mongodb") —
+// it only appears as a *saved connection's* kind, so the picker remembers
+// which entry was chosen. One shared `DbKind` covers both uses rather than
+// a second parallel type, mirroring the Rust `DbKind` enum this is typed
+// against.
+export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb" | "documentdb";
+
+/** Kinds a saved/local connection can be — everything `DbKind` covers
+ *  except "mysql" (no local/saved MySQL support yet). Derive from `DbKind`
+ *  rather than re-listing kinds so adding one only means editing `DbKind`. */
+export type SavedDbKind = Exclude<DbKind, "mysql">;
+
+/** Kinds a team-server-shared connection can be — `DbKind` minus "mysql"
+ *  and "sqlite" (neither is supported as a shared connection). */
+export type SharedDbKind = Exclude<DbKind, "mysql" | "sqlite">;
 
 export interface ConnectionInfo {
   id: string;
@@ -43,22 +59,6 @@ export interface CatalogOverview {
   schemas: string[];
   databases: string[];
   active_schema: string;
-}
-
-/** One minted token (adm_ or tem_). */
-export interface TokenGrantSpec {
-  conn_id: string;
-  can_read: boolean;
-  can_update: boolean;
-  can_delete: boolean;
-}
-
-export interface TokenInfo {
-  token: string;
-  prefix: string;
-  user_name: string;
-  team_name: string | null;
-  created_ms: number;
 }
 
 export interface IndexInfo {
@@ -151,6 +151,8 @@ export function prettyKind(kind: DbKind): string {
       return "MySQL";
     case "mongodb":
       return "MongoDB";
+    case "documentdb":
+      return "Amazon DocumentDB";
   }
 }
 

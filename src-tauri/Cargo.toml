@@ -1,6 +1,6 @@
 [package]
 name = "dh-studio"
-version = "0.3.0"
+version = "0.4.0"
 description = "DH Studio — a native desktop client for SQLite, PostgreSQL, and MongoDB"
 authors = ["you"]
 license = ""
@@ -28,6 +28,13 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2.4.1"
+# Used only for `tokio::task::spawn_blocking` in the OAuth desktop sign-in
+# loopback listener (servers.rs) — the listener itself is a plain blocking
+# `std::net::TcpListener`, run off the async runtime's worker threads so a
+# blocking `accept()` call (waiting on the browser redirect) never stalls
+# anything else. Not in dh-core's own tokio feature set (it doesn't need
+# this), hence the separate direct dep here.
+tokio = { version = "1", features = ["rt"] }
 
 # Windows only: simulates the native Win+Z shortcut so hovering our custom
 # maximize button shows the real Snap Layout flyout (see

@@ -39,6 +39,56 @@ pub struct LocalConnMeta {
     #[serde(default)]
     pub tls: bool,
     #[serde(default)]
+    pub ssl_ca_file: Option<String>,
+    #[serde(default)]
+    pub ssl_client_cert_file: Option<String>,
+    /// Postgres only.
+    #[serde(default)]
+    pub ssl_client_key_file: Option<String>,
+    /// MongoDB only: disable retryable writes — required for Amazon
+    /// DocumentDB.
+    #[serde(default)]
+    pub retry_writes: bool,
+    /// MongoDB only: replica set name — required by a real Amazon
+    /// DocumentDB cluster, typically `rs0`.
+    #[serde(default)]
+    pub replica_set: Option<String>,
+    /// Max pool connections (Postgres default 12, MongoDB default 10 when unset).
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    /// Min pool connections kept open (Postgres default 1, MongoDB default 0 when unset).
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    /// Postgres: pool acquire timeout (default 30s). MongoDB: TCP connect
+    /// timeout (default 10s).
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    /// Postgres default 15 minutes; MongoDB default never, when unset.
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    /// Postgres only (default 30 minutes when unset).
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
+    /// MongoDB only (default 30s when unset).
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
+    /// `Some` means this connection tunnels through SSH — no secrets here,
+    /// those live in the keychain like the main password (see
+    /// `ssh_secret_key`/`get_local_connection_secret`).
+    #[serde(default)]
+    pub ssh_host: Option<String>,
+    #[serde(default)]
+    pub ssh_port: Option<u16>,
+    #[serde(default)]
+    pub ssh_user: Option<String>,
+    /// "password" | "key".
+    #[serde(default)]
+    pub ssh_auth_mode: Option<String>,
+    #[serde(default)]
+    pub ssh_key_file: Option<String>,
+    #[serde(default)]
+    pub ssh_host_key_fingerprint: Option<String>,
+    #[serde(default)]
     pub source_path: Option<String>,
 }
 
@@ -64,6 +114,48 @@ pub struct LocalConnInput {
     #[serde(default)]
     pub tls: bool,
     #[serde(default)]
+    pub ssl_ca_file: Option<String>,
+    #[serde(default)]
+    pub ssl_client_cert_file: Option<String>,
+    #[serde(default)]
+    pub ssl_client_key_file: Option<String>,
+    #[serde(default)]
+    pub retry_writes: bool,
+    #[serde(default)]
+    pub replica_set: Option<String>,
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub ssh_host: Option<String>,
+    #[serde(default)]
+    pub ssh_port: Option<u16>,
+    #[serde(default)]
+    pub ssh_user: Option<String>,
+    #[serde(default)]
+    pub ssh_auth_mode: Option<String>,
+    #[serde(default)]
+    pub ssh_key_file: Option<String>,
+    #[serde(default)]
+    pub ssh_host_key_fingerprint: Option<String>,
+    /// `None` on update keeps the existing stored SSH password. Ignored
+    /// when `ssh_host` is `None` (tunnel disabled — stored SSH secrets are
+    /// deleted).
+    #[serde(default)]
+    pub ssh_password: Option<String>,
+    /// Same "`None` on update keeps the existing one" rule as `ssh_password`.
+    #[serde(default)]
+    pub ssh_key_passphrase: Option<String>,
+    #[serde(default)]
     pub source_path: Option<String>,
 }
 
@@ -79,6 +171,23 @@ fn meta_from_input(input: &LocalConnInput) -> LocalConnMeta {
         auth_db: input.auth_db.clone(),
         srv: input.srv,
         tls: input.tls,
+        ssl_ca_file: input.ssl_ca_file.clone(),
+        ssl_client_cert_file: input.ssl_client_cert_file.clone(),
+        ssl_client_key_file: input.ssl_client_key_file.clone(),
+        retry_writes: input.retry_writes,
+        replica_set: input.replica_set.clone(),
+        pool_max: input.pool_max,
+        pool_min: input.pool_min,
+        connect_timeout_secs: input.connect_timeout_secs,
+        idle_timeout_secs: input.idle_timeout_secs,
+        max_lifetime_secs: input.max_lifetime_secs,
+        server_selection_timeout_secs: input.server_selection_timeout_secs,
+        ssh_host: input.ssh_host.clone(),
+        ssh_port: input.ssh_port,
+        ssh_user: input.ssh_user.clone(),
+        ssh_auth_mode: input.ssh_auth_mode.clone(),
+        ssh_key_file: input.ssh_key_file.clone(),
+        ssh_host_key_fingerprint: input.ssh_host_key_fingerprint.clone(),
         source_path: input.source_path.clone(),
     }
 }
@@ -204,6 +313,41 @@ fn delete_password(app: &tauri::AppHandle, name: &str) {
     }
 }
 
+// ---- SSH secret persistence -------------------------------------------
+//
+// Password + key passphrase, stored together as one JSON blob under a
+// second keychain entry per connection (same `save_password`/`load_password`
+// machinery as the main DB password, just a different entry name) — avoids
+// a third keychain prompt/file for what's really one logical secret.
+
+fn ssh_secret_key(name: &str) -> String {
+    format!("{name}::ssh")
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct SshSecrets {
+    password: Option<String>,
+    key_passphrase: Option<String>,
+}
+
+fn save_ssh_secrets(app: &tauri::AppHandle, name: &str, secrets: &SshSecrets) -> Result<(), String> {
+    let json = serde_json::to_string(secrets).map_err(|e| e.to_string())?;
+    save_password(app, &ssh_secret_key(name), &json)
+}
+
+/// Missing/unreadable entry (no SSH tunnel configured, or first read after
+/// enabling one) is `SshSecrets::default()`, not an error.
+fn load_ssh_secrets(app: &tauri::AppHandle, name: &str) -> SshSecrets {
+    load_password(app, &ssh_secret_key(name))
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+fn delete_ssh_secrets(app: &tauri::AppHandle, name: &str) {
+    delete_password(app, &ssh_secret_key(name));
+}
+
 // ---- Commands ------------------------------------------------------------
 
 #[tauri::command]
@@ -222,6 +366,16 @@ pub fn save_local_connection(
         .ok_or_else(|| "password is required to save a new connection".to_string())?;
     let meta = meta_from_input(&input);
     save_password(&app, &meta.name, &password)?;
+    if input.ssh_host.is_some() {
+        save_ssh_secrets(
+            &app,
+            &meta.name,
+            &SshSecrets {
+                password: input.ssh_password.clone(),
+                key_passphrase: input.ssh_key_passphrase.clone(),
+            },
+        )?;
+    }
     let mut map = load_meta_map(&app)?;
     map.insert(meta.name.clone(), meta.clone());
     save_meta_map(&app, &map)?;
@@ -255,6 +409,22 @@ pub fn update_local_connection(
             }
         }
     }
+    // Disabling the tunnel drops any stored SSH secrets; otherwise keep
+    // whichever of password/key-passphrase wasn't provided this time.
+    match &input.ssh_host {
+        None => delete_ssh_secrets(&app, &old_name),
+        Some(_) => {
+            let existing = load_ssh_secrets(&app, &old_name);
+            let secrets = SshSecrets {
+                password: input.ssh_password.clone().or(existing.password),
+                key_passphrase: input.ssh_key_passphrase.clone().or(existing.key_passphrase),
+            };
+            save_ssh_secrets(&app, &meta.name, &secrets)?;
+            if renamed {
+                delete_ssh_secrets(&app, &old_name);
+            }
+        }
+    }
     map.remove(&old_name);
     map.insert(meta.name.clone(), meta.clone());
     save_meta_map(&app, &map)?;
@@ -267,15 +437,33 @@ pub fn delete_local_connection(app: tauri::AppHandle, name: String) -> Result<()
     map.remove(&name);
     save_meta_map(&app, &map)?;
     delete_password(&app, &name);
+    delete_ssh_secrets(&app, &name);
     Ok(())
 }
 
-/// Fetch a saved connection's real password — called right before actually
-/// opening it (`connect_postgres`/`connect_mongodb`/…), never stored back in
-/// plain state on the frontend beyond that.
+#[derive(Debug, Serialize)]
+pub struct LocalConnectionSecret {
+    pub password: String,
+    pub ssh_password: Option<String>,
+    pub ssh_key_passphrase: Option<String>,
+}
+
+/// Fetch a saved connection's real secrets (DB password, and SSH
+/// password/key-passphrase if it tunnels through SSH) — called right before
+/// actually opening it (`connect_postgres`/`connect_mongodb`/…), never
+/// stored back in plain state on the frontend beyond that.
 #[tauri::command]
-pub fn get_local_connection_secret(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    load_password(&app, &name)
+pub fn get_local_connection_secret(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<LocalConnectionSecret, String> {
+    let password = load_password(&app, &name)?;
+    let ssh = load_ssh_secrets(&app, &name);
+    Ok(LocalConnectionSecret {
+        password,
+        ssh_password: ssh.password,
+        ssh_key_passphrase: ssh.key_passphrase,
+    })
 }
 
 /// One-time import from the frontend's pre-keychain `localStorage` storage.

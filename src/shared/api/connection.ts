@@ -44,6 +44,20 @@ export async function closeConnection(connId: string): Promise<void> {
   return invoke("close_connection", { connId });
 }
 
+/** An SSH tunnel to reach the database through — mirrors
+ *  `ssh_tunnel::SshConfig` on the Rust side. */
+export interface SshConnectParams {
+  host: string;
+  port?: number;
+  user: string;
+  /** "password" | "key" */
+  auth_mode: string;
+  password?: string;
+  key_file?: string;
+  key_passphrase?: string;
+  host_key_fingerprint?: string;
+}
+
 /** List tables and views in the database. */
 export interface PgConnectParams {
   host: string;
@@ -53,6 +67,20 @@ export interface PgConnectParams {
   database: string;
   /** disable | prefer | require | verify-ca | verify-full */
   ssl_mode?: string;
+  ssl_ca_file?: string;
+  ssl_client_cert_file?: string;
+  ssl_client_key_file?: string;
+  /** Max pool connections (default 12 when omitted). */
+  pool_max?: number;
+  /** Min pool connections kept open (default 1 when omitted). */
+  pool_min?: number;
+  /** How long to wait for a pooled connection before giving up (default 30s). */
+  connect_timeout_secs?: number;
+  /** How long a pooled connection can sit idle before being closed (default 15 minutes). */
+  idle_timeout_secs?: number;
+  /** Max lifetime of a pooled connection regardless of activity (default 30 minutes). */
+  max_lifetime_secs?: number;
+  ssh?: SshConnectParams;
 }
 
 /** Connect to a PostgreSQL server (adapter installed in the home sidebar). */
@@ -71,7 +99,25 @@ export interface MongoConnectParams {
   database: string;
   /** Auth source database (defaults to "admin" when omitted). */
   auth_db?: string;
+  srv?: boolean;
   tls?: boolean;
+  ssl_ca_file?: string;
+  ssl_client_cert_file?: string;
+  /** Disable retryable writes (`retryWrites=false`) — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** Replica set name — required by a real Amazon DocumentDB cluster (typically "rs0"). */
+  replica_set?: string;
+  /** Max connections per server in the pool (driver default 10). */
+  pool_max?: number;
+  /** Min connections per server kept open (driver default 0). */
+  pool_min?: number;
+  /** TCP connect timeout for each connection (driver default 10s). */
+  connect_timeout_secs?: number;
+  /** How long a pooled connection can sit idle before being closed (driver default: never). */
+  idle_timeout_secs?: number;
+  /** How long to keep trying to find a usable server before giving up (driver default 30s). */
+  server_selection_timeout_secs?: number;
+  ssh?: SshConnectParams;
 }
 
 /** Connect to a MongoDB server and register the connection. */

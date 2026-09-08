@@ -3,6 +3,8 @@ import type {
   ConnectionInfo,
   ExportPayload,
   QueryOp,
+  SavedDbKind,
+  SharedDbKind,
 } from "../api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
@@ -87,7 +89,16 @@ export interface GridBridge {
 export interface JsonRow {
   conn_id: string;
   table: string;
+  /** A real (already-inserted) row's 1-based DB row position — OR, when
+   *  `is_pending` is true, the row's 0-based index within the pending/draft
+   *  batch instead (not a real row position, since it hasn't been inserted
+   *  yet). The two numberings overlap, so anything keying off row identity
+   *  (e.g. the JSON viewer's row-switch detection) must fold `is_pending`
+   *  into that key too, not use `row_number` alone. */
   row_number: number;
+  /** True for a not-yet-inserted row from the grid's "add row" flow —
+   *  `on_edit` buffers into that draft instead of the dirty-cells map. */
+  is_pending?: boolean;
   data: Record<string, unknown>;
   /** "mongo" rows render/parse as BSON source (ObjectId, ISODate, …); anything
    *  else renders/parses as plain JSON (Postgres stores plain values). */
@@ -130,9 +141,15 @@ export interface SchemaEditHandle {
   /** True while an Apply is in flight — the status bar disables the buttons
    *  and shows a spinner on Apply. */
   busy: boolean;
-  /** Runs the batch; resolves when the transaction finished (success or
-   *  rolled-back failure), so close-guards can await it. */
+  /** Runs the batch directly (no review dialog); resolves when the
+   *  transaction finished (success or rolled-back failure), so close-guards
+   *  can await it. */
   apply: () => void | Promise<void>;
+  /** Opens the review dialog (a diff of every staged change); the actual
+   *  run only happens once the user confirms there. Used by the action
+   *  bar's primary button — `apply` stays the direct/no-dialog path for
+   *  close-guards and the dropdown's "Apply" option. */
+  review: () => void;
   discard: () => void;
 }
 
@@ -186,19 +203,7 @@ export interface SqlTabHandleBase {
   file_name?: string | null;
 }
 
-/** Extra fields table-explorer's Mongo console pane registers on top of the
- *  base handle — collection introspection/switching has no SQL equivalent,
- *  so it's kept as an addition rather than folded into the generic shape. */
-export interface MongoSqlTabExtras {
-  /** List of collections in the current database. */
-  mongo_collections?: string[];
-  /** Currently selected collection. */
-  mongo_collection?: string;
-  /** Change the selected collection. */
-  set_mongo_collection?: (c: string) => void;
-}
-
-export type SqlTabHandle = SqlTabHandleBase & MongoSqlTabExtras;
+export type SqlTabHandle = SqlTabHandleBase;
 
 /** One entry in the action-bar notification popover. */
 export interface StudioNotification {
@@ -225,8 +230,11 @@ export interface StudioNotification {
 export interface SavedConnParams {
   /** Optional display name (saved/pinned connections). */
   name?: string;
-  /** Which database kind this connection reopens. */
-  kind: "postgres" | "mongodb" | "sqlite";
+  /** Which database kind this connection reopens. "documentdb" is stored
+   *  distinctly from "mongodb" purely so the picker remembers which entry
+   *  was chosen — it's connected to identically to "mongodb" either way
+   *  (see `retry_writes`/`replica_set` for what actually differs). */
+  kind: SavedDbKind;
   host: string;
   port: number;
   user: string;
@@ -240,6 +248,44 @@ export interface SavedConnParams {
   srv?: boolean;
   /** MongoDB only: require TLS on a plain mongodb:// connection. */
   tls?: boolean;
+  /** Path to a CA certificate file verifying the server's certificate. */
+  ssl_ca_file?: string;
+  /** Path to a client certificate for mutual TLS (mTLS). PostgreSQL: paired
+   *  with `ssl_client_key_file`. MongoDB: a single PEM with both the
+   *  certificate and its (unencrypted) private key. */
+  ssl_client_cert_file?: string;
+  /** PostgreSQL only: path to the client certificate's private key file. */
+  ssl_client_key_file?: string;
+  /** MongoDB only: disable retryable writes — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** MongoDB only: replica set name — required by a real Amazon DocumentDB
+   *  cluster (typically "rs0"). */
+  replica_set?: string;
+  /** Max pool connections (PostgreSQL default 12, MongoDB default 10). */
+  pool_max?: number;
+  /** Min pool connections kept open (PostgreSQL default 1, MongoDB default 0). */
+  pool_min?: number;
+  /** PostgreSQL: pool acquire timeout (default 30s). MongoDB: TCP connect
+   *  timeout (default 10s). */
+  connect_timeout_secs?: number;
+  /** PostgreSQL default 15 minutes; MongoDB default never. */
+  idle_timeout_secs?: number;
+  /** PostgreSQL only: max lifetime of a pooled connection (default 30 minutes). */
+  max_lifetime_secs?: number;
+  /** MongoDB only: how long to keep trying to find a usable server (default 30s). */
+  server_selection_timeout_secs?: number;
+  /** Reach the database through an SSH tunnel — a set `ssh_host` is what
+   *  means "enabled" here, mirroring `SshConfig` on the Rust side. */
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  /** "password" | "key". */
+  ssh_auth_mode?: string;
+  ssh_key_file?: string;
+  /** Trust-on-first-use host key pin — see `ssh_tunnel::SshConfig`. */
+  ssh_host_key_fingerprint?: string;
+  ssh_password?: string;
+  ssh_key_passphrase?: string;
   /** SQLite only: real file path prefilled into the connect form. */
   source_path?: string | null;
 }
@@ -418,8 +464,7 @@ export interface StudioStore {
    *  app-data JSON file and passwords in the OS keychain (see
    *  `src-tauri/src/local_connections.rs`); this map is the in-memory
    *  hydration of both, populated by `hydrateSavedLocal`. Each entry
-   *  carries `kind` ("postgres" | "mongodb" | "sqlite") so it reopens
-   *  correctly. */
+   *  carries a `kind` (`SavedDbKind`) so it reopens correctly. */
   savedLocal: Record<string, SavedConnParams>;
   /** Load saved connections (+ their passwords) from the backend, migrating
    *  any pre-keychain `localStorage` data on first run. Call once at
@@ -444,14 +489,14 @@ export interface StudioStore {
    *  the fields are filled. `edit` puts the form in edit mode — Save updates
    *  that connection (server-shared or local) instead of creating a new one. */
   landingPrefill: {
-    kind: "postgres" | "mongodb" | "sqlite";
+    kind: SavedDbKind;
     params: SavedConnParams;
     n: number;
     connect: boolean;
     edit?: LandingEditTarget;
   } | null;
   requestLandingPrefill: (
-    kind: "postgres" | "mongodb" | "sqlite",
+    kind: SavedDbKind,
     params: SavedConnParams,
     connect?: boolean,
     edit?: LandingEditTarget,
@@ -581,15 +626,15 @@ export interface StudioStore {
   serverSessions: Record<
     string,
     {
-      profile: { id: string; name: string; url: string };
-      me: { device_id: string; is_admin: boolean };
+      profile: { id: string; name: string; url: string; org_id: string };
+      me: import("@/shared/api/server-admin").MeResult;
       /** Granted connections as namespaced ids (`srv:<profile>:<conn>`). */
       connIds: string[];
-      /** Full shared-connection entries incl. this device's access level. */
+      /** Full shared-connection entries incl. this user's effective access. */
       connections: {
         id: string;
         name: string;
-        kind: "postgres" | "mongodb";
+        kind: SharedDbKind;
         host: string;
         port: number;
         user: string;
@@ -599,8 +644,8 @@ export interface StudioStore {
         auth_db?: string;
         srv?: boolean;
         tls?: boolean;
-        data_access: "readonly" | "readwrite";
-        can_edit: boolean;
+        can_read: boolean;
+        can_update: boolean;
         can_delete: boolean;
       }[];
     }

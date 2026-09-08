@@ -1,5 +1,4 @@
 import { CalendarIcon, ClockIcon, XIcon } from "lucide-react";
-import { format } from "date-fns";
 import { useState } from "react";
 
 import { Button } from "@/shared/components/ui/button";
@@ -187,9 +186,16 @@ function formatToDb(
   return `${base} ${pad(hh)}:${pad(mm)}:00`;
 }
 
+const DATE_FMT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
 function displayValue(value: string, withTime?: boolean): string {
   const parsed = parseDate(value);
   if (!parsed?.valid) return value;
-  if (!withTime) return format(parsed.date, "MMM d, yyyy");
-  return format(parsed.date, "MMM d, yyyy HH:mm");
+  const date = DATE_FMT.format(parsed.date);
+  if (!withTime) return date;
+  return `${date} ${pad(parsed.date.getHours())}:${pad(parsed.date.getMinutes())}`;
 }

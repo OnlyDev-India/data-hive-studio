@@ -12,7 +12,11 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { serversFetchCredentials, srvConnId } from "@/shared/api/client";
+import {
+  serversFetchCredentials,
+  srvConnId,
+  canManageOrg,
+} from "@/shared/api/client";
 import { reopenRecent } from "@/features/connections";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
@@ -192,23 +196,23 @@ export function HomeView({
         out.push({
           id,
           label: c.name,
-          kind: "postgres",
+          kind: c.kind,
           source: sess.profile.name,
           connect_title: "Single click loads details; double-click connects",
           on_click: () =>
-            request_prefill("postgres", {
+            request_prefill(c.kind, {
               host: c.host,
               port: c.port,
               user: c.user,
               password: "",
               database: c.database,
-              kind: "postgres",
+              kind: c.kind,
             }),
           on_double_click: () =>
             open_conn({
               id: c.id,
               name: c.name,
-              kind: "postgres",
+              kind: c.kind,
               source_path: null,
             }),
         });
@@ -317,7 +321,8 @@ export function HomeView({
             <ul className="flex flex-col gap-0.5">
               {rows.map((c) => {
                 const is_pinned = pins.includes(c.id);
-                const can_delete = c.can_delete || sess.me.is_admin;
+                const can_delete =
+                  c.can_delete || canManageOrg(sess.me, sess.profile.org_id);
                 const DBIcon = DBIcons[c.kind] || Database;
                 return (
                   <li key={c.id}>
@@ -547,7 +552,11 @@ export function HomeView({
               const srv_profile = is_srv ? conn.id.split(":")[1] : null;
               const server_connected =
                 is_srv && srv_profile ? srv_profile in server_sessions : true;
-              const DBIcon = DBIcons[conn.kind] ?? Database;
+              // conn.kind (ConnectionInfo, the live connection) is always
+              // "mongodb" for a DocumentDB connection by design — prefer
+              // the saved-params record's kind, which remembers which
+              // picker entry was actually used, when one's available.
+              const DBIcon = DBIcons[recents_params[conn.id]?.kind ?? conn.kind] ?? Database;
               return (
                 <li key={conn.id}>
                   <Button

@@ -6,16 +6,18 @@
 //! plus a match arm in [`Gateway::adapter`] — not touching pooling,
 //! authorization, or auditing below, which all go through the `DbAdapter`
 //! trait object. Clients never see credentials — they address connections by
-//! id, and every call re-checks the caller's grant (admins bypass
-//! data-access checks but still go through the same execution path so
-//! everything lands in the audit log).
+//! id, and every call re-checks the caller's effective access, which is
+//! their `OrgRole` default (owner/admin: full access; member: read+write;
+//! viewer: read-only) overridden per-connection by any `connection_grants`
+//! row for them — see `orgs.rs`/`grants.rs`.
 
 use crate::api::{
     MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult, QueryOp, QueryResult, SchemaOp,
 };
 use crate::db::{CatalogOverview, DbAdapter, MongoAdapter, PgAdapter};
+use crate::server::auth::AuthCtx;
 use crate::server::grants::DataAccess;
-use crate::server::identity::AuthCtx;
+use crate::server::orgs::OrgRole;
 use crate::server::store::Store;
 use crate::server::vault::{AdapterParams, ConnInput};
 use std::collections::HashMap;
@@ -27,10 +29,10 @@ use tokio::sync::Mutex as AsyncMutex;
 const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 pub const ERR_FORBIDDEN: &str = "forbidden";
-pub const ERR_READONLY: &str = "connection is read-only for this device";
+pub const ERR_READONLY: &str = "connection is read-only for this user";
 
 /// A shared connection as visible to ONE caller: metadata plus that caller's
-/// effective grant (admins always see readwrite + editable).
+/// effective access.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConnWithAccess {
     #[serde(flatten)]
@@ -47,7 +49,7 @@ pub struct Gateway {
     opening: AsyncMutex<()>,
 }
 
-/// Read ops are allowed under readonly grants; everything else needs readwrite.
+/// Read ops are allowed under readonly access; everything else needs readwrite.
 fn op_is_read(op: &QueryOp) -> bool {
     matches!(
         op,
@@ -118,34 +120,53 @@ impl Gateway {
         }
     }
 
-    /// Resolve the caller's effective data access for a connection.
-    /// Admin scope = full readwrite. Others need a grant with can_read (and
-    /// can_update for writes).
+    /// The caller's effective (can_read, can_update, can_delete) for a
+    /// connection: their `OrgRole` default in the connection's org,
+    /// overridden by a `connection_grants` row if one exists. `None` when
+    /// they aren't a member of that org at all (no access, not even to know
+    /// the connection exists).
+    async fn effective_access(
+        &self,
+        conn_id: &str,
+        ctx: &AuthCtx,
+    ) -> Result<Option<(String, bool, bool, bool)>, String> {
+        let meta = self.store.conn_get(conn_id).await?.ok_or(crate::server::vault::ERR_NOT_FOUND)?;
+        let Some(role) = self.store.org_role(&meta.org_id, &ctx.user_id).await? else {
+            return Ok(None);
+        };
+        let (mut can_read, mut can_update, mut can_delete) = role.default_access();
+        if let Some(g) = self.store.grant_for_user(conn_id, &ctx.user_id).await? {
+            can_read = g.can_read;
+            can_update = g.can_update;
+            can_delete = g.can_delete;
+        }
+        Ok(Some((meta.org_id, can_read, can_update, can_delete)))
+    }
+
+    /// Resolve the caller's effective data access for a connection, gating
+    /// on it. Returns the connection's `org_id` alongside the access level
+    /// so write-path callers can pass it straight to `store.audit`.
     pub async fn authorize(
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
         write: bool,
-    ) -> Result<DataAccess, String> {
-        let exists = self.store.conn_get(conn_id).await?.is_some();
-        if !exists {
-            return Err(crate::server::vault::ERR_NOT_FOUND.into());
-        }
-        if ctx.is_admin {
-            return Ok(DataAccess::Readwrite);
-        }
-        let can_read = self.store.grant_can_read(&ctx.token, conn_id).await?;
+    ) -> Result<(DataAccess, String), String> {
+        let Some((org_id, can_read, can_update, _can_delete)) =
+            self.effective_access(conn_id, ctx).await?
+        else {
+            return Err(ERR_FORBIDDEN.into());
+        };
         if !can_read {
             return Err(ERR_FORBIDDEN.into());
         }
         if write {
-            let can_update = self.store.grant_can_update(&ctx.token, conn_id).await?;
             if !can_update {
                 return Err(ERR_READONLY.into());
             }
-            Ok(DataAccess::Readwrite)
+            Ok((DataAccess::Readwrite, org_id))
         } else {
-            Ok(DataAccess::Readonly)
+            Ok((DataAccess::Readonly, org_id))
         }
     }
 
@@ -185,9 +206,9 @@ impl Gateway {
         conn_id: &str,
         op: &QueryOp,
     ) -> Result<QueryResult, String> {
-        self.authorize(ctx, conn_id, !op_is_read(op)).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, !op_is_read(op)).await?;
         let outcome = self.adapter(conn_id).await?.execute_op(op).await.map_err(|e| e.to_string())?;
-        self.store.audit(ctx, op_action(op), conn_id, outcome.sql.as_deref()).await?;
+        self.store.audit(ctx, Some(&org_id), op_action(op), conn_id, outcome.sql.as_deref()).await?;
         Ok(outcome.result)
     }
 
@@ -252,14 +273,16 @@ impl Gateway {
         id: &str,
         document_text: &str,
     ) -> Result<bool, String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         let saved = self
             .adapter(conn_id)
             .await?
             .save_document(collection, id, document_text)
             .await
             .map_err(|e| e.to_string())?;
-        self.store.audit(ctx, "doc.save", conn_id, Some(&format!("{collection}/{id}"))).await?;
+        self.store
+            .audit(ctx, Some(&org_id), "doc.save", conn_id, Some(&format!("{collection}/{id}")))
+            .await?;
         Ok(saved)
     }
 
@@ -270,13 +293,13 @@ impl Gateway {
         collection: &str,
         document_text: &str,
     ) -> Result<(), String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         self.adapter(conn_id)
             .await?
             .insert_document(collection, document_text)
             .await
             .map_err(|e| e.to_string())?;
-        self.store.audit(ctx, "doc.insert", conn_id, Some(collection)).await?;
+        self.store.audit(ctx, Some(&org_id), "doc.insert", conn_id, Some(collection)).await?;
         Ok(())
     }
 
@@ -290,14 +313,14 @@ impl Gateway {
         collection: Option<&str>,
         script: &str,
     ) -> Result<MongoRunResult, String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         let result = self
             .adapter(conn_id)
             .await?
             .run_mongo(db, collection, script)
             .await
             .map_err(|e| e.to_string())?;
-        self.store.audit(ctx, "mongo.run", conn_id, Some(&result.command)).await?;
+        self.store.audit(ctx, Some(&org_id), "mongo.run", conn_id, Some(&result.command)).await?;
         Ok(result)
     }
 
@@ -307,9 +330,9 @@ impl Gateway {
         conn_id: &str,
         name: &str,
     ) -> Result<(), String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         self.adapter(conn_id).await?.create_collection(name).await.map_err(|e| e.to_string())?;
-        self.store.audit(ctx, "collection.create", conn_id, Some(name)).await?;
+        self.store.audit(ctx, Some(&org_id), "collection.create", conn_id, Some(name)).await?;
         Ok(())
     }
 
@@ -325,7 +348,7 @@ impl Gateway {
         target: &str,
         copy_data: bool,
     ) -> Result<Vec<String>, String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         let stmts = self
             .adapter(conn_id)
             .await?
@@ -333,7 +356,7 @@ impl Gateway {
             .await
             .map_err(|e| e.to_string())?;
         self.store
-            .audit(ctx, "collection.duplicate", conn_id, Some(&format!("{source} → {target}")))
+            .audit(ctx, Some(&org_id), "collection.duplicate", conn_id, Some(&format!("{source} → {target}")))
             .await?;
         Ok(stmts)
     }
@@ -357,16 +380,16 @@ impl Gateway {
     /// — since the gateway pools one adapter per connection id for every
     /// caller, switching it affects every other user of this same shared
     /// connection until someone switches it back. Treated as a write for
-    /// that reason (requires a can_update grant, same as any other mutation).
+    /// that reason (requires update access, same as any other mutation).
     pub async fn set_active_schema(
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
         schema: &str,
     ) -> Result<(), String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         self.adapter(conn_id).await?.set_active_schema(schema).await.map_err(|e| e.to_string())?;
-        self.store.audit(ctx, "schema.switch", conn_id, Some(schema)).await?;
+        self.store.audit(ctx, Some(&org_id), "schema.switch", conn_id, Some(schema)).await?;
         Ok(())
     }
 
@@ -384,7 +407,7 @@ impl Gateway {
         conn_id: &str,
         ops: &[SchemaOp],
     ) -> Result<Vec<String>, String> {
-        self.authorize(ctx, conn_id, true).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         let stmts = self
             .adapter(conn_id)
             .await?
@@ -392,93 +415,120 @@ impl Gateway {
             .await
             .map_err(|e| e.to_string())?;
         if !stmts.is_empty() {
-            self.store.audit(ctx, "schema_ops", conn_id, Some(&stmts.join(";\n"))).await?;
+            self.store.audit(ctx, Some(&org_id), "schema_ops", conn_id, Some(&stmts.join(";\n"))).await?;
         }
         Ok(stmts)
     }
 
-    /// Edit stored details — needs `can_edit` on the grant or admin scope.
-    /// Editing credentials drops the cached pool so the next query reconnects.
+    /// Publish a NEW shared connection in `org_id`. Requires at least
+    /// `Member` (viewers can't create connections, by definition of what a
+    /// viewer is). The creator gets an explicit full-access grant override
+    /// so they keep full control even if their role default wouldn't
+    /// otherwise cover it (relevant once per-connection restrictions are
+    /// layered on more broadly).
+    pub async fn create_connection(
+        &self,
+        ctx: &AuthCtx,
+        org_id: &str,
+        input: ConnInput,
+    ) -> Result<crate::server::vault::ConnMeta, String> {
+        let role = self.store.org_role(org_id, &ctx.user_id).await?.ok_or(ERR_FORBIDDEN)?;
+        if role < OrgRole::Member {
+            return Err(ERR_FORBIDDEN.into());
+        }
+        let meta = self.store.conn_add(org_id, &input, &ctx.user_id).await?;
+        self.store.grant_upsert(&meta.id, &ctx.user_id, true, true, true).await?;
+        self.store.audit(ctx, Some(org_id), "conn.create", &meta.id, Some(&meta.name)).await?;
+        Ok(meta)
+    }
+
+    /// Edit stored details — needs update access. Editing credentials drops
+    /// the cached pool so the next query reconnects.
     pub async fn update_conn_details(
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
         input: ConnInput,
     ) -> Result<crate::server::vault::ConnMeta, String> {
-        let is_admin = ctx.is_admin;
-        if !is_admin && !self.store.grant_can_update(&ctx.token, conn_id).await? {
+        let Some((org_id, _can_read, can_update, _can_delete)) =
+            self.effective_access(conn_id, ctx).await?
+        else {
+            return Err(ERR_FORBIDDEN.into());
+        };
+        if !can_update {
             return Err(ERR_FORBIDDEN.into());
         }
         let meta = self.store.conn_update(conn_id, &input).await?;
         self.invalidate(conn_id).await;
-        self.store
-            .audit(ctx, "conn.edit", conn_id, Some("details updated"))
-            .await?;
+        self.store.audit(ctx, Some(&org_id), "conn.edit", conn_id, Some("details updated")).await?;
         Ok(meta)
     }
 
-    /// Connections visible to a device: admin sees all; others see granted ones only.
-    /// Archive a shared connection. Requires admin scope OR an explicit
-    /// `can_delete` grant on this device for that connection.
+    /// Archive a shared connection. Requires delete access (role default or
+    /// an explicit `connection_grants` override).
     pub async fn delete_connection(&self, ctx: &AuthCtx, conn_id: &str) -> Result<(), String> {
         let meta = self
             .store
             .conn_get(conn_id)
             .await?
             .ok_or(crate::server::vault::ERR_NOT_FOUND)?;
-        let allowed =
-            ctx.is_admin || self.store.grant_can_delete(&ctx.token, conn_id).await?;
-        if !allowed {
+        let Some((org_id, _can_read, _can_update, can_delete)) =
+            self.effective_access(conn_id, ctx).await?
+        else {
+            return Err(ERR_FORBIDDEN.into());
+        };
+        if !can_delete {
             return Err(ERR_FORBIDDEN.into());
         }
         self.store.conn_archive(conn_id).await?;
         self.invalidate(conn_id).await;
-        self.store.audit(ctx, "conn.delete", conn_id, Some(&meta.name)).await?;
+        self.store.audit(ctx, Some(&org_id), "conn.delete", conn_id, Some(&meta.name)).await?;
         Ok(())
     }
 
+    /// Connections visible to a user within one org: every active
+    /// connection in that org they're at least a Viewer of, tagged with
+    /// their effective access.
     pub async fn visible_connections(
         &self,
         ctx: &AuthCtx,
+        org_id: &str,
     ) -> Result<Vec<ConnWithAccess>, String> {
-        let metas = self.store.conn_list_active().await?;
-        let grants = self.store.grants_for_device(&ctx.token).await?;
-        let mut out = Vec::new();
+        if self.store.org_role(org_id, &ctx.user_id).await?.is_none() {
+            return Err(ERR_FORBIDDEN.into());
+        }
+        let metas = self.store.conn_list_active(org_id).await?;
+        let mut out = Vec::with_capacity(metas.len());
         for m in metas {
-            if ctx.is_admin {
-                out.push(ConnWithAccess {
-                    meta: m,
-                    can_read: true,
-                    can_update: true,
-                    can_delete: true,
-                });
-                continue;
-            }
-            if let Some(g) = grants.iter().find(|g| g.conn_id == m.id) {
-                out.push(ConnWithAccess {
-                    meta: m,
-                    can_read: g.can_read,
-                    can_update: g.can_update,
-                    can_delete: g.can_delete,
-                });
+            // Role is already confirmed present above; effective_access()
+            // re-derives it per-connection (cheap, and keeps this the one
+            // place the role-default+override merge logic lives). A grant
+            // override can drop can_read to false — that connection is
+            // excluded from the list entirely, not shown with can_read:
+            // false, matching "you can't even see this" rather than "you
+            // can see it but not open it."
+            if let Some((_, can_read, can_update, can_delete)) = self.effective_access(&m.id, ctx).await? {
+                if can_read {
+                    out.push(ConnWithAccess { meta: m, can_read, can_update, can_delete });
+                }
             }
         }
         Ok(out)
     }
 
     /// Return decrypted connection credentials for authorized callers.
-    /// Admins always get access; team tokens need a can_read grant.
     pub async fn conn_credentials(
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
     ) -> Result<serde_json::Value, String> {
-        // Check authorization.
-        if !ctx.is_admin {
-            let allowed = self.store.grant_can_read(&ctx.token, conn_id).await?;
-            if !allowed {
-                return Err(ERR_FORBIDDEN.into());
-            }
+        let Some((_org_id, can_read, _can_update, _can_delete)) =
+            self.effective_access(conn_id, ctx).await?
+        else {
+            return Err(ERR_FORBIDDEN.into());
+        };
+        if !can_read {
+            return Err(ERR_FORBIDDEN.into());
         }
         let params = self.store.conn_secret_params(conn_id).await?;
         Ok(match params {
@@ -503,15 +553,17 @@ impl Gateway {
         })
     }
 
-    /// Release (close) the cached pool for a connection. Used when a web client
-    /// disconnects so resources are freed immediately instead of waiting for the
-    /// idle timeout. Requires admin or a read grant on the connection.
+    /// Release (close) the cached pool for a connection. Used when a web
+    /// client disconnects so resources are freed immediately instead of
+    /// waiting for the idle timeout. Requires at least read access.
     pub async fn release_connection(&self, ctx: &AuthCtx, conn_id: &str) -> Result<(), String> {
-        if !ctx.is_admin {
-            let allowed = self.store.grant_can_read(&ctx.token, conn_id).await?;
-            if !allowed {
-                return Err(ERR_FORBIDDEN.into());
-            }
+        let Some((_org_id, can_read, _can_update, _can_delete)) =
+            self.effective_access(conn_id, ctx).await?
+        else {
+            return Err(ERR_FORBIDDEN.into());
+        };
+        if !can_read {
+            return Err(ERR_FORBIDDEN.into());
         }
         self.invalidate(conn_id).await;
         Ok(())
@@ -537,78 +589,113 @@ mod tests {
             auth_db: None,
             srv: false,
             tls: false,
+            ssl_ca_file: None,
+            ssl_client_cert_file: None,
+            ssl_client_key_file: None,
+            retry_writes: false,
+            replica_set: None,
+            pool_max: None,
+            pool_min: None,
+            connect_timeout_secs: None,
+            idle_timeout_secs: None,
+            max_lifetime_secs: None,
+            server_selection_timeout_secs: None,
+            ssh_host: None,
+            ssh_port: None,
+            ssh_user: None,
+            ssh_auth_mode: None,
+            ssh_key_file: None,
+            ssh_host_key_fingerprint: None,
+            ssh_password: None,
+            ssh_key_passphrase: None,
         }
     }
 
+    async fn owner_and_org(store: &Store) -> (AuthCtx, String) {
+        // Unique subject/email per call — tests create several orgs (each
+        // with its own owner) in one run, and `users.email` is UNIQUE.
+        let sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let email = format!("{sub}@x.com");
+        let user = store.user_upsert_oauth("google", &sub, &email, "Owner", None).await.unwrap();
+        let org = store.org_create("Acme", &user.id).await.unwrap();
+        (AuthCtx { user_id: user.id, email, name: "Owner".into() }, org.id)
+    }
+
+    async fn member_of(store: &Store, org_id: &str, role: OrgRole) -> AuthCtx {
+        let sub = format!("member-{}", uuid::Uuid::new_v4());
+        let email = format!("{sub}@x.com");
+        let user = store.user_upsert_oauth("google", &sub, &email, "Member", None).await.unwrap();
+        let owner = store.org_members(org_id).await.unwrap();
+        let owner_id = owner.iter().find(|m| m.role == OrgRole::Owner).unwrap().user_id.clone();
+        let invite = store.invite_create(org_id, role, &owner_id, None, None).await.unwrap();
+        store.invite_redeem(&invite.code, &user.id).await.unwrap();
+        AuthCtx { user_id: user.id, email, name: "Member".into() }
+    }
+
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn authorization_gates() {
         let store = test_store().await;
         let gw = Gateway::new(store.clone());
-        let meta = store.conn_add(&input(), "admin-dev").await.unwrap();
+        let (owner, org_id) = owner_and_org(&store).await;
+        let meta = gw.create_connection(&owner, &org_id, input()).await.unwrap();
 
-        let admin = AuthCtx { token: "admin-dev".into(), user_name: "admin".into(), prefix: "adm_".into(), team_name: None, is_admin: true };
-        // Admin passes even with zero grants (but adapter connect fails — that's fine).
-        let err = gw.execute_op(&admin, &meta.id, &read_op()).await.err().unwrap();
-        assert!(!err.contains(ERR_FORBIDDEN), "admin should pass authz");
+        // Owner passes even against a dead adapter (that fails later, not at authz).
+        let err = gw.execute_op(&owner, &meta.id, &read_op()).await.err().unwrap();
+        assert!(!err.contains(ERR_FORBIDDEN), "owner should pass authz");
 
-        let dev = AuthCtx { token: "dev".into(), user_name: "dev".into(), prefix: "adm_".into(), team_name: Some("acme".into()), is_admin: false };
-        let err = gw.list_tables(&dev, &meta.id).await.err().unwrap();
+        // Someone from a DIFFERENT org (not a member at all) is forbidden outright.
+        let outsider_store = test_store().await;
+        let _ = outsider_store; // separate schema; just need a non-member ctx below
+        let (_other_owner, other_org) = owner_and_org(&store).await;
+        let outsider = member_of(&store, &other_org, OrgRole::Owner).await;
+        let err = gw.list_tables(&outsider, &meta.id).await.err().unwrap();
         assert_eq!(err, ERR_FORBIDDEN);
 
-        store.grant_upsert("dev", &meta.id, true, false, false).await.unwrap();
-        let err = gw.run_sql(&dev, &meta.id, "SELECT 1").await.err().unwrap();
+        // A Viewer in the SAME org can read but not write.
+        let viewer = member_of(&store, &org_id, OrgRole::Viewer).await;
+        let err = gw.run_sql(&viewer, &meta.id, "SELECT 1").await.err().unwrap();
         assert_eq!(err, ERR_READONLY);
-
-        let err2 = gw.execute_op(&dev, &meta.id, &write_op()).await.err().unwrap();
-        assert_eq!(err2, ERR_READONLY);
-
-        // Read op passes authz (fails later at pool connect).
-        let err3 = gw.execute_op(&dev, &meta.id, &read_op()).await.err().unwrap();
+        let err3 = gw.execute_op(&viewer, &meta.id, &read_op()).await.err().unwrap();
         assert!(!err3.contains(ERR_FORBIDDEN) && !err3.contains(ERR_READONLY));
 
-        // Edit access gates detail edits.
-        assert_eq!(
-            gw.update_conn_details(&dev, &meta.id, input()).await.err().unwrap(),
-            ERR_FORBIDDEN
-        );
-        store.grant_upsert("dev", &meta.id, true, true, false).await.unwrap();
-        let edited = gw.update_conn_details(&dev, &meta.id, input()).await.unwrap();
+        // A Member gets read+write by default but not delete.
+        let member = member_of(&store, &org_id, OrgRole::Member).await;
+        let edited = gw.update_conn_details(&member, &meta.id, input()).await.unwrap();
         assert_eq!(edited.name, "gw");
+        assert_eq!(gw.delete_connection(&member, &meta.id).await.err().unwrap(), ERR_FORBIDDEN);
 
-        // Delete requires can_delete (or admin): denied by default…
-        assert_eq!(
-            gw.delete_connection(&dev, &meta.id).await.err().unwrap(),
-            ERR_FORBIDDEN
-        );
-        // …granted → archives it, drops it from listings.
-        store.grant_upsert("dev", &meta.id, true, true, true).await.unwrap();
-        gw.delete_connection(&dev, &meta.id).await.unwrap();
-        assert!(gw.visible_connections(&dev).await.unwrap().is_empty());
+        // An explicit grant override can lift a Viewer above their role default.
+        store.grant_upsert(&meta.id, &viewer.user_id, true, true, true).await.unwrap();
+        gw.delete_connection(&viewer, &meta.id).await.unwrap();
+        assert!(gw.visible_connections(&owner, &org_id).await.unwrap().is_empty());
     }
 
     fn read_op() -> QueryOp {
         serde_json::from_str(r#"{"kind":"select","table":"t","limit":5}"#).unwrap()
     }
-    fn write_op() -> QueryOp {
-        serde_json::from_str(r#"{"kind":"delete","table":"t","match_row":{}}"#).unwrap()
-    }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn visibility_filtering() {
         let store = test_store().await;
         let gw = Gateway::new(store.clone());
-        let m1 = store.conn_add(&input(), "a").await.unwrap();
-        let _m2 = store.conn_add(&input(), "a").await.unwrap();
+        let (owner, org_id) = owner_and_org(&store).await;
+        let m1 = gw.create_connection(&owner, &org_id, input()).await.unwrap();
+        let _m2 = gw.create_connection(&owner, &org_id, input()).await.unwrap();
 
-        let admin = AuthCtx { token: "a".into(), user_name: "a".into(), prefix: "adm_".into(), team_name: None, is_admin: true };
-        assert_eq!(gw.visible_connections(&admin).await.unwrap().len(), 2);
+        assert_eq!(gw.visible_connections(&owner, &org_id).await.unwrap().len(), 2);
 
-        let dev = AuthCtx { token: "d".into(), user_name: "d".into(), prefix: "adm_".into(), team_name: Some("acme".into()), is_admin: false };
-        assert!(gw.visible_connections(&dev).await.unwrap().is_empty());
-        store.grant_upsert("d", &m1.id, true, false, false).await.unwrap();
-        let vis = gw.visible_connections(&dev).await.unwrap();
+        // A fresh member sees BOTH (org-wide default access), unlike the old
+        // flat per-token model where absence of a grant meant zero visibility.
+        let member = member_of(&store, &org_id, OrgRole::Member).await;
+        assert_eq!(gw.visible_connections(&member, &org_id).await.unwrap().len(), 2);
+
+        // A grant override can also RESTRICT visibility below the role
+        // default by dropping can_read.
+        store.grant_upsert(&m1.id, &member.user_id, false, false, false).await.unwrap();
+        let vis = gw.visible_connections(&member, &org_id).await.unwrap();
         assert_eq!(vis.len(), 1);
-        assert_eq!(vis[0].meta.id, m1.id);
         assert!(!serde_json::to_string(&vis).unwrap().contains("password"));
     }
 
@@ -617,16 +704,17 @@ mod tests {
     /// always going through Postgres — the point of generalizing `pools` to
     /// `Arc<dyn DbAdapter>` and matching on `AdapterParams` in `adapter()`.
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn dispatches_by_connection_kind() {
         let store = test_store().await;
         let gw = Gateway::new(store.clone());
+        let (owner, org_id) = owner_and_org(&store).await;
         let mut mongo_input = input();
         mongo_input.kind = crate::api::DbKind::Mongodb;
-        let meta = store.conn_add(&mongo_input, "admin-dev").await.unwrap();
+        let meta = gw.create_connection(&owner, &org_id, mongo_input).await.unwrap();
         assert_eq!(meta.kind, crate::api::DbKind::Mongodb);
 
-        let admin = AuthCtx { token: "admin-dev".into(), user_name: "admin".into(), prefix: "adm_".into(), team_name: None, is_admin: true };
-        let err = gw.list_tables(&admin, &meta.id).await.err().unwrap();
+        let err = gw.list_tables(&owner, &meta.id).await.err().unwrap();
         // Postgres's connect error never mentions "mongo" — this fails via
         // MongoAdapter::connect's own error text, confirming dispatch.
         assert!(err.contains("mongo"), "expected a Mongo connect error, got: {err}");

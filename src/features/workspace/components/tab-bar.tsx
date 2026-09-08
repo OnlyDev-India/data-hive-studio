@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   ChevronDown,
   Code,
@@ -101,9 +102,31 @@ export function TabBar({
     on_drag_start(tab, e.clientX, e.clientY);
   };
 
+  // Keeps the active tab visible whenever it changes — most importantly
+  // right after opening a new one (from the command palette, "+", or a
+  // dropped file): with enough tabs open the strip scrolls horizontally,
+  // and a tab appended past the visible edge otherwise becomes active with
+  // no visual sign it exists until the user manually scrolls to find it.
+  const strip_ref = useRef<HTMLDivElement>(null);
+  const active_key = active ? tabKey(active) : null;
+  useEffect(() => {
+    if (!active_key) return;
+    const el = strip_ref.current?.querySelector(
+      `[data-tab-key="${CSS.escape(active_key)}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active_key]);
+
   return (
     <div
-      className="bg-background min-h-8.5 max-h-8.5 flex w-full shrink-0 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
+      ref={strip_ref}
+      // `scroll-pr` reserves space matching the sticky +/dropdown cluster's
+      // own width (see below) in `scrollIntoView`'s notion of "visible" —
+      // without it, scrolling the last tab flush to the strip's true right
+      // edge lands it exactly where that opaque, always-on-top cluster
+      // sits, so the tab itself (its label, its close button) ends up
+      // rendered underneath and hidden rather than actually in view.
+      className="bg-background flex max-h-8.5 min-h-8.5 w-full shrink-0 scroll-pr-[60px] scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
       onPointerDown={on_strip_pointer_down}
       // A real drag suppresses the follow-up click so tabs don't get selected.
       onClickCapture={(e) => {
@@ -243,7 +266,9 @@ function TabItem({
             )}
           >
             <TabTypeIcon tab={tab} />
-            <span className="max-w-56 truncate">{tabLabel(tab, file_name)}</span>
+            <span className="max-w-56 truncate">
+              {tabLabel(tab, file_name)}
+            </span>
             {/* Dirty tabs show a dot; hovering it reveals the close X. */}
             {dirty ? (
               <span
@@ -301,11 +326,17 @@ function TabItem({
           Close to the right
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={total <= 1} onClick={() => on_split_right(tab)}>
+        <ContextMenuItem
+          disabled={total <= 1}
+          onClick={() => on_split_right(tab)}
+        >
           <SplitSquareHorizontal className="text-muted-foreground size-4" />
           Split right
         </ContextMenuItem>
-        <ContextMenuItem disabled={total <= 1} onClick={() => on_split_down(tab)}>
+        <ContextMenuItem
+          disabled={total <= 1}
+          onClick={() => on_split_down(tab)}
+        >
           <SplitSquareVertical className="text-muted-foreground size-4" />
           Split down
         </ContextMenuItem>

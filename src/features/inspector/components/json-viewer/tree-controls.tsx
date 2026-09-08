@@ -31,6 +31,9 @@ export interface TreeControlsProps {
   /** Row can't be edited (no write-back hook) — disable the pencil. */
   editDisabled?: boolean;
   onToggleEdit: () => void;
+  /** No row selected — every control except Close is disabled (nothing for
+   *  search/wrap/edit/expand/copy to act on). */
+  disabled?: boolean;
 }
 
 /** Toolbar shared by the sidebar viewer and the expanded dialog: search (the
@@ -53,9 +56,10 @@ export function TreeControls({
   editable,
   editDisabled,
   onToggleEdit,
+  disabled = false,
 }: TreeControlsProps) {
   return (
-    <div className="flex items-center gap-1 border-b px-2 py-1.5 max-h-8.5">
+    <div className="flex max-h-8.5 items-center gap-1 border-b px-2 py-1.5">
       <label className="relative min-w-0 flex-1">
         <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-1.5 size-3.5 -translate-y-1/2" />
         <Input
@@ -69,6 +73,7 @@ export function TreeControls({
             }
           }}
           placeholder="Search in row…"
+          disabled={disabled}
           className="h-6 w-full min-w-0 pl-6 text-xs"
         />
       </label>
@@ -83,6 +88,7 @@ export function TreeControls({
             variant="ghost"
             size="iconXs"
             className="size-5"
+            disabled={disabled}
             aria-label="Previous match"
             title="Previous match (Shift+Enter)"
             onClick={onPrev}
@@ -93,6 +99,7 @@ export function TreeControls({
             variant="ghost"
             size="iconXs"
             className="size-5"
+            disabled={disabled}
             aria-label="Next match"
             title="Next match (Enter)"
             onClick={onNext}
@@ -103,6 +110,7 @@ export function TreeControls({
             variant="ghost"
             size="iconXs"
             className="size-5"
+            disabled={disabled}
             aria-label="Clear search"
             title="Clear search"
             onClick={onClear}
@@ -114,6 +122,7 @@ export function TreeControls({
       <Button
         variant="ghost"
         size="iconXs"
+        disabled={disabled}
         className={cn("size-5", wrap && "bg-primary/60 text-foreground")}
         aria-label="Toggle word wrap"
         title={wrap ? "Word wrap on" : "Word wrap off"}
@@ -124,7 +133,7 @@ export function TreeControls({
       <Button
         variant="ghost"
         size="iconXs"
-        disabled={editDisabled}
+        disabled={disabled || editDisabled}
         className={cn(
           "size-5",
           editable && !editDisabled && "bg-primary/60 text-foreground",
@@ -145,6 +154,7 @@ export function TreeControls({
         <Button
           variant="ghost"
           size="iconXs"
+          disabled={disabled}
           className="size-5"
           aria-label="Open in dialog"
           title="Open in dialog"
@@ -156,6 +166,7 @@ export function TreeControls({
       <Button
         variant="ghost"
         size="iconXs"
+        disabled={disabled}
         className="size-5"
         aria-label="Copy row as JSON"
         title="Copy as JSON"

@@ -39,6 +39,55 @@ pub struct MongoParams {
     /// matters for direct single-host connections.
     #[serde(default)]
     pub tls: bool,
+    /// Path to a CA certificate file used to verify the server's
+    /// certificate (`tlsCAFile`).
+    #[serde(default)]
+    pub ssl_ca_file: Option<String>,
+    /// Path to a client certificate file for mutual TLS (mTLS) —
+    /// MongoDB's `tlsCertificateKeyFile`, a single PEM containing BOTH the
+    /// certificate and its (unencrypted) private key.
+    #[serde(default)]
+    pub ssl_client_cert_file: Option<String>,
+    /// Disable retryable writes (`retryWrites=false`). Required for Amazon
+    /// DocumentDB, which doesn't support the driver's retryable-writes
+    /// protocol — omitted (driver default `true`) unless explicitly set to
+    /// `Some(false)`.
+    #[serde(default)]
+    pub retry_writes: Option<bool>,
+    /// Replica set name (`replicaSet=...`). A real Amazon DocumentDB cluster
+    /// needs this set (typically `rs0`) for the driver to select a valid
+    /// read topology; plain MongoDB and the single-node DocumentDB local
+    /// emulator don't need it.
+    #[serde(default)]
+    pub replica_set: Option<String>,
+    /// Reach the database through an SSH tunnel instead of connecting
+    /// directly. Incompatible with `srv: true` — SRV/TXT lookup resolves to
+    /// however many replica-set hosts the DNS records list, which a single
+    /// local port-forward to ONE target can't transparently stand in for;
+    /// `connect()` rejects that combination rather than silently ignoring it.
+    #[serde(default)]
+    pub ssh: Option<crate::ssh_tunnel::SshConfig>,
+    /// Max connections per server in the pool (driver default: 10).
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    /// Min connections per server kept open (driver default: 0).
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    /// TCP connect timeout for each connection the driver opens (driver
+    /// default: 10s). Note: the driver has no working `socketTimeoutMS`
+    /// equivalent — `socket_timeout` exists on `ClientOptions` but is
+    /// explicitly unimplemented ("the Rust driver does not support
+    /// socketTimeoutMS"), so it isn't exposed here.
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    /// How long to keep trying to find a usable server before giving up on
+    /// an operation (driver default: 30s).
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
+    /// How long a pooled connection can sit idle before being closed
+    /// (driver default: never).
+    #[serde(default)]
+    pub max_idle_time_secs: Option<u32>,
 }
 
 fn default_port() -> u16 {
@@ -52,9 +101,24 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
     )];
     // mongodb+srv:// implies TLS by default; a plain mongodb:// connection
     // needs it requested explicitly to get the driver's TLS transport
-    // (backed by the `rustls-tls` feature on the `mongodb` crate).
-    if params.tls && !params.srv {
+    // (backed by the `rustls-tls` feature on the `mongodb` crate) — setting
+    // a CA/client cert implies the same intent, so that alone is enough
+    // without ALSO having to remember to check the TLS box.
+    let wants_tls = params.tls || params.ssl_ca_file.is_some() || params.ssl_client_cert_file.is_some();
+    if wants_tls && !params.srv {
         query.push("tls=true".to_string());
+    }
+    if let Some(ca) = &params.ssl_ca_file {
+        query.push(format!("tlsCAFile={}", percent_encode(ca)));
+    }
+    if let Some(cert) = &params.ssl_client_cert_file {
+        query.push(format!("tlsCertificateKeyFile={}", percent_encode(cert)));
+    }
+    if params.retry_writes == Some(false) {
+        query.push("retryWrites=false".to_string());
+    }
+    if let Some(rs) = &params.replica_set {
+        query.push(format!("replicaSet={}", percent_encode(rs)));
     }
     let query = query.join("&");
     let uri = if params.srv {
@@ -68,20 +132,68 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
             query,
         )
     } else {
-        // mongodb:// single host with explicit port
+        // mongodb:// — `host` may be a single hostname or a comma-separated
+        // replica-set member list (each optionally carrying its own port,
+        // e.g. "a.example.com:27017,b.example.com:27018"); any entry
+        // without one falls back to the `port` field. This is also the
+        // escape hatch for the DNS-seedlist resolver bug below: a user who
+        // can't use mongodb+srv:// can list the same hosts here instead.
+        let hosts: Vec<String> = params
+            .host
+            .split(',')
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(|h| if h.contains(':') { h.to_string() } else { format!("{h}:{}", params.port) })
+            .collect();
         format!(
-            "mongodb://{}:{}@{}:{}/{}?{}",
+            "mongodb://{}:{}@{}/{}?{}",
             params.user,
             percent_encode(&params.password),
-            params.host,
-            params.port,
+            hosts.join(","),
             params.database,
             query,
         )
     };
-    ClientOptions::parse(uri)
-        .await
-        .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))
+    let mut options = ClientOptions::parse(uri).await.map_err(|e| {
+        let msg = e.to_string();
+        // The `mongodb` crate (as of 3.8) exposes no public way to override
+        // the DNS resolver used for mongodb+srv://'s SRV/TXT lookup — it
+        // always reads the OS's system resolver config, and on some
+        // machines (commonly behind a VPN, or with an unusual network
+        // adapter) that config has an entry the driver's resolver can't
+        // parse, so SRV lookups fail hard with exactly this error. There is
+        // no way to fix that from here; the real fix is to stop needing it.
+        if params.srv && msg.contains("DNS resolution") {
+            DbError::InvalidOperation(format!(
+                "mongo: {msg} — this is a known issue where the DNS seedlist (mongodb+srv://) \
+                 lookup can't read your system's DNS configuration (often caused by a VPN or an \
+                 unusual network adapter). Workaround: turn off \"DNS seedlist\" for this \
+                 connection and list your replica set members directly in the Host field \
+                 instead, e.g. host1:27017,host2:27017,host3:27017."
+            ))
+        } else {
+            DbError::InvalidOperation(format!("mongo: {msg}"))
+        }
+    })?;
+    // Pool/timeout knobs: set directly on the parsed options rather than as
+    // URI query params — `ClientOptions`' fields are all public, and this
+    // sidesteps needing a `*MS` query-string name for each one.
+    if let Some(v) = params.pool_max {
+        options.max_pool_size = Some(v);
+    }
+    if let Some(v) = params.pool_min {
+        options.min_pool_size = Some(v);
+    }
+    if let Some(secs) = params.connect_timeout_secs {
+        options.connect_timeout = Some(std::time::Duration::from_secs(secs as u64));
+    }
+    if let Some(secs) = params.server_selection_timeout_secs {
+        options.server_selection_timeout = Some(std::time::Duration::from_secs(secs as u64));
+    }
+    if let Some(secs) = params.max_idle_time_secs {
+        options.max_idle_time = Some(std::time::Duration::from_secs(secs as u64));
+    }
+    Ok(options)
 }
 
 /// Minimal percent-encoding for the password/authSource in a connection URI
@@ -231,11 +343,12 @@ fn field_bson(value: Option<&str>, data_type: Option<&str>) -> bson::Bson {
         }
     }
     // No type hint (e.g. a dotted nested path from the drill-down editor): best
-    // effort — bool, integer, double, then JSON object/array, else string.
-    if v == "true" {
+    // effort — bool (both "true"/"false" and the "1"/"0" the grid's own bool
+    // editor writes), integer, double, then JSON object/array, else string.
+    if v == "true" || v == "1" {
         return bson::Bson::Boolean(true);
     }
-    if v == "false" {
+    if v == "false" || v == "0" {
         return bson::Bson::Boolean(false);
     }
     if let Ok(i) = v.parse::<i64>() {
@@ -287,6 +400,10 @@ pub struct MongoAdapter {
     /// `set_active_schema`. A sync `RwLock` is fine: it's only ever held for
     /// a clone/assign, never across an `.await`.
     database: std::sync::RwLock<String>,
+    /// Kept alive for as long as this adapter is — dropping it tears the
+    /// tunnel down out from under the client. `None` when this connection
+    /// doesn't go through SSH.
+    _ssh_tunnel: Option<crate::ssh_tunnel::LocalTunnel>,
 }
 
 // ---- Console parser (Phase 3: find / aggregate / count / distinct + a small
@@ -440,6 +557,47 @@ fn parse_chain(chain: &str) -> FindChain {
     f
 }
 
+/// Modifier calls tolerated after the main `db.<collection>.<method>(...)`
+/// call — everything `parse_chain` itself understands, plus a couple of
+/// no-ops the real Mongo shell also allows chained on.
+const CHAIN_METHODS: &[&str] = &["limit", "sort", "skip", "pretty", "toArray", "count"];
+
+/// `parse_db_call` only looks for the FIRST `db.<collection>.<method>(...)`
+/// in the input and puts everything after its closing `)` into `chain` —
+/// which is exactly right for `.limit(5).sort({...})`, but means a second,
+/// separate command typed right after the first with no `;` between them
+/// (e.g. two `db.x.find()` calls on their own lines) silently landed in
+/// `chain` too, where `parse_chain` just didn't recognize it as a modifier
+/// and quietly dropped it: the first query ran, the second vanished with no
+/// error at all. This walks `chain` consuming only recognized modifier
+/// calls and errors on whatever's left, so a second glued-on command is
+/// reported instead of silently discarded.
+fn validate_chain(chain: &str) -> DbResult<()> {
+    let mut rest = chain.trim();
+    while !rest.is_empty() {
+        let Some(stripped) = rest.strip_prefix('.') else {
+            break;
+        };
+        let Some(open) = stripped.find('(') else {
+            break;
+        };
+        if !CHAIN_METHODS.contains(&stripped[..open].trim()) {
+            break;
+        }
+        let Some(close) = balanced_close(stripped, open) else {
+            break;
+        };
+        rest = stripped[close + 1..].trim();
+    }
+    if rest.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::InvalidOperation(format!(
+            "Unexpected text after the query: `{rest}` — looks like more than one command with no \";\" between them. Run each separately, or add \";\" between them."
+        )))
+    }
+}
+
 /// Parse a `<query>` argument (optionally `query, options`) into a filter
 /// document. Empty input → `None` (match everything).
 fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
@@ -460,6 +618,43 @@ fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
         .map_err(|e| DbError::InvalidOperation(format!("invalid query: {e}")))
 }
 
+/// Parse a single REQUIRED JSON-object argument — an insert document, or an
+/// update's replacement/operator document. Unlike `parse_filter`, empty
+/// input is an error rather than "match everything": these are the actual
+/// document being written, not a query.
+fn parse_json_object(s: &str, what: &str) -> DbResult<bson::Document> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err(DbError::InvalidOperation(format!("{what} is required")));
+    }
+    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
+        .map_err(|e| DbError::InvalidOperation(format!("invalid {what} JSON: {e}")))?;
+    if !v.is_object() {
+        return Err(DbError::InvalidOperation(format!("{what} must be a JSON object")));
+    }
+    bson::to_document(&v).map_err(|e| DbError::InvalidOperation(format!("invalid {what}: {e}")))
+}
+
+/// Parse a JSON array of documents — `insertMany`'s argument.
+fn parse_json_object_array(s: &str, what: &str) -> DbResult<Vec<bson::Document>> {
+    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s.trim()))
+        .map_err(|e| DbError::InvalidOperation(format!("invalid {what} JSON: {e}")))?;
+    let arr = v.as_array().ok_or_else(|| {
+        DbError::InvalidOperation(format!("{what} must be a JSON array of documents"))
+    })?;
+    arr.iter()
+        .map(|d| {
+            if !d.is_object() {
+                return Err(DbError::InvalidOperation(format!(
+                    "every item in {what} must be a JSON object"
+                )));
+            }
+            bson::to_document(d)
+                .map_err(|e| DbError::InvalidOperation(format!("invalid document in {what}: {e}")))
+        })
+        .collect()
+}
+
 /// Project a list of JSON documents into a union-of-fields grid.
 fn flatten_documents(docs: &[serde_json::Value]) -> (Vec<String>, Vec<Vec<Option<String>>>) {
     let mut columns: Vec<String> = Vec::new();
@@ -476,6 +671,10 @@ fn flatten_documents(docs: &[serde_json::Value]) -> (Vec<String>, Vec<Vec<Option
     if let Some(i) = columns.iter().position(|c| c == "_id") {
         let id = columns.remove(i);
         columns.insert(0, id);
+    } else if columns.is_empty() {
+        // No documents matched — fall back to _id rather than a columnless
+        // grid, same as `select_page`.
+        columns.push("_id".to_string());
     }
     let rows = docs
         .iter()
@@ -530,6 +729,39 @@ fn bson_type_name(ty: &bson::Bson) -> &'static str {
 
 impl MongoAdapter {
     pub async fn connect(params: &MongoParams) -> DbResult<Self> {
+        let tunnel = match &params.ssh {
+            Some(_) if params.srv => {
+                return Err(DbError::InvalidOperation(
+                    "mongo: an SSH tunnel can't be combined with mongodb+srv:// — turn off \
+                     \"DNS seedlist\" and list the replica set members directly in the Host \
+                     field instead."
+                        .into(),
+                ));
+            }
+            Some(ssh) => Some(
+                crate::ssh_tunnel::open_tunnel(ssh, &params.host, params.port)
+                    .await
+                    .map_err(DbError::InvalidOperation)?,
+            ),
+            None => None,
+        };
+        // Through a tunnel, `build_options` needs to see the local forwarded
+        // address instead of the real one — everything else about `params`
+        // (auth, database, TLS) stays the same.
+        let effective_params;
+        let params = match &tunnel {
+            Some(t) => {
+                effective_params = MongoParams {
+                    host: "127.0.0.1".to_string(),
+                    port: t.local_port,
+                    ssh: None,
+                    ..params.clone()
+                };
+                &effective_params
+            }
+            None => params,
+        };
+
         let options = build_options(params).await?;
         let client = Client::with_options(options)
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
@@ -548,6 +780,7 @@ impl MongoAdapter {
         Ok(Self {
             client,
             database: std::sync::RwLock::new(params.database.clone()),
+            _ssh_tunnel: tunnel,
         })
     }
 
@@ -913,6 +1146,14 @@ impl MongoAdapter {
         if let Some(i) = columns.iter().position(|c| c == "_id") {
             let id = columns.remove(i);
             columns.insert(0, id);
+        } else if columns.is_empty() {
+            // No documents on this page (empty collection, or a filter that
+            // matched nothing) — there's nothing to derive columns from, but
+            // showing a completely columnless grid reads as broken rather
+            // than "empty". Every document has an _id, so it's the one
+            // column that's always a safe guess; mirrors the same fallback
+            // `inferred_schema` already uses for the schema panel.
+            columns.push("_id".to_string());
         }
 
         let mut rows: Vec<Vec<Option<String>>> = Vec::with_capacity(docs.len());
@@ -1108,7 +1349,8 @@ impl MongoAdapter {
                 return self.run_bare_json(db, coll, s, start).await;
             }
             return Ok(fail(
-                "Select a collection above, or use db.<collection>.find(<query>)".into(),
+                "A bare query needs a collection — use db.<collection>.find(<query>) instead"
+                    .into(),
             ));
         }
         Ok(fail(format!(
@@ -1138,6 +1380,9 @@ impl MongoAdapter {
             elapsed_ms: start.elapsed().as_millis(),
             ..Default::default()
         };
+        if let Err(e) = validate_chain(&call.chain) {
+            return Ok(f(e.to_string()));
+        }
         let col = self
             .client
             .database(db)
@@ -1256,7 +1501,7 @@ impl MongoAdapter {
                 let stages: Vec<bson::Document> = parsed
                     .as_array()
                     .unwrap_or(&Vec::new())
-                    .into_iter()
+                    .iter()
                     .map(|v| {
                         bson::to_document(v).map_err(|e| {
                             DbError::InvalidOperation(format!("invalid pipeline stage: {e}"))
@@ -1284,8 +1529,92 @@ impl MongoAdapter {
                     ..Default::default()
                 })
             }
+            "insertOne" => {
+                let doc = parse_json_object(&call.args, "insertOne document")?;
+                let res = col
+                    .insert_one(doc)
+                    .await
+                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                let id = json_cell_string(&Self::bson_to_json(res.inserted_id))
+                    .unwrap_or_default();
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: 1,
+                    message: Some(format!("Inserted 1 document (_id: {id})")),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
+            "insertMany" => {
+                let docs = parse_json_object_array(&call.args, "insertMany documents")?;
+                if docs.is_empty() {
+                    return Ok(f("insertMany requires a non-empty array of documents".into()));
+                }
+                let res = col
+                    .insert_many(docs)
+                    .await
+                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                let n = res.inserted_ids.len();
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: n as u64,
+                    message: Some(format!("Inserted {n} document{}", if n == 1 { "" } else { "s" })),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
+            "updateOne" | "updateMany" => {
+                let parts = split_top_level(&call.args);
+                let filter = match parts.first() {
+                    Some(q) => parse_filter(q)?.unwrap_or_default(),
+                    None => bson::Document::new(),
+                };
+                let Some(update_arg) = parts.get(1) else {
+                    return Ok(f(format!(
+                        "db.<collection>.{} requires an update document as the second argument, e.g. {{\"$set\": {{...}}}}",
+                        call.method
+                    )));
+                };
+                let update = parse_json_object(update_arg, "update document")?;
+                let res = if call.method == "updateMany" {
+                    col.update_many(filter, update).await
+                } else {
+                    col.update_one(filter, update).await
+                }
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: res.modified_count,
+                    message: Some(format!(
+                        "Matched {}, modified {}",
+                        res.matched_count, res.modified_count
+                    )),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
+            "deleteOne" | "deleteMany" => {
+                let filter = parse_filter(&call.args)?.unwrap_or_default();
+                let res = if call.method == "deleteMany" {
+                    col.delete_many(filter).await
+                } else {
+                    col.delete_one(filter).await
+                }
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: res.deleted_count,
+                    message: Some(format!(
+                        "Deleted {} document{}",
+                        res.deleted_count,
+                        if res.deleted_count == 1 { "" } else { "s" }
+                    )),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
             other => Ok(f(format!(
-                "Unsupported method `{other}` on collections. Supported: find, findOne, count, countDocuments, distinct, aggregate."
+                "Unsupported method `{other}` on collections. Supported: find, findOne, count, countDocuments, distinct, aggregate, insertOne, insertMany, updateOne, updateMany, deleteOne, deleteMany."
             ))),
         }
     }
@@ -1823,8 +2152,15 @@ impl DbAdapter for MongoAdapter {
                 let cols = self.column_types(table).await?;
                 let mut doc = bson::Document::new();
                 for (k, v) in values {
-                    let drop_empty =
-                        *skip_empty && v.as_deref().map_or(true, |s| s.is_empty()) && k != "_id";
+                    let is_empty = v.as_deref().is_none_or(|s| s.is_empty());
+                    // An empty `_id` is always omitted, regardless of
+                    // `skip_empty` — sending an explicit null/empty `_id`
+                    // would either fail (duplicate key on a second insert,
+                    // since only one document per collection may have
+                    // `_id: null`) or pin it to an empty string; omitting
+                    // the key lets MongoDB generate a real ObjectId, same as
+                    // `db.coll.insertOne({})` does.
+                    let drop_empty = if k == "_id" { is_empty } else { *skip_empty && is_empty };
                     if drop_empty {
                         continue;
                     }
@@ -2116,6 +2452,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn flatten_documents_falls_back_to_id_when_empty() {
+        let (columns, rows) = flatten_documents(&[]);
+        assert_eq!(columns, vec!["_id".to_string()]);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn flatten_documents_puts_id_first_when_present() {
+        let docs = vec![serde_json::json!({ "name": "a", "_id": "x" })];
+        let (columns, _) = flatten_documents(&docs);
+        assert_eq!(columns[0], "_id");
+    }
+
+    #[test]
     fn splits_top_level_commas() {
         let parts = split_top_level("\"city\", { \"a\": 1 }, [1,2,3]");
         assert_eq!(parts.len(), 3);
@@ -2186,6 +2536,22 @@ mod tests {
         let f = parse_chain(".limit(25).pretty().sort({ \"age\": -1 })");
         assert_eq!(f.limit, Some(25));
         assert!(f.sort.as_deref().unwrap_or("").contains("age"));
+    }
+
+    #[test]
+    fn validate_chain_accepts_recognized_modifiers() {
+        assert!(validate_chain("").is_ok());
+        assert!(validate_chain(".limit(25).pretty().sort({ \"age\": -1 })").is_ok());
+    }
+
+    #[test]
+    fn validate_chain_rejects_a_second_glued_on_command() {
+        // The exact bug reported: two `db.x.find()` calls with no `;` between
+        // them parse as ONE call whose leftover "chain" is the entire second
+        // command — this used to be silently dropped instead of erroring.
+        let call = parse_db_call("db.teams.find()\ndb.tasks.find()").unwrap();
+        assert_eq!(call.coll, "teams");
+        assert!(validate_chain(&call.chain).is_err());
     }
 
     #[test]

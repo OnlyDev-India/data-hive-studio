@@ -3,6 +3,7 @@ import type { Diagnostic } from "@codemirror/lint";
 import type { EditorView } from "@codemirror/view";
 import type { Completion } from "@codemirror/autocomplete";
 import { referencedTables, statementAt } from "./sql-completions";
+import { maskComments } from "@/shared/lib/utils";
 
 /** Client-side-only SQL validation: real syntax errors from an actual SQL
  *  grammar (`sql-parser-cst` — `@codemirror/lang-sql`'s own parser is a
@@ -51,10 +52,17 @@ export function sqlLinter(
     // as "unknown".
     if (known_tables.size === 0) return diagnostics;
 
+    // Regex-based checks below scan raw text and have no concept of a
+    // comment, so they run against a comment-blanked copy of the doc
+    // instead — same length and line breaks, so every offset still lines
+    // up with the real text — to keep commented-out SQL from getting
+    // flagged as if it were live.
+    const masked = maskComments(doc);
+
     // Unknown table names in FROM/JOIN/UPDATE/INSERT INTO.
     const table_re = /\b(?:from|join|update|into)\s+"?([A-Za-z_][\w$]*)"?/gi;
     let m: RegExpExecArray | null;
-    while ((m = table_re.exec(doc))) {
+    while ((m = table_re.exec(masked))) {
       const name = m[1];
       if (!known_tables.has(name.toLowerCase())) {
         const start = m.index + m[0].length - name.length;
@@ -73,7 +81,7 @@ export function sqlLinter(
     // same-named alias for a different table.
     const refsCache = new Map<string, Map<string, string>>();
     const refsAt = (pos: number) => {
-      const stmt = statementAt(doc, pos);
+      const stmt = statementAt(masked, pos);
       let refs = refsCache.get(stmt);
       if (!refs) {
         refs = referencedTables(stmt);
@@ -82,7 +90,7 @@ export function sqlLinter(
       return refs;
     };
     const col_re = /\b([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)\b/g;
-    while ((m = col_re.exec(doc))) {
+    while ((m = col_re.exec(masked))) {
       const [, qualifier, column] = m;
       const real_table = refsAt(m.index).get(qualifier.toLowerCase());
       if (!real_table) continue; // unresolved alias — not this checker's call

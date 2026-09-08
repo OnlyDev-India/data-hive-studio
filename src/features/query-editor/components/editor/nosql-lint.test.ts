@@ -108,4 +108,22 @@ describe("nosqlSyntaxLinter", () => {
   it("does not flag a known collection", async () => {
     expect(await lintCount("db.users.find({});", ["users", "orders"])).toBe(0);
   });
+
+  it("does not flag a missing-; on a line that's entirely a comment", async () => {
+    // Lezer keeps comments as real sibling nodes in the tree instead of
+    // discarding them as trivia — a commented-out line used to count as a
+    // "statement" in its own right, flagging a missing `;` right after it.
+    const doc = "// db.testing.insertOne({ name: 'a' })\ndb.testing.find({})";
+    expect(await lintCount(doc)).toBe(0);
+  });
+
+  it("does not flag an unknown collection referenced only inside a comment", async () => {
+    const doc = "// db.badcollection.find({})\ndb.users.find({});";
+    expect(await lintCount(doc, ["users", "orders"])).toBe(0);
+  });
+
+  it("still flags a genuinely missing ; between two real queries even with a comment line above them", async () => {
+    const doc = "// a note\ndb.users.find({})\ndb.orders.find({})";
+    expect(await lintCount(doc)).toBeGreaterThan(0);
+  });
 });

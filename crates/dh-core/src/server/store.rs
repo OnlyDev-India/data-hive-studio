@@ -1,6 +1,12 @@
-//! Server state store — supports both SQLite (file-based) and PostgreSQL
-//! (controlled by `DH_DATABASE_URL` env var). Holds connection vault,
-//! grants, invites, devices, and tokens.
+//! Server state store — PostgreSQL only (`DH_DATABASE_URL` / `DATABASE_URL`).
+//! Holds users, sessions, organizations, org membership + invites, the
+//! connection vault, connection-grant overrides, and the audit log.
+//!
+//! SQLite is deliberately not supported here: this schema is inherently a
+//! hosted, multi-tenant model (organizations, OAuth sessions), and Vercel
+//! (and most serverless hosts) can't persist a local file between
+//! invocations anyway — self-hosters point `DH_DATABASE_URL` at any
+//! Postgres, including a free Neon/Supabase instance.
 
 use sqlx::Row;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,304 +19,160 @@ pub fn now_ms() -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-//  Backend-agnostic pool wrapper
-// ---------------------------------------------------------------------------
-
-#[derive(Clone)]
-pub enum StorePool {
-    Sqlite(sqlx::SqlitePool),
-    Postgres(sqlx::PgPool),
-}
-
-impl StorePool {
-    /// Return the positional placeholder for 1-based index `n`.
-    pub fn ph_n(&self, n: usize) -> String {
-        match self {
-            StorePool::Sqlite(_) => "?".into(),
-            StorePool::Postgres(_) => format!("${n}"),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 //  Store
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 pub struct Store {
-    pub pool: StorePool,
+    pub pool: sqlx::PgPool,
     pub master_key: [u8; 32],
 }
 
 pub struct StoreConfig {
-    /// For SQLite: file path or `:memory:`. Ignored when `pg_url` is set.
-    pub path: String,
     pub master_key: [u8; 32],
-    /// Optional PostgreSQL connection URL (e.g. `postgres://user:pass@host/db`).
-    /// When set, overrides `path` and uses PG for the store.
-    pub pg_url: Option<String>,
+    /// `postgres://user:pass@host/db` — required. Accepts the pooled
+    /// connection string Neon/Supabase's Vercel Marketplace integrations
+    /// inject, same as any other Postgres URL.
+    pub pg_url: String,
 }
 
 impl Store {
     pub async fn open(cfg: StoreConfig) -> Result<Self, sqlx::Error> {
-        let pool = if let Some(url) = &cfg.pg_url {
-            let pool = sqlx::PgPool::connect(url).await?;
-            StorePool::Postgres(pool)
-        } else {
-            use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-            use std::str::FromStr;
-            let opts = SqliteConnectOptions::from_str(&cfg.path)?
-                .create_if_missing(true)
-                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
-            let mut pool_builder = SqlitePoolOptions::new();
-            if cfg.path == ":memory:" {
-                pool_builder = pool_builder.max_connections(1);
-            }
-            StorePool::Sqlite(pool_builder.connect_with(opts).await?)
-        };
+        // Conservative pool size: on serverless hosts, many concurrent
+        // function instances may each hold their own pool against the same
+        // Postgres — prefer the provider's PgBouncer-pooled connection
+        // string over raising this.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&cfg.pg_url)
+            .await?;
         let store = Self { pool, master_key: cfg.master_key };
         store.migrate().await?;
         Ok(store)
     }
 
     async fn migrate(&self) -> Result<(), sqlx::Error> {
-        match &self.pool {
-            StorePool::Sqlite(p) => {
-                sqlx::query(SQLITE_DDL).execute(p).await?;
-                for (table, col, decl) in SQLITE_ALTER_COLUMNS {
-                    self.add_column_if_missing_sqlite(p, table, col, decl).await?;
-                }
-            }
-            StorePool::Postgres(p) => {
-                sqlx::query(PG_DDL).execute(p).await?;
-                // CREATE TABLE IF NOT EXISTS only helps fresh installs — an
-                // existing store predates the `kind` column, so add it here
-                // too (Postgres's IF NOT EXISTS on ADD COLUMN makes this
-                // idempotent, unlike SQLite which needs the introspection
-                // path above).
-                sqlx::query(
-                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'postgres'",
-                )
-                .execute(p)
-                .await?;
-                // MongoDB-only connection details — see vault.rs's ConnMeta/
-                // ConnInput doc comment.
-                sqlx::query(
-                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS auth_db TEXT",
-                )
-                .execute(p)
-                .await?;
-                sqlx::query(
-                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS srv INTEGER NOT NULL DEFAULT 0",
-                )
-                .execute(p)
-                .await?;
-                sqlx::query(
-                    "ALTER TABLE connections ADD COLUMN IF NOT EXISTS tls INTEGER NOT NULL DEFAULT 0",
-                )
-                .execute(p)
-                .await?;
-            }
-        }
+        // `sqlx::query()` prepares via Postgres's extended protocol, which
+        // rejects multiple ;-separated commands in one string ("cannot
+        // insert multiple commands into a prepared statement") — `raw_sql`
+        // uses the simple query protocol instead, which Postgres allows
+        // multi-statement for. DDL only, never user input, so no bind
+        // parameters are needed here anyway.
+        sqlx::raw_sql(PG_DDL).execute(&self.pool).await?;
         Ok(())
-    }
-
-    async fn add_column_if_missing_sqlite(
-        &self,
-        pool: &sqlx::SqlitePool,
-        table: &str,
-        column: &str,
-        decl: &str,
-    ) -> Result<(), sqlx::Error> {
-        let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
-            .fetch_all(pool)
-            .await?;
-        let exists = rows.iter().any(|r| r.get::<String, _>("name") == column);
-        if !exists {
-            sqlx::query(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))
-                .execute(pool)
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Build a query with the correct placeholders for the active backend.
-    /// Replaces each `?` in the template with the backend's placeholder.
-    pub(crate) fn query_ph(&self, sql: &str) -> (String, usize) {
-        let mut out = String::with_capacity(sql.len());
-        let mut n = 0;
-        for ch in sql.chars() {
-            if ch == '?' {
-                n += 1;
-                out.push_str(&self.pool.ph_n(n));
-            } else {
-                out.push(ch);
-            }
-        }
-        (out, n)
     }
 
     /// Append an audit entry (best-effort — never fail the caller's op).
+    /// `org_id` is a separate parameter, not part of `AuthCtx` — a single
+    /// authenticated user can belong to several organizations, so which org
+    /// an action concerns is decided per-call by whoever already resolved it
+    /// (usually via the connection being acted on), not by the identity
+    /// extractor itself.
     pub async fn audit(
         &self,
-        ctx: &crate::server::identity::AuthCtx,
+        ctx: &crate::server::auth::AuthCtx,
+        org_id: Option<&str>,
         action: &str,
         target: &str,
         detail: Option<&str>,
     ) -> Result<(), String> {
-        let (sql, _) = self.query_ph(
-            "INSERT INTO audit (ts_ms, user_name, action, target, detail) VALUES (?,?,?,?,?)",
-        );
-        match &self.pool {
-            StorePool::Sqlite(p) => {
-                sqlx::query(&sql)
-                    .bind(now_ms())
-                    .bind(&ctx.token)
-                    .bind(action)
-                    .bind(target)
-                    .bind(detail)
-                    .execute(p)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-            StorePool::Postgres(p) => {
-                sqlx::query(&sql)
-                    .bind(now_ms())
-                    .bind(&ctx.token)
-                    .bind(action)
-                    .bind(target)
-                    .bind(detail)
-                    .execute(p)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-        }
+        sqlx::query(
+            "INSERT INTO audit (ts_ms, org_id, user_id, action, target, detail) VALUES ($1,$2,$3,$4,$5,$6)",
+        )
+        .bind(now_ms())
+        .bind(org_id)
+        .bind(&ctx.user_id)
+        .bind(action)
+        .bind(target)
+        .bind(detail)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    pub async fn audit_recent(&self, limit: i64) -> Result<Vec<AuditEntry>, String> {
-        let (sql, _) = self.query_ph(
-            "SELECT ts_ms, user_name, action, target, detail FROM audit ORDER BY id DESC LIMIT ?",
-        );
-        macro_rules! parse_audit_rows {
-            ($rows:expr) => {{
-                let mut out = Vec::new();
-                for r in $rows {
-                    out.push(AuditEntry {
-                        ts_ms: r.get::<i64, _>("ts_ms"),
-                        user_name: r.get("user_name"),
-                        action: r.get("action"),
-                        target: r.get("target"),
-                        detail: r.get("detail"),
-                    });
-                }
-                out
-            }};
-        }
-        let out = match &self.pool {
-            StorePool::Sqlite(p) => {
-                let rows = sqlx::query(&sql)
-                    .bind(limit)
-                    .fetch_all(p)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                parse_audit_rows!(rows)
-            }
-            StorePool::Postgres(p) => {
-                let rows = sqlx::query(&sql)
-                    .bind(limit)
-                    .fetch_all(p)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                parse_audit_rows!(rows)
-            }
-        };
-        Ok(out)
+    pub async fn audit_recent(&self, org_id: &str, limit: i64) -> Result<Vec<AuditEntry>, String> {
+        let rows = sqlx::query(
+            "SELECT ts_ms, org_id, user_id, action, target, detail FROM audit
+             WHERE org_id = $1 ORDER BY id DESC LIMIT $2",
+        )
+        .bind(org_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(rows
+            .into_iter()
+            .map(|r| AuditEntry {
+                ts_ms: r.get("ts_ms"),
+                org_id: r.get("org_id"),
+                user_id: r.get("user_id"),
+                action: r.get("action"),
+                target: r.get("target"),
+                detail: r.get("detail"),
+            })
+            .collect())
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuditEntry {
     pub ts_ms: i64,
-    pub user_name: String,
+    pub org_id: Option<String>,
+    pub user_id: Option<String>,
     pub action: String,
     pub target: String,
     pub detail: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
-//  SQLite DDL + migrations
-// ---------------------------------------------------------------------------
-
-const SQLITE_DDL: &str = r#"
-CREATE TABLE IF NOT EXISTS connections (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'postgres',
-    host TEXT NOT NULL,
-    port INTEGER NOT NULL DEFAULT 5432,
-    "user" TEXT NOT NULL,
-    password_enc BLOB NOT NULL,
-    database TEXT NOT NULL,
-    ssl_mode TEXT,
-    auth_db TEXT,
-    srv INTEGER NOT NULL DEFAULT 0,
-    tls INTEGER NOT NULL DEFAULT 0,
-    created_by TEXT NOT NULL,
-    created_ms INTEGER NOT NULL,
-    updated_ms INTEGER NOT NULL,
-    archived INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS grants (
-    token TEXT NOT NULL,
-    conn_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
-    can_read INTEGER NOT NULL DEFAULT 0,
-    can_update INTEGER NOT NULL DEFAULT 0,
-    can_delete INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (token, conn_id)
-);
-CREATE TABLE IF NOT EXISTS tokens (
-    token TEXT PRIMARY KEY,
-    prefix TEXT NOT NULL CHECK (prefix IN ('adm_','tem_')),
-    user_name TEXT NOT NULL,
-    team_name TEXT,
-    created_ms INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS devices (
-    id TEXT PRIMARY KEY,
-    token TEXT NOT NULL REFERENCES tokens(token),
-    ip_address TEXT,
-    first_seen_ms INTEGER NOT NULL,
-    last_connected_ms INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS audit (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts_ms INTEGER NOT NULL,
-    user_name TEXT NOT NULL DEFAULT '',
-    action TEXT NOT NULL,
-    target TEXT NOT NULL,
-    detail TEXT
-);
-"#;
-
-const SQLITE_ALTER_COLUMNS: &[(&str, &str, &str)] = &[
-    // Existing sqlite-backed stores predate the `kind` column — every prior
-    // row was implicitly Postgres, so the default backfills them correctly.
-    ("connections", "kind", "TEXT NOT NULL DEFAULT 'postgres'"),
-    // MongoDB-only connection details — see vault.rs's ConnMeta/ConnInput
-    // doc comment. Defaults keep every pre-existing (Postgres) row correct.
-    ("connections", "auth_db", "TEXT"),
-    ("connections", "srv", "INTEGER NOT NULL DEFAULT 0"),
-    ("connections", "tls", "INTEGER NOT NULL DEFAULT 0"),
-];
-
-// ---------------------------------------------------------------------------
 //  PostgreSQL DDL
 // ---------------------------------------------------------------------------
 
 const PG_DDL: &str = r#"
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    avatar_url TEXT,
+    oauth_provider TEXT NOT NULL,
+    oauth_subject TEXT NOT NULL,
+    created_ms BIGINT NOT NULL,
+    UNIQUE (oauth_provider, oauth_subject)
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_ms BIGINT NOT NULL,
+    expires_ms BIGINT NOT NULL,
+    last_used_ms BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    created_ms BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS org_members (
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('owner','admin','member','viewer')),
+    joined_ms BIGINT NOT NULL,
+    PRIMARY KEY (org_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS org_invites (
+    code TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('owner','admin','member','viewer')),
+    created_by TEXT NOT NULL REFERENCES users(id),
+    max_uses INTEGER,
+    uses_count INTEGER NOT NULL DEFAULT 0,
+    expires_ms BIGINT,
+    created_ms BIGINT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS connections (
     id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'postgres',
     host TEXT NOT NULL,
@@ -322,37 +184,42 @@ CREATE TABLE IF NOT EXISTS connections (
     auth_db TEXT,
     srv INTEGER NOT NULL DEFAULT 0,
     tls INTEGER NOT NULL DEFAULT 0,
-    created_by TEXT NOT NULL,
+    ssl_ca_file TEXT,
+    ssl_client_cert_file TEXT,
+    ssl_client_key_file TEXT,
+    retry_writes INTEGER NOT NULL DEFAULT 0,
+    replica_set TEXT,
+    pool_max INTEGER,
+    pool_min INTEGER,
+    connect_timeout_secs INTEGER,
+    idle_timeout_secs INTEGER,
+    max_lifetime_secs INTEGER,
+    server_selection_timeout_secs INTEGER,
+    ssh_host TEXT,
+    ssh_port INTEGER,
+    ssh_user TEXT,
+    ssh_auth_mode TEXT,
+    ssh_key_file TEXT,
+    ssh_host_key_fingerprint TEXT,
+    ssh_secrets_enc BYTEA,
+    created_by TEXT NOT NULL REFERENCES users(id),
     created_ms BIGINT NOT NULL,
     updated_ms BIGINT NOT NULL,
     archived INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE IF NOT EXISTS grants (
-    token TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS connection_grants (
     conn_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     can_read INTEGER NOT NULL DEFAULT 0,
     can_update INTEGER NOT NULL DEFAULT 0,
     can_delete INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (token, conn_id)
-);
-CREATE TABLE IF NOT EXISTS devices (
-    id TEXT PRIMARY KEY,
-    token TEXT NOT NULL REFERENCES tokens(token),
-    ip_address TEXT,
-    first_seen_ms BIGINT NOT NULL,
-    last_connected_ms BIGINT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS tokens (
-    token TEXT PRIMARY KEY,
-    prefix TEXT NOT NULL CHECK (prefix IN ('adm_','tem_')),
-    user_name TEXT NOT NULL,
-    team_name TEXT,
-    created_ms BIGINT NOT NULL
+    PRIMARY KEY (conn_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS audit (
     id BIGSERIAL PRIMARY KEY,
     ts_ms BIGINT NOT NULL,
-    user_name TEXT NOT NULL DEFAULT '',
+    org_id TEXT,
+    user_id TEXT,
     action TEXT NOT NULL,
     target TEXT NOT NULL,
     detail TEXT
@@ -363,43 +230,55 @@ CREATE TABLE IF NOT EXISTS audit (
 //  Tests
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn grants_table_has_can_read_after_migrate() {
-    let store = Store::open(StoreConfig {
-        path: ":memory:".into(),
-        master_key: [1u8; 32],
-        pg_url: None,
-    })
-    .await
-    .unwrap();
-    let rows = match &store.pool {
-        StorePool::Sqlite(p) => sqlx::query("PRAGMA table_info(grants)")
-            .fetch_all(p)
-            .await
-            .unwrap(),
-        StorePool::Postgres(_) => panic!("PRAGMA not supported on PG"),
-    };
-    let names: Vec<String> = rows.iter().map(|r| r.get::<String, _>("name")).collect();
-    println!("grants columns: {:?}", names);
-    assert!(names.iter().any(|n| n == "can_read"), "columns: {names:?}");
-    assert!(names.iter().any(|n| n == "can_update"), "columns: {names:?}");
-    assert!(names.iter().any(|n| n == "can_delete"), "columns: {names:?}");
-    assert!(!names.iter().any(|n| n == "data_access"), "old column data_access should not exist: {names:?}");
-    assert!(!names.iter().any(|n| n == "can_edit"), "old column can_edit should not exist: {names:?}");
-}
-
 #[cfg(test)]
 pub(crate) fn test_key() -> [u8; 32] {
     [42u8; 32]
 }
 
+/// Test Postgres URL — defaults to the throwaway local instance used for
+/// this session's development; override with `DH_TEST_DATABASE_URL` for
+/// CI/other environments.
+#[cfg(test)]
+fn test_pg_url() -> String {
+    std::env::var("DH_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres@127.0.0.1:5544/dh_server_test".to_string())
+}
+
+/// `cargo test` runs `#[tokio::test]`s concurrently in the same process, all
+/// against the one Postgres instance above — so each `test_store()` call
+/// gets its own randomly-named schema (via `search_path`, set on every
+/// connection this pool ever opens) rather than sharing/truncating tables,
+/// which would race across tests. Mirrors the isolation `:memory:` SQLite
+/// used to give each test automatically.
 #[cfg(test)]
 pub(crate) async fn test_store() -> Store {
-    Store::open(StoreConfig {
-        path: ":memory:".into(),
-        master_key: test_key(),
-        pg_url: None,
-    })
-    .await
-    .expect("test store")
+    let schema = format!("test_{}", hex::encode(rand::random::<[u8; 8]>()));
+    let url = test_pg_url();
+
+    {
+        let admin_pool = sqlx::PgPool::connect(&url).await.expect("connect for schema setup");
+        sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
+            .execute(&admin_pool)
+            .await
+            .expect("create test schema");
+        admin_pool.close().await;
+    }
+
+    let search_path_sql = format!("SET search_path TO {schema}");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .after_connect(move |conn, _meta| {
+            let sql = search_path_sql.clone();
+            Box::pin(async move {
+                sqlx::Executor::execute(conn, sql.as_str()).await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .expect("connect test pool");
+
+    let store = Store { pool, master_key: test_key() };
+    store.migrate().await.expect("migrate test schema");
+    store
 }
