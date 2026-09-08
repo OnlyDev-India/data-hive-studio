@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/shared/theme/theme";
+import { WEB } from "@/shared/api/web";
 import { WebGate } from "./web/WebGate";
 import { TitleBar, shouldShowTitleBar } from "./app/studio/title-bar";
 import { SplashScreen } from "./app/splash-screen";
@@ -19,6 +20,31 @@ function App() {
   const [status, setStatus] = useState<string>();
   useEffect(() => {
     void runStartupBootstrap(setStatus).finally(() => setReady(true));
+  }, []);
+
+  // Desktop release builds only (never web, never `tauri dev`): the raw
+  // WebView context menu ("Reload", "Back", "Inspect Element"...) looks
+  // like a bug in a packaged app and lets a stray right-click reload the
+  // whole window, dropping every open connection/tab. Our own ContextMenu
+  // components (tab strip, grid rows, …) already call preventDefault()
+  // themselves — see @base-ui/react's ContextMenuTrigger — so they're
+  // unaffected by this; editable text (CodeMirror, inputs, textareas) is
+  // explicitly exempted so native cut/copy/paste still works there.
+  useEffect(() => {
+    if (WEB || import.meta.env.DEV) return;
+    const on_context_menu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, [contenteditable='true'], .cm-editor",
+        )
+      ) {
+        return;
+      }
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", on_context_menu);
+    return () => document.removeEventListener("contextmenu", on_context_menu);
   }, []);
 
   return (
