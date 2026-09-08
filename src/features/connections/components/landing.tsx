@@ -36,6 +36,17 @@ import { EditBanner } from "./edit-banner";
 import { FormTabBar, type FormTabKey } from "./form-tabs";
 import type { SshFormValue } from "./ssh-fields";
 
+/** Parse an optional numeric form field: blank → `undefined` (use the
+ *  backend's default), anything else → the number, including an explicit
+ *  "0" — unlike the `Number(x) || undefined` idiom used elsewhere for
+ *  required fields, this doesn't collapse a deliberate 0 into "unset". */
+function optionalNumber(s: string): number | undefined {
+  const trimmed = s.trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** Build the nested `ssh: {...}` object `connectPostgres`/`connectMongo`
  *  expect from a form's flat `ssh_*` fields — `undefined` (no tunnel) when
  *  `ssh_host` is blank. */
@@ -247,6 +258,11 @@ export function Landing() {
     ssl_ca_file: "",
     ssl_client_cert_file: "",
     ssl_client_key_file: "",
+    pool_max: "",
+    pool_min: "",
+    connect_timeout_secs: "",
+    idle_timeout_secs: "",
+    max_lifetime_secs: "",
     ssh_host: "",
     ssh_port: "",
     ssh_user: "",
@@ -289,6 +305,11 @@ export function Landing() {
     ssl_client_cert_file: "",
     retry_writes: false,
     replica_set: "",
+    pool_max: "",
+    pool_min: "",
+    connect_timeout_secs: "",
+    idle_timeout_secs: "",
+    server_selection_timeout_secs: "",
     ssh_host: "",
     ssh_port: "",
     ssh_user: "",
@@ -318,6 +339,11 @@ export function Landing() {
     ssl_ca_file: pg.ssl_ca_file.trim() || undefined,
     ssl_client_cert_file: pg.ssl_client_cert_file.trim() || undefined,
     ssl_client_key_file: pg.ssl_client_key_file.trim() || undefined,
+    pool_max: optionalNumber(pg.pool_max),
+    pool_min: optionalNumber(pg.pool_min),
+    connect_timeout_secs: optionalNumber(pg.connect_timeout_secs),
+    idle_timeout_secs: optionalNumber(pg.idle_timeout_secs),
+    max_lifetime_secs: optionalNumber(pg.max_lifetime_secs),
     ssh: build_ssh_connect_params(pg),
   });
 
@@ -569,6 +595,11 @@ export function Landing() {
     ssl_client_cert_file: mongo.ssl_client_cert_file.trim() || undefined,
     retry_writes: mongo.retry_writes ? false : undefined,
     replica_set: mongo.replica_set.trim() || undefined,
+    pool_max: optionalNumber(mongo.pool_max),
+    pool_min: optionalNumber(mongo.pool_min),
+    connect_timeout_secs: optionalNumber(mongo.connect_timeout_secs),
+    idle_timeout_secs: optionalNumber(mongo.idle_timeout_secs),
+    server_selection_timeout_secs: optionalNumber(mongo.server_selection_timeout_secs),
     // Rejected server-side too (mixing srv:// with a tunnel makes no sense
     // — SRV resolves to however many hosts the DNS records list), but skip
     // even sending it in that case so the error is unambiguous.
@@ -723,6 +754,11 @@ export function Landing() {
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
         ssl_client_key_file: p.ssl_client_key_file,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        max_lifetime_secs: p.max_lifetime_secs,
         ...flat_ssh_fields(pg),
       });
       pushNotification({
@@ -763,6 +799,11 @@ export function Landing() {
         ssl_client_cert_file: p.ssl_client_cert_file,
         retry_writes: p.retry_writes,
         replica_set: p.replica_set,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        server_selection_timeout_secs: p.server_selection_timeout_secs,
         ...flat_ssh_fields(mongo),
       });
       pushNotification({
@@ -819,6 +860,11 @@ export function Landing() {
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
         ssl_client_key_file: p.ssl_client_key_file,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        max_lifetime_secs: p.max_lifetime_secs,
         ...flat_ssh_fields(pg),
       });
       pushNotification({
@@ -876,6 +922,11 @@ export function Landing() {
         ssl_client_cert_file: p.ssl_client_cert_file,
         retry_writes: p.retry_writes,
         replica_set: p.replica_set,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        server_selection_timeout_secs: p.server_selection_timeout_secs,
         ...flat_ssh_fields(mongo),
       });
       pushNotification({
@@ -929,6 +980,16 @@ export function Landing() {
           ssl_client_cert_file: m.ssl_client_cert_file ?? "",
           retry_writes: m.retry_writes ?? false,
           replica_set: m.replica_set ?? "",
+          pool_max: m.pool_max != null ? String(m.pool_max) : "",
+          pool_min: m.pool_min != null ? String(m.pool_min) : "",
+          connect_timeout_secs:
+            m.connect_timeout_secs != null ? String(m.connect_timeout_secs) : "",
+          idle_timeout_secs:
+            m.idle_timeout_secs != null ? String(m.idle_timeout_secs) : "",
+          server_selection_timeout_secs:
+            m.server_selection_timeout_secs != null
+              ? String(m.server_selection_timeout_secs)
+              : "",
           ssh_host: m.ssh_host ?? "",
           ssh_port: m.ssh_port != null ? String(m.ssh_port) : "",
           ssh_user: m.ssh_user ?? "",
@@ -956,6 +1017,14 @@ export function Landing() {
           ssl_ca_file: pgv.ssl_ca_file ?? "",
           ssl_client_cert_file: pgv.ssl_client_cert_file ?? "",
           ssl_client_key_file: pgv.ssl_client_key_file ?? "",
+          pool_max: pgv.pool_max != null ? String(pgv.pool_max) : "",
+          pool_min: pgv.pool_min != null ? String(pgv.pool_min) : "",
+          connect_timeout_secs:
+            pgv.connect_timeout_secs != null ? String(pgv.connect_timeout_secs) : "",
+          idle_timeout_secs:
+            pgv.idle_timeout_secs != null ? String(pgv.idle_timeout_secs) : "",
+          max_lifetime_secs:
+            pgv.max_lifetime_secs != null ? String(pgv.max_lifetime_secs) : "",
           ssh_host: pgv.ssh_host ?? "",
           ssh_port: pgv.ssh_port != null ? String(pgv.ssh_port) : "",
           ssh_user: pgv.ssh_user ?? "",

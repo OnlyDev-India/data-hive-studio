@@ -76,6 +76,14 @@ export interface ServerConn {
   /** MongoDB only: replica set name — required by a real Amazon DocumentDB
    *  cluster (typically "rs0"). */
   replica_set?: string | null;
+  pool_max?: number | null;
+  pool_min?: number | null;
+  connect_timeout_secs?: number | null;
+  idle_timeout_secs?: number | null;
+  /** PostgreSQL only. */
+  max_lifetime_secs?: number | null;
+  /** MongoDB only. */
+  server_selection_timeout_secs?: number | null;
   /** `ssh_host` set means this connection tunnels through SSH — no
    *  secrets here, this is metadata only (`ConnMeta`, never `ConnInput`). */
   ssh_host?: string | null;
@@ -321,6 +329,14 @@ export interface ServerConnInput {
   /** MongoDB only: replica set name — required by a real Amazon DocumentDB
    *  cluster (typically "rs0"). */
   replica_set?: string | null;
+  pool_max?: number | null;
+  pool_min?: number | null;
+  connect_timeout_secs?: number | null;
+  idle_timeout_secs?: number | null;
+  /** PostgreSQL only. */
+  max_lifetime_secs?: number | null;
+  /** MongoDB only. */
+  server_selection_timeout_secs?: number | null;
   ssh_host?: string | null;
   ssh_port?: number | null;
   ssh_user?: string | null;

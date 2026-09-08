@@ -1,11 +1,12 @@
 import { cn } from "@/shared/lib/utils";
 
-export type FormTabKey = "general" | "ssh" | "ssl";
+export type FormTabKey = "general" | "ssh" | "ssl" | "advanced";
 
 export const FORM_TABS: { key: FormTabKey; label: string }[] = [
   { key: "general", label: "General" },
   { key: "ssh", label: "SSH" },
   { key: "ssl", label: "SSL" },
+  { key: "advanced", label: "Advanced" },
 ];
 
 /** Section tabs shared by the Postgres and MongoDB connection forms
