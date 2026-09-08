@@ -184,9 +184,20 @@ function withNewTableTab(
 }
 
 export function workspaceActions(set: SetState) {
+  // Opening (or jumping to) a tab always means "go look at this tab" — but
+  // the connection's Home/landing screen (`view: "home"`) is a separate
+  // piece of top-level state that nothing here otherwise touches, so a tab
+  // opened while Home is showing (e.g. from the command palette) used to
+  // land in the workspace with no visible change: the new tab was there,
+  // `active` pointed at it, but `WorkspaceContent` stayed hidden behind
+  // Home. Every action that opens or focuses a tab goes through this
+  // instead of `set` directly so it also switches to the workspace view.
+  const openTab = (updater: (state: StudioStore) => Partial<StudioStore>) => {
+    set((state) => ({ ...updater(state), view: "workspace" }));
+  };
   return {
     openTable(connId: string, name: string, initialFilters?: GridFilter[]) {
-      set((state) => ({
+      openTab((state) => ({
         workspaces: putWs(
           state.workspaces,
           connId,
@@ -200,7 +211,7 @@ export function workspaceActions(set: SetState) {
       }));
     },
     openStructure(connId: string, name: string) {
-      set((state) => ({
+      openTab((state) => ({
         workspaces: putWs(
           state.workspaces,
           connId,
@@ -210,7 +221,7 @@ export function workspaceActions(set: SetState) {
     },
     /** Singleton Activity tab: focus it if present, else create + select. */
     openActivityTab(connId: string) {
-      set((state) => {
+      openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const existing = cur.tabs.find((t) => t.kind === "activity");
         if (existing) {
@@ -238,7 +249,7 @@ export function workspaceActions(set: SetState) {
       seedFileName?: string,
       paneId?: string,
     ) {
-      set((state) => {
+      openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = { kind: "sql", id: cur.nextSqlId };
         const next = addTabToFocusedPane(
@@ -272,7 +283,7 @@ export function workspaceActions(set: SetState) {
       });
     },
     openMongo(connId: string, database: string, collection: string) {
-      set((state) => {
+      openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = {
           kind: "mongo",
@@ -298,7 +309,7 @@ export function workspaceActions(set: SetState) {
       });
     },
     openNewTable(connId: string, paneId?: string) {
-      set((state) => {
+      openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = { kind: "new-table", id: cur.nextNewTableId };
         return {
@@ -327,7 +338,7 @@ export function workspaceActions(set: SetState) {
       seedFileName?: string,
       paneId?: string,
     ) {
-      set((state) => {
+      openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = {
           kind: "mongo-console",
@@ -363,7 +374,7 @@ export function workspaceActions(set: SetState) {
       });
     },
     selectTab(connId: string, paneId: string, tab: StudioTab) {
-      set((state) => {
+      openTab((state) => {
         const cur = state.workspaces[connId];
         if (!cur) return state;
         const layout = replaceNode(cur.layout, paneId, (n) =>

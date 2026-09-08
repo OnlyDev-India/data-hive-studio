@@ -70,6 +70,16 @@ export interface PgConnectParams {
   ssl_ca_file?: string;
   ssl_client_cert_file?: string;
   ssl_client_key_file?: string;
+  /** Max pool connections (default 12 when omitted). */
+  pool_max?: number;
+  /** Min pool connections kept open (default 1 when omitted). */
+  pool_min?: number;
+  /** How long to wait for a pooled connection before giving up (default 30s). */
+  connect_timeout_secs?: number;
+  /** How long a pooled connection can sit idle before being closed (default 15 minutes). */
+  idle_timeout_secs?: number;
+  /** Max lifetime of a pooled connection regardless of activity (default 30 minutes). */
+  max_lifetime_secs?: number;
   ssh?: SshConnectParams;
 }
 
@@ -93,6 +103,20 @@ export interface MongoConnectParams {
   tls?: boolean;
   ssl_ca_file?: string;
   ssl_client_cert_file?: string;
+  /** Disable retryable writes (`retryWrites=false`) — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** Replica set name — required by a real Amazon DocumentDB cluster (typically "rs0"). */
+  replica_set?: string;
+  /** Max connections per server in the pool (driver default 10). */
+  pool_max?: number;
+  /** Min connections per server kept open (driver default 0). */
+  pool_min?: number;
+  /** TCP connect timeout for each connection (driver default 10s). */
+  connect_timeout_secs?: number;
+  /** How long a pooled connection can sit idle before being closed (driver default: never). */
+  idle_timeout_secs?: number;
+  /** How long to keep trying to find a usable server before giving up (driver default 30s). */
+  server_selection_timeout_secs?: number;
   ssh?: SshConnectParams;
 }
 

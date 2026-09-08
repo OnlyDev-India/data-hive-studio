@@ -35,6 +35,19 @@ export interface PgFormValues {
   ssl_client_cert_file: string;
   /** Path to the client certificate's (unencrypted) private key file. */
   ssl_client_key_file: string;
+  /** Max pool connections (blank = default 12). */
+  pool_max: string;
+  /** Min pool connections kept open (blank = default 1). */
+  pool_min: string;
+  /** How long to wait for a pooled connection before giving up, in seconds
+   *  (blank = default 30). */
+  connect_timeout_secs: string;
+  /** How long a pooled connection can sit idle before being closed, in
+   *  seconds (blank = default 900, i.e. 15 minutes). */
+  idle_timeout_secs: string;
+  /** Max lifetime of a pooled connection regardless of activity, in seconds
+   *  (blank = default 1800, i.e. 30 minutes). */
+  max_lifetime_secs: string;
   ssh_host: string;
   ssh_port: string;
   ssh_user: string;
@@ -290,6 +303,71 @@ export function PgPanel({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "advanced" && (
+        <div className="flex flex-col gap-3 pt-1">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Max pool connections (default 12)
+              </Label>
+              <Input
+                type="number"
+                placeholder="12"
+                value={form.pool_max}
+                onChange={(e) => setField("pool_max", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Min pool connections (default 1)
+              </Label>
+              <Input
+                type="number"
+                placeholder="1"
+                value={form.pool_min}
+                onChange={(e) => setField("pool_min", e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Connection acquire timeout, seconds (default 30)
+              </Label>
+              <Input
+                type="number"
+                placeholder="30"
+                value={form.connect_timeout_secs}
+                onChange={(e) => setField("connect_timeout_secs", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Idle timeout, seconds (default 900 = 15 min)
+              </Label>
+              <Input
+                type="number"
+                placeholder="900"
+                value={form.idle_timeout_secs}
+                onChange={(e) => setField("idle_timeout_secs", e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-muted-foreground text-[11px] font-normal">
+              Max connection lifetime, seconds (default 1800 = 30 min) —
+              connections are recycled after this long regardless of activity
+            </Label>
+            <Input
+              type="number"
+              placeholder="1800"
+              value={form.max_lifetime_secs}
+              onChange={(e) => setField("max_lifetime_secs", e.target.value)}
+            />
+          </div>
         </div>
       )}
 

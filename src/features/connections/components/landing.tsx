@@ -25,6 +25,8 @@ import {
   serversUpdateConnection,
   canPublishConnections,
   type ConnectionInfo,
+  type SavedDbKind,
+  type SharedDbKind,
   type SshConnectParams,
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
@@ -36,10 +38,23 @@ import { EditBanner } from "./edit-banner";
 import { FormTabBar, type FormTabKey } from "./form-tabs";
 import type { SshFormValue } from "./ssh-fields";
 
+/** Parse an optional numeric form field: blank → `undefined` (use the
+ *  backend's default), anything else → the number, including an explicit
+ *  "0" — unlike the `Number(x) || undefined` idiom used elsewhere for
+ *  required fields, this doesn't collapse a deliberate 0 into "unset". */
+function optionalNumber(s: string): number | undefined {
+  const trimmed = s.trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** Build the nested `ssh: {...}` object `connectPostgres`/`connectMongo`
  *  expect from a form's flat `ssh_*` fields — `undefined` (no tunnel) when
  *  `ssh_host` is blank. */
-function build_ssh_connect_params(form: SshFormValue): SshConnectParams | undefined {
+function build_ssh_connect_params(
+  form: SshFormValue,
+): SshConnectParams | undefined {
   const host = form.ssh_host.trim();
   if (!host) return undefined;
   return {
@@ -94,7 +109,13 @@ const SQLITE_TABS: { key: FormTabKey; label: string }[] = [
   { key: "general", label: "General" },
 ];
 
-type DbKindChoice = "sqlite" | "postgres" | "mongodb";
+// Amazon DocumentDB speaks the MongoDB wire protocol, so a "documentdb"
+// connection is opened identically to a "mongodb" one everywhere that
+// matters (storage adapter, the Rust `MongoAdapter`, the Mongo form/panel)
+// — `kind: "documentdb"` only exists so the picker remembers which entry
+// was chosen and applies its connection-string defaults on selection (see
+// `change_kind` below).
+type DbKindChoice = SavedDbKind;
 
 const DB_KIND_ITEMS: {
   id: DbKindChoice;
@@ -104,6 +125,7 @@ const DB_KIND_ITEMS: {
   { id: "sqlite", label: "SQLite", icon: DBIcons.sqlite },
   { id: "postgres", label: "PostgreSQL", icon: DBIcons.postgres },
   { id: "mongodb", label: "MongoDB", icon: DBIcons.mongodb },
+  { id: "documentdb", label: "Amazon DocumentDB", icon: DBIcons.documentdb },
 ];
 
 /** Database-type picker — replaces the old per-type tab strip so every kind
@@ -158,7 +180,10 @@ function DbTypeSelect({
                   <Icon className="size-4" />
                   {label}
                   <Check
-                    className={cn("ml-auto", id === value ? "opacity-100" : "opacity-0")}
+                    className={cn(
+                      "ml-auto",
+                      id === value ? "opacity-100" : "opacity-0",
+                    )}
                   />
                 </CommandItem>
               ))}
@@ -184,6 +209,20 @@ export function Landing() {
   const change_kind = (v: DbKindChoice) => {
     setKind(v);
     if (v === "sqlite") setFormTab("general");
+    // Amazon DocumentDB needs three things a plain Mongo connection
+    // doesn't: TLS, retryable writes disabled, and a replica set name —
+    // pre-fill them (and default the port) so picking this entry is enough
+    // on its own, without also having to know to dig into the SSL tab.
+    if (v === "documentdb") {
+      setMongo((m) => ({
+        ...m,
+        port: m.port.trim() || "27017",
+        srv: false,
+        tls: true,
+        retry_writes: true,
+        replica_set: m.replica_set.trim() || "rs0",
+      }));
+    }
   };
   const [opening, setOpening] = useState(false);
   /** Path of a recent SQLite file prefilled into the form (single-click). */
@@ -221,6 +260,11 @@ export function Landing() {
     ssl_ca_file: "",
     ssl_client_cert_file: "",
     ssl_client_key_file: "",
+    pool_max: "",
+    pool_min: "",
+    connect_timeout_secs: "",
+    idle_timeout_secs: "",
+    max_lifetime_secs: "",
     ssh_host: "",
     ssh_port: "",
     ssh_user: "",
@@ -261,6 +305,13 @@ export function Landing() {
     tls: false,
     ssl_ca_file: "",
     ssl_client_cert_file: "",
+    retry_writes: false,
+    replica_set: "",
+    pool_max: "",
+    pool_min: "",
+    connect_timeout_secs: "",
+    idle_timeout_secs: "",
+    server_selection_timeout_secs: "",
     ssh_host: "",
     ssh_port: "",
     ssh_user: "",
@@ -290,6 +341,11 @@ export function Landing() {
     ssl_ca_file: pg.ssl_ca_file.trim() || undefined,
     ssl_client_cert_file: pg.ssl_client_cert_file.trim() || undefined,
     ssl_client_key_file: pg.ssl_client_key_file.trim() || undefined,
+    pool_max: optionalNumber(pg.pool_max),
+    pool_min: optionalNumber(pg.pool_min),
+    connect_timeout_secs: optionalNumber(pg.connect_timeout_secs),
+    idle_timeout_secs: optionalNumber(pg.idle_timeout_secs),
+    max_lifetime_secs: optionalNumber(pg.max_lifetime_secs),
     ssh: build_ssh_connect_params(pg),
   });
 
@@ -340,8 +396,10 @@ export function Landing() {
         database: u.pathname.replace(/^\/+/, ""),
         ssl_mode: u.searchParams.get("sslmode") ?? p.ssl_mode,
         ssl_ca_file: u.searchParams.get("sslrootcert") ?? p.ssl_ca_file,
-        ssl_client_cert_file: u.searchParams.get("sslcert") ?? p.ssl_client_cert_file,
-        ssl_client_key_file: u.searchParams.get("sslkey") ?? p.ssl_client_key_file,
+        ssl_client_cert_file:
+          u.searchParams.get("sslcert") ?? p.ssl_client_cert_file,
+        ssl_client_key_file:
+          u.searchParams.get("sslkey") ?? p.ssl_client_key_file,
       }));
       setUrlText("");
       setUrlError(null);
@@ -357,7 +415,9 @@ export function Landing() {
     if (pg.ssl_ca_file.trim())
       query.push(`sslrootcert=${encodeURIComponent(pg.ssl_ca_file.trim())}`);
     if (pg.ssl_client_cert_file.trim())
-      query.push(`sslcert=${encodeURIComponent(pg.ssl_client_cert_file.trim())}`);
+      query.push(
+        `sslcert=${encodeURIComponent(pg.ssl_client_cert_file.trim())}`,
+      );
     if (pg.ssl_client_key_file.trim())
       query.push(`sslkey=${encodeURIComponent(pg.ssl_client_key_file.trim())}`);
     const ssl = query.length > 0 ? `?${query.join("&")}` : "";
@@ -400,6 +460,9 @@ export function Landing() {
         ssl_ca_file: u.searchParams.get("tlsCAFile") ?? m.ssl_ca_file,
         ssl_client_cert_file:
           u.searchParams.get("tlsCertificateKeyFile") ?? m.ssl_client_cert_file,
+        retry_writes:
+          u.searchParams.get("retryWrites") === "false" || m.retry_writes,
+        replica_set: u.searchParams.get("replicaSet") ?? m.replica_set,
       }));
       setMongoUrlError(null);
       setMongoUrlText("");
@@ -422,6 +485,9 @@ export function Landing() {
       query.push(
         `tlsCertificateKeyFile=${encodeURIComponent(mongo.ssl_client_cert_file.trim())}`,
       );
+    if (mongo.retry_writes) query.push("retryWrites=false");
+    if (mongo.replica_set.trim())
+      query.push(`replicaSet=${encodeURIComponent(mongo.replica_set.trim())}`);
     const qs = query.length > 0 ? `?${query.join("&")}` : "";
     // Non-SRV host may be a comma-separated replica-set member list, each
     // optionally carrying its own port — only append the port field to
@@ -460,7 +526,7 @@ export function Landing() {
   const want_connect = useRef(false);
   /** Which connect form a pending double-click targets; consumed by the
    *  auto-connect effect once its fields commit. */
-  const want_kind = useRef<"postgres" | "mongodb" | null>(null);
+  const want_kind = useRef<SharedDbKind | null>(null);
 
   const pg_connect_click = async () => {
     if (pg_connecting || !pg.database.trim()) return;
@@ -529,6 +595,13 @@ export function Landing() {
     tls: mongo.tls,
     ssl_ca_file: mongo.ssl_ca_file.trim() || undefined,
     ssl_client_cert_file: mongo.ssl_client_cert_file.trim() || undefined,
+    retry_writes: mongo.retry_writes ? false : undefined,
+    replica_set: mongo.replica_set.trim() || undefined,
+    pool_max: optionalNumber(mongo.pool_max),
+    pool_min: optionalNumber(mongo.pool_min),
+    connect_timeout_secs: optionalNumber(mongo.connect_timeout_secs),
+    idle_timeout_secs: optionalNumber(mongo.idle_timeout_secs),
+    server_selection_timeout_secs: optionalNumber(mongo.server_selection_timeout_secs),
     // Rejected server-side too (mixing srv:// with a tunnel makes no sense
     // — SRV resolves to however many hosts the DNS records list), but skip
     // even sending it in that case so the error is unambiguous.
@@ -566,7 +639,11 @@ export function Landing() {
       // recentParams to recognize "already open" across separate connects.
       push_recent_params(conn.id, {
         ...mongo_build_params(),
-        kind: "mongodb",
+        // "documentdb" here is what lets the sidebar's Recent list show the
+        // right icon — ConnectionInfo.kind itself is always "mongodb" (see
+        // its doc comment), so this recorded copy is the only place that
+        // remembers which picker entry was actually used.
+        kind: kind === "documentdb" ? "documentdb" : "mongodb",
         name: mongo.name.trim() || undefined,
       });
       openConn(conn);
@@ -639,7 +716,11 @@ export function Landing() {
     return {
       ...params,
       ...flat_ssh_fields(mongo),
-      kind: "mongodb" as const,
+      // "documentdb" here is purely so reopening this connection re-selects
+      // "Amazon DocumentDB" in the picker — connected to identically to
+      // "mongodb" either way (see `mongo_build_params`'s retry_writes/
+      // replica_set for what actually differs about the connection).
+      kind: (kind === "documentdb" ? "documentdb" : "mongodb") as SavedDbKind,
     };
   };
 
@@ -683,6 +764,11 @@ export function Landing() {
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
         ssl_client_key_file: p.ssl_client_key_file,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        max_lifetime_secs: p.max_lifetime_secs,
         ...flat_ssh_fields(pg),
       });
       pushNotification({
@@ -709,7 +795,9 @@ export function Landing() {
       const p = mongo_build_params();
       await serversUpdateConnection(editing.profileId, editing.remoteId, {
         name: mongo_display_name(),
-        kind: "mongodb",
+        // "documentdb" only affects which picker entry reopening this
+        // connection re-selects — see `mongo_saved_params`.
+        kind: kind === "documentdb" ? "documentdb" : "mongodb",
         host: p.host,
         port: p.port,
         user: p.user,
@@ -721,6 +809,13 @@ export function Landing() {
         tls: p.tls,
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
+        retry_writes: p.retry_writes,
+        replica_set: p.replica_set,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        server_selection_timeout_secs: p.server_selection_timeout_secs,
         ...flat_ssh_fields(mongo),
       });
       pushNotification({
@@ -777,6 +872,11 @@ export function Landing() {
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
         ssl_client_key_file: p.ssl_client_key_file,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        max_lifetime_secs: p.max_lifetime_secs,
         ...flat_ssh_fields(pg),
       });
       pushNotification({
@@ -797,7 +897,10 @@ export function Landing() {
     }
   };
 
-  const mongo_save_to_server = async (profileId: string, serverName: string) => {
+  const mongo_save_to_server = async (
+    profileId: string,
+    serverName: string,
+  ) => {
     if (saving_to) return;
     setSavingTo(profileId);
     try {
@@ -818,7 +921,9 @@ export function Landing() {
       const p = mongo_build_params();
       await serversCreateConnection(profileId, fresh.profile.org_id, {
         name: mongo_display_name(),
-        kind: "mongodb",
+        // "documentdb" only affects which picker entry reopening this
+        // connection re-selects — see `mongo_saved_params`.
+        kind: kind === "documentdb" ? "documentdb" : "mongodb",
         host: p.host,
         port: p.port,
         user: p.user,
@@ -829,6 +934,13 @@ export function Landing() {
         tls: p.tls,
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
+        retry_writes: p.retry_writes,
+        replica_set: p.replica_set,
+        pool_max: p.pool_max,
+        pool_min: p.pool_min,
+        connect_timeout_secs: p.connect_timeout_secs,
+        idle_timeout_secs: p.idle_timeout_secs,
+        server_selection_timeout_secs: p.server_selection_timeout_secs,
         ...flat_ssh_fields(mongo),
       });
       pushNotification({
@@ -856,7 +968,7 @@ export function Landing() {
     const p = landing_prefill.params;
     setEditing(landing_prefill.edit ?? null);
     want_connect.current = landing_prefill.connect;
-    if (kind === "postgres" || kind === "mongodb") {
+    if (kind === "postgres" || kind === "mongodb" || kind === "documentdb") {
       want_kind.current = kind;
     }
     // Consume immediately: navigating home and back must NOT replay this
@@ -864,9 +976,9 @@ export function Landing() {
     clearLandingPrefill();
     // Apply outside the effect body (no cascading renders).
     queueMicrotask(() => {
-      if (kind === "mongodb") {
+      if (kind === "mongodb" || kind === "documentdb") {
         const m = p;
-        setKind("mongodb");
+        setKind(kind);
         setMongo((prev) => ({
           ...prev,
           name: m.name ?? "",
@@ -880,6 +992,18 @@ export function Landing() {
           tls: m.tls ?? false,
           ssl_ca_file: m.ssl_ca_file ?? "",
           ssl_client_cert_file: m.ssl_client_cert_file ?? "",
+          retry_writes: m.retry_writes ?? false,
+          replica_set: m.replica_set ?? "",
+          pool_max: m.pool_max != null ? String(m.pool_max) : "",
+          pool_min: m.pool_min != null ? String(m.pool_min) : "",
+          connect_timeout_secs:
+            m.connect_timeout_secs != null ? String(m.connect_timeout_secs) : "",
+          idle_timeout_secs:
+            m.idle_timeout_secs != null ? String(m.idle_timeout_secs) : "",
+          server_selection_timeout_secs:
+            m.server_selection_timeout_secs != null
+              ? String(m.server_selection_timeout_secs)
+              : "",
           ssh_host: m.ssh_host ?? "",
           ssh_port: m.ssh_port != null ? String(m.ssh_port) : "",
           ssh_user: m.ssh_user ?? "",
@@ -907,6 +1031,14 @@ export function Landing() {
           ssl_ca_file: pgv.ssl_ca_file ?? "",
           ssl_client_cert_file: pgv.ssl_client_cert_file ?? "",
           ssl_client_key_file: pgv.ssl_client_key_file ?? "",
+          pool_max: pgv.pool_max != null ? String(pgv.pool_max) : "",
+          pool_min: pgv.pool_min != null ? String(pgv.pool_min) : "",
+          connect_timeout_secs:
+            pgv.connect_timeout_secs != null ? String(pgv.connect_timeout_secs) : "",
+          idle_timeout_secs:
+            pgv.idle_timeout_secs != null ? String(pgv.idle_timeout_secs) : "",
+          max_lifetime_secs:
+            pgv.max_lifetime_secs != null ? String(pgv.max_lifetime_secs) : "",
           ssh_host: pgv.ssh_host ?? "",
           ssh_port: pgv.ssh_port != null ? String(pgv.ssh_port) : "",
           ssh_user: pgv.ssh_user ?? "",
@@ -933,7 +1065,11 @@ export function Landing() {
   });
 
   useEffect(() => {
-    if (want_kind.current !== "mongodb" || !want_connect.current) return;
+    if (
+      (want_kind.current !== "mongodb" && want_kind.current !== "documentdb") ||
+      !want_connect.current
+    )
+      return;
     if (!mongo.database.trim() || mongo_connecting) return;
     want_kind.current = null;
     want_connect.current = false;
@@ -974,12 +1110,13 @@ export function Landing() {
                   onOpen={() => void open_file_click()}
                   path={sqlite_path}
                 />
-              ) : kind === "mongodb" ? (
+              ) : kind === "mongodb" || kind === "documentdb" ? (
                 <MongoPanel
                   form={mongo}
                   setField={(key, value) => {
                     setMongo((m) => ({ ...m, [key]: value }));
                   }}
+                  is_document_db={kind === "documentdb"}
                   tab={form_tab}
                   testing={mongo_testing}
                   test_ok={mongo_test_ok}
@@ -991,7 +1128,9 @@ export function Landing() {
                   admin_servers={admin_servers}
                   editing={editing !== null}
                   onSaveLocal={save_mongo_local}
-                  onSaveServer={(pid, name) => void mongo_save_to_server(pid, name)}
+                  onSaveServer={(pid, name) =>
+                    void mongo_save_to_server(pid, name)
+                  }
                   onUpdate={() =>
                     editing?.source === "server"
                       ? void mongo_update_server()
