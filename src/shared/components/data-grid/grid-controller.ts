@@ -545,10 +545,17 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   // ---- Right-click context menu ----
   const menu_select = useCallback(
     (row: number, col: string) => {
-      if (selected.has(cellKey(row, col))) return;
-      setSelected(new Set([cellKey(row, col)]));
+      // Right-clicking a cell already inside a wider selection keeps that
+      // selection intact (bulk actions like copy/delete still apply to the
+      // whole thing) — but the anchor/active cell always moves to the
+      // clicked cell regardless. Single-cell actions like "View JSON" must
+      // target what was actually clicked, not a stale prior anchor; without
+      // this, right-clicking a different row that happened to already be
+      // selected left the JSON panel showing the old anchor's row.
       setSelAnchor([row, col]);
       setActiveCell([row, col]);
+      if (selected.has(cellKey(row, col))) return;
+      setSelected(new Set([cellKey(row, col)]));
     },
     [selected],
   );
@@ -665,7 +672,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     [on_clone_row],
   );
 
-// Keep the JSON viewer showing the row where the selection starts (the
+  // Keep the JSON viewer showing the row where the selection starts (the
   // anchor cell), just like the highlighted anchor cell in the grid. Buffered
   // (not-yet-applied) cell edits are overlaid so the right-side editor shows
   // exactly what the grid shows. Publishing is idempotent: the row is re-sent
@@ -676,30 +683,52 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   useEffect(() => {
     if (!on_cell_changed) return;
     if (anchor_row === undefined) return;
-    if (anchor_row < pending_count) return;
+    const is_pending = anchor_row < pending_count;
     const row = rows_to_render[anchor_row];
     if (!row) return;
-    const real = row_offset + (anchor_row - pending_count);
+    // A pending row's own values (already typed into it via on_pending_edit)
+    // live directly in `row` — no dirty-cells overlay to check, that map
+    // only tracks edits to already-inserted rows.
+    const real = is_pending ? null : row_offset + (anchor_row - pending_count);
     const data: Record<string, unknown> = {};
     for (const col of column_order) {
       const ci = col_index_of[col];
       if (ci === undefined) continue;
-      const key = `${col}\u0000${real}`;
-      const cell = dirty_cells?.has(key)
-        ? dirty_cells.get(key) ?? null
-        : (row[ci] ?? null);
+      let cell = row[ci] ?? null;
+      if (!is_pending) {
+        const key = `${col}\u0000${real}`;
+        if (dirty_cells?.has(key)) cell = dirty_cells.get(key) ?? null;
+      }
       data[col] = toJsonValue(cell, types?.[col]);
     }
-    const sig = `${real}\u0000${JSON.stringify(data)}`;
+    // Pending row_number is its 0-based index in the draft batch (there's
+    // no real row position yet) — see JsonRow's doc comment for why the
+    // JSON viewer must fold `is_pending` into row identity rather than
+    // trusting this number alone.
+    const row_number = is_pending ? anchor_row : real! + 1;
+    const sig = `${is_pending ? "p" : "r"}${row_number}\u0000${JSON.stringify(data)}`;
     if (last_published.current === sig) return;
     last_published.current = sig;
     on_cell_changed({
       conn_id,
       table,
-      row_number: real + 1,
+      row_number,
+      is_pending,
       data,
     });
-  }, [anchor_row, on_cell_changed, pending_count, rows_to_render, column_order, col_index_of, types, dirty_cells, conn_id, table, row_offset]);
+  }, [
+    anchor_row,
+    on_cell_changed,
+    pending_count,
+    rows_to_render,
+    column_order,
+    col_index_of,
+    types,
+    dirty_cells,
+    conn_id,
+    table,
+    row_offset,
+  ]);
 
   // A freshly-added pending row (at the top of the grid) drops the user straight
   // into its first cell so they can start typing; only fires when the batch

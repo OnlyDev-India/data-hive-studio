@@ -174,3 +174,38 @@ export const appEditorExtensions = [
   appEditorTheme,
   syntaxHighlighting(sqlHighlightStyle),
 ];
+
+/** JS-specific syntax colours (Mongo console, and any read-only JS code
+ *  snippet elsewhere — e.g. `doc-markdown.tsx`'s example blocks). This is
+ *  the *only* highlight style used in JS mode (the SQL one above is swapped
+ *  out) so its rules for property/method names can't be shadowed by the SQL
+ *  foreground rules. */
+export const jsHighlightStyle = HighlightStyle.define([
+  { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
+  {
+    tag: [t.punctuation, t.paren, t.brace, t.squareBracket],
+    color: "var(--muted-foreground)",
+  },
+  { tag: t.meta, color: "var(--muted-foreground)" },
+  { tag: t.operator, color: "var(--foreground)" },
+  { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
+  { tag: t.modifier, color: "var(--info-dark)", fontWeight: "600" },
+  { tag: [t.bool, t.null], color: "var(--warning-dark)" },
+  { tag: t.number, color: "var(--warning-dark)" },
+  {
+    tag: [t.string, t.special(t.string), t.regexp],
+    color: "var(--success-dark)",
+  },
+  { tag: t.typeName, color: "var(--info-dark)" },
+  { tag: [t.standard(t.name), t.special(t.name)], color: "var(--info-dark)" },
+  // Method/call chains (`db.users.find(...)`) tinted blue so they read as code.
+  {
+    tag: [
+      t.variableName,
+      t.propertyName,
+      t.function(t.variableName),
+      t.function(t.propertyName),
+    ],
+    color: "var(--info-dark)",
+  },
+]);

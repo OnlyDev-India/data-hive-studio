@@ -25,6 +25,8 @@ import {
   serversUpdateConnection,
   canPublishConnections,
   type ConnectionInfo,
+  type SavedDbKind,
+  type SharedDbKind,
   type SshConnectParams,
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
@@ -107,13 +109,13 @@ const SQLITE_TABS: { key: FormTabKey; label: string }[] = [
   { key: "general", label: "General" },
 ];
 
-// "documentdb" isn't a distinct backend kind — Amazon DocumentDB speaks the
-// MongoDB wire protocol, so it's still a `mongodb` connection everywhere
-// that matters (storage, the Rust adapter, the Mongo form/panel). This is
-// purely a picker entry that, on selection, applies the connection-string
-// defaults a real DocumentDB cluster needs (see `change_kind` below) —
-// selecting it does not change what gets saved as `kind`.
-type DbKindChoice = "sqlite" | "postgres" | "mongodb" | "documentdb";
+// Amazon DocumentDB speaks the MongoDB wire protocol, so a "documentdb"
+// connection is opened identically to a "mongodb" one everywhere that
+// matters (storage adapter, the Rust `MongoAdapter`, the Mongo form/panel)
+// — `kind: "documentdb"` only exists so the picker remembers which entry
+// was chosen and applies its connection-string defaults on selection (see
+// `change_kind` below).
+type DbKindChoice = SavedDbKind;
 
 const DB_KIND_ITEMS: {
   id: DbKindChoice;
@@ -524,7 +526,7 @@ export function Landing() {
   const want_connect = useRef(false);
   /** Which connect form a pending double-click targets; consumed by the
    *  auto-connect effect once its fields commit. */
-  const want_kind = useRef<"postgres" | "mongodb" | null>(null);
+  const want_kind = useRef<SharedDbKind | null>(null);
 
   const pg_connect_click = async () => {
     if (pg_connecting || !pg.database.trim()) return;
@@ -637,7 +639,11 @@ export function Landing() {
       // recentParams to recognize "already open" across separate connects.
       push_recent_params(conn.id, {
         ...mongo_build_params(),
-        kind: "mongodb",
+        // "documentdb" here is what lets the sidebar's Recent list show the
+        // right icon — ConnectionInfo.kind itself is always "mongodb" (see
+        // its doc comment), so this recorded copy is the only place that
+        // remembers which picker entry was actually used.
+        kind: kind === "documentdb" ? "documentdb" : "mongodb",
         name: mongo.name.trim() || undefined,
       });
       openConn(conn);
@@ -710,7 +716,11 @@ export function Landing() {
     return {
       ...params,
       ...flat_ssh_fields(mongo),
-      kind: "mongodb" as const,
+      // "documentdb" here is purely so reopening this connection re-selects
+      // "Amazon DocumentDB" in the picker — connected to identically to
+      // "mongodb" either way (see `mongo_build_params`'s retry_writes/
+      // replica_set for what actually differs about the connection).
+      kind: (kind === "documentdb" ? "documentdb" : "mongodb") as SavedDbKind,
     };
   };
 
@@ -785,7 +795,9 @@ export function Landing() {
       const p = mongo_build_params();
       await serversUpdateConnection(editing.profileId, editing.remoteId, {
         name: mongo_display_name(),
-        kind: "mongodb",
+        // "documentdb" only affects which picker entry reopening this
+        // connection re-selects — see `mongo_saved_params`.
+        kind: kind === "documentdb" ? "documentdb" : "mongodb",
         host: p.host,
         port: p.port,
         user: p.user,
@@ -909,7 +921,9 @@ export function Landing() {
       const p = mongo_build_params();
       await serversCreateConnection(profileId, fresh.profile.org_id, {
         name: mongo_display_name(),
-        kind: "mongodb",
+        // "documentdb" only affects which picker entry reopening this
+        // connection re-selects — see `mongo_saved_params`.
+        kind: kind === "documentdb" ? "documentdb" : "mongodb",
         host: p.host,
         port: p.port,
         user: p.user,
@@ -954,7 +968,7 @@ export function Landing() {
     const p = landing_prefill.params;
     setEditing(landing_prefill.edit ?? null);
     want_connect.current = landing_prefill.connect;
-    if (kind === "postgres" || kind === "mongodb") {
+    if (kind === "postgres" || kind === "mongodb" || kind === "documentdb") {
       want_kind.current = kind;
     }
     // Consume immediately: navigating home and back must NOT replay this
@@ -962,9 +976,9 @@ export function Landing() {
     clearLandingPrefill();
     // Apply outside the effect body (no cascading renders).
     queueMicrotask(() => {
-      if (kind === "mongodb") {
+      if (kind === "mongodb" || kind === "documentdb") {
         const m = p;
-        setKind("mongodb");
+        setKind(kind);
         setMongo((prev) => ({
           ...prev,
           name: m.name ?? "",
@@ -1051,7 +1065,11 @@ export function Landing() {
   });
 
   useEffect(() => {
-    if (want_kind.current !== "mongodb" || !want_connect.current) return;
+    if (
+      (want_kind.current !== "mongodb" && want_kind.current !== "documentdb") ||
+      !want_connect.current
+    )
+      return;
     if (!mongo.database.trim() || mongo_connecting) return;
     want_kind.current = null;
     want_connect.current = false;
