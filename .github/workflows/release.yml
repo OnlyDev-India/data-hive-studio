@@ -101,10 +101,11 @@ jobs:
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - Multiple windows: File → New Window (`Ctrl/Cmd+Shift+N`) opens another independent window sharing the same connections
-            - Startup splash screen while saved connections/workspace state restore, instead of a blank-then-populated flash
-            - Command Palette: theme now has its own section listing all three options (Light/Dark/System) instead of a single toggle
-            - Real-time SQL/NoSQL editor linting: unknown table/collection names, and multi-statement detection when a `;` is missing
+            - Team server: sign in with Google or GitHub instead of an admin-minted token — create or join an organization and share connections with your team
+            - Connect through an SSH tunnel, with TLS support for the tunneled connection
+            - MongoDB: Amazon DocumentDB support (`retryWrites`/`replicaSet` connection options)
+            - Reviewing pending changes (grid row edits, schema DDL) now shows a real unified diff — red/green line-by-line, collapsible per change — instead of a plain list
+            - Schema changes now go through the same Review & Apply flow as data edits, with a direct "Apply" option in the dropdown for skipping the review
 
             **Fixed**
             - Windows: the native title bar sometimes stayed visible despite the custom one — `tauri-plugin-window-state` was restoring a stale `decorated: true` from before the custom title bar existed
