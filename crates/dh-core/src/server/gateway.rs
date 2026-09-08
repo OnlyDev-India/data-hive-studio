@@ -625,6 +625,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn authorization_gates() {
         let store = test_store().await;
         let gw = Gateway::new(store.clone());
@@ -667,6 +668,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn visibility_filtering() {
         let store = test_store().await;
         let gw = Gateway::new(store.clone());
@@ -694,6 +696,7 @@ mod tests {
     /// always going through Postgres — the point of generalizing `pools` to
     /// `Arc<dyn DbAdapter>` and matching on `AdapterParams` in `adapter()`.
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn dispatches_by_connection_kind() {
         let store = test_store().await;
         let gw = Gateway::new(store.clone());

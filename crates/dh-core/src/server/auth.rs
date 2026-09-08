@@ -380,6 +380,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn oauth_upsert_creates_then_updates() {
         let store = super::super::store::test_store().await;
         let a = store
@@ -402,6 +403,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn session_lifecycle() {
         let store = super::super::store::test_store().await;
         let user = store.user_upsert_oauth("github", "1", "u@x.com", "U", None).await.unwrap();

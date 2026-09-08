@@ -556,6 +556,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn add_list_update_archive() {
         let store = super::super::store::test_store().await;
         let (org_id, user_id) = org_and_user(&store).await;
@@ -606,6 +607,7 @@ mod tests {
     /// the fields `conn_secret_params` used to hardcode to None/false/false
     /// for every Mongo shared connection regardless of what was stored.
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn mongo_auth_db_srv_tls_round_trip() {
         let store = super::super::store::test_store().await;
         let (org_id, user_id) = org_and_user(&store).await;
@@ -655,6 +657,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn missing_and_wrong_key() {
         let store = super::super::store::test_store().await;
         assert_eq!(
@@ -683,6 +686,7 @@ mod tests {
     /// a "keep existing" update leaves an un-provided one intact, and
     /// disabling the tunnel (ssh_host: None) clears both.
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn ssh_secrets_round_trip_and_clear() {
         let store = super::super::store::test_store().await;
         let (org_id, user_id) = org_and_user(&store).await;
