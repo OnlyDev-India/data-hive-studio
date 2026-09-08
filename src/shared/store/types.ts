@@ -254,6 +254,11 @@ export interface SavedConnParams {
   ssl_client_cert_file?: string;
   /** PostgreSQL only: path to the client certificate's private key file. */
   ssl_client_key_file?: string;
+  /** MongoDB only: disable retryable writes — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** MongoDB only: replica set name — required by a real Amazon DocumentDB
+   *  cluster (typically "rs0"). */
+  replica_set?: string;
   /** Reach the database through an SSH tunnel — a set `ssh_host` is what
    *  means "enabled" here, mirroring `SshConfig` on the Rust side. */
   ssh_host?: string;

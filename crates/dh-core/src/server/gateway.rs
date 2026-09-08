@@ -592,6 +592,8 @@ mod tests {
             ssl_ca_file: None,
             ssl_client_cert_file: None,
             ssl_client_key_file: None,
+            retry_writes: false,
+            replica_set: None,
             ssh_host: None,
             ssh_port: None,
             ssh_user: None,

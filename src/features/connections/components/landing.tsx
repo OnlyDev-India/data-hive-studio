@@ -39,7 +39,9 @@ import type { SshFormValue } from "./ssh-fields";
 /** Build the nested `ssh: {...}` object `connectPostgres`/`connectMongo`
  *  expect from a form's flat `ssh_*` fields — `undefined` (no tunnel) when
  *  `ssh_host` is blank. */
-function build_ssh_connect_params(form: SshFormValue): SshConnectParams | undefined {
+function build_ssh_connect_params(
+  form: SshFormValue,
+): SshConnectParams | undefined {
   const host = form.ssh_host.trim();
   if (!host) return undefined;
   return {
@@ -94,7 +96,13 @@ const SQLITE_TABS: { key: FormTabKey; label: string }[] = [
   { key: "general", label: "General" },
 ];
 
-type DbKindChoice = "sqlite" | "postgres" | "mongodb";
+// "documentdb" isn't a distinct backend kind — Amazon DocumentDB speaks the
+// MongoDB wire protocol, so it's still a `mongodb` connection everywhere
+// that matters (storage, the Rust adapter, the Mongo form/panel). This is
+// purely a picker entry that, on selection, applies the connection-string
+// defaults a real DocumentDB cluster needs (see `change_kind` below) —
+// selecting it does not change what gets saved as `kind`.
+type DbKindChoice = "sqlite" | "postgres" | "mongodb" | "documentdb";
 
 const DB_KIND_ITEMS: {
   id: DbKindChoice;
@@ -104,6 +112,7 @@ const DB_KIND_ITEMS: {
   { id: "sqlite", label: "SQLite", icon: DBIcons.sqlite },
   { id: "postgres", label: "PostgreSQL", icon: DBIcons.postgres },
   { id: "mongodb", label: "MongoDB", icon: DBIcons.mongodb },
+  { id: "documentdb", label: "Amazon DocumentDB", icon: DBIcons.documentdb },
 ];
 
 /** Database-type picker — replaces the old per-type tab strip so every kind
@@ -158,7 +167,10 @@ function DbTypeSelect({
                   <Icon className="size-4" />
                   {label}
                   <Check
-                    className={cn("ml-auto", id === value ? "opacity-100" : "opacity-0")}
+                    className={cn(
+                      "ml-auto",
+                      id === value ? "opacity-100" : "opacity-0",
+                    )}
                   />
                 </CommandItem>
               ))}
@@ -184,6 +196,20 @@ export function Landing() {
   const change_kind = (v: DbKindChoice) => {
     setKind(v);
     if (v === "sqlite") setFormTab("general");
+    // Amazon DocumentDB needs three things a plain Mongo connection
+    // doesn't: TLS, retryable writes disabled, and a replica set name —
+    // pre-fill them (and default the port) so picking this entry is enough
+    // on its own, without also having to know to dig into the SSL tab.
+    if (v === "documentdb") {
+      setMongo((m) => ({
+        ...m,
+        port: m.port.trim() || "27017",
+        srv: false,
+        tls: true,
+        retry_writes: true,
+        replica_set: m.replica_set.trim() || "rs0",
+      }));
+    }
   };
   const [opening, setOpening] = useState(false);
   /** Path of a recent SQLite file prefilled into the form (single-click). */
@@ -261,6 +287,8 @@ export function Landing() {
     tls: false,
     ssl_ca_file: "",
     ssl_client_cert_file: "",
+    retry_writes: false,
+    replica_set: "",
     ssh_host: "",
     ssh_port: "",
     ssh_user: "",
@@ -340,8 +368,10 @@ export function Landing() {
         database: u.pathname.replace(/^\/+/, ""),
         ssl_mode: u.searchParams.get("sslmode") ?? p.ssl_mode,
         ssl_ca_file: u.searchParams.get("sslrootcert") ?? p.ssl_ca_file,
-        ssl_client_cert_file: u.searchParams.get("sslcert") ?? p.ssl_client_cert_file,
-        ssl_client_key_file: u.searchParams.get("sslkey") ?? p.ssl_client_key_file,
+        ssl_client_cert_file:
+          u.searchParams.get("sslcert") ?? p.ssl_client_cert_file,
+        ssl_client_key_file:
+          u.searchParams.get("sslkey") ?? p.ssl_client_key_file,
       }));
       setUrlText("");
       setUrlError(null);
@@ -357,7 +387,9 @@ export function Landing() {
     if (pg.ssl_ca_file.trim())
       query.push(`sslrootcert=${encodeURIComponent(pg.ssl_ca_file.trim())}`);
     if (pg.ssl_client_cert_file.trim())
-      query.push(`sslcert=${encodeURIComponent(pg.ssl_client_cert_file.trim())}`);
+      query.push(
+        `sslcert=${encodeURIComponent(pg.ssl_client_cert_file.trim())}`,
+      );
     if (pg.ssl_client_key_file.trim())
       query.push(`sslkey=${encodeURIComponent(pg.ssl_client_key_file.trim())}`);
     const ssl = query.length > 0 ? `?${query.join("&")}` : "";
@@ -400,6 +432,9 @@ export function Landing() {
         ssl_ca_file: u.searchParams.get("tlsCAFile") ?? m.ssl_ca_file,
         ssl_client_cert_file:
           u.searchParams.get("tlsCertificateKeyFile") ?? m.ssl_client_cert_file,
+        retry_writes:
+          u.searchParams.get("retryWrites") === "false" || m.retry_writes,
+        replica_set: u.searchParams.get("replicaSet") ?? m.replica_set,
       }));
       setMongoUrlError(null);
       setMongoUrlText("");
@@ -422,6 +457,9 @@ export function Landing() {
       query.push(
         `tlsCertificateKeyFile=${encodeURIComponent(mongo.ssl_client_cert_file.trim())}`,
       );
+    if (mongo.retry_writes) query.push("retryWrites=false");
+    if (mongo.replica_set.trim())
+      query.push(`replicaSet=${encodeURIComponent(mongo.replica_set.trim())}`);
     const qs = query.length > 0 ? `?${query.join("&")}` : "";
     // Non-SRV host may be a comma-separated replica-set member list, each
     // optionally carrying its own port — only append the port field to
@@ -529,6 +567,8 @@ export function Landing() {
     tls: mongo.tls,
     ssl_ca_file: mongo.ssl_ca_file.trim() || undefined,
     ssl_client_cert_file: mongo.ssl_client_cert_file.trim() || undefined,
+    retry_writes: mongo.retry_writes ? false : undefined,
+    replica_set: mongo.replica_set.trim() || undefined,
     // Rejected server-side too (mixing srv:// with a tunnel makes no sense
     // — SRV resolves to however many hosts the DNS records list), but skip
     // even sending it in that case so the error is unambiguous.
@@ -721,6 +761,8 @@ export function Landing() {
         tls: p.tls,
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
+        retry_writes: p.retry_writes,
+        replica_set: p.replica_set,
         ...flat_ssh_fields(mongo),
       });
       pushNotification({
@@ -797,7 +839,10 @@ export function Landing() {
     }
   };
 
-  const mongo_save_to_server = async (profileId: string, serverName: string) => {
+  const mongo_save_to_server = async (
+    profileId: string,
+    serverName: string,
+  ) => {
     if (saving_to) return;
     setSavingTo(profileId);
     try {
@@ -829,6 +874,8 @@ export function Landing() {
         tls: p.tls,
         ssl_ca_file: p.ssl_ca_file,
         ssl_client_cert_file: p.ssl_client_cert_file,
+        retry_writes: p.retry_writes,
+        replica_set: p.replica_set,
         ...flat_ssh_fields(mongo),
       });
       pushNotification({
@@ -880,6 +927,8 @@ export function Landing() {
           tls: m.tls ?? false,
           ssl_ca_file: m.ssl_ca_file ?? "",
           ssl_client_cert_file: m.ssl_client_cert_file ?? "",
+          retry_writes: m.retry_writes ?? false,
+          replica_set: m.replica_set ?? "",
           ssh_host: m.ssh_host ?? "",
           ssh_port: m.ssh_port != null ? String(m.ssh_port) : "",
           ssh_user: m.ssh_user ?? "",
@@ -974,12 +1023,13 @@ export function Landing() {
                   onOpen={() => void open_file_click()}
                   path={sqlite_path}
                 />
-              ) : kind === "mongodb" ? (
+              ) : kind === "mongodb" || kind === "documentdb" ? (
                 <MongoPanel
                   form={mongo}
                   setField={(key, value) => {
                     setMongo((m) => ({ ...m, [key]: value }));
                   }}
+                  is_document_db={kind === "documentdb"}
                   tab={form_tab}
                   testing={mongo_testing}
                   test_ok={mongo_test_ok}
@@ -991,7 +1041,9 @@ export function Landing() {
                   admin_servers={admin_servers}
                   editing={editing !== null}
                   onSaveLocal={save_mongo_local}
-                  onSaveServer={(pid, name) => void mongo_save_to_server(pid, name)}
+                  onSaveServer={(pid, name) =>
+                    void mongo_save_to_server(pid, name)
+                  }
                   onUpdate={() =>
                     editing?.source === "server"
                       ? void mongo_update_server()
