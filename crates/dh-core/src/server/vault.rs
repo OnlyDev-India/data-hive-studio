@@ -50,6 +50,14 @@ pub struct ConnMeta {
     /// Postgres only: path to the client certificate's private key file.
     #[serde(default)]
     pub ssl_client_key_file: Option<String>,
+    /// MongoDB only: disable retryable writes (`retryWrites=false`) —
+    /// required for Amazon DocumentDB.
+    #[serde(default)]
+    pub retry_writes: bool,
+    /// MongoDB only: replica set name (`replicaSet=...`) — required by a
+    /// real Amazon DocumentDB cluster, typically `rs0`.
+    #[serde(default)]
+    pub replica_set: Option<String>,
     /// Reach this connection through an SSH tunnel — `None`/absent host
     /// means no tunnel. Never carries secrets (password/key passphrase);
     /// those only ever appear in [`ConnInput`] going in, or decrypted
@@ -104,6 +112,14 @@ pub struct ConnInput {
     /// Postgres only.
     #[serde(default)]
     pub ssl_client_key_file: Option<String>,
+    /// MongoDB only: disable retryable writes — required for Amazon
+    /// DocumentDB.
+    #[serde(default)]
+    pub retry_writes: bool,
+    /// MongoDB only: replica set name — required by a real Amazon
+    /// DocumentDB cluster, typically `rs0`.
+    #[serde(default)]
+    pub replica_set: Option<String>,
     #[serde(default)]
     pub ssh_host: Option<String>,
     #[serde(default)]
@@ -203,6 +219,8 @@ fn parse_conn_row(r: &sqlx::postgres::PgRow) -> ConnRow {
         ssl_ca_file: r.get("ssl_ca_file"),
         ssl_client_cert_file: r.get("ssl_client_cert_file"),
         ssl_client_key_file: r.get("ssl_client_key_file"),
+        retry_writes: r.get::<i32, _>("retry_writes") as i64,
+        replica_set: r.get("replica_set"),
         ssh_host: r.get("ssh_host"),
         ssh_port: r.get::<Option<i32>, _>("ssh_port").map(|p| p as u16),
         ssh_user: r.get("ssh_user"),
@@ -240,8 +258,8 @@ impl Store {
         let kind_str = kind_to_str(input.kind);
         sqlx::query(
             r#"INSERT INTO connections
-               (id, org_id, name, kind, host, port, "user", password_enc, database, ssl_mode, auth_db, srv, tls, ssl_ca_file, ssl_client_cert_file, ssl_client_key_file, ssh_host, ssh_port, ssh_user, ssh_auth_mode, ssh_key_file, ssh_host_key_fingerprint, ssh_secrets_enc, created_by, created_ms, updated_ms)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)"#,
+               (id, org_id, name, kind, host, port, "user", password_enc, database, ssl_mode, auth_db, srv, tls, ssl_ca_file, ssl_client_cert_file, ssl_client_key_file, retry_writes, replica_set, ssh_host, ssh_port, ssh_user, ssh_auth_mode, ssh_key_file, ssh_host_key_fingerprint, ssh_secrets_enc, created_by, created_ms, updated_ms)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)"#,
         )
         .bind(&id)
         .bind(org_id)
@@ -259,6 +277,8 @@ impl Store {
         .bind(&input.ssl_ca_file)
         .bind(&input.ssl_client_cert_file)
         .bind(&input.ssl_client_key_file)
+        .bind(input.retry_writes as i64)
+        .bind(&input.replica_set)
         .bind(&input.ssh_host)
         .bind(input.ssh_port.map(|p| p as i64))
         .bind(&input.ssh_user)
@@ -288,6 +308,8 @@ impl Store {
             ssl_ca_file: input.ssl_ca_file.clone(),
             ssl_client_cert_file: input.ssl_client_cert_file.clone(),
             ssl_client_key_file: input.ssl_client_key_file.clone(),
+            retry_writes: input.retry_writes,
+            replica_set: input.replica_set.clone(),
             ssh_host: input.ssh_host.clone(),
             ssh_port: input.ssh_port,
             ssh_user: input.ssh_user.clone(),
@@ -328,8 +350,8 @@ impl Store {
         let ts = now_ms();
         sqlx::query(
             r#"UPDATE connections
-               SET name=$1, host=$2, port=$3, "user"=$4, password_enc=$5, database=$6, ssl_mode=$7, auth_db=$8, srv=$9, tls=$10, ssl_ca_file=$11, ssl_client_cert_file=$12, ssl_client_key_file=$13, ssh_host=$14, ssh_port=$15, ssh_user=$16, ssh_auth_mode=$17, ssh_key_file=$18, ssh_host_key_fingerprint=$19, ssh_secrets_enc=$20, updated_ms=$21
-               WHERE id=$22"#,
+               SET name=$1, host=$2, port=$3, "user"=$4, password_enc=$5, database=$6, ssl_mode=$7, auth_db=$8, srv=$9, tls=$10, ssl_ca_file=$11, ssl_client_cert_file=$12, ssl_client_key_file=$13, retry_writes=$14, replica_set=$15, ssh_host=$16, ssh_port=$17, ssh_user=$18, ssh_auth_mode=$19, ssh_key_file=$20, ssh_host_key_fingerprint=$21, ssh_secrets_enc=$22, updated_ms=$23
+               WHERE id=$24"#,
         )
         .bind(&input.name)
         .bind(&input.host)
@@ -344,6 +366,8 @@ impl Store {
         .bind(&input.ssl_ca_file)
         .bind(&input.ssl_client_cert_file)
         .bind(&input.ssl_client_key_file)
+        .bind(input.retry_writes as i64)
+        .bind(&input.replica_set)
         .bind(&input.ssh_host)
         .bind(input.ssh_port.map(|p| p as i64))
         .bind(&input.ssh_user)
@@ -427,6 +451,8 @@ impl Store {
                 tls: row.tls != 0,
                 ssl_ca_file: row.ssl_ca_file,
                 ssl_client_cert_file: row.ssl_client_cert_file,
+                retry_writes: if row.retry_writes != 0 { Some(false) } else { None },
+                replica_set: row.replica_set,
                 ssh,
             }),
             // Postgres, and every other kind until it gets its own adapter
@@ -472,6 +498,8 @@ impl Store {
             ssl_ca_file: r.ssl_ca_file.clone(),
             ssl_client_cert_file: r.ssl_client_cert_file.clone(),
             ssl_client_key_file: r.ssl_client_key_file.clone(),
+            retry_writes: r.retry_writes != 0,
+            replica_set: r.replica_set.clone(),
             ssh_host: r.ssh_host.clone(),
             ssh_port: r.ssh_port,
             ssh_user: r.ssh_user.clone(),
@@ -503,6 +531,8 @@ struct ConnRow {
     ssl_ca_file: Option<String>,
     ssl_client_cert_file: Option<String>,
     ssl_client_key_file: Option<String>,
+    retry_writes: i64,
+    replica_set: Option<String>,
     ssh_host: Option<String>,
     ssh_port: Option<u16>,
     ssh_user: Option<String>,
@@ -537,6 +567,8 @@ mod tests {
             ssl_ca_file: None,
             ssl_client_cert_file: None,
             ssl_client_key_file: None,
+            retry_writes: false,
+            replica_set: None,
             ssh_host: None,
             ssh_port: None,
             ssh_user: None,
@@ -603,9 +635,11 @@ mod tests {
         }
     }
 
-    /// Mongo's auth_db/srv/tls must round-trip through storage — these are
-    /// the fields `conn_secret_params` used to hardcode to None/false/false
-    /// for every Mongo shared connection regardless of what was stored.
+    /// Mongo's auth_db/srv/tls/retry_writes/replica_set must round-trip
+    /// through storage — these are the fields `conn_secret_params` used to
+    /// hardcode to None/false/false for every Mongo shared connection
+    /// regardless of what was stored. `retry_writes`/`replica_set` are the
+    /// two fields a real Amazon DocumentDB cluster needs set.
     #[tokio::test]
     #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn mongo_auth_db_srv_tls_round_trip() {
@@ -626,6 +660,8 @@ mod tests {
             ssl_ca_file: None,
             ssl_client_cert_file: None,
             ssl_client_key_file: None,
+            retry_writes: true,
+            replica_set: Some("rs0".into()),
             ssh_host: None,
             ssh_port: None,
             ssh_user: None,
@@ -640,6 +676,8 @@ mod tests {
         assert_eq!(meta.auth_db.as_deref(), Some("admin"));
         assert!(meta.srv);
         assert!(meta.tls);
+        assert!(meta.retry_writes);
+        assert_eq!(meta.replica_set.as_deref(), Some("rs0"));
 
         match store.conn_secret_params(&meta.id).await.unwrap() {
             AdapterParams::Mongodb(p) => {
@@ -647,6 +685,8 @@ mod tests {
                 assert_eq!(p.auth_db.as_deref(), Some("admin"));
                 assert!(p.srv);
                 assert!(p.tls);
+                assert_eq!(p.retry_writes, Some(false));
+                assert_eq!(p.replica_set.as_deref(), Some("rs0"));
             }
             AdapterParams::Postgres(_) => panic!("expected Mongodb params"),
         }

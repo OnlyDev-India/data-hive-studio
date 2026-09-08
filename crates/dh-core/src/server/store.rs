@@ -187,6 +187,8 @@ CREATE TABLE IF NOT EXISTS connections (
     ssl_ca_file TEXT,
     ssl_client_cert_file TEXT,
     ssl_client_key_file TEXT,
+    retry_writes INTEGER NOT NULL DEFAULT 0,
+    replica_set TEXT,
     ssh_host TEXT,
     ssh_port INTEGER,
     ssh_user TEXT,

@@ -93,6 +93,10 @@ export interface MongoConnectParams {
   tls?: boolean;
   ssl_ca_file?: string;
   ssl_client_cert_file?: string;
+  /** Disable retryable writes (`retryWrites=false`) — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** Replica set name — required by a real Amazon DocumentDB cluster (typically "rs0"). */
+  replica_set?: string;
   ssh?: SshConnectParams;
 }
 

@@ -41,6 +41,11 @@ export interface MongoFormValues {
   /** Path to a client cert+key PEM file for mutual TLS (mTLS) —
    *  MongoDB's `tlsCertificateKeyFile`, both combined in one file. */
   ssl_client_cert_file: string;
+  /** Disable retryable writes (retryWrites=false) — required for Amazon DocumentDB. */
+  retry_writes: boolean;
+  /** Replica set name (replicaSet=...) — required by a real Amazon
+   *  DocumentDB cluster, typically "rs0". */
+  replica_set: string;
   ssh_host: string;
   ssh_port: string;
   ssh_user: string;
@@ -83,6 +88,11 @@ export interface MongoPanelProps {
 
   // Clear all fields back to defaults
   onClear: () => void;
+
+  // Amazon DocumentDB was picked in the database-type dropdown — hides
+  // fields that don't apply to it (DNS seedlist, mTLS client cert) instead
+  // of leaving them sitting there unused.
+  is_document_db?: boolean;
 }
 
 export function MongoPanel({
@@ -109,6 +119,7 @@ export function MongoPanel({
   onUpdate,
   onCancelEdit,
   onClear,
+  is_document_db = false,
 }: MongoPanelProps) {
   const disabled = connecting || testing || form.database.trim().length === 0;
   const tls_active = form.srv || form.tls;
@@ -196,15 +207,19 @@ export function MongoPanel({
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={form.srv}
-              onCheckedChange={(checked) => setField("srv", checked)}
-            />
-            <label className="text-muted-foreground text-sm">
-              Use mongodb+srv:// (DNS seedlist, no port)
-            </label>
-          </div>
+          {/* DocumentDB never supports DNS-seedlist discovery — not a
+              choice a DocumentDB connection ever has, so don't show it. */}
+          {!is_document_db && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={form.srv}
+                onCheckedChange={(checked) => setField("srv", checked)}
+              />
+              <label className="text-muted-foreground text-sm">
+                Use mongodb+srv:// (DNS seedlist, no port)
+              </label>
+            </div>
+          )}
 
           <Input
             placeholder="connection name (optional)"
@@ -247,15 +262,19 @@ export function MongoPanel({
 
           {tls_active && (
             <div className="grid gap-2">
-              {/* Both optional: the driver verifies against the public CA
-                  trust store by default, so a server with a normally-signed
-                  certificate (Atlas, etc.) needs neither of these — they
-                  only matter for a self-signed/private-CA server, or one
-                  that specifically demands a client certificate (mTLS). */}
+              {/* CA cert is optional either way: the driver verifies
+                  against the public CA trust store by default, so a
+                  normally-signed server (Atlas, etc.) needs it only for a
+                  self-signed/private-CA server — for DocumentDB, that's
+                  AWS's own global-bundle.pem, which isn't in that trust
+                  store. Client certificate + key (mTLS) is hidden for
+                  DocumentDB: it authenticates over username/password
+                  (SCRAM) only, not client certificates. */}
               <div className="grid gap-1">
                 <Label className="text-muted-foreground text-[11px] font-normal">
-                  CA certificate file (optional — only needed for a
-                  self-signed or private-CA server)
+                  {is_document_db
+                    ? "CA certificate file — AWS's global-bundle.pem"
+                    : "CA certificate file (optional — only needed for a self-signed or private-CA server)"}
                 </Label>
                 <FilePathInput
                   placeholder="/path/to/ca.pem"
@@ -263,19 +282,52 @@ export function MongoPanel({
                   onChange={(v) => setField("ssl_ca_file", v)}
                 />
               </div>
-              <div className="grid gap-1">
-                <Label className="text-muted-foreground text-[11px] font-normal">
-                  Client certificate + key (optional, for mTLS — one
-                  combined PEM file)
-                </Label>
-                <FilePathInput
-                  placeholder="/path/to/client.pem"
-                  value={form.ssl_client_cert_file}
-                  onChange={(v) => setField("ssl_client_cert_file", v)}
-                />
-              </div>
+              {!is_document_db && (
+                <div className="grid gap-1">
+                  <Label className="text-muted-foreground text-[11px] font-normal">
+                    Client certificate + key (optional, for mTLS — one
+                    combined PEM file)
+                  </Label>
+                  <FilePathInput
+                    placeholder="/path/to/client.pem"
+                    value={form.ssl_client_cert_file}
+                    onChange={(v) => setField("ssl_client_cert_file", v)}
+                  />
+                </div>
+              )}
             </div>
           )}
+
+          <div className="flex flex-col gap-3 border-t pt-3">
+            {!is_document_db && (
+              <p className="text-muted-foreground text-[11px]">
+                Advanced — for Amazon DocumentDB: TLS above with a
+                downloaded <code className="text-[10px]">global-bundle.pem</code>{" "}
+                as the CA certificate, plus both fields below.
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={form.retry_writes}
+                onCheckedChange={(checked) => setField("retry_writes", checked)}
+              />
+              <label className="text-muted-foreground text-sm">
+                Disable retryable writes
+              </label>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Replica set name (e.g. rs0)
+                {!is_document_db &&
+                  " — leave blank for plain MongoDB or the local DocumentDB emulator"}
+              </Label>
+              <Input
+                placeholder="rs0"
+                value={form.replica_set}
+                onChange={(e) => setField("replica_set", e.target.value)}
+              />
+            </div>
+          </div>
         </div>
       )}
 

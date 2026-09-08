@@ -45,6 +45,14 @@ pub struct LocalConnMeta {
     /// Postgres only.
     #[serde(default)]
     pub ssl_client_key_file: Option<String>,
+    /// MongoDB only: disable retryable writes — required for Amazon
+    /// DocumentDB.
+    #[serde(default)]
+    pub retry_writes: bool,
+    /// MongoDB only: replica set name — required by a real Amazon
+    /// DocumentDB cluster, typically `rs0`.
+    #[serde(default)]
+    pub replica_set: Option<String>,
     /// `Some` means this connection tunnels through SSH — no secrets here,
     /// those live in the keychain like the main password (see
     /// `ssh_secret_key`/`get_local_connection_secret`).
@@ -93,6 +101,10 @@ pub struct LocalConnInput {
     #[serde(default)]
     pub ssl_client_key_file: Option<String>,
     #[serde(default)]
+    pub retry_writes: bool,
+    #[serde(default)]
+    pub replica_set: Option<String>,
+    #[serde(default)]
     pub ssh_host: Option<String>,
     #[serde(default)]
     pub ssh_port: Option<u16>,
@@ -131,6 +143,8 @@ fn meta_from_input(input: &LocalConnInput) -> LocalConnMeta {
         ssl_ca_file: input.ssl_ca_file.clone(),
         ssl_client_cert_file: input.ssl_client_cert_file.clone(),
         ssl_client_key_file: input.ssl_client_key_file.clone(),
+        retry_writes: input.retry_writes,
+        replica_set: input.replica_set.clone(),
         ssh_host: input.ssh_host.clone(),
         ssh_port: input.ssh_port,
         ssh_user: input.ssh_user.clone(),

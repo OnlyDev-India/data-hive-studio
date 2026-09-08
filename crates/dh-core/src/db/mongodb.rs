@@ -48,6 +48,18 @@ pub struct MongoParams {
     /// certificate and its (unencrypted) private key.
     #[serde(default)]
     pub ssl_client_cert_file: Option<String>,
+    /// Disable retryable writes (`retryWrites=false`). Required for Amazon
+    /// DocumentDB, which doesn't support the driver's retryable-writes
+    /// protocol — omitted (driver default `true`) unless explicitly set to
+    /// `Some(false)`.
+    #[serde(default)]
+    pub retry_writes: Option<bool>,
+    /// Replica set name (`replicaSet=...`). A real Amazon DocumentDB cluster
+    /// needs this set (typically `rs0`) for the driver to select a valid
+    /// read topology; plain MongoDB and the single-node DocumentDB local
+    /// emulator don't need it.
+    #[serde(default)]
+    pub replica_set: Option<String>,
     /// Reach the database through an SSH tunnel instead of connecting
     /// directly. Incompatible with `srv: true` — SRV/TXT lookup resolves to
     /// however many replica-set hosts the DNS records list, which a single
@@ -80,6 +92,12 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
     }
     if let Some(cert) = &params.ssl_client_cert_file {
         query.push(format!("tlsCertificateKeyFile={}", percent_encode(cert)));
+    }
+    if params.retry_writes == Some(false) {
+        query.push("retryWrites=false".to_string());
+    }
+    if let Some(rs) = &params.replica_set {
+        query.push(format!("replicaSet={}", percent_encode(rs)));
     }
     let query = query.join("&");
     let uri = if params.srv {

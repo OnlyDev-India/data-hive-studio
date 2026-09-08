@@ -71,6 +71,11 @@ export interface ServerConn {
   ssl_client_cert_file?: string | null;
   /** PostgreSQL only. */
   ssl_client_key_file?: string | null;
+  /** MongoDB only: disable retryable writes — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** MongoDB only: replica set name — required by a real Amazon DocumentDB
+   *  cluster (typically "rs0"). */
+  replica_set?: string | null;
   /** `ssh_host` set means this connection tunnels through SSH — no
    *  secrets here, this is metadata only (`ConnMeta`, never `ConnInput`). */
   ssh_host?: string | null;
@@ -311,6 +316,11 @@ export interface ServerConnInput {
   ssl_client_cert_file?: string | null;
   /** PostgreSQL only: path to the client certificate's private key file. */
   ssl_client_key_file?: string | null;
+  /** MongoDB only: disable retryable writes — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** MongoDB only: replica set name — required by a real Amazon DocumentDB
+   *  cluster (typically "rs0"). */
+  replica_set?: string | null;
   ssh_host?: string | null;
   ssh_port?: number | null;
   ssh_user?: string | null;
