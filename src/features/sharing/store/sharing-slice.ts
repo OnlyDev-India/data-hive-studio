@@ -4,6 +4,7 @@ import {
   serversDisconnect as apiServersDisconnect,
   serversDeleteConnection as apiServersDeleteConnection,
   srvConnId,
+  canManageOrg,
 } from "@/shared/api/client";
 import type { StudioStore } from "@/shared/store/types";
 
@@ -27,8 +28,8 @@ function mapSessionConns(profileId: string, session: ServerSessionPayload) {
     auth_db: c.auth_db,
     srv: c.srv ?? false,
     tls: c.tls ?? false,
-    data_access: c.data_access,
-    can_edit: c.can_edit,
+    can_read: c.can_read,
+    can_update: c.can_update,
     can_delete: c.can_delete,
   }));
 }
@@ -116,9 +117,11 @@ export function sharingActions(set: SetState, get: GetState) {
         for (const id of sess.connIds) get().closeConn(id);
         const next = { ...s.serverSessions };
         delete next[profileId];
-        // Leaving the admin page when its session is gone.
-        const still_admin = Object.values(next).some((x) => x.me.is_admin);
-        if (s.view === "admin" && !still_admin)
+        // Leaving the admin page when no remaining session can manage its org.
+        const still_manages = Object.values(next).some((x) =>
+          canManageOrg(x.me, x.profile.org_id),
+        );
+        if (s.view === "admin" && !still_manages)
           return { serverSessions: next, view: "home" };
         return { serverSessions: next };
       });

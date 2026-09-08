@@ -45,22 +45,6 @@ export interface CatalogOverview {
   active_schema: string;
 }
 
-/** One minted token (adm_ or tem_). */
-export interface TokenGrantSpec {
-  conn_id: string;
-  can_read: boolean;
-  can_update: boolean;
-  can_delete: boolean;
-}
-
-export interface TokenInfo {
-  token: string;
-  prefix: string;
-  user_name: string;
-  team_name: string | null;
-  created_ms: number;
-}
-
 export interface IndexInfo {
   name: string;
   unique: boolean;

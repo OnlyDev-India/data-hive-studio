@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures_util::TryStreamExt;
 use sqlx::postgres::PgRow;
-use sqlx::{Column as _, Connection as _, Row as _, TypeInfo as _};
+use sqlx::{Column as _, Connection as _, Executor as _, Row as _, Statement as _, TypeInfo as _};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -32,6 +32,26 @@ pub struct PgParams {
     /// disable | prefer | require | verify-ca | verify-full (defaults to prefer).
     #[serde(default)]
     pub ssl_mode: Option<String>,
+    /// Path to a CA certificate file used to verify the server's
+    /// certificate — required for `ssl_mode` "verify-ca"/"verify-full" to
+    /// actually verify anything (otherwise there's nothing to check
+    /// against). Read from disk wherever the connection is made: the
+    /// desktop app's own filesystem for a local connection, or the
+    /// team-server's filesystem for a shared one.
+    #[serde(default)]
+    pub ssl_ca_file: Option<String>,
+    /// Path to a client certificate file, for mutual TLS (mTLS). Paired
+    /// with `ssl_client_key_file`.
+    #[serde(default)]
+    pub ssl_client_cert_file: Option<String>,
+    /// Path to the client certificate's private key file (unencrypted —
+    /// this app doesn't support an encrypted client key's passphrase).
+    #[serde(default)]
+    pub ssl_client_key_file: Option<String>,
+    /// Reach the database through an SSH tunnel (a local port-forward to
+    /// `host:port` through this jump host) instead of connecting directly.
+    #[serde(default)]
+    pub ssh: Option<crate::ssh_tunnel::SshConfig>,
 }
 
 fn ssl_mode(v: Option<&str>) -> sqlx::postgres::PgSslMode {
@@ -96,24 +116,56 @@ pub struct PgAdapter {
     /// Database name this connection attached to — used to refuse dropping
     /// it from underneath itself.
     database: String,
+    /// Kept alive for as long as this adapter is — dropping it tears the
+    /// tunnel down out from under the pool, so it must outlive `pool`.
+    /// `None` when this connection doesn't go through SSH.
+    _ssh_tunnel: Option<crate::ssh_tunnel::LocalTunnel>,
 }
 
 impl PgAdapter {
     pub async fn connect(params: &PgParams) -> DbResult<Self> {
-        let options = PgConnectOptions::new()
+        // Through an SSH tunnel: connect the driver to a local forwarded
+        // port instead of the real host — see `ssh_tunnel`'s module doc for
+        // why this needs no special-casing beyond swapping host/port here.
+        let tunnel = match &params.ssh {
+            Some(ssh) => Some(
+                crate::ssh_tunnel::open_tunnel(ssh, &params.host, params.port)
+                    .await
+                    .map_err(DbError::InvalidOperation)?,
+            ),
+            None => None,
+        };
+        let (connect_host, connect_port) = match &tunnel {
+            Some(t) => ("127.0.0.1", t.local_port),
+            None => (params.host.as_str(), params.port),
+        };
+
+        let mut options = PgConnectOptions::new()
             // PgBouncer (transaction mode) compatibility: sqlx caches named
             // prepared statements per connection; pooled proxies break that.
             .statement_cache_capacity(0)
-            .host(&params.host)
-            .port(params.port)
+            .host(connect_host)
+            .port(connect_port)
             .username(&params.user)
             .password(&params.password)
             .database(&params.database)
             .ssl_mode(ssl_mode(params.ssl_mode.as_deref()));
+        if let Some(ca) = &params.ssl_ca_file {
+            options = options.ssl_root_cert(ca);
+        }
+        if let Some(cert) = &params.ssl_client_cert_file {
+            options = options.ssl_client_cert(cert);
+        }
+        if let Some(key) = &params.ssl_client_key_file {
+            options = options.ssl_client_key(key);
+        }
 
         // ONE pool, ONE awaited connection: `connect_with` returns as soon as
         // the database answers — same as every other SQL client. Extra
-        // connections are opened lazily by sqlx when queries need them.
+        // connections are opened lazily by sqlx when queries need them (each
+        // one gets its own forwarded SSH channel automatically, since the
+        // tunnel's local listener accepts however many connections the pool
+        // opens over its lifetime).
         let pool = PgPoolOptions::new()
             .max_connections(12)
             .min_connections(1)
@@ -128,6 +180,7 @@ impl PgAdapter {
             schema: std::sync::RwLock::new("public".to_string()),
             type_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             database: params.database.clone(),
+            _ssh_tunnel: tunnel,
         })
     }
 
@@ -311,7 +364,7 @@ fn row_to_vec(r: &PgRow) -> Vec<Option<String>> {
                     .try_get::<Option<Vec<u8>>, _>(i)
                     .ok()
                     .flatten()
-                    .map(|b| format!("\\x{}", hex_encode(&b))),
+                    .map(|b| format!("\\x{}", hex::encode(&b))),
                 // ARRAY columns: sqlx names custom enum arrays `permission[]`
                 // and built-in arrays `_text`/`_int4`. The binary wire format
                 // is NOT readable as UTF-8 directly, so decode it and render a
@@ -471,10 +524,6 @@ fn decode_pg_array(buf: &[u8]) -> Vec<Option<String>> {
         }
     }
     out
-}
-
-fn hex_encode(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{:02x}", x)).collect()
 }
 
 /// Column name -> Postgres type name, used to cast string parameters on
@@ -913,11 +962,8 @@ impl DbAdapter for PgAdapter {
             .to_ascii_lowercase();
         let is_select = first_word == "select" || first_word == "with";
         if is_select {
+            let columns = describe_columns(&self.pool, trimmed).await?;
             let rows = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
-            let columns: Vec<String> = rows
-                .first()
-                .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
-                .unwrap_or_default();
             // Reuse row_to_vec so every type (dates, timestamps, arrays,
             // booleans, numerics, …) renders as human-readable text.
             let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
@@ -965,11 +1011,8 @@ impl DbAdapter for PgAdapter {
         for p in params {
             q = bind_str(q, p);
         }
+        let columns = describe_columns(&self.pool, &converted).await?;
         let rows = q.fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
-        let columns: Vec<String> = rows
-            .first()
-            .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
-            .unwrap_or_default();
         let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
         Ok(QueryResult {
             columns,
@@ -1261,32 +1304,30 @@ impl DbAdapter for PgAdapter {
         ));
 
         let display = super::inline_placeholders(&sql, &params, true) + ";";
+        // Describe columns up front so a genuinely empty result still
+        // reports real column names — deriving them from the first
+        // STREAMED row instead (the previous approach here) left `columns`
+        // empty whenever the query matched zero rows, since the loop body
+        // below never ran.
+        let columns = describe_columns(&self.pool, &sql).await?;
+        on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
+
         let mut stream = bind_all(&sql, &params).fetch(&self.pool);
-        let mut columns: Option<Vec<String>> = None;
         let mut batch: Vec<Vec<Option<String>>> = Vec::new();
 
         while let Some(row) = stream.try_next().await.map_err(DbError::SqlEngine)? {
-            if columns.is_none() {
-                columns = Some(row.columns().iter().map(|c| c.name().to_string()).collect());
-            }
             batch.push(row_to_vec(&row));
             if batch.len() >= 500 {
-                on_batch(QueryChunk {
-                    columns: columns.clone(),
-                    rows: std::mem::take(&mut batch),
-                })?;
+                on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
             }
         }
         if !batch.is_empty() {
-            on_batch(QueryChunk {
-                columns: columns.clone(),
-                rows: batch,
-            })?;
+            on_batch(QueryChunk { columns: None, rows: batch })?;
         }
 
         Ok(super::OpOutcome {
             result: QueryResult {
-                columns: columns.unwrap_or_default(),
+                columns,
                 rows: vec![], // caller assembles from chunks
                 rows_affected: 0,
                 is_select: true,
@@ -1561,6 +1602,18 @@ impl DbAdapter for PgAdapter {
     }
 }
 
+/// Column names for `sql`, via Postgres's own Describe step (Parse+Describe,
+/// no bound values or fetched rows needed) — independent of whether the
+/// statement actually matches any rows. Deriving column names from the
+/// first FETCHED row instead (the previous approach here) silently drops
+/// every header whenever a query/table genuinely has zero matching rows.
+/// Mirrors sqlite.rs's identical `conn.prepare(sql).await?.columns()` trick.
+async fn describe_columns(pool: &PgPool, sql: &str) -> DbResult<Vec<String>> {
+    let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
+    let prepared = conn.prepare(sql).await.map_err(DbError::SqlEngine)?;
+    Ok(prepared.columns().iter().map(|c| c.name().to_string()).collect())
+}
+
 /// Execute a SELECT whose `?` placeholders are renumbered to `$n`, binding
 /// `params` in order, and render every row as text cells.
 async fn run_sql_prebound(
@@ -1574,11 +1627,8 @@ async fn run_sql_prebound(
     for p in &params {
         q = bind_str(q, p);
     }
+    let columns = describe_columns(pool, &converted).await?;
     let rows = q.fetch_all(pool).await.map_err(DbError::SqlEngine)?;
-    let columns: Vec<String> = rows
-        .first()
-        .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
-        .unwrap_or_default();
     let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
     Ok(QueryResult {
         columns,

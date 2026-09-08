@@ -44,6 +44,20 @@ export async function closeConnection(connId: string): Promise<void> {
   return invoke("close_connection", { connId });
 }
 
+/** An SSH tunnel to reach the database through — mirrors
+ *  `ssh_tunnel::SshConfig` on the Rust side. */
+export interface SshConnectParams {
+  host: string;
+  port?: number;
+  user: string;
+  /** "password" | "key" */
+  auth_mode: string;
+  password?: string;
+  key_file?: string;
+  key_passphrase?: string;
+  host_key_fingerprint?: string;
+}
+
 /** List tables and views in the database. */
 export interface PgConnectParams {
   host: string;
@@ -53,6 +67,10 @@ export interface PgConnectParams {
   database: string;
   /** disable | prefer | require | verify-ca | verify-full */
   ssl_mode?: string;
+  ssl_ca_file?: string;
+  ssl_client_cert_file?: string;
+  ssl_client_key_file?: string;
+  ssh?: SshConnectParams;
 }
 
 /** Connect to a PostgreSQL server (adapter installed in the home sidebar). */
@@ -71,7 +89,11 @@ export interface MongoConnectParams {
   database: string;
   /** Auth source database (defaults to "admin" when omitted). */
   auth_db?: string;
+  srv?: boolean;
   tls?: boolean;
+  ssl_ca_file?: string;
+  ssl_client_cert_file?: string;
+  ssh?: SshConnectParams;
 }
 
 /** Connect to a MongoDB server and register the connection. */

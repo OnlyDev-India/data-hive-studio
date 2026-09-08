@@ -13,6 +13,13 @@ vi.mock("@/shared/api/client", () => ({
   serversDeleteConnection: apiMocks.serversDeleteConnection,
   srvConnId: (profileId: string, remoteConnId: string) =>
     `srv:${profileId}:${remoteConnId}`,
+  canManageOrg: (
+    me: { orgs: { id: string; role: string }[] },
+    orgId: string,
+  ) => {
+    const role = me.orgs.find((o) => o.id === orgId)?.role;
+    return role === "owner" || role === "admin";
+  },
 }));
 
 // Imported after the mock so sharing-slice.ts picks up the mocked module.
@@ -21,8 +28,18 @@ const { sharingActions } = await import("./sharing-slice");
 function session(overrides?: { connId?: string }) {
   const connId = overrides?.connId ?? "c1";
   return {
-    profile: { id: "p1", name: "Team", url: "https://example.test" },
-    me: { device_id: "dev1", is_admin: false },
+    profile: {
+      id: "p1",
+      name: "Team",
+      url: "https://example.test",
+      org_id: "org1",
+    },
+    me: {
+      user_id: "u1",
+      email: "alice@example.test",
+      name: "Alice",
+      orgs: [{ id: "org1", name: "Team", slug: "team", created_ms: 0, role: "member" as const }],
+    },
     connections: [
       {
         id: connId,
@@ -32,8 +49,8 @@ function session(overrides?: { connId?: string }) {
         user: "alice",
         database: "appdb",
         ssl_mode: null,
-        data_access: "readwrite" as const,
-        can_edit: true,
+        can_read: true,
+        can_update: true,
         can_delete: true,
       },
     ],

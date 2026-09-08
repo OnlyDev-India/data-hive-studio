@@ -92,7 +92,7 @@ export function TriggersPanel({
               on_replace((ts) => [
                 ...ts,
                 {
-                  id: `n${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                  id: `n${crypto.randomUUID()}`,
                   orig_name: null,
                   orig_sql: null,
                   sql,
