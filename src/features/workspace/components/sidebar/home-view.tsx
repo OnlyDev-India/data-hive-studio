@@ -12,7 +12,11 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { serversFetchCredentials, srvConnId } from "@/shared/api/client";
+import {
+  serversFetchCredentials,
+  srvConnId,
+  canManageOrg,
+} from "@/shared/api/client";
 import { reopenRecent } from "@/features/connections";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
@@ -317,7 +321,8 @@ export function HomeView({
             <ul className="flex flex-col gap-0.5">
               {rows.map((c) => {
                 const is_pinned = pins.includes(c.id);
-                const can_delete = c.can_delete || sess.me.is_admin;
+                const can_delete =
+                  c.can_delete || canManageOrg(sess.me, sess.profile.org_id);
                 const DBIcon = DBIcons[c.kind] || Database;
                 return (
                   <li key={c.id}>

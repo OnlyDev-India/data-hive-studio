@@ -2,7 +2,17 @@
 # The web UI lives in Dockerfile.web (nginx) and proxies /v1 here.
 #
 # Build:  docker build -t dh-studio-server .
-# Run:    docker run -p 8080:8080 -v dh-data:/data dh-studio-server
+# Run:    docker run -p 8080:8080 -v dh-data:/data \
+#           -e DH_DATABASE_URL=postgres://user:pass@host:5432/db \
+#           -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... \
+#           dh-studio-server
+#
+# DH_DATABASE_URL (a real Postgres instance — there is no bundled-SQLite
+# fallback) is required; the container panics at startup without it. At
+# least one OAuth provider's client id/secret is required for anyone to be
+# able to sign in. See crates/dh-server/src/main.rs for the full env var
+# reference, or docker-compose.yml for a ready-to-run example with a bundled
+# Postgres service.
 
 # ---- build stage -----------------------------------------------------------
 FROM rust:1-slim AS build

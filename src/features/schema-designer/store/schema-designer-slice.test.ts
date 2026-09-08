@@ -19,7 +19,13 @@ function makeStore() {
 describe("schemaDesignerActions", () => {
   it("setSchemaEdit/clearSchemaEdit register and remove by key", () => {
     const store = makeStore();
-    const handle = { count: 2, busy: false, apply: vi.fn(), discard: vi.fn() };
+    const handle = {
+      count: 2,
+      busy: false,
+      apply: vi.fn(),
+      review: vi.fn(),
+      discard: vi.fn(),
+    };
     store.getState().setSchemaEdit("tab1", handle);
     expect(store.getState().schemaEdits.tab1).toBe(handle);
     store.getState().clearSchemaEdit("tab1");

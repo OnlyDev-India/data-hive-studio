@@ -258,12 +258,17 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             const next: Record<string, SavedConnParams> = {};
             for (const meta of metas) {
               let password = "";
+              let ssh_password: string | undefined;
+              let ssh_key_passphrase: string | undefined;
               try {
-                password = await getLocalConnectionSecret(meta.name);
+                const secret = await getLocalConnectionSecret(meta.name);
+                password = secret.password;
+                ssh_password = secret.ssh_password ?? undefined;
+                ssh_key_passphrase = secret.ssh_key_passphrase ?? undefined;
               } catch {
                 /* keychain entry missing/unreadable — user re-enters on connect */
               }
-              next[meta.name] = { ...meta, password };
+              next[meta.name] = { ...meta, password, ssh_password, ssh_key_passphrase };
             }
             set({ savedLocal: next });
           } catch {

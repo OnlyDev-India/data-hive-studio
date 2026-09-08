@@ -1,13 +1,41 @@
-# dh-studio — two services:
+# dh-studio — three services:
 #
-#   web     nginx SPA + /v1 reverse-proxy   →  http://localhost:8080
-#   server  team-server API (internal only) →  reachable as http://server:8080
+#   web       nginx SPA + /v1 reverse-proxy   →  http://localhost:8080
+#   server    team-server API (internal only) →  reachable as http://server:8080
+#   postgres  server state (users, orgs, sessions, connections) — required,
+#             there is no bundled-SQLite fallback anymore
 #
 #   docker compose up --build      # start
-#   docker compose logs -f server  # first-run ADMIN invite appears here
-#   docker compose down            # stop (state persists in dh-data volume)
+#   docker compose logs -f server  # OAuth provider warnings appear here
+#   docker compose down            # stop (state persists in the dh-data /
+#                                   # dh-postgres volumes; add -v to wipe it)
+#
+# Required before first run: set at least one OAuth provider's client
+# id/secret below (GOOGLE_CLIENT_ID/SECRET and/or GITHUB_CLIENT_ID/SECRET)
+# — without one, the server starts but nobody can sign in. See
+# crates/dh-server/src/main.rs's doc comment for the full env var reference,
+# including DH_PUBLIC_URL (required for real deployments — OAuth callbacks
+# depend on it matching what you registered with the provider).
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: dh-studio-postgres
+    environment:
+      POSTGRES_USER: dh
+      POSTGRES_PASSWORD: dh
+      POSTGRES_DB: dh_server
+    volumes:
+      - dh-postgres:/var/lib/postgresql/data
+    expose:
+      - "5432" # internal only
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dh -d dh_server"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   server:
     build:
       context: .
@@ -17,23 +45,40 @@ services:
     environment:
       DH_BIND: 0.0.0.0:8080
       DH_DATA_DIR: /data
-      # Postgres instead of bundled SQLite (optional):
-      # DH_DATABASE_URL: postgres://user:pass@host:5432/db
-      # 64-char hex master key; if unset, one is generated into /data on
-      # first run and persisted there.
+      DH_DATABASE_URL: postgres://dh:dh@postgres:5432/dh_server
+      # This server's externally-reachable base URL — must match whatever
+      # redirect URI you registered with each OAuth provider
+      # (<DH_PUBLIC_URL>/auth/{provider}/callback). Defaults to
+      # http://127.0.0.1:8080, which only works for local testing.
+      # DH_PUBLIC_URL: https://your-domain.example
+      #
+      # At least one pair is required for sign-in to work at all:
+      # GOOGLE_CLIENT_ID: <id>
+      # GOOGLE_CLIENT_SECRET: <secret>
+      # GITHUB_CLIENT_ID: <id>
+      # GITHUB_CLIENT_SECRET: <secret>
+      #
+      # 64-char hex master key for connection-password encryption; if
+      # unset, one is generated into /data on first run and persisted
+      # there via the dh-data volume.
       # DH_MASTER_KEY: <64-hex-chars>
     volumes:
       - dh-data:/data
     expose:
       - "8080" # internal only — reached through the `web` proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       # /dev/tcp is a bash-only builtin — run via bash, not the default sh.
+      # /auth/providers is unauthenticated and always 200s, so it's a clean
+      # "is the app itself up" signal independent of any OAuth/DB state.
       test:
         - CMD
         - bash
         - -c
-        - 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /v1/me HTTP/1.0\r\n\r\n" >&3 && grep -q "HTTP" <&3'
+        - 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /auth/providers HTTP/1.0\r\n\r\n" >&3 && grep -q "HTTP" <&3'
       interval: 30s
       timeout: 5s
       retries: 3
@@ -54,3 +99,4 @@ services:
 
 volumes:
   dh-data:
+  dh-postgres:

@@ -31,6 +31,25 @@ export async function pickDatabaseFile(): Promise<{
 }
 
 /**
+ * Native "Open" dialog for picking an arbitrary file's path — used by the
+ * SSL/TLS certificate fields (CA cert, client cert, client key). Unlike
+ * `pickDatabaseFile`/`pickSqlFile`, this never reads the file's contents:
+ * only the path is needed, since it's read by whichever machine actually
+ * makes the connection (this desktop app for a local connection, or the
+ * team-server for a shared one) — not by this process.
+ */
+export async function pickCertFilePath(): Promise<string | null> {
+  const path = await open({
+    multiple: false,
+    filters: [
+      { name: "Certificates & keys", extensions: ["pem", "crt", "cer", "key", "p12", "pfx"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  return !path || Array.isArray(path) ? null : path;
+}
+
+/**
  * Show the native save dialog and write the bytes. Returns the chosen file
  * path, or `null` if the user cancels.
  */

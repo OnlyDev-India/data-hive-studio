@@ -1,29 +1,16 @@
-export interface DeviceInfo {
-  id: string;
-  token: string;
-  user_name: string;
-  team_name: string | null;
-  admin: boolean;
-  created_ms: number;
-}
+export type { OrgMember, OrgInvite, OrgRole } from "@/shared/api/server-admin";
 
 export interface ConnLite {
   id: string;
   name: string;
 }
 
-export interface GrantRow {
-  token: string;
-  conn_id: string;
-  can_read: boolean;
-  can_update: boolean;
-  can_delete: boolean;
-}
-
-export type Tab = "tokens" | "devices" | "create";
+export type Tab = "members" | "invites" | "audit";
 
 export const TABS: { key: Tab; label: string }[] = [
-  { key: "tokens", label: "Tokens" },
-  { key: "devices", label: "Devices" },
-  { key: "create", label: "Create Token" },
+  { key: "members", label: "Members" },
+  { key: "invites", label: "Invites" },
+  { key: "audit", label: "Audit log" },
 ];
+
+export const ROLES = ["viewer", "member", "admin", "owner"] as const;

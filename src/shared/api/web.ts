@@ -2,12 +2,17 @@
  * Browser-build transport for the hosted Web UI.
  *
  * In web mode there is no Tauri IPC: every call goes to the deployed
- * dh-server(s) over REST using device tokens. Tokens are enrolled once (via
- * admin invite codes) and kept in localStorage — the server holds all
- * connection credentials, so the browser never sees secrets.
+ * dh-server over REST using an OAuth session token (`dhs_…`), obtained via
+ * a full-page redirect through `/auth/{provider}/start` — see
+ * `webOAuthStartUrl` and `src/web/WebGate.tsx`, which catches the callback
+ * (`?token=…` on this same page) since there's no Tauri loopback listener
+ * to do it out of process. The server holds all connection credentials, so
+ * the browser never sees secrets.
  *
- * Multiple servers are supported: each server has its own URL and token,
- * stored under the `dh.web.servers` key as a Record<profileId, config>.
+ * Multiple servers/orgs are supported: each saved profile has its own URL,
+ * org id, and session token, stored under the `dh.web.servers` key as a
+ * Record<profileId, config>. A user can be signed in to the same server
+ * under several orgs at once — each is its own profile.
  *
  * The default server URL is fixed at build/deploy time:
  *   - production: the app is served BY the dh-server, so requests are
@@ -28,14 +33,14 @@ export const WEB = !(
 export interface WebServerConfig {
   id: string;
   url: string;
+  /** OAuth session token (`dhs_…`). */
   token: string;
   name: string;
-  /** Required for tem_ tokens — sent as X-Team on every request. */
-  team_name?: string;
+  /** Which organization on that server this profile targets. */
+  org_id: string;
 }
 
 const SERVERS_KEY = "dh.web.servers";
-const LEGACY_TOKEN_KEY = "dh.web.token";
 
 function readServers(): Record<string, WebServerConfig> {
   let servers: Record<string, WebServerConfig>;
@@ -54,9 +59,8 @@ function readServers(): Record<string, WebServerConfig> {
  *  id — e.g. a blank same-origin URL slugified to "", so the entry got
  *  stored under key "" and silently overwrote/collided with anything else
  *  keyed the same way. Only touches entries that are actually broken (empty
- *  or inconsistent with their own map key); well-formed entries — including
- *  older non-empty ids like `web_<timestamp>` — are left exactly as they
- *  are, so this never reshuffles a working profile's id. */
+ *  or inconsistent with their own map key); well-formed entries are left
+ *  exactly as they are, so this never reshuffles a working profile's id. */
 function repairBrokenIds(
   servers: Record<string, WebServerConfig>,
 ): Record<string, WebServerConfig> {
@@ -68,7 +72,7 @@ function repairBrokenIds(
       continue;
     }
     changed = true;
-    const id = deriveServerId(cfg.url, cfg.team_name);
+    const id = deriveServerId(cfg.url, cfg.org_id);
     fixed[id] = { ...cfg, id };
   }
   if (changed) {
@@ -79,17 +83,6 @@ function repairBrokenIds(
     }
   }
   return fixed;
-}
-
-/** Look up the team name for a given bearer token from stored configs.
- *  Matched by TOKEN, not URL — several server profiles can share the same
- *  origin (e.g. multiple teams enrolled against one same-origin deployment),
- *  so URL alone can't tell them apart, but each token is unique. */
-function teamNameForToken(token: string): string | undefined {
-  for (const cfg of Object.values(readServers())) {
-    if (cfg.token === token) return cfg.team_name;
-  }
-  return undefined;
 }
 
 function writeServers(servers: Record<string, WebServerConfig>): void {
@@ -108,7 +101,7 @@ export function webServerConfig(
   return readServers()[profileId];
 }
 
-/** Persist a server config (enroll result or query-param bootstrap). */
+/** Persist a server config (post-OAuth, org chosen). */
 export function webAddServer(config: WebServerConfig): void {
   const servers = readServers();
   // Normalize: a trailing slash here makes later `${base}/v1/...` requests
@@ -138,61 +131,6 @@ export function apiUrl(): string {
   );
 }
 
-// ---------------------------------------------------------------------------
-//  Legacy single-token helpers (backward compat — now backed by servers map)
-// ---------------------------------------------------------------------------
-
-export function webToken(): string {
-  // Primary: first server in the registry, or legacy key.
-  const servers = webListServers();
-  if (servers.length > 0) return servers[0].token;
-  return localStorage.getItem(LEGACY_TOKEN_KEY) ?? "";
-}
-
-export function setWebToken(token: string): void {
-  localStorage.setItem(LEGACY_TOKEN_KEY, token);
-}
-
-export function hasWebToken(): boolean {
-  return webToken().length > 0 || webListServers().length > 0;
-}
-
-// ---------------------------------------------------------------------------
-//  Enrollment
-// ---------------------------------------------------------------------------
-
-/** Verify a bearer token against the server and return the config. No
- *  enrollment step — the caller provides the token directly (adm_ or tem_)
- *  plus an optional team name for tem_ tokens. */
-export async function webVerify(
-  token: string,
-  user_name: string,
-  team_name?: string,
-  serverUrl?: string,
-): Promise<WebServerConfig> {
-  const base = (serverUrl ?? apiUrl()).replace(/\/+$/, "");
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    ...(team_name ? { "X-Team": team_name } : {}),
-  };
-  const res = await fetch(`${base}/v1/me`, { headers });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(body || `HTTP ${res.status}`);
-  }
-  // Derive a stable profile id from the URL.
-  const id = slugifyUrl(base);
-  const config: WebServerConfig = {
-    id,
-    url: base,
-    token,
-    name: user_name || "Team server",
-    team_name,
-  };
-  webAddServer(config);
-  return config;
-}
-
 export function slugifyUrl(url: string): string {
   return url
     .replace(/^https?:\/\//, "")
@@ -202,13 +140,35 @@ export function slugifyUrl(url: string): string {
 
 /** Derive a stable, non-empty profile id for a server config. URL-derived
  *  (or "same_origin" for the default same-origin blank URL), disambiguated
- *  by team name so multiple teams enrolled against the SAME origin — the
- *  common case for a same-origin WEB deployment — get distinct ids instead
- *  of colliding into one storage slot. Deterministic per (url, team) so
- *  re-connecting overwrites the existing entry rather than duplicating it. */
-export function deriveServerId(url: string, team_name?: string): string {
+ *  by org id so several orgs signed in to the SAME origin get distinct ids
+ *  instead of colliding into one storage slot. Deterministic per
+ *  (url, org_id) so re-connecting overwrites the existing entry rather than
+ *  duplicating it. */
+export function deriveServerId(url: string, org_id: string): string {
   const base = slugifyUrl(url) || "same_origin";
-  return team_name ? `${base}__${slugifyUrl(team_name)}` : base;
+  return `${base}__${org_id}`;
+}
+
+// ---------------------------------------------------------------------------
+//  OAuth sign-in (web build — full-page redirect, no loopback listener)
+// ---------------------------------------------------------------------------
+
+function normalizeBase(url: string): string {
+  const t = url.trim().replace(/\/+$/, "");
+  if (!t) return t;
+  return t.startsWith("http") ? t : `https://${t}`;
+}
+
+/** URL to send the browser to for `provider`'s OAuth consent screen. The
+ *  server redirects back to `next` with the session token appended as a
+ *  `token=` query param once sign-in completes (see `router.rs::auth_callback`). */
+export function webOAuthStartUrl(
+  base: string,
+  provider: string,
+  next: string,
+): string {
+  const b = normalizeBase(base);
+  return `${b}/auth/${provider}/start?next=${encodeURIComponent(next)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,13 +184,10 @@ export async function wcall<T>(
   token?: string,
 ): Promise<T> {
   const base = serverUrl ?? apiUrl();
-  const auth = token ?? webToken();
-  const team = teamNameForToken(auth);
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${auth}`,
-      ...(team ? { "X-Team": team } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -247,13 +204,10 @@ export async function wcallEmpty(
   token?: string,
 ): Promise<void> {
   const base = serverUrl ?? apiUrl();
-  const auth = token ?? webToken();
-  const team = teamNameForToken(auth);
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${auth}`,
-      ...(team ? { "X-Team": team } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -275,7 +229,7 @@ async function errorText(res: Response): Promise<string> {
     case 404:
       return `${res.status} ${url} — endpoint missing on the server (same cause as 405: server binary predates this UI).`;
     case 401:
-      return `${res.status} ${url} — token invalid/expired. Re-enroll this server with a fresh invite code.`;
+      return `${res.status} ${url} — session invalid/expired. Sign in again.`;
     default:
       return `HTTP ${res.status} ${url}`;
   }

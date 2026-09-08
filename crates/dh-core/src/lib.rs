@@ -12,3 +12,4 @@ pub mod activity;
 pub mod api;
 pub mod db;
 pub mod server;
+pub mod ssh_tunnel;
