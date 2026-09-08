@@ -44,6 +44,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "lucide-react": "^1.31.0",
+    "markdown-to-jsx": "^9.10.2",
     "motion": "^13.1.0",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "react": "^19.2.8",

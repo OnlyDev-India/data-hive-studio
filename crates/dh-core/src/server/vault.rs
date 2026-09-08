@@ -218,6 +218,7 @@ fn kind_to_str(kind: DbKind) -> &'static str {
         DbKind::Postgres => "postgres",
         DbKind::Mysql => "mysql",
         DbKind::Mongodb => "mongodb",
+        DbKind::DocumentDb => "documentdb",
     }
 }
 
@@ -226,6 +227,7 @@ fn kind_from_str(s: &str) -> DbKind {
         "sqlite" => DbKind::Sqlite,
         "mysql" => DbKind::Mysql,
         "mongodb" => DbKind::Mongodb,
+        "documentdb" => DbKind::DocumentDb,
         // Covers "postgres" and any unrecognized/legacy value — matches the
         // column's own DEFAULT 'postgres'.
         _ => DbKind::Postgres,
@@ -500,7 +502,9 @@ impl Store {
             }
         };
         Ok(match kind_from_str(&row.kind) {
-            DbKind::Mongodb => AdapterParams::Mongodb(crate::db::MongoParams {
+            // DocumentDB speaks the MongoDB wire protocol — same adapter,
+            // same params shape, just a distinct `kind` for display.
+            DbKind::Mongodb | DbKind::DocumentDb => AdapterParams::Mongodb(crate::db::MongoParams {
                 host: row.host,
                 port: row.port as u16,
                 user: row.user,
@@ -799,6 +803,36 @@ mod tests {
         // conn_get (metadata-only path) also carries the flags.
         let fetched = store.conn_get(&meta.id).await.unwrap().unwrap();
         assert!(fetched.srv && fetched.tls);
+    }
+
+    /// `kind: DbKind::DocumentDb` must round-trip through storage as its own
+    /// value (not silently collapse to Mongodb) AND still dispatch to the
+    /// Mongo adapter — the whole point of keeping it a separate `DbKind`
+    /// variant instead of a sidecar flag.
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
+    async fn document_db_kind_round_trips_and_dispatches_to_mongo() {
+        let store = super::super::store::test_store().await;
+        let (org_id, user_id) = org_and_user(&store).await;
+        let mut input = input("docdb-prod", "docdb-pw");
+        input.kind = DbKind::DocumentDb;
+        input.host = "my-cluster.us-east-1.docdb.amazonaws.com".into();
+        input.port = 27017;
+        input.retry_writes = true;
+        input.replica_set = Some("rs0".into());
+
+        let meta = store.conn_add(&org_id, &input, &user_id).await.unwrap();
+        assert_eq!(meta.kind, DbKind::DocumentDb);
+
+        let fetched = store.conn_get(&meta.id).await.unwrap().unwrap();
+        assert_eq!(fetched.kind, DbKind::DocumentDb);
+
+        match store.conn_secret_params(&meta.id).await.unwrap() {
+            AdapterParams::Mongodb(p) => assert_eq!(p.host, input.host),
+            AdapterParams::Postgres(_) => {
+                panic!("DocumentDb kind should dispatch to the Mongo adapter")
+            }
+        }
     }
 
     #[tokio::test]

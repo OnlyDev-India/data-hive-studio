@@ -159,16 +159,43 @@ interface SqlResultTab {
  *  table_schema round trips. */
 const sharedCompletionCache = new Map<string, Completion[]>();
 
+/** Whether `sql` is schema-changing DDL (adds/drops/alters a table, index,
+ *  view, or trigger) rather than a plain data statement (SELECT/INSERT/
+ *  UPDATE/DELETE). Used to decide whether running it from the console
+ *  should also refresh any already-open grid tab for the affected table —
+ *  `on_modified` alone only refreshes the sidebar's table list, by design,
+ *  so an unrelated data statement doesn't disturb other open tabs' scroll/
+ *  paging position. A statement this best-effort check misses just falls
+ *  back to the existing "reload manually" behavior — nothing breaks. */
+function is_schema_ddl(sql: string): boolean {
+  const stripped = sql
+    .replace(/--[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trimStart();
+  return (
+    /^(alter|drop)\s+table\b/i.test(stripped) ||
+    /^create\s+(or\s+replace\s+)?(table|view|trigger)\b/i.test(stripped) ||
+    /^drop\s+(view|trigger)\b/i.test(stripped) ||
+    /^create\s+(unique\s+)?index\b/i.test(stripped) ||
+    /^drop\s+index\b/i.test(stripped)
+  );
+}
+
 function SqlEditorBody({
   conn_id,
   tab_key,
   tables,
   on_modified,
+  on_schema_modified,
 }: {
   conn_id: string;
   tab_key: string;
   tables?: string[];
   on_modified?: () => void;
+  /** Called (in addition to `on_modified`) specifically when the executed
+   *  statement was schema-changing DDL — refreshes open table tabs' data
+   *  AND schema, not just the sidebar's table list. */
+  on_schema_modified?: () => void;
 }) {
   // Seed text handed over by other features (e.g. "open edits in SQL editor"):
   // openSql(connId, text) stashes it under this tab's key; read it once here.
@@ -263,7 +290,12 @@ function SqlEditorBody({
     const id = ++next_id.current;
     setTabs((cur) => [
       ...cur,
-      { id, label: `Query ${next_label.current++}`, result: null, running: false },
+      {
+        id,
+        label: `Query ${next_label.current++}`,
+        result: null,
+        running: false,
+      },
     ]);
     setActiveId(id);
     return id;
@@ -330,24 +362,32 @@ function SqlEditorBody({
         };
       }
       if (raf) cancelAnimationFrame(raf);
-      if (!res.is_select && !res.error) on_modified?.();
+      if (!res.is_select && !res.error) {
+        on_modified?.();
+        if (is_schema_ddl(query)) on_schema_modified?.();
+      }
       // The resolved metadata is authoritative; pair it with accumulated rows.
       patch_tab(id, {
         running: false,
         result: res.is_select ? { ...res, rows: acc.rows } : res,
       });
       if (range) {
-        if (res.error) error_ranges.current.set(id, { ...range, message: res.error });
+        if (res.error)
+          error_ranges.current.set(id, { ...range, message: res.error });
         else error_ranges.current.delete(id);
         sync_errors();
       }
     },
-    [patch_tab, conn_id, on_modified, sync_errors],
+    [patch_tab, conn_id, on_modified, on_schema_modified, sync_errors],
   );
 
   const run_all = useCallback(() => {
     const stmts = statementRanges(sql_text)
-      .map((r) => ({ from: r.start, to: r.end, text: sql_text.slice(r.start, r.end).trim() }))
+      .map((r) => ({
+        from: r.start,
+        to: r.end,
+        text: sql_text.slice(r.start, r.end).trim(),
+      }))
       .filter((s) => s.text);
     if (stmts.length === 0) return;
     // Fresh batch — previous run's error markers no longer apply.
@@ -397,11 +437,11 @@ function SqlEditorBody({
     await writeFile(path, Array.from(new TextEncoder().encode(text)));
     return path;
   }, []);
-  const { is_dirty, file_name, save: save_sql } = useUnsavedQueryTracking(
-    tab_key,
-    sql_text,
-    pick_and_write,
-  );
+  const {
+    is_dirty,
+    file_name,
+    save: save_sql,
+  } = useUnsavedQueryTracking(tab_key, sql_text, pick_and_write);
 
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
@@ -444,7 +484,11 @@ function SqlEditorBody({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ResizablePanelGroup orientation="vertical">
-        <ResizablePanel defaultSize="40%" minSize="15%" className="flex-col bg-background pb-3">
+        <ResizablePanel
+          defaultSize="40%"
+          minSize="15%"
+          className="bg-background flex-col pb-3"
+        >
           <div className="flex h-full min-h-0 flex-col gap-3">
             <QueryEditor
               ref={editorRef}
@@ -461,9 +505,9 @@ function SqlEditorBody({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <ResizableHandle className="bg-background hover:bg-accent h-1!" />
 
-        <ResizablePanel defaultSize="60%" minSize="25%" className="flex-col">
+        <ResizablePanel defaultSize="60%" minSize="25%" className="flex-col border-t">
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
               items={strip_items}
@@ -473,17 +517,24 @@ function SqlEditorBody({
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {active === null ? (
-                <div className="text-muted-foreground rounded-md border border-dashed p-10 text-center text-sm">
+                <div className="text-muted-foreground m-6 rounded-md border border-dashed p-10 text-center text-sm">
                   Run a query to see results. Each run opens its own result tab.
                 </div>
               ) : active.running ? (
                 <div className="flex flex-col gap-2 pt-4">
                   {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="bg-muted h-8 animate-pulse rounded-md" />
+                    <div
+                      key={i}
+                      className="bg-muted h-8 animate-pulse rounded-md"
+                    />
                   ))}
                 </div>
               ) : active.result ? (
-                <SqlResults conn_id={conn_id} tab_key={tab_key} result={active.result} />
+                <SqlResults
+                  conn_id={conn_id}
+                  tab_key={tab_key}
+                  result={active.result}
+                />
               ) : null}
             </div>
           </div>
@@ -515,13 +566,13 @@ function SqlResults({
 
   if (result.error)
     return (
-      <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-sm">
+      <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm">
         {result.error}
       </div>
     );
 
   return (
-    <div className="text-muted-foreground flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
+    <div className="text-muted-foreground m-4 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
       <Badge>Done</Badge>
     </div>
   );
@@ -557,14 +608,21 @@ function MongoEditorBody({
   conn_id,
   tab_key,
   database,
+  on_modified,
 }: {
   conn_id: string;
   tab_key: string;
   database: string;
+  /** Called after a successful write (insertOne/updateMany/deleteOne/…) so
+   *  an already-open grid tab on the same collection refreshes instead of
+   *  showing stale data until a manual reload. */
+  on_modified?: () => void;
 }) {
   const [db, setDb] = useState(database);
+  // Collection names, offered as `db.<TAB>` completions — bare JSON queries
+  // (no `db.<collection>.` prefix) aren't supported; every command names its
+  // collection explicitly, same as the real Mongo shell.
   const [collections, setCollections] = useState<string[]>([]);
-  const [collection, setCollection] = useState<string>("");
   // Seed text handed over by other features (e.g. opening a picked .js file):
   // openMongoConsole(connId, database, text) stashes it under this tab's key;
   // read it once here. The store entry itself is removed when the tab closes
@@ -598,7 +656,8 @@ function MongoEditorBody({
   // doesn't cover, e.g. dev-mode HMR preserving a stale/mismatched state
   // shape across an edit to this file) that could hand a non-string to
   // `.trim()`/`.slice()`/CodeMirror's `value` prop.
-  const script_text = typeof script === "string" ? script : String(script ?? "");
+  const script_text =
+    typeof script === "string" ? script : String(script ?? "");
   const [entries, setEntries] = useState<MongoEntry[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const next_id = useRef(0);
@@ -631,18 +690,16 @@ function MongoEditorBody({
         sync_errors();
       };
       try {
-        const res = await runMongo(
-          conn_id,
-          db,
-          collection === "" ? null : collection,
-          text,
-        );
+        const res = await runMongo(conn_id, db, null, text);
         patch(id, { result: res });
         if (res.switch_db) setDb(res.switch_db);
         if (res.error) flag_error(res.error);
-        else if (range) {
-          error_ranges.current.delete(id);
-          sync_errors();
+        else {
+          if (range) {
+            error_ranges.current.delete(id);
+            sync_errors();
+          }
+          if (!res.is_select) on_modified?.();
         }
       } catch (e) {
         const message = String(e);
@@ -665,13 +722,16 @@ function MongoEditorBody({
         patch(id, { running: false });
       }
     },
-    [patch, conn_id, db, collection, sync_errors],
+    [patch, conn_id, db, sync_errors, on_modified],
   );
 
   const add_tab = useCallback(
     (text: string, range?: { from: number; to: number }) => {
       const id = ++next_id.current;
-      setEntries((cur) => [...cur, { id, command: text, result: null, running: true }]);
+      setEntries((cur) => [
+        ...cur,
+        { id, command: text, result: null, running: true },
+      ]);
       setActiveId(id);
       void run_query(id, text, range);
     },
@@ -729,11 +789,11 @@ function MongoEditorBody({
     await writeFile(path, Array.from(new TextEncoder().encode(text)));
     return path;
   }, []);
-  const { is_dirty, file_name, save: save_script } = useUnsavedQueryTracking(
-    tab_key,
-    script_text,
-    pick_and_write,
-  );
+  const {
+    is_dirty,
+    file_name,
+    save: save_script,
+  } = useUnsavedQueryTracking(tab_key, script_text, pick_and_write);
 
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
@@ -746,9 +806,6 @@ function MongoEditorBody({
       run_all,
       run_target,
       has_selection,
-      mongo_collections: collections,
-      mongo_collection: collection,
-      set_mongo_collection: setCollection,
       file_name,
     });
     return () => clear_sql_tab(tab_key);
@@ -761,8 +818,6 @@ function MongoEditorBody({
     run_all,
     run_target,
     has_selection,
-    collections,
-    collection,
     set_sql_tab,
     clear_sql_tab,
   ]);
@@ -777,7 +832,7 @@ function MongoEditorBody({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ResizablePanelGroup orientation="vertical">
-        <ResizablePanel defaultSize="38%" minSize="15%" className="flex-col pb-3">
+        <ResizablePanel defaultSize="38%" minSize="15%" className="flex-col">
           <div className="flex h-full min-h-0 flex-col gap-3">
             <QueryEditor
               ref={editorRef}
@@ -795,9 +850,9 @@ function MongoEditorBody({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        <ResizableHandle className="bg-transparent hover:bg-accent h-1!" />
 
-        <ResizablePanel defaultSize="62%" minSize="25%" className="flex-col">
+        <ResizablePanel defaultSize="62%" minSize="25%" className="flex-col border-t">
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
               items={strip_items}
@@ -807,15 +862,20 @@ function MongoEditorBody({
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {!active ? (
-                <div className="text-muted-foreground rounded-md border border-dashed p-10 text-center text-sm">
-                  Run a command to see results. Each run opens its own result tab.
+                <div className="text-muted-foreground m-4 rounded-md border border-dashed p-10 text-center text-sm">
+                  Run a command to see results. Each run opens its own result
+                  tab.
                 </div>
               ) : active.running ? (
                 <div className="flex h-full min-h-0 items-center justify-center p-3">
                   <Loader2 className="text-muted-foreground size-5 animate-spin" />
                 </div>
               ) : active.result ? (
-                <MongoResults entry={active} conn_id={conn_id} tab_key={tab_key} />
+                <MongoResults
+                  entry={active}
+                  conn_id={conn_id}
+                  tab_key={tab_key}
+                />
               ) : null}
             </div>
           </div>
@@ -837,7 +897,7 @@ function MongoResults({
   const result = entry.result!;
   if (result.error)
     return (
-      <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-sm whitespace-pre-wrap">
+      <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm whitespace-pre-wrap">
         {result.error}
       </div>
     );
@@ -852,11 +912,15 @@ function MongoResults({
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       {result.message && (
-        <span className="text-muted-foreground shrink-0 px-1 text-xs">
+        <span className="text-muted-foreground shrink-0 p-2 text-xs">
           {result.message}
         </span>
       )}
-      <QueryResultsGrid result={query_result} conn_id={conn_id} tab_key={tab_key} />
+      <QueryResultsGrid
+        result={query_result}
+        conn_id={conn_id}
+        tab_key={tab_key}
+      />
     </div>
   );
 }
@@ -870,12 +934,19 @@ export type EditorTabProps =
       tab_key: string;
       tables?: string[];
       on_modified?: () => void;
+      /** Called specifically when a run statement was schema-changing DDL —
+       *  wire to a broader refresh than `on_modified` (open table tabs'
+       *  data AND schema, not just the sidebar's table list). */
+      on_schema_modified?: () => void;
     }
   | {
       kind: "mongo-console";
       conn_id: string;
       tab_key: string;
       database: string;
+      /** Called after a successful write (insertOne/updateMany/deleteOne/…)
+       *  so an already-open grid tab on the same collection refreshes. */
+      on_modified?: () => void;
     };
 
 /** The SQL console and the Mongo shell console are the same shape end to
@@ -892,6 +963,7 @@ export function EditorTab(props: EditorTabProps) {
         tab_key={props.tab_key}
         tables={props.tables}
         on_modified={props.on_modified}
+        on_schema_modified={props.on_schema_modified}
       />
     );
   }
@@ -900,6 +972,7 @@ export function EditorTab(props: EditorTabProps) {
       conn_id={props.conn_id}
       tab_key={props.tab_key}
       database={props.database}
+      on_modified={props.on_modified}
     />
   );
 }

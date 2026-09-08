@@ -12,6 +12,13 @@ pub enum DbKind {
     Mysql,
     #[allow(dead_code)]
     Mongodb,
+    /// Amazon DocumentDB — speaks the MongoDB wire protocol, so it's
+    /// connected to identically to `Mongodb` (see `server::vault`'s
+    /// `conn_secret_params`, which maps both to the same
+    /// `AdapterParams::Mongodb`). Kept as a distinct variant purely so a
+    /// saved connection remembers which picker entry it was created from.
+    #[allow(dead_code)]
+    DocumentDb,
 }
 
 impl DbKind {
@@ -21,6 +28,7 @@ impl DbKind {
             DbKind::Postgres => "PostgreSQL",
             DbKind::Mysql => "MySQL",
             DbKind::Mongodb => "MongoDB",
+            DbKind::DocumentDb => "Amazon DocumentDB",
         }
     }
 }

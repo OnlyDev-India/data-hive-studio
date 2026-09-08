@@ -319,6 +319,7 @@ pub async fn open_database(
         DbKind::Postgres => return Err(DbError::Unsupported(*kind)),
         DbKind::Mysql => return Err(DbError::Unsupported(*kind)),
         DbKind::Mongodb => return Err(DbError::Unsupported(*kind)),
+        DbKind::DocumentDb => return Err(DbError::Unsupported(*kind)),
     };
     let info = ConnectionInfo {
         id: uuid::Uuid::new_v4().to_string(),

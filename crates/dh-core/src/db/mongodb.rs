@@ -557,6 +557,47 @@ fn parse_chain(chain: &str) -> FindChain {
     f
 }
 
+/// Modifier calls tolerated after the main `db.<collection>.<method>(...)`
+/// call — everything `parse_chain` itself understands, plus a couple of
+/// no-ops the real Mongo shell also allows chained on.
+const CHAIN_METHODS: &[&str] = &["limit", "sort", "skip", "pretty", "toArray", "count"];
+
+/// `parse_db_call` only looks for the FIRST `db.<collection>.<method>(...)`
+/// in the input and puts everything after its closing `)` into `chain` —
+/// which is exactly right for `.limit(5).sort({...})`, but means a second,
+/// separate command typed right after the first with no `;` between them
+/// (e.g. two `db.x.find()` calls on their own lines) silently landed in
+/// `chain` too, where `parse_chain` just didn't recognize it as a modifier
+/// and quietly dropped it: the first query ran, the second vanished with no
+/// error at all. This walks `chain` consuming only recognized modifier
+/// calls and errors on whatever's left, so a second glued-on command is
+/// reported instead of silently discarded.
+fn validate_chain(chain: &str) -> DbResult<()> {
+    let mut rest = chain.trim();
+    while !rest.is_empty() {
+        let Some(stripped) = rest.strip_prefix('.') else {
+            break;
+        };
+        let Some(open) = stripped.find('(') else {
+            break;
+        };
+        if !CHAIN_METHODS.contains(&stripped[..open].trim()) {
+            break;
+        }
+        let Some(close) = balanced_close(stripped, open) else {
+            break;
+        };
+        rest = stripped[close + 1..].trim();
+    }
+    if rest.is_empty() {
+        Ok(())
+    } else {
+        Err(DbError::InvalidOperation(format!(
+            "Unexpected text after the query: `{rest}` — looks like more than one command with no \";\" between them. Run each separately, or add \";\" between them."
+        )))
+    }
+}
+
 /// Parse a `<query>` argument (optionally `query, options`) into a filter
 /// document. Empty input → `None` (match everything).
 fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
@@ -577,6 +618,43 @@ fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
         .map_err(|e| DbError::InvalidOperation(format!("invalid query: {e}")))
 }
 
+/// Parse a single REQUIRED JSON-object argument — an insert document, or an
+/// update's replacement/operator document. Unlike `parse_filter`, empty
+/// input is an error rather than "match everything": these are the actual
+/// document being written, not a query.
+fn parse_json_object(s: &str, what: &str) -> DbResult<bson::Document> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err(DbError::InvalidOperation(format!("{what} is required")));
+    }
+    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
+        .map_err(|e| DbError::InvalidOperation(format!("invalid {what} JSON: {e}")))?;
+    if !v.is_object() {
+        return Err(DbError::InvalidOperation(format!("{what} must be a JSON object")));
+    }
+    bson::to_document(&v).map_err(|e| DbError::InvalidOperation(format!("invalid {what}: {e}")))
+}
+
+/// Parse a JSON array of documents — `insertMany`'s argument.
+fn parse_json_object_array(s: &str, what: &str) -> DbResult<Vec<bson::Document>> {
+    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s.trim()))
+        .map_err(|e| DbError::InvalidOperation(format!("invalid {what} JSON: {e}")))?;
+    let arr = v.as_array().ok_or_else(|| {
+        DbError::InvalidOperation(format!("{what} must be a JSON array of documents"))
+    })?;
+    arr.iter()
+        .map(|d| {
+            if !d.is_object() {
+                return Err(DbError::InvalidOperation(format!(
+                    "every item in {what} must be a JSON object"
+                )));
+            }
+            bson::to_document(d)
+                .map_err(|e| DbError::InvalidOperation(format!("invalid document in {what}: {e}")))
+        })
+        .collect()
+}
+
 /// Project a list of JSON documents into a union-of-fields grid.
 fn flatten_documents(docs: &[serde_json::Value]) -> (Vec<String>, Vec<Vec<Option<String>>>) {
     let mut columns: Vec<String> = Vec::new();
@@ -593,6 +671,10 @@ fn flatten_documents(docs: &[serde_json::Value]) -> (Vec<String>, Vec<Vec<Option
     if let Some(i) = columns.iter().position(|c| c == "_id") {
         let id = columns.remove(i);
         columns.insert(0, id);
+    } else if columns.is_empty() {
+        // No documents matched — fall back to _id rather than a columnless
+        // grid, same as `select_page`.
+        columns.push("_id".to_string());
     }
     let rows = docs
         .iter()
@@ -1064,6 +1146,14 @@ impl MongoAdapter {
         if let Some(i) = columns.iter().position(|c| c == "_id") {
             let id = columns.remove(i);
             columns.insert(0, id);
+        } else if columns.is_empty() {
+            // No documents on this page (empty collection, or a filter that
+            // matched nothing) — there's nothing to derive columns from, but
+            // showing a completely columnless grid reads as broken rather
+            // than "empty". Every document has an _id, so it's the one
+            // column that's always a safe guess; mirrors the same fallback
+            // `inferred_schema` already uses for the schema panel.
+            columns.push("_id".to_string());
         }
 
         let mut rows: Vec<Vec<Option<String>>> = Vec::with_capacity(docs.len());
@@ -1259,7 +1349,8 @@ impl MongoAdapter {
                 return self.run_bare_json(db, coll, s, start).await;
             }
             return Ok(fail(
-                "Select a collection above, or use db.<collection>.find(<query>)".into(),
+                "A bare query needs a collection — use db.<collection>.find(<query>) instead"
+                    .into(),
             ));
         }
         Ok(fail(format!(
@@ -1289,6 +1380,9 @@ impl MongoAdapter {
             elapsed_ms: start.elapsed().as_millis(),
             ..Default::default()
         };
+        if let Err(e) = validate_chain(&call.chain) {
+            return Ok(f(e.to_string()));
+        }
         let col = self
             .client
             .database(db)
@@ -1407,7 +1501,7 @@ impl MongoAdapter {
                 let stages: Vec<bson::Document> = parsed
                     .as_array()
                     .unwrap_or(&Vec::new())
-                    .into_iter()
+                    .iter()
                     .map(|v| {
                         bson::to_document(v).map_err(|e| {
                             DbError::InvalidOperation(format!("invalid pipeline stage: {e}"))
@@ -1435,8 +1529,92 @@ impl MongoAdapter {
                     ..Default::default()
                 })
             }
+            "insertOne" => {
+                let doc = parse_json_object(&call.args, "insertOne document")?;
+                let res = col
+                    .insert_one(doc)
+                    .await
+                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                let id = json_cell_string(&Self::bson_to_json(res.inserted_id))
+                    .unwrap_or_default();
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: 1,
+                    message: Some(format!("Inserted 1 document (_id: {id})")),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
+            "insertMany" => {
+                let docs = parse_json_object_array(&call.args, "insertMany documents")?;
+                if docs.is_empty() {
+                    return Ok(f("insertMany requires a non-empty array of documents".into()));
+                }
+                let res = col
+                    .insert_many(docs)
+                    .await
+                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                let n = res.inserted_ids.len();
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: n as u64,
+                    message: Some(format!("Inserted {n} document{}", if n == 1 { "" } else { "s" })),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
+            "updateOne" | "updateMany" => {
+                let parts = split_top_level(&call.args);
+                let filter = match parts.first() {
+                    Some(q) => parse_filter(q)?.unwrap_or_default(),
+                    None => bson::Document::new(),
+                };
+                let Some(update_arg) = parts.get(1) else {
+                    return Ok(f(format!(
+                        "db.<collection>.{} requires an update document as the second argument, e.g. {{\"$set\": {{...}}}}",
+                        call.method
+                    )));
+                };
+                let update = parse_json_object(update_arg, "update document")?;
+                let res = if call.method == "updateMany" {
+                    col.update_many(filter, update).await
+                } else {
+                    col.update_one(filter, update).await
+                }
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: res.modified_count,
+                    message: Some(format!(
+                        "Matched {}, modified {}",
+                        res.matched_count, res.modified_count
+                    )),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
+            "deleteOne" | "deleteMany" => {
+                let filter = parse_filter(&call.args)?.unwrap_or_default();
+                let res = if call.method == "deleteMany" {
+                    col.delete_many(filter).await
+                } else {
+                    col.delete_one(filter).await
+                }
+                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                Ok(crate::api::MongoRunResult {
+                    command: command(),
+                    rows_affected: res.deleted_count,
+                    message: Some(format!(
+                        "Deleted {} document{}",
+                        res.deleted_count,
+                        if res.deleted_count == 1 { "" } else { "s" }
+                    )),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    ..Default::default()
+                })
+            }
             other => Ok(f(format!(
-                "Unsupported method `{other}` on collections. Supported: find, findOne, count, countDocuments, distinct, aggregate."
+                "Unsupported method `{other}` on collections. Supported: find, findOne, count, countDocuments, distinct, aggregate, insertOne, insertMany, updateOne, updateMany, deleteOne, deleteMany."
             ))),
         }
     }
@@ -1974,8 +2152,15 @@ impl DbAdapter for MongoAdapter {
                 let cols = self.column_types(table).await?;
                 let mut doc = bson::Document::new();
                 for (k, v) in values {
-                    let drop_empty =
-                        *skip_empty && v.as_deref().map_or(true, |s| s.is_empty()) && k != "_id";
+                    let is_empty = v.as_deref().is_none_or(|s| s.is_empty());
+                    // An empty `_id` is always omitted, regardless of
+                    // `skip_empty` — sending an explicit null/empty `_id`
+                    // would either fail (duplicate key on a second insert,
+                    // since only one document per collection may have
+                    // `_id: null`) or pin it to an empty string; omitting
+                    // the key lets MongoDB generate a real ObjectId, same as
+                    // `db.coll.insertOne({})` does.
+                    let drop_empty = if k == "_id" { is_empty } else { *skip_empty && is_empty };
                     if drop_empty {
                         continue;
                     }
@@ -2267,6 +2452,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn flatten_documents_falls_back_to_id_when_empty() {
+        let (columns, rows) = flatten_documents(&[]);
+        assert_eq!(columns, vec!["_id".to_string()]);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn flatten_documents_puts_id_first_when_present() {
+        let docs = vec![serde_json::json!({ "name": "a", "_id": "x" })];
+        let (columns, _) = flatten_documents(&docs);
+        assert_eq!(columns[0], "_id");
+    }
+
+    #[test]
     fn splits_top_level_commas() {
         let parts = split_top_level("\"city\", { \"a\": 1 }, [1,2,3]");
         assert_eq!(parts.len(), 3);
@@ -2337,6 +2536,22 @@ mod tests {
         let f = parse_chain(".limit(25).pretty().sort({ \"age\": -1 })");
         assert_eq!(f.limit, Some(25));
         assert!(f.sort.as_deref().unwrap_or("").contains("age"));
+    }
+
+    #[test]
+    fn validate_chain_accepts_recognized_modifiers() {
+        assert!(validate_chain("").is_ok());
+        assert!(validate_chain(".limit(25).pretty().sort({ \"age\": -1 })").is_ok());
+    }
+
+    #[test]
+    fn validate_chain_rejects_a_second_glued_on_command() {
+        // The exact bug reported: two `db.x.find()` calls with no `;` between
+        // them parse as ONE call whose leftover "chain" is the entire second
+        // command — this used to be silently dropped instead of erroring.
+        let call = parse_db_call("db.teams.find()\ndb.tasks.find()").unwrap();
+        assert_eq!(call.coll, "teams");
+        assert!(validate_chain(&call.chain).is_err());
     }
 
     #[test]

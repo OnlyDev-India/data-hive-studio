@@ -61,6 +61,10 @@ const JsonViewer = lazy(() =>
   import("@/features/inspector").then((m) => ({ default: m.JsonViewer })),
 );
 
+/** Floor on how long the sidebar's table-list "loading" state stays visible
+ *  once triggered — see the reload effect below for why. */
+const MIN_TABLES_LOADING_MS = 350;
+
 /** One open connection's full workspace: sidebar + tab strip + tab contents. */
 export default function Workspace({
   conn,
@@ -114,6 +118,14 @@ export default function Workspace({
   > | null>(null);
   useEffect(() => {
     let cancelled = false;
+    // A revision bump from a background query (e.g. a Mongo insert, or a SQL
+    // DDL statement) often lands so fast — local connections especially —
+    // that the skeleton/spinner flips on and off within a single frame and
+    // reads as nothing happened at all ("silent"). Padding the loading state
+    // out to a minimum visible duration makes every reload register, without
+    // slowing down slow ones (a fetch that already takes longer than this
+    // just isn't padded further).
+    const started = performance.now();
     void (async () => {
       try {
         const t = await listTables(conn_id);
@@ -121,6 +133,8 @@ export default function Workspace({
       } catch {
         if (!cancelled) setTables(null);
       } finally {
+        const remaining = MIN_TABLES_LOADING_MS - (performance.now() - started);
+        if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
         if (!cancelled) setLoadedKey(load_key);
       }
     })();
@@ -494,6 +508,7 @@ export default function Workspace({
               <JsonViewer
                 conn_id={conn_id}
                 tab_key={active ? tabKey(active) : null}
+                landing={landing}
               />
             </Suspense>
           )}
@@ -655,7 +670,11 @@ function WorkspaceContent({
   on_close_to_right: (tab: StudioTab) => void;
   on_new_sql: (paneId?: string) => void;
   on_new_table: (paneId?: string) => void;
-  on_new_mongo_console: (seedText?: string, seedFileName?: string, paneId?: string) => void;
+  on_new_mongo_console: (
+    seedText?: string,
+    seedFileName?: string,
+    paneId?: string,
+  ) => void;
   on_open_file: (paneId?: string) => void;
 }) {
   // Persistent per-TAB portal targets, created eagerly (synchronously, on
@@ -786,6 +805,13 @@ function WorkspaceContent({
                   tab_key={key}
                   tables={tables?.map((t) => t.name)}
                   on_modified={bumpTables}
+                  // DDL (ALTER/CREATE/DROP TABLE, indexes, views, triggers)
+                  // also refreshes any already-open table tab for the
+                  // affected table — bumpTables alone only refreshes the
+                  // sidebar's table list, which left e.g. a newly
+                  // console-added column invisible in an open grid until a
+                  // manual reload.
+                  on_schema_modified={bump}
                 />
               </Suspense>
             ) : tab.kind === "mongo" ? (
@@ -803,6 +829,11 @@ function WorkspaceContent({
                   conn_id={conn_id}
                   tab_key={key}
                   database={tab.database}
+                  // Any successful write (insertOne/updateMany/deleteOne/…)
+                  // refreshes open tabs too — Mongo has no DDL/DML split
+                  // like SQL does, so unlike the SQL console this always
+                  // uses the full bump, not the sidebar-only bumpTables.
+                  on_modified={bump}
                 />
               </Suspense>
             ) : tab.kind === "activity" ? (

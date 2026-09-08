@@ -9,6 +9,7 @@ import {
   webRemoveServer,
 } from "./web";
 import { remoteOf, webAuthFor } from "./dispatch";
+import type { SharedDbKind } from "./types";
 
 export type OrgRole = "viewer" | "member" | "admin" | "owner";
 
@@ -57,7 +58,7 @@ export interface ServerProfileView {
 export interface ServerConn {
   id: string;
   name: string;
-  kind?: "postgres" | "mongodb";
+  kind?: SharedDbKind;
   host: string;
   port: number;
   user: string;
@@ -303,7 +304,7 @@ export function serversDisconnect(profileId: string): Promise<void> {
 export interface ServerConnInput {
   name: string;
   /** Immutable after creation; omitted (or "postgres") for existing PG saves. */
-  kind?: "postgres" | "mongodb";
+  kind?: SharedDbKind;
   host: string;
   port: number;
   user: string;

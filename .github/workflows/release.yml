@@ -106,9 +106,14 @@ jobs:
             - MongoDB: Amazon DocumentDB support (`retryWrites`/`replicaSet` connection options)
             - Advanced tab for tuning connection pool size and timeouts (Postgres + MongoDB)
             - Reviewing pending changes (grid row edits, schema DDL) now shows a real unified diff — red/green line-by-line, collapsible per change — with schema changes going through the same Review & Apply flow as data edits
+            - Hovering a SQL keyword/function or MongoDB shell method in the editor now shows inline documentation
 
             **Fixed**
             - Desktop: right-clicking outside an editor no longer shows the raw WebView context menu (Reload/Inspect Element)
+            - Right-clicking a grid cell for a single-cell action (e.g. "View JSON") now always targets the clicked cell instead of a stale prior selection
+            - Opening a tab from the Home screen (e.g. via the Command Palette) now switches to the workspace immediately instead of staying on Home
+            - SQL/NoSQL editors no longer flag commented-out code as a lint error
+            - The tab strip now scrolls to keep a newly-opened tab visible
 
             Full commit history: ${{ github.sha }}
 
