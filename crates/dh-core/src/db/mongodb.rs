@@ -67,6 +67,27 @@ pub struct MongoParams {
     /// `connect()` rejects that combination rather than silently ignoring it.
     #[serde(default)]
     pub ssh: Option<crate::ssh_tunnel::SshConfig>,
+    /// Max connections per server in the pool (driver default: 10).
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    /// Min connections per server kept open (driver default: 0).
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    /// TCP connect timeout for each connection the driver opens (driver
+    /// default: 10s). Note: the driver has no working `socketTimeoutMS`
+    /// equivalent — `socket_timeout` exists on `ClientOptions` but is
+    /// explicitly unimplemented ("the Rust driver does not support
+    /// socketTimeoutMS"), so it isn't exposed here.
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    /// How long to keep trying to find a usable server before giving up on
+    /// an operation (driver default: 30s).
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
+    /// How long a pooled connection can sit idle before being closed
+    /// (driver default: never).
+    #[serde(default)]
+    pub max_idle_time_secs: Option<u32>,
 }
 
 fn default_port() -> u16 {
@@ -133,7 +154,7 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
             query,
         )
     };
-    ClientOptions::parse(uri).await.map_err(|e| {
+    let mut options = ClientOptions::parse(uri).await.map_err(|e| {
         let msg = e.to_string();
         // The `mongodb` crate (as of 3.8) exposes no public way to override
         // the DNS resolver used for mongodb+srv://'s SRV/TXT lookup — it
@@ -153,7 +174,26 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
         } else {
             DbError::InvalidOperation(format!("mongo: {msg}"))
         }
-    })
+    })?;
+    // Pool/timeout knobs: set directly on the parsed options rather than as
+    // URI query params — `ClientOptions`' fields are all public, and this
+    // sidesteps needing a `*MS` query-string name for each one.
+    if let Some(v) = params.pool_max {
+        options.max_pool_size = Some(v);
+    }
+    if let Some(v) = params.pool_min {
+        options.min_pool_size = Some(v);
+    }
+    if let Some(secs) = params.connect_timeout_secs {
+        options.connect_timeout = Some(std::time::Duration::from_secs(secs as u64));
+    }
+    if let Some(secs) = params.server_selection_timeout_secs {
+        options.server_selection_timeout = Some(std::time::Duration::from_secs(secs as u64));
+    }
+    if let Some(secs) = params.max_idle_time_secs {
+        options.max_idle_time = Some(std::time::Duration::from_secs(secs as u64));
+    }
+    Ok(options)
 }
 
 /// Minimal percent-encoding for the password/authSource in a connection URI

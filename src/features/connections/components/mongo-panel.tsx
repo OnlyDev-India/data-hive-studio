@@ -46,6 +46,18 @@ export interface MongoFormValues {
   /** Replica set name (replicaSet=...) — required by a real Amazon
    *  DocumentDB cluster, typically "rs0". */
   replica_set: string;
+  /** Max connections per server in the pool (blank = driver default 10). */
+  pool_max: string;
+  /** Min connections per server kept open (blank = driver default 0). */
+  pool_min: string;
+  /** TCP connect timeout in seconds (blank = driver default 10). */
+  connect_timeout_secs: string;
+  /** How long a pooled connection can sit idle before being closed, in
+   *  seconds (blank = driver default: never). */
+  idle_timeout_secs: string;
+  /** How long to keep trying to find a usable server before giving up on an
+   *  operation, in seconds (blank = driver default 30). */
+  server_selection_timeout_secs: string;
   ssh_host: string;
   ssh_port: string;
   ssh_user: string;
@@ -301,9 +313,9 @@ export function MongoPanel({
           <div className="flex flex-col gap-3 border-t pt-3">
             {!is_document_db && (
               <p className="text-muted-foreground text-[11px]">
-                Advanced — for Amazon DocumentDB: TLS above with a
-                downloaded <code className="text-[10px]">global-bundle.pem</code>{" "}
-                as the CA certificate, plus both fields below.
+                For Amazon DocumentDB: TLS above with a downloaded{" "}
+                <code className="text-[10px]">global-bundle.pem</code> as the
+                CA certificate, plus both fields below.
               </p>
             )}
             <div className="flex items-center gap-2">
@@ -327,6 +339,73 @@ export function MongoPanel({
                 onChange={(e) => setField("replica_set", e.target.value)}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "advanced" && (
+        <div className="flex flex-col gap-3 pt-1">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Max pool connections (default 10)
+              </Label>
+              <Input
+                type="number"
+                placeholder="10"
+                value={form.pool_max}
+                onChange={(e) => setField("pool_max", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Min pool connections (default 0)
+              </Label>
+              <Input
+                type="number"
+                placeholder="0"
+                value={form.pool_min}
+                onChange={(e) => setField("pool_min", e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Connect timeout, seconds (default 10)
+              </Label>
+              <Input
+                type="number"
+                placeholder="10"
+                value={form.connect_timeout_secs}
+                onChange={(e) => setField("connect_timeout_secs", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-[11px] font-normal">
+                Server selection timeout, seconds (default 30)
+              </Label>
+              <Input
+                type="number"
+                placeholder="30"
+                value={form.server_selection_timeout_secs}
+                onChange={(e) =>
+                  setField("server_selection_timeout_secs", e.target.value)
+                }
+              />
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-muted-foreground text-[11px] font-normal">
+              Idle timeout, seconds (default: never) — a pooled connection
+              open this long with nothing happening gets closed
+            </Label>
+            <Input
+              type="number"
+              placeholder="never"
+              value={form.idle_timeout_secs}
+              onChange={(e) => setField("idle_timeout_secs", e.target.value)}
+            />
           </div>
         </div>
       )}

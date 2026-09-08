@@ -76,6 +76,28 @@ pub struct ConnMeta {
     /// Trust-on-first-use host key pin — see `ssh_tunnel::SshConfig`.
     #[serde(default)]
     pub ssh_host_key_fingerprint: Option<String>,
+    /// Max pool connections (Postgres default 12, MongoDB default 10 when unset).
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    /// Min pool connections kept open (Postgres default 1, MongoDB default 0 when unset).
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    /// How long to wait for a connection before giving up (Postgres: pool
+    /// acquire timeout, default 30s. MongoDB: TCP connect timeout, default 10s).
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    /// How long a pooled connection can sit idle before being closed
+    /// (Postgres default 15 minutes; MongoDB default never, when unset).
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    /// Postgres only: max lifetime of a pooled connection regardless of
+    /// activity (default 30 minutes when unset).
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
+    /// MongoDB only: how long to keep trying to find a usable server before
+    /// giving up on an operation (default 30s when unset).
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
     pub created_by: String,
     pub created_ms: i64,
     pub updated_ms: i64,
@@ -132,6 +154,20 @@ pub struct ConnInput {
     pub ssh_key_file: Option<String>,
     #[serde(default)]
     pub ssh_host_key_fingerprint: Option<String>,
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    /// Postgres only.
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
+    /// MongoDB only.
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
     /// `None` on update keeps the existing stored SSH password (if any).
     /// Ignored when `ssh_host` is `None` (tunnel disabled — any stored SSH
     /// secrets are cleared).
@@ -221,6 +257,12 @@ fn parse_conn_row(r: &sqlx::postgres::PgRow) -> ConnRow {
         ssl_client_key_file: r.get("ssl_client_key_file"),
         retry_writes: r.get::<i32, _>("retry_writes") as i64,
         replica_set: r.get("replica_set"),
+        pool_max: r.get("pool_max"),
+        pool_min: r.get("pool_min"),
+        connect_timeout_secs: r.get("connect_timeout_secs"),
+        idle_timeout_secs: r.get("idle_timeout_secs"),
+        max_lifetime_secs: r.get("max_lifetime_secs"),
+        server_selection_timeout_secs: r.get("server_selection_timeout_secs"),
         ssh_host: r.get("ssh_host"),
         ssh_port: r.get::<Option<i32>, _>("ssh_port").map(|p| p as u16),
         ssh_user: r.get("ssh_user"),
@@ -258,8 +300,8 @@ impl Store {
         let kind_str = kind_to_str(input.kind);
         sqlx::query(
             r#"INSERT INTO connections
-               (id, org_id, name, kind, host, port, "user", password_enc, database, ssl_mode, auth_db, srv, tls, ssl_ca_file, ssl_client_cert_file, ssl_client_key_file, retry_writes, replica_set, ssh_host, ssh_port, ssh_user, ssh_auth_mode, ssh_key_file, ssh_host_key_fingerprint, ssh_secrets_enc, created_by, created_ms, updated_ms)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)"#,
+               (id, org_id, name, kind, host, port, "user", password_enc, database, ssl_mode, auth_db, srv, tls, ssl_ca_file, ssl_client_cert_file, ssl_client_key_file, retry_writes, replica_set, pool_max, pool_min, connect_timeout_secs, idle_timeout_secs, max_lifetime_secs, server_selection_timeout_secs, ssh_host, ssh_port, ssh_user, ssh_auth_mode, ssh_key_file, ssh_host_key_fingerprint, ssh_secrets_enc, created_by, created_ms, updated_ms)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)"#,
         )
         .bind(&id)
         .bind(org_id)
@@ -279,6 +321,12 @@ impl Store {
         .bind(&input.ssl_client_key_file)
         .bind(input.retry_writes as i64)
         .bind(&input.replica_set)
+        .bind(input.pool_max.map(|v| v as i64))
+        .bind(input.pool_min.map(|v| v as i64))
+        .bind(input.connect_timeout_secs.map(|v| v as i64))
+        .bind(input.idle_timeout_secs.map(|v| v as i64))
+        .bind(input.max_lifetime_secs.map(|v| v as i64))
+        .bind(input.server_selection_timeout_secs.map(|v| v as i64))
         .bind(&input.ssh_host)
         .bind(input.ssh_port.map(|p| p as i64))
         .bind(&input.ssh_user)
@@ -310,6 +358,12 @@ impl Store {
             ssl_client_key_file: input.ssl_client_key_file.clone(),
             retry_writes: input.retry_writes,
             replica_set: input.replica_set.clone(),
+            pool_max: input.pool_max,
+            pool_min: input.pool_min,
+            connect_timeout_secs: input.connect_timeout_secs,
+            idle_timeout_secs: input.idle_timeout_secs,
+            max_lifetime_secs: input.max_lifetime_secs,
+            server_selection_timeout_secs: input.server_selection_timeout_secs,
             ssh_host: input.ssh_host.clone(),
             ssh_port: input.ssh_port,
             ssh_user: input.ssh_user.clone(),
@@ -350,8 +404,8 @@ impl Store {
         let ts = now_ms();
         sqlx::query(
             r#"UPDATE connections
-               SET name=$1, host=$2, port=$3, "user"=$4, password_enc=$5, database=$6, ssl_mode=$7, auth_db=$8, srv=$9, tls=$10, ssl_ca_file=$11, ssl_client_cert_file=$12, ssl_client_key_file=$13, retry_writes=$14, replica_set=$15, ssh_host=$16, ssh_port=$17, ssh_user=$18, ssh_auth_mode=$19, ssh_key_file=$20, ssh_host_key_fingerprint=$21, ssh_secrets_enc=$22, updated_ms=$23
-               WHERE id=$24"#,
+               SET name=$1, host=$2, port=$3, "user"=$4, password_enc=$5, database=$6, ssl_mode=$7, auth_db=$8, srv=$9, tls=$10, ssl_ca_file=$11, ssl_client_cert_file=$12, ssl_client_key_file=$13, retry_writes=$14, replica_set=$15, pool_max=$16, pool_min=$17, connect_timeout_secs=$18, idle_timeout_secs=$19, max_lifetime_secs=$20, server_selection_timeout_secs=$21, ssh_host=$22, ssh_port=$23, ssh_user=$24, ssh_auth_mode=$25, ssh_key_file=$26, ssh_host_key_fingerprint=$27, ssh_secrets_enc=$28, updated_ms=$29
+               WHERE id=$30"#,
         )
         .bind(&input.name)
         .bind(&input.host)
@@ -368,6 +422,12 @@ impl Store {
         .bind(&input.ssl_client_key_file)
         .bind(input.retry_writes as i64)
         .bind(&input.replica_set)
+        .bind(input.pool_max.map(|v| v as i64))
+        .bind(input.pool_min.map(|v| v as i64))
+        .bind(input.connect_timeout_secs.map(|v| v as i64))
+        .bind(input.idle_timeout_secs.map(|v| v as i64))
+        .bind(input.max_lifetime_secs.map(|v| v as i64))
+        .bind(input.server_selection_timeout_secs.map(|v| v as i64))
         .bind(&input.ssh_host)
         .bind(input.ssh_port.map(|p| p as i64))
         .bind(&input.ssh_user)
@@ -453,6 +513,11 @@ impl Store {
                 ssl_client_cert_file: row.ssl_client_cert_file,
                 retry_writes: if row.retry_writes != 0 { Some(false) } else { None },
                 replica_set: row.replica_set,
+                pool_max: row.pool_max.map(|v| v as u32),
+                pool_min: row.pool_min.map(|v| v as u32),
+                connect_timeout_secs: row.connect_timeout_secs.map(|v| v as u32),
+                server_selection_timeout_secs: row.server_selection_timeout_secs.map(|v| v as u32),
+                max_idle_time_secs: row.idle_timeout_secs.map(|v| v as u32),
                 ssh,
             }),
             // Postgres, and every other kind until it gets its own adapter
@@ -467,6 +532,11 @@ impl Store {
                 ssl_ca_file: row.ssl_ca_file,
                 ssl_client_cert_file: row.ssl_client_cert_file,
                 ssl_client_key_file: row.ssl_client_key_file,
+                pool_max: row.pool_max.map(|v| v as u32),
+                pool_min: row.pool_min.map(|v| v as u32),
+                connect_timeout_secs: row.connect_timeout_secs.map(|v| v as u32),
+                idle_timeout_secs: row.idle_timeout_secs.map(|v| v as u32),
+                max_lifetime_secs: row.max_lifetime_secs.map(|v| v as u32),
                 ssh,
             }),
         })
@@ -500,6 +570,12 @@ impl Store {
             ssl_client_key_file: r.ssl_client_key_file.clone(),
             retry_writes: r.retry_writes != 0,
             replica_set: r.replica_set.clone(),
+            pool_max: r.pool_max.map(|v| v as u32),
+            pool_min: r.pool_min.map(|v| v as u32),
+            connect_timeout_secs: r.connect_timeout_secs.map(|v| v as u32),
+            idle_timeout_secs: r.idle_timeout_secs.map(|v| v as u32),
+            max_lifetime_secs: r.max_lifetime_secs.map(|v| v as u32),
+            server_selection_timeout_secs: r.server_selection_timeout_secs.map(|v| v as u32),
             ssh_host: r.ssh_host.clone(),
             ssh_port: r.ssh_port,
             ssh_user: r.ssh_user.clone(),
@@ -533,6 +609,12 @@ struct ConnRow {
     ssl_client_key_file: Option<String>,
     retry_writes: i64,
     replica_set: Option<String>,
+    pool_max: Option<i32>,
+    pool_min: Option<i32>,
+    connect_timeout_secs: Option<i32>,
+    idle_timeout_secs: Option<i32>,
+    max_lifetime_secs: Option<i32>,
+    server_selection_timeout_secs: Option<i32>,
     ssh_host: Option<String>,
     ssh_port: Option<u16>,
     ssh_user: Option<String>,
@@ -569,6 +651,12 @@ mod tests {
             ssl_client_key_file: None,
             retry_writes: false,
             replica_set: None,
+            pool_max: None,
+            pool_min: None,
+            connect_timeout_secs: None,
+            idle_timeout_secs: None,
+            max_lifetime_secs: None,
+            server_selection_timeout_secs: None,
             ssh_host: None,
             ssh_port: None,
             ssh_user: None,
@@ -662,6 +750,12 @@ mod tests {
             ssl_client_key_file: None,
             retry_writes: true,
             replica_set: Some("rs0".into()),
+            pool_max: Some(20),
+            pool_min: Some(2),
+            connect_timeout_secs: Some(15),
+            idle_timeout_secs: Some(120),
+            max_lifetime_secs: None,
+            server_selection_timeout_secs: Some(45),
             ssh_host: None,
             ssh_port: None,
             ssh_user: None,
@@ -678,6 +772,12 @@ mod tests {
         assert!(meta.tls);
         assert!(meta.retry_writes);
         assert_eq!(meta.replica_set.as_deref(), Some("rs0"));
+        assert_eq!(meta.pool_max, Some(20));
+        assert_eq!(meta.pool_min, Some(2));
+        assert_eq!(meta.connect_timeout_secs, Some(15));
+        assert_eq!(meta.idle_timeout_secs, Some(120));
+        assert_eq!(meta.max_lifetime_secs, None);
+        assert_eq!(meta.server_selection_timeout_secs, Some(45));
 
         match store.conn_secret_params(&meta.id).await.unwrap() {
             AdapterParams::Mongodb(p) => {
@@ -687,6 +787,11 @@ mod tests {
                 assert!(p.tls);
                 assert_eq!(p.retry_writes, Some(false));
                 assert_eq!(p.replica_set.as_deref(), Some("rs0"));
+                assert_eq!(p.pool_max, Some(20));
+                assert_eq!(p.pool_min, Some(2));
+                assert_eq!(p.connect_timeout_secs, Some(15));
+                assert_eq!(p.server_selection_timeout_secs, Some(45));
+                assert_eq!(p.max_idle_time_secs, Some(120));
             }
             AdapterParams::Postgres(_) => panic!("expected Mongodb params"),
         }

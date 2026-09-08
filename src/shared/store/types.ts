@@ -259,6 +259,19 @@ export interface SavedConnParams {
   /** MongoDB only: replica set name — required by a real Amazon DocumentDB
    *  cluster (typically "rs0"). */
   replica_set?: string;
+  /** Max pool connections (PostgreSQL default 12, MongoDB default 10). */
+  pool_max?: number;
+  /** Min pool connections kept open (PostgreSQL default 1, MongoDB default 0). */
+  pool_min?: number;
+  /** PostgreSQL: pool acquire timeout (default 30s). MongoDB: TCP connect
+   *  timeout (default 10s). */
+  connect_timeout_secs?: number;
+  /** PostgreSQL default 15 minutes; MongoDB default never. */
+  idle_timeout_secs?: number;
+  /** PostgreSQL only: max lifetime of a pooled connection (default 30 minutes). */
+  max_lifetime_secs?: number;
+  /** MongoDB only: how long to keep trying to find a usable server (default 30s). */
+  server_selection_timeout_secs?: number;
   /** Reach the database through an SSH tunnel — a set `ssh_host` is what
    *  means "enabled" here, mirroring `SshConfig` on the Rust side. */
   ssh_host?: string;
