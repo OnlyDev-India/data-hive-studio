@@ -110,6 +110,7 @@ mod tests {
     use crate::server::vault::ConnInput;
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn grant_override_lifecycle() {
         let store = crate::server::store::test_store().await;
         let owner = store.user_upsert_oauth("google", "o", "o@x.com", "Owner", None).await.unwrap();

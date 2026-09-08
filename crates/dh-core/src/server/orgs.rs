@@ -413,6 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn create_org_makes_creator_owner() {
         let store = super::super::store::test_store().await;
         let alice = user(&store, "alice").await;
@@ -425,6 +426,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn slug_collision_gets_suffixed() {
         let store = super::super::store::test_store().await;
         let alice = user(&store, "alice").await;
@@ -435,6 +437,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn invite_lifecycle_and_limits() {
         let store = super::super::store::test_store().await;
         let alice = user(&store, "alice").await;
@@ -463,6 +466,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn last_owner_cannot_be_demoted_or_removed() {
         let store = super::super::store::test_store().await;
         let alice = user(&store, "alice").await;
