@@ -9,8 +9,6 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Search,
-  Table2,
   TextCursorInput,
   TextSelect,
   Trash2,
@@ -406,13 +404,6 @@ export function ActionBar() {
                 </Button>
               </ActionBarTooltip>
             )}
-            {sqlConsole?.mongo_collections !== undefined && (
-              <MongoCollectionPicker
-                collections={sqlConsole.mongo_collections ?? []}
-                value={sqlConsole.mongo_collection ?? ""}
-                on_change={(v) => sqlConsole.set_mongo_collection?.(v)}
-              />
-            )}
             {sqlConsole && (
               <ActionBarTooltip
                 label={
@@ -557,72 +548,5 @@ function ActionBarTooltip({
       </TooltipTrigger>
       <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
-  );
-}
-
-/** Collection picker (with a search box) for the active MongoDB console. */
-function MongoCollectionPicker({
-  collections,
-  value,
-  on_change,
-}: {
-  collections: string[];
-  value: string;
-  on_change: (name: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const filtered = collections.filter((c) =>
-    c.toLowerCase().includes(query.toLowerCase()),
-  );
-  return (
-    <DropdownMenu onOpenChange={() => setQuery("")}>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 max-w-44 gap-1 bg-transparent px-2 text-xs"
-            title="Collection (bare JSON queries)"
-          >
-            <Table2 className="size-3.5 shrink-0" />
-            <span className="truncate">{value || "Collection"}</span>
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" className="w-56">
-        <div className="px-2 pt-1.5 pb-1">
-          <div className="flex h-7 items-center gap-1.5 rounded-md border px-2">
-            <Search className="text-muted-foreground size-3.5 shrink-0" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search collections…"
-              autoCapitalize="off"
-              autoCorrect="off"
-              autoComplete="off"
-              spellCheck={false}
-              className="placeholder:text-muted-foreground h-full w-full bg-transparent text-xs outline-none"
-            />
-          </div>
-        </div>
-        <DropdownMenuItem onClick={() => on_change("")}>
-          <span className="text-muted-foreground">‹ no collection ›</span>
-        </DropdownMenuItem>
-        {filtered.map((c) => (
-          <DropdownMenuItem key={c} onClick={() => on_change(c)}>
-            <span className="flex min-w-0 items-center gap-1.5">
-              {c === value && <Check className="size-3.5 shrink-0" />}
-              <span className="truncate font-mono">{c}</span>
-            </span>
-          </DropdownMenuItem>
-        ))}
-        {filtered.length === 0 && (
-          <div className="text-muted-foreground px-3 py-2 text-xs">
-            No matching collections.
-          </div>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

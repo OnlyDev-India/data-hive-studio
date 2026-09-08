@@ -159,7 +159,11 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     if (op_error) {
       useStudioStore
         .getState()
-        .pushNotification({ kind: "error", title: "Operation failed", detail: op_error });
+        .pushNotification({
+          kind: "error",
+          title: "Operation failed",
+          detail: op_error,
+        });
     }
   }, [op_error]);
 
@@ -171,6 +175,30 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // (connection + tab) keeps one tab's selection from leaking into another.
   const json_scope = `${conn_id}\u0000${tab_key}`;
 
+  // Any edit made inside a pending row is buffered here (a null write means
+  // the user explicitly set the cell to NULL via the editor). Declared
+  // ahead of `sync_json` below, which references it, since a `const` in a
+  // `useCallback` dependency array is evaluated at render time (unlike a
+  // reference inside the callback body itself) and so isn't exempt from the
+  // usual can't-use-before-declaration rule.
+  const on_pending_edit = useCallback(
+    (row: number, col: string, value: string | null) => {
+      setPending((cur) => {
+        if (!cur || !result) return cur;
+        const entry = cur[row];
+        if (!entry) return cur;
+        const ci = result.columns.indexOf(col);
+        if (ci < 0) return cur;
+        const values = [...entry.values];
+        values[ci] = value;
+        const next = cur.slice();
+        next[row] = { ...entry, values, dirty: true };
+        return next;
+      });
+    },
+    [result],
+  );
+
   // The controller keeps the JSON viewer in sync with the anchor cell; the
   // viewer opens on the context-menu action. The published row carries a
   // `kind` (BSON source for Mongo, plain JSON otherwise) and a write-back hook
@@ -180,24 +208,38 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       setJsonRow(json_scope, {
         ...row,
         kind,
-        col_types: Object.fromEntries(schema.columns.map((c) => [c.name, c.data_type])),
-        on_edit: (col, value) => {
-          const real = row.row_number - 1;
-          const key = `${col}\u0000${real}`;
-          const local = real - page * page_size;
-          const original =
-            result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
-          const norm = (v: string | null) => (v === null || v === "" ? "" : v);
-          setDirtyCells((cur) => {
-            const next = new Map(cur);
-            if (norm(value) === norm(original)) next.delete(key);
-            else next.set(key, value);
-            return next;
-          });
-        },
+        col_types: Object.fromEntries(
+          schema.columns.map((c) => [c.name, c.data_type]),
+        ),
+        on_edit: row.is_pending
+          ? (col, value) => on_pending_edit(row.row_number, col, value)
+          : (col, value) => {
+              const real = row.row_number - 1;
+              const key = `${col}\u0000${real}`;
+              const local = real - page * page_size;
+              const original =
+                result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
+              const norm = (v: string | null) =>
+                v === null || v === "" ? "" : v;
+              setDirtyCells((cur) => {
+                const next = new Map(cur);
+                if (norm(value) === norm(original)) next.delete(key);
+                else next.set(key, value);
+                return next;
+              });
+            },
       });
     },
-    [json_scope, kind, schema, result, page, page_size, setJsonRow],
+    [
+      json_scope,
+      kind,
+      schema,
+      result,
+      page,
+      page_size,
+      setJsonRow,
+      on_pending_edit,
+    ],
   );
   const open_json = useCallback(
     () => setRightSidebarOpen(true),
@@ -464,26 +506,6 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     });
   }, [result]);
 
-  // Any edit made inside a pending row is buffered here (a null write means
-  // the user explicitly set the cell to NULL via the editor).
-  const on_pending_edit = useCallback(
-    (row: number, col: string, value: string | null) => {
-      setPending((cur) => {
-        if (!cur || !result) return cur;
-        const entry = cur[row];
-        if (!entry) return cur;
-        const ci = result.columns.indexOf(col);
-        if (ci < 0) return cur;
-        const values = [...entry.values];
-        values[ci] = value;
-        const next = cur.slice();
-        next[row] = { ...entry, values, dirty: true };
-        return next;
-      });
-    },
-    [result],
-  );
-
   // Discard a single drafted row (its gutter trash icon), leaving the rest of
   // the batch untouched.
   const remove_pending = useCallback((row: number) => {
@@ -496,116 +518,124 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // refetch SELECT is needed. Inserts still refetch (the database assigns
   // defaults/autoincrement we can't know locally), and so does any write that
   // reports zero affected rows, meaning the page no longer matches the DB.
-  const apply_pending = useCallback((keepIds?: Set<string>) => {
-    if (!result) return;
-    const cols = result.columns;
-    if (cols.length === 0) return;
+  const apply_pending = useCallback(
+    (keepIds?: Set<string>) => {
+      if (!result) return;
+      const cols = result.columns;
+      if (cols.length === 0) return;
 
-    // When the diff dialog confirmed only a subset of the buffered changes,
-    // restrict each buffer to that subset; anything deselected is discarded.
-    const ins = keepIds
-      ? pending.filter((p) => keepIds.has(`ins:${p.id}`))
-      : pending;
-    const edits = keepIds
-      ? new Map([...dirty_cells].filter(([k]) => keepIds.has(k)))
-      : dirty_cells;
-    const dels = keepIds
-      ? new Set([...deleted_rows].filter((g) => keepIds.has(`del:${g}`)))
-      : deleted_rows;
-    const ins_len = ins.length;
+      // When the diff dialog confirmed only a subset of the buffered changes,
+      // restrict each buffer to that subset; anything deselected is discarded.
+      const ins = keepIds
+        ? pending.filter((p) => keepIds.has(`ins:${p.id}`))
+        : pending;
+      const edits = keepIds
+        ? new Map([...dirty_cells].filter(([k]) => keepIds.has(k)))
+        : dirty_cells;
+      const dels = keepIds
+        ? new Set([...deleted_rows].filter((g) => keepIds.has(`del:${g}`)))
+        : deleted_rows;
+      const ins_len = ins.length;
 
-    const patches: { real: number; col: string; value: string | null }[] = [];
-    const ops: Promise<unknown>[] = [];
-    for (const p of ins) {
-      // Columns with no value are left out of the INSERT so the database can
-      // apply its defaults/autoincrement.
-      const values = Object.fromEntries(
-        cols.map((c, ci) => [c, p.values[ci] ?? null]),
-      );
-      ops.push(
-        executeOp(conn_id, { kind: "insert", table, values, skip_empty: true }),
-      );
-    }
-    for (const [key, value] of edits) {
-      const sep = key.indexOf("\u0000");
-      if (sep < 0) continue;
-      const col = key.slice(0, sep);
-      const g = Number(key.slice(sep + 1));
-      // Only edits targeting a row on the currently rendered page are applied;
-      // edits buffered for rows on other pages are left untouched.
-      const real = g - offset;
-      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
-      if (dels.has(g)) continue;
-      const match_row = match_for(real + ins_len);
-      if (!match_row) continue;
-      patches.push({ real, col, value });
-      ops.push(
-        executeOp(conn_id, {
-          kind: "update",
-          table,
-          set: { [col]: value },
-          match_row,
+      const patches: { real: number; col: string; value: string | null }[] = [];
+      const ops: Promise<unknown>[] = [];
+      for (const p of ins) {
+        // Columns with no value are left out of the INSERT so the database can
+        // apply its defaults/autoincrement.
+        const values = Object.fromEntries(
+          cols.map((c, ci) => [c, p.values[ci] ?? null]),
+        );
+        ops.push(
+          executeOp(conn_id, {
+            kind: "insert",
+            table,
+            values,
+            skip_empty: true,
+          }),
+        );
+      }
+      for (const [key, value] of edits) {
+        const sep = key.indexOf("\u0000");
+        if (sep < 0) continue;
+        const col = key.slice(0, sep);
+        const g = Number(key.slice(sep + 1));
+        // Only edits targeting a row on the currently rendered page are applied;
+        // edits buffered for rows on other pages are left untouched.
+        const real = g - offset;
+        if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
+        if (dels.has(g)) continue;
+        const match_row = match_for(real + ins_len);
+        if (!match_row) continue;
+        patches.push({ real, col, value });
+        ops.push(
+          executeOp(conn_id, {
+            kind: "update",
+            table,
+            set: { [col]: value },
+            match_row,
+          }),
+        );
+      }
+      for (const g of dels) {
+        const real = g - offset;
+        if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
+        const op = row_delete_op(real + ins_len);
+        if (op) ops.push(executeOp(conn_id, op));
+      }
+      if (ops.length === 0) return;
+      const inserted = ins_len;
+      // Highest index first so splices don't shift pending targets.
+      const deleted_sorted = [...dels]
+        .map((g) => g - offset)
+        .filter((ri) => ri >= 0 && ri < (result?.rows.length ?? 0))
+        .sort((a, b) => b - a);
+      let outcomes: QueryResult[] = [];
+      run_op(
+        Promise.all(ops).then((rs) => {
+          outcomes = rs as QueryResult[];
         }),
-      );
-    }
-    for (const g of dels) {
-      const real = g - offset;
-      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
-      const op = row_delete_op(real + ins_len);
-      if (op) ops.push(executeOp(conn_id, op));
-    }
-    if (ops.length === 0) return;
-    const inserted = ins_len;
-    // Highest index first so splices don't shift pending targets.
-    const deleted_sorted = [...dels]
-      .map((g) => g - offset)
-      .filter((ri) => ri >= 0 && ri < (result?.rows.length ?? 0))
-      .sort((a, b) => b - a);
-    let outcomes: QueryResult[] = [];
-    run_op(
-      Promise.all(ops).then((rs) => {
-        outcomes = rs as QueryResult[];
-      }),
-      () => {
-        setPending([]);
-        setDirtyCells(new Map());
-        setDeletedRows(new Set());
-        if (inserted > 0 || outcomes.some((r) => r.rows_affected === 0)) {
-          // Freshly inserted rows land on the last page; a zero-affected write
-          // means the database moved under us. Both need a real refetch.
-          setPage(Math.max(0, Math.ceil((total + inserted) / page_size) - 1));
-          refresh();
-          return;
-        }
-        // Optimistic: mirror the writes in the already-loaded rows.
-        setResult((cur) => {
-          if (!cur) return cur;
-          const rows = cur.rows.map((r) => [...r]);
-          for (const p of patches) {
-            const ci = cur.columns.indexOf(p.col);
-            if (ci >= 0 && rows[p.real]) rows[p.real][ci] = p.value;
+        () => {
+          setPending([]);
+          setDirtyCells(new Map());
+          setDeletedRows(new Set());
+          if (inserted > 0 || outcomes.some((r) => r.rows_affected === 0)) {
+            // Freshly inserted rows land on the last page; a zero-affected write
+            // means the database moved under us. Both need a real refetch.
+            setPage(Math.max(0, Math.ceil((total + inserted) / page_size) - 1));
+            refresh();
+            return;
           }
-          for (const ri of deleted_sorted) rows.splice(ri, 1);
-          return { ...cur, rows };
-        });
-        setTotal((t) => Math.max(0, t - dels.size));
-      },
-    );
-  }, [
-    pending,
-    dirty_cells,
-    deleted_rows,
-    result,
-    table,
-    conn_id,
-    run_op,
-    total,
-    page_size,
-    refresh,
-    match_for,
-    row_delete_op,
-    offset,
-  ]);
+          // Optimistic: mirror the writes in the already-loaded rows.
+          setResult((cur) => {
+            if (!cur) return cur;
+            const rows = cur.rows.map((r) => [...r]);
+            for (const p of patches) {
+              const ci = cur.columns.indexOf(p.col);
+              if (ci >= 0 && rows[p.real]) rows[p.real][ci] = p.value;
+            }
+            for (const ri of deleted_sorted) rows.splice(ri, 1);
+            return { ...cur, rows };
+          });
+          setTotal((t) => Math.max(0, t - dels.size));
+        },
+      );
+    },
+    [
+      pending,
+      dirty_cells,
+      deleted_rows,
+      result,
+      table,
+      conn_id,
+      run_op,
+      total,
+      page_size,
+      refresh,
+      match_for,
+      row_delete_op,
+      offset,
+    ],
+  );
 
   const cancel_pending = useCallback(() => {
     setPending([]);
@@ -622,7 +652,13 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     const cols = result.columns;
     const changes: PendingChange[] = [];
     for (const p of pending) {
-      changes.push({ id: `ins:${p.id}`, kind: "insert", row: -1, values: p.values, value_columns: cols });
+      changes.push({
+        id: `ins:${p.id}`,
+        kind: "insert",
+        row: -1,
+        values: p.values,
+        value_columns: cols,
+      });
     }
     for (const [key, value] of dirty_cells) {
       const sep = key.indexOf("\u0000");
@@ -998,13 +1034,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         });
       },
     }),
-    [
-      bridge,
-      result,
-      offset,
-      dirty_cells,
-      pending,
-    ],
+    [bridge, result, offset, dirty_cells, pending],
   );
 
   useEffect(() => {
@@ -1025,10 +1055,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* GridBody owns scrolling (it hosts the row virtualizer). */}
-      <div
-        className="relative min-h-0 flex-1 border"
-        data-selectable
-      >
+      <div className="relative min-h-0 flex-1 border" data-selectable>
         {/* Spinners for both first load and refetch live in table-pane's
           overlay; this box just keeps its height so nothing jumps. */}
         {!result ? null : (

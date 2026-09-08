@@ -1,7 +1,7 @@
 import { javascriptLanguage } from "@codemirror/lang-javascript";
 import type { Diagnostic } from "@codemirror/lint";
 import type { EditorView } from "@codemirror/view";
-import { statementRanges } from "@/shared/lib/utils";
+import { maskComments, statementRanges } from "@/shared/lib/utils";
 
 /** Shell-specific commands that aren't valid JavaScript at all — checked
  *  BEFORE attempting JS parsing so they're never flagged as syntax errors
@@ -85,6 +85,13 @@ export function nosqlSyntaxLinter(collections: string[]) {
       const top = tree.topNode;
       const stmts: { from: number; to: number }[] = [];
       for (let child = top.firstChild; child; child = child.nextSibling) {
+        // Lezer keeps comments as real sibling nodes in the tree rather than
+        // discarding them as trivia, so a `// commented out line` on its own
+        // would otherwise count as a "statement" here — flagging a missing
+        // `;` right after it, i.e. inside/around a comment the user never
+        // meant to be checked at all.
+        if (child.type.name === "LineComment" || child.type.name === "BlockComment")
+          continue;
         stmts.push({ from: child.from, to: child.to });
       }
       for (let j = 1; j < stmts.length; j++) {
@@ -92,7 +99,9 @@ export function nosqlSyntaxLinter(collections: string[]) {
         diagnostics.push({
           from: missingAt,
           to: missingAt,
-          severity: "error",
+          // Not a real error — the combined chunk may still run fine (or
+          // may not); this is a heads-up, not something blocking Run.
+          severity: "warning",
           message: 'Missing ";" here — otherwise this is treated as one query with the next line',
         });
       }
@@ -102,9 +111,14 @@ export function nosqlSyntaxLinter(collections: string[]) {
       // `known_tables.size === 0` guard: the list still fetching would
       // otherwise flag every collection as unknown.
       if (known_collections.size === 0) continue;
+      // Raw regex scan, same reasoning as the multi-statement check has no
+      // bearing on: it has no idea what a comment is, so it's run against a
+      // comment-blanked copy of the statement's text to keep a commented-out
+      // `db.foo.find()` from being flagged as an unknown collection.
+      const masked_text = maskComments(text);
       COLLECTION_CALL.lastIndex = 0;
       let m: RegExpExecArray | null;
-      while ((m = COLLECTION_CALL.exec(text))) {
+      while ((m = COLLECTION_CALL.exec(masked_text))) {
         const name = m[1];
         if (!known_collections.has(name)) {
           const start = range.start + m.index + "db.".length;

@@ -52,6 +52,27 @@ pub struct PgParams {
     /// `host:port` through this jump host) instead of connecting directly.
     #[serde(default)]
     pub ssh: Option<crate::ssh_tunnel::SshConfig>,
+    /// Max pool connections (default 12 when unset).
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    /// Min pool connections kept open (default 1 when unset).
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    /// How long to wait for a pooled connection — including opening a new
+    /// one if the pool isn't full — before giving up (default 30s when
+    /// unset). sqlx has no separate raw-socket connect timeout; this is the
+    /// closest real equivalent.
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    /// How long a connection can sit idle in the pool before being closed
+    /// (default 15 minutes when unset).
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    /// Max lifetime of a pooled connection regardless of activity, after
+    /// which it's closed and replaced (sqlx's own default — currently 30
+    /// minutes — applies when unset).
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
 }
 
 fn ssl_mode(v: Option<&str>) -> sqlx::postgres::PgSslMode {
@@ -166,11 +187,19 @@ impl PgAdapter {
         // one gets its own forwarded SSH channel automatically, since the
         // tunnel's local listener accepts however many connections the pool
         // opens over its lifetime).
-        let pool = PgPoolOptions::new()
-            .max_connections(12)
-            .min_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(30))
-            .idle_timeout(std::time::Duration::from_secs(15 * 60))
+        let mut pool_opts = PgPoolOptions::new()
+            .max_connections(params.pool_max.unwrap_or(12))
+            .min_connections(params.pool_min.unwrap_or(1))
+            .acquire_timeout(std::time::Duration::from_secs(
+                params.connect_timeout_secs.unwrap_or(30) as u64,
+            ))
+            .idle_timeout(std::time::Duration::from_secs(
+                params.idle_timeout_secs.unwrap_or(15 * 60) as u64,
+            ));
+        if let Some(secs) = params.max_lifetime_secs {
+            pool_opts = pool_opts.max_lifetime(std::time::Duration::from_secs(secs as u64));
+        }
+        let pool = pool_opts
             .connect_with(options)
             .await
             .map_err(DbError::SqlEngine)?;

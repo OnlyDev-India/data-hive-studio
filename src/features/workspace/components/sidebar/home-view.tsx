@@ -196,23 +196,23 @@ export function HomeView({
         out.push({
           id,
           label: c.name,
-          kind: "postgres",
+          kind: c.kind,
           source: sess.profile.name,
           connect_title: "Single click loads details; double-click connects",
           on_click: () =>
-            request_prefill("postgres", {
+            request_prefill(c.kind, {
               host: c.host,
               port: c.port,
               user: c.user,
               password: "",
               database: c.database,
-              kind: "postgres",
+              kind: c.kind,
             }),
           on_double_click: () =>
             open_conn({
               id: c.id,
               name: c.name,
-              kind: "postgres",
+              kind: c.kind,
               source_path: null,
             }),
         });
@@ -552,7 +552,11 @@ export function HomeView({
               const srv_profile = is_srv ? conn.id.split(":")[1] : null;
               const server_connected =
                 is_srv && srv_profile ? srv_profile in server_sessions : true;
-              const DBIcon = DBIcons[conn.kind] ?? Database;
+              // conn.kind (ConnectionInfo, the live connection) is always
+              // "mongodb" for a DocumentDB connection by design — prefer
+              // the saved-params record's kind, which remembers which
+              // picker entry was actually used, when one's available.
+              const DBIcon = DBIcons[recents_params[conn.id]?.kind ?? conn.kind] ?? Database;
               return (
                 <li key={conn.id}>
                   <Button

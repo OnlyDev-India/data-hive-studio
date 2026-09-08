@@ -9,6 +9,7 @@ import {
   webRemoveServer,
 } from "./web";
 import { remoteOf, webAuthFor } from "./dispatch";
+import type { SharedDbKind } from "./types";
 
 export type OrgRole = "viewer" | "member" | "admin" | "owner";
 
@@ -57,7 +58,7 @@ export interface ServerProfileView {
 export interface ServerConn {
   id: string;
   name: string;
-  kind?: "postgres" | "mongodb";
+  kind?: SharedDbKind;
   host: string;
   port: number;
   user: string;
@@ -71,6 +72,19 @@ export interface ServerConn {
   ssl_client_cert_file?: string | null;
   /** PostgreSQL only. */
   ssl_client_key_file?: string | null;
+  /** MongoDB only: disable retryable writes — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** MongoDB only: replica set name — required by a real Amazon DocumentDB
+   *  cluster (typically "rs0"). */
+  replica_set?: string | null;
+  pool_max?: number | null;
+  pool_min?: number | null;
+  connect_timeout_secs?: number | null;
+  idle_timeout_secs?: number | null;
+  /** PostgreSQL only. */
+  max_lifetime_secs?: number | null;
+  /** MongoDB only. */
+  server_selection_timeout_secs?: number | null;
   /** `ssh_host` set means this connection tunnels through SSH — no
    *  secrets here, this is metadata only (`ConnMeta`, never `ConnInput`). */
   ssh_host?: string | null;
@@ -290,7 +304,7 @@ export function serversDisconnect(profileId: string): Promise<void> {
 export interface ServerConnInput {
   name: string;
   /** Immutable after creation; omitted (or "postgres") for existing PG saves. */
-  kind?: "postgres" | "mongodb";
+  kind?: SharedDbKind;
   host: string;
   port: number;
   user: string;
@@ -311,6 +325,19 @@ export interface ServerConnInput {
   ssl_client_cert_file?: string | null;
   /** PostgreSQL only: path to the client certificate's private key file. */
   ssl_client_key_file?: string | null;
+  /** MongoDB only: disable retryable writes — required for Amazon DocumentDB. */
+  retry_writes?: boolean;
+  /** MongoDB only: replica set name — required by a real Amazon DocumentDB
+   *  cluster (typically "rs0"). */
+  replica_set?: string | null;
+  pool_max?: number | null;
+  pool_min?: number | null;
+  connect_timeout_secs?: number | null;
+  idle_timeout_secs?: number | null;
+  /** PostgreSQL only. */
+  max_lifetime_secs?: number | null;
+  /** MongoDB only. */
+  server_selection_timeout_secs?: number | null;
   ssh_host?: string | null;
   ssh_port?: number | null;
   ssh_user?: string | null;

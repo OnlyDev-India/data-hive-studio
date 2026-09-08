@@ -4,6 +4,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import CodeMirror, {
   EditorView,
@@ -14,13 +15,18 @@ import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { EditorState } from "@codemirror/state";
 import { closeCompletion, startCompletion } from "@codemirror/autocomplete";
 import { keymap, tooltips, type ViewUpdate } from "@codemirror/view";
-import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
-import { linter, setDiagnostics, type Diagnostic } from "@codemirror/lint";
-import { tags as t } from "@lezer/highlight";
+import { syntaxHighlighting } from "@codemirror/language";
+import {
+  forEachDiagnostic,
+  linter,
+  setDiagnostics,
+  type Diagnostic,
+} from "@codemirror/lint";
 import type { Completion } from "@codemirror/autocomplete";
 import {
   appEditorExtensions,
   appEditorTheme,
+  jsHighlightStyle,
 } from "@/shared/theme/codemirror-theme";
 import { cn, statementRanges } from "@/shared/lib/utils";
 import { useShortcuts, type Shortcut } from "@/shared/hooks/use-shortcut";
@@ -32,6 +38,22 @@ import {
   NOSQL_SHELL_COMPLETIONS,
   nosqlConsoleCompletions,
 } from "./nosql-completions";
+import { docHoverTheme, docHoverTooltip, type DocEntry } from "./doc-hover";
+import { resolveSqlDoc } from "./sql-docs";
+import { resolveMongoDoc } from "./nosql-docs";
+import { DocDetailBody } from "./doc-markdown";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+
+/** Tags diagnostics `setErrors` adds so they (and only they) can be swapped
+ *  out on the next call without touching the linter's own diagnostics —
+ *  see the comment at its use site. */
+const RUN_ERROR_SOURCE = "query-run";
 
 /** One statement to run, with its position in the document so a failed run
  *  can be flagged inline via `setErrors`. */
@@ -42,11 +64,11 @@ export interface QueryTarget {
 }
 
 export interface QueryEditorHandle {
-  /** The statement(s) to run: every `;`-delimited statement the current
-   *  selection touches (so selecting several statements runs each as its
-   *  own result tab, matching "Run all"), or just the single statement the
-   *  cursor is inside when nothing is selected. Empty array when there's
-   *  nothing to run. */
+  /** The statement(s) to run: the literal selected text, split on `;`
+   *  within the selection so highlighting several full statements runs
+   *  each as its own result tab (matching "Run all"), or just the single
+   *  statement the cursor is inside when nothing is selected. Empty array
+   *  when there's nothing to run. */
   getTargets: () => QueryTarget[];
   /** Flag (or clear, with an empty array) specific ranges as failed —
    *  underlines them and shows the message on hover, independent of
@@ -70,39 +92,6 @@ const errorLinter = linter(null);
 // Rendering into `document.body` sidesteps every ancestor's
 // overflow/transform entirely.
 const editorTooltips = tooltips({ parent: document.body });
-
-/** JS-specific syntax colours (Mongo console). This is the *only* highlight
- *  style in JS mode (the shared SQL one is swapped out) so its rules for
- *  property/method names can't be shadowed by the SQL foreground rules. */
-const jsHighlightStyle = HighlightStyle.define([
-  { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
-  {
-    tag: [t.punctuation, t.paren, t.brace, t.squareBracket],
-    color: "var(--muted-foreground)",
-  },
-  { tag: t.meta, color: "var(--muted-foreground)" },
-  { tag: t.operator, color: "var(--foreground)" },
-  { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
-  { tag: t.modifier, color: "var(--info-dark)", fontWeight: "600" },
-  { tag: [t.bool, t.null], color: "var(--warning-dark)" },
-  { tag: t.number, color: "var(--warning-dark)" },
-  {
-    tag: [t.string, t.special(t.string), t.regexp],
-    color: "var(--success-dark)",
-  },
-  { tag: t.typeName, color: "var(--info-dark)" },
-  { tag: [t.standard(t.name), t.special(t.name)], color: "var(--info-dark)" },
-  // Method/call chains (`db.users.find(...)`) tinted blue so they read as code.
-  {
-    tag: [
-      t.variableName,
-      t.propertyName,
-      t.function(t.variableName),
-      t.function(t.propertyName),
-    ],
-    color: "var(--info-dark)",
-  },
-]);
 
 interface QueryEditorProps {
   value: string;
@@ -234,7 +223,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     // reconfigure effect also depends on `onUpdate`'s identity.
     const handleViewUpdate = useCallback(
       (vu: ViewUpdate) => {
-        if (vu.selectionSet) onSelectionChange?.(!vu.state.selection.main.empty);
+        if (vu.selectionSet)
+          onSelectionChange?.(!vu.state.selection.main.empty);
       },
       [onSelectionChange],
     );
@@ -247,36 +237,66 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         const doc = view.state.doc.toString();
         const ranges = statementRanges(doc);
         if (!empty) {
-          // Every statement the selection touches (even partially) runs in
-          // full — so selecting several statements runs each as its own
-          // result tab, matching "Run all", instead of firing the whole
-          // selected blob as one (likely invalid) combined statement.
-          return ranges
-            .filter((r) => r.start < to && r.end > from)
+          // Run exactly what's highlighted — not whichever enclosing
+          // statement(s) the selection happens to touch. Still split on `;`
+          // WITHIN the selection so highlighting several full statements
+          // runs each as its own result tab (matching "Run all"), but never
+          // reaches past the selection's own edges: expanding out used to
+          // mean e.g. the Mongo console (whose commands are commonly typed
+          // one-per-line with no `;` between them, so the whole document is
+          // one `statementRanges` span) ran the ENTIRE script for a
+          // selection of just one line.
+          const selected = doc.slice(from, to);
+          return statementRanges(selected)
             .map((r) => ({
-              text: doc.slice(r.start, r.end),
-              from: r.start,
-              to: r.end,
-            }));
+              text: selected.slice(r.start, r.end),
+              from: from + r.start,
+              to: from + r.end,
+            }))
+            .filter((t) => t.text.trim());
         }
         const cursor = from;
         const stmt =
           ranges.find((r) => r.start <= cursor && cursor <= r.end) ??
           ranges[ranges.length - 1];
         return stmt
-          ? [{ text: doc.slice(stmt.start, stmt.end), from: stmt.start, to: stmt.end }]
+          ? [
+              {
+                text: doc.slice(stmt.start, stmt.end),
+                from: stmt.start,
+                to: stmt.end,
+              },
+            ]
           : [];
       },
       setErrors: (errors) => {
         const view = cmsRef.current?.view;
         if (!view) return;
-        const diagnostics: Diagnostic[] = errors.map((e) => ({
+        const runtimeDiagnostics: Diagnostic[] = errors.map((e) => ({
           from: e.from,
           to: e.to > e.from ? e.to : e.from + 1,
           severity: "error",
           message: e.message,
+          source: RUN_ERROR_SOURCE,
         }));
-        view.dispatch(setDiagnostics(view.state, diagnostics));
+        // `setDiagnostics` REPLACES the editor's entire diagnostics set —
+        // every linter installed on this editor (this one, `errorLinter`)
+        // shares the same underlying CodeMirror state field with the
+        // syntax/semantic linter (`sqlLinter`/`nosqlSyntaxLinter`) below, so
+        // calling it with just the run-error list used to wipe out whatever
+        // that linter had already flagged (e.g. a "Missing ;" warning) the
+        // instant a query ran, since the doc itself hadn't changed to
+        // trigger the linter to recompute and repopulate it. Keeping every
+        // OTHER diagnostic already present and only replacing the ones this
+        // handle previously added itself (tagged via `source`) preserves
+        // that live lint state across a run.
+        const kept: Diagnostic[] = [];
+        forEachDiagnostic(view.state, (d) => {
+          if (d.source !== RUN_ERROR_SOURCE) kept.push(d);
+        });
+        view.dispatch(
+          setDiagnostics(view.state, [...kept, ...runtimeDiagnostics]),
+        );
       },
     }));
 
@@ -286,6 +306,16 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     ];
     if (onSave) shortcuts.push({ key: "s", mod: true, handler: onSave });
     useShortcuts(shortcuts);
+
+    // Hover-over-a-keyword/method documentation (SQL keywords/functions,
+    // Mongo shell methods) — see `doc-hover.ts`. The hover card itself is
+    // vanilla DOM (CodeMirror tooltips render outside the React tree); its
+    // "View details" button hands the full entry back here to open the
+    // popup below.
+    const [docDetail, setDocDetail] = useState<DocEntry | null>(null);
+    const onOpenDocDetails = useCallback((entry: DocEntry) => {
+      setDocDetail(entry);
+    }, []);
 
     const extensions = useMemo(() => {
       if (language === "js") {
@@ -329,6 +359,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           ...(readOnly ? [] : [linter(nosqlSyntaxLinter(jsCompletions ?? []))]),
           editorTooltips,
           inlineDiagnostics,
+          docHoverTooltip(resolveMongoDoc, onOpenDocDetails),
+          docHoverTheme,
           ...(enableWrapping ? [EditorView.lineWrapping] : []),
         ];
       }
@@ -357,6 +389,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         ...(readOnly ? [] : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
         editorTooltips,
         inlineDiagnostics,
+        docHoverTooltip(resolveSqlDoc, onOpenDocDetails),
+        docHoverTheme,
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
       ];
     }, [
@@ -368,6 +402,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       enableWrapping,
       completionDismissKeymap,
       readOnly,
+      onOpenDocDetails,
     ]);
 
     // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set
@@ -394,27 +429,52 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     );
 
     return (
-      <div
-        className={cn("min-h-0 w-full overflow-hidden", className)}
-        style={{ height }}
-      >
-        <CodeMirror
-          ref={cmsRef}
-          value={value}
-          onChange={onChange}
-          onUpdate={handleViewUpdate}
-          extensions={extensions}
-          theme="none"
-          style={{ height: "100%" }}
-          readOnly={readOnly}
-          basicSetup={basicSetupConfig}
-          placeholder={
-            language === "js"
-              ? 'db.users.find({ "status": "active" }).limit(10)'
-              : "SELECT * FROM sqlite_master;"
-          }
-        />
-      </div>
+      <>
+        <div
+          className={cn("min-h-0 w-full overflow-hidden", className)}
+          style={{ height }}
+        >
+          <CodeMirror
+            ref={cmsRef}
+            value={value}
+            onChange={onChange}
+            onUpdate={handleViewUpdate}
+            extensions={extensions}
+            theme="none"
+            style={{ height: "100%" }}
+            readOnly={readOnly}
+            basicSetup={basicSetupConfig}
+            placeholder={
+              language === "js"
+                ? 'db.users.find({ "status": "active" }).limit(10)'
+                : "SELECT * FROM sqlite_master;"
+            }
+          />
+        </div>
+        <Dialog
+          open={!!docDetail}
+          onOpenChange={(open) => {
+            if (!open) setDocDetail(null);
+          }}
+        >
+          <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl">
+            {docDetail && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="font-mono text-base">
+                    {docDetail.signature}
+                  </DialogTitle>
+                  <DialogDescription>{docDetail.summary}</DialogDescription>
+                </DialogHeader>
+                <DocDetailBody
+                  entry={docDetail}
+                  lang={language === "js" ? "js" : "sql"}
+                />
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </>
     );
   },
 );

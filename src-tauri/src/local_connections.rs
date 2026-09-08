@@ -45,6 +45,33 @@ pub struct LocalConnMeta {
     /// Postgres only.
     #[serde(default)]
     pub ssl_client_key_file: Option<String>,
+    /// MongoDB only: disable retryable writes — required for Amazon
+    /// DocumentDB.
+    #[serde(default)]
+    pub retry_writes: bool,
+    /// MongoDB only: replica set name — required by a real Amazon
+    /// DocumentDB cluster, typically `rs0`.
+    #[serde(default)]
+    pub replica_set: Option<String>,
+    /// Max pool connections (Postgres default 12, MongoDB default 10 when unset).
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    /// Min pool connections kept open (Postgres default 1, MongoDB default 0 when unset).
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    /// Postgres: pool acquire timeout (default 30s). MongoDB: TCP connect
+    /// timeout (default 10s).
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    /// Postgres default 15 minutes; MongoDB default never, when unset.
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    /// Postgres only (default 30 minutes when unset).
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
+    /// MongoDB only (default 30s when unset).
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
     /// `Some` means this connection tunnels through SSH — no secrets here,
     /// those live in the keychain like the main password (see
     /// `ssh_secret_key`/`get_local_connection_secret`).
@@ -93,6 +120,22 @@ pub struct LocalConnInput {
     #[serde(default)]
     pub ssl_client_key_file: Option<String>,
     #[serde(default)]
+    pub retry_writes: bool,
+    #[serde(default)]
+    pub replica_set: Option<String>,
+    #[serde(default)]
+    pub pool_max: Option<u32>,
+    #[serde(default)]
+    pub pool_min: Option<u32>,
+    #[serde(default)]
+    pub connect_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub max_lifetime_secs: Option<u32>,
+    #[serde(default)]
+    pub server_selection_timeout_secs: Option<u32>,
+    #[serde(default)]
     pub ssh_host: Option<String>,
     #[serde(default)]
     pub ssh_port: Option<u16>,
@@ -131,6 +174,14 @@ fn meta_from_input(input: &LocalConnInput) -> LocalConnMeta {
         ssl_ca_file: input.ssl_ca_file.clone(),
         ssl_client_cert_file: input.ssl_client_cert_file.clone(),
         ssl_client_key_file: input.ssl_client_key_file.clone(),
+        retry_writes: input.retry_writes,
+        replica_set: input.replica_set.clone(),
+        pool_max: input.pool_max,
+        pool_min: input.pool_min,
+        connect_timeout_secs: input.connect_timeout_secs,
+        idle_timeout_secs: input.idle_timeout_secs,
+        max_lifetime_secs: input.max_lifetime_secs,
+        server_selection_timeout_secs: input.server_selection_timeout_secs,
         ssh_host: input.ssh_host.clone(),
         ssh_port: input.ssh_port,
         ssh_user: input.ssh_user.clone(),
