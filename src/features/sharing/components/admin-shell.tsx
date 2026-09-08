@@ -7,8 +7,7 @@ export function AdminShell({
   sessions,
 }: {
   sessions: {
-    profile: { id: string; name: string };
-    me: { is_admin: boolean };
+    profile: { id: string; name: string; org_id: string };
   }[];
 }) {
   const [active_idx, set_active_idx] = useState(0);
@@ -37,13 +36,13 @@ export function AdminShell({
       )}
       <header className="flex items-center gap-2 border-b px-6 py-3">
         <ShieldCheck className="text-primary size-5" />
-        <h1 className="text-base font-semibold">Team admin</h1>
+        <h1 className="text-base font-semibold">Organization admin</h1>
         <span className="text-muted-foreground ml-1 text-xs">
           · {active.profile.name}
         </span>
       </header>
       <main className="w-full flex-1">
-        <AdminDashboard profileId={active.profile.id} />
+        <AdminDashboard profileId={active.profile.id} orgId={active.profile.org_id} />
       </main>
     </div>
   );

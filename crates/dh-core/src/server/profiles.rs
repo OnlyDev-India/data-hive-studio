@@ -19,8 +19,11 @@ pub struct ServerProfile {
     pub id: String,
     pub name: String,
     pub url: String,
-    #[serde(default)]
-    pub team_name: Option<String>,
+    /// Which organization on that server this profile targets — a user's
+    /// session can belong to several, but each saved profile always names
+    /// exactly one; switching orgs means editing the profile (or saving a
+    /// second one) rather than juggling org state at connect time.
+    pub org_id: String,
 }
 
 /// Process-wide registry of connected server clients, keyed by profile id.
@@ -51,12 +54,28 @@ pub fn client_for(profile_id: &str) -> Result<ServerClient, String> {
 }
 
 /// Read the saved profile list from `path`. Missing file = no profiles yet.
+/// Parses entries individually and drops (rather than hard-failing on) any
+/// that don't match the current shape — e.g. a profile saved by a build
+/// from before some schema change (`team_name` → `org_id`, when auth was
+/// still an admin-minted token). Otherwise one stale/legacy row would
+/// poison the whole list and block every sign-in until a human found and
+/// fixed the file by hand.
 pub fn load_profiles(path: &Path) -> Result<Vec<ServerProfile>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
     let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
+    let values: Vec<serde_json::Value> = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    Ok(values
+        .into_iter()
+        .filter_map(|v| match serde_json::from_value(v) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!("dropping unreadable saved server profile: {e}");
+                None
+            }
+        })
+        .collect())
 }
 
 /// Write the profile list to `path` (pretty JSON, matches the existing
@@ -128,13 +147,13 @@ mod tests {
             id: "p1".into(),
             name: "Team".into(),
             url: "https://example.test".into(),
-            team_name: Some("acme".into()),
+            org_id: "org-acme".into(),
         }];
         save_profiles(&path, &profiles).unwrap();
         let loaded = load_profiles(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id, "p1");
-        assert_eq!(loaded[0].team_name.as_deref(), Some("acme"));
+        assert_eq!(loaded[0].org_id, "org-acme");
     }
 }

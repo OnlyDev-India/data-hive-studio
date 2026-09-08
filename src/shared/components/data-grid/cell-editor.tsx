@@ -254,8 +254,8 @@ export function CellEditor() {
       }
       onValueChange={(v) => {
         if (v === "__null") commit(null);
-        else if (v === "__true") commit("1");
-        else commit("0");
+        else if (v === "__true") commit(value==="false"?"true":"1");
+        else commit(value==="true"?"false":"0");
       }}
     >
       <SelectTrigger

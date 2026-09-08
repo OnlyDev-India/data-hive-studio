@@ -96,7 +96,12 @@ export function Cell({ row, col, dci }: CellProps) {
   const can_edit = editable || is_pending;
   const truthy = isTruthy(value);
   const toggle_bool = () => {
-    const next = truthy ? "0" : "1";
+    let next;
+    if (value === "true" || value === "false") {
+      next = truthy ? "false" : "true";
+    } else {
+      next = truthy ? "0" : "1";
+    }
     if (is_pending) ctx.on_pending_edit(row, col, next);
     else ctx.on_edit_cell(row, col, next);
   };
@@ -317,7 +322,7 @@ function ArrayCell({ value }: { value: string }) {
   if (items.length === 0) {
     return (
       <span className="text-muted-foreground inline-flex items-center gap-1 truncate">
-        <span className="rounded bg-muted px-1 py-px text-[10px]">empty</span>
+        <span className="bg-muted rounded px-1 py-px text-[10px]">empty</span>
       </span>
     );
   }

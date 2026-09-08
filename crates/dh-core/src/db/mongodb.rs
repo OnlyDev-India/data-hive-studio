@@ -39,6 +39,22 @@ pub struct MongoParams {
     /// matters for direct single-host connections.
     #[serde(default)]
     pub tls: bool,
+    /// Path to a CA certificate file used to verify the server's
+    /// certificate (`tlsCAFile`).
+    #[serde(default)]
+    pub ssl_ca_file: Option<String>,
+    /// Path to a client certificate file for mutual TLS (mTLS) —
+    /// MongoDB's `tlsCertificateKeyFile`, a single PEM containing BOTH the
+    /// certificate and its (unencrypted) private key.
+    #[serde(default)]
+    pub ssl_client_cert_file: Option<String>,
+    /// Reach the database through an SSH tunnel instead of connecting
+    /// directly. Incompatible with `srv: true` — SRV/TXT lookup resolves to
+    /// however many replica-set hosts the DNS records list, which a single
+    /// local port-forward to ONE target can't transparently stand in for;
+    /// `connect()` rejects that combination rather than silently ignoring it.
+    #[serde(default)]
+    pub ssh: Option<crate::ssh_tunnel::SshConfig>,
 }
 
 fn default_port() -> u16 {
@@ -52,9 +68,18 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
     )];
     // mongodb+srv:// implies TLS by default; a plain mongodb:// connection
     // needs it requested explicitly to get the driver's TLS transport
-    // (backed by the `rustls-tls` feature on the `mongodb` crate).
-    if params.tls && !params.srv {
+    // (backed by the `rustls-tls` feature on the `mongodb` crate) — setting
+    // a CA/client cert implies the same intent, so that alone is enough
+    // without ALSO having to remember to check the TLS box.
+    let wants_tls = params.tls || params.ssl_ca_file.is_some() || params.ssl_client_cert_file.is_some();
+    if wants_tls && !params.srv {
         query.push("tls=true".to_string());
+    }
+    if let Some(ca) = &params.ssl_ca_file {
+        query.push(format!("tlsCAFile={}", percent_encode(ca)));
+    }
+    if let Some(cert) = &params.ssl_client_cert_file {
+        query.push(format!("tlsCertificateKeyFile={}", percent_encode(cert)));
     }
     let query = query.join("&");
     let uri = if params.srv {
@@ -68,20 +93,49 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
             query,
         )
     } else {
-        // mongodb:// single host with explicit port
+        // mongodb:// — `host` may be a single hostname or a comma-separated
+        // replica-set member list (each optionally carrying its own port,
+        // e.g. "a.example.com:27017,b.example.com:27018"); any entry
+        // without one falls back to the `port` field. This is also the
+        // escape hatch for the DNS-seedlist resolver bug below: a user who
+        // can't use mongodb+srv:// can list the same hosts here instead.
+        let hosts: Vec<String> = params
+            .host
+            .split(',')
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(|h| if h.contains(':') { h.to_string() } else { format!("{h}:{}", params.port) })
+            .collect();
         format!(
-            "mongodb://{}:{}@{}:{}/{}?{}",
+            "mongodb://{}:{}@{}/{}?{}",
             params.user,
             percent_encode(&params.password),
-            params.host,
-            params.port,
+            hosts.join(","),
             params.database,
             query,
         )
     };
-    ClientOptions::parse(uri)
-        .await
-        .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))
+    ClientOptions::parse(uri).await.map_err(|e| {
+        let msg = e.to_string();
+        // The `mongodb` crate (as of 3.8) exposes no public way to override
+        // the DNS resolver used for mongodb+srv://'s SRV/TXT lookup — it
+        // always reads the OS's system resolver config, and on some
+        // machines (commonly behind a VPN, or with an unusual network
+        // adapter) that config has an entry the driver's resolver can't
+        // parse, so SRV lookups fail hard with exactly this error. There is
+        // no way to fix that from here; the real fix is to stop needing it.
+        if params.srv && msg.contains("DNS resolution") {
+            DbError::InvalidOperation(format!(
+                "mongo: {msg} — this is a known issue where the DNS seedlist (mongodb+srv://) \
+                 lookup can't read your system's DNS configuration (often caused by a VPN or an \
+                 unusual network adapter). Workaround: turn off \"DNS seedlist\" for this \
+                 connection and list your replica set members directly in the Host field \
+                 instead, e.g. host1:27017,host2:27017,host3:27017."
+            ))
+        } else {
+            DbError::InvalidOperation(format!("mongo: {msg}"))
+        }
+    })
 }
 
 /// Minimal percent-encoding for the password/authSource in a connection URI
@@ -231,11 +285,12 @@ fn field_bson(value: Option<&str>, data_type: Option<&str>) -> bson::Bson {
         }
     }
     // No type hint (e.g. a dotted nested path from the drill-down editor): best
-    // effort — bool, integer, double, then JSON object/array, else string.
-    if v == "true" {
+    // effort — bool (both "true"/"false" and the "1"/"0" the grid's own bool
+    // editor writes), integer, double, then JSON object/array, else string.
+    if v == "true" || v == "1" {
         return bson::Bson::Boolean(true);
     }
-    if v == "false" {
+    if v == "false" || v == "0" {
         return bson::Bson::Boolean(false);
     }
     if let Ok(i) = v.parse::<i64>() {
@@ -287,6 +342,10 @@ pub struct MongoAdapter {
     /// `set_active_schema`. A sync `RwLock` is fine: it's only ever held for
     /// a clone/assign, never across an `.await`.
     database: std::sync::RwLock<String>,
+    /// Kept alive for as long as this adapter is — dropping it tears the
+    /// tunnel down out from under the client. `None` when this connection
+    /// doesn't go through SSH.
+    _ssh_tunnel: Option<crate::ssh_tunnel::LocalTunnel>,
 }
 
 // ---- Console parser (Phase 3: find / aggregate / count / distinct + a small
@@ -530,6 +589,39 @@ fn bson_type_name(ty: &bson::Bson) -> &'static str {
 
 impl MongoAdapter {
     pub async fn connect(params: &MongoParams) -> DbResult<Self> {
+        let tunnel = match &params.ssh {
+            Some(_) if params.srv => {
+                return Err(DbError::InvalidOperation(
+                    "mongo: an SSH tunnel can't be combined with mongodb+srv:// — turn off \
+                     \"DNS seedlist\" and list the replica set members directly in the Host \
+                     field instead."
+                        .into(),
+                ));
+            }
+            Some(ssh) => Some(
+                crate::ssh_tunnel::open_tunnel(ssh, &params.host, params.port)
+                    .await
+                    .map_err(DbError::InvalidOperation)?,
+            ),
+            None => None,
+        };
+        // Through a tunnel, `build_options` needs to see the local forwarded
+        // address instead of the real one — everything else about `params`
+        // (auth, database, TLS) stays the same.
+        let effective_params;
+        let params = match &tunnel {
+            Some(t) => {
+                effective_params = MongoParams {
+                    host: "127.0.0.1".to_string(),
+                    port: t.local_port,
+                    ssh: None,
+                    ..params.clone()
+                };
+                &effective_params
+            }
+            None => params,
+        };
+
         let options = build_options(params).await?;
         let client = Client::with_options(options)
             .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
@@ -548,6 +640,7 @@ impl MongoAdapter {
         Ok(Self {
             client,
             database: std::sync::RwLock::new(params.database.clone()),
+            _ssh_tunnel: tunnel,
         })
     }
 

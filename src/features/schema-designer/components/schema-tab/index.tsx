@@ -14,6 +14,7 @@ import {
   build_ops,
   col_is_dirty,
   cols_from_schema,
+  describe_schema_changes,
   fk_is_dirty,
   fks_from_schema,
   idx_is_dirty,
@@ -32,6 +33,11 @@ import { IndexesPanel } from "./indexes-panel";
 import { ForeignKeysPanel } from "./foreign-keys-panel";
 import { TriggersPanel } from "./triggers-panel";
 import { DropTableDialog } from "./drop-table-dialog";
+import {
+  ApplyChangesDialog,
+  type DiffChange,
+} from "@/shared/components/apply-changes-dialog";
+import type { SchemaOp } from "@/shared/api";
 
 interface SchemaTabProps {
   conn_id: string;
@@ -197,8 +203,17 @@ function SchemaEditor({
   // notification center — the schema tab itself stays clean and editable.
   const push_notification = useStudioStore((s) => s.pushNotification);
 
-  const do_apply = async () => {
-    if (applying) return;
+  // Building the ops and opening the review dialog is instant/sync; the
+  // actual DDL only runs once the user confirms in `ApplyChangesDialog`.
+  const [confirm_apply, setConfirmApply] = useState<{
+    ops: SchemaOp[];
+    changes: DiffChange[];
+  } | null>(null);
+
+  /** Validates the drafts and builds the ops batch. Returns `null` (after
+   *  reporting the problem) when blocked — shared by the direct-apply and
+   *  review paths so they can never disagree on what's runnable. */
+  const prepare_ops = (): SchemaOp[] | null => {
     const problem = validate_drafts(table_name, cols, idxs, trigs, fks);
     if (problem) {
       push_notification({
@@ -206,9 +221,9 @@ function SchemaEditor({
         title: "Schema changes blocked",
         detail: problem,
       });
-      return;
+      return null;
     }
-    const ops = build_ops(
+    return build_ops(
       table,
       table_name.trim(),
       cols,
@@ -218,10 +233,46 @@ function SchemaEditor({
       fks,
       orig_pk.map(resolve_col),
     );
+  };
+
+  /** Direct apply, no review dialog — used by close-guards ("Apply & close")
+   *  and the status bar's dropdown "Apply" option, mirroring the grid's
+   *  Review & Apply / Apply split. */
+  const apply_now = () => {
+    if (applying) return;
+    const ops = prepare_ops();
+    if (ops === null) return;
     if (ops.length === 0) {
       discard();
       return;
     }
+    void run_apply(ops);
+  };
+
+  /** Opens the review dialog — the status bar's primary "Review & Apply"
+   *  button. `run_apply` only fires once the user confirms there. */
+  const open_review = () => {
+    if (applying) return;
+    const ops = prepare_ops();
+    if (ops === null) return;
+    if (ops.length === 0) {
+      discard();
+      return;
+    }
+    const changes = describe_schema_changes(
+      table,
+      table_name.trim(),
+      cols,
+      idxs,
+      resolve_col,
+      trigs,
+      fks,
+      orig_pk.map(resolve_col),
+    );
+    setConfirmApply({ ops, changes });
+  };
+
+  const run_apply = async (ops: SchemaOp[]) => {
     setApplying(true);
     try {
       const ran = await applySchemaOps(conn_id, ops);
@@ -268,7 +319,8 @@ function SchemaEditor({
         orig_pk.map(resolve_col),
       ).length
     : 0;
-  const apply_ref = useRef(do_apply);
+  const apply_ref = useRef(apply_now);
+  const review_ref = useRef(open_review);
   const discard_ref = useRef(discard);
   const refresh_ref = useRef(on_refresh);
 
@@ -276,7 +328,8 @@ function SchemaEditor({
   // re-registering on every keystroke (mutating refs during render is not
   // allowed by the react-hooks rules, so this runs as an effect).
   useEffect(() => {
-    apply_ref.current = do_apply;
+    apply_ref.current = apply_now;
+    review_ref.current = open_review;
     discard_ref.current = discard;
     refresh_ref.current = on_refresh;
   });
@@ -287,6 +340,7 @@ function SchemaEditor({
       count: pending_count,
       busy: applying,
       apply: () => apply_ref.current(),
+      review: () => review_ref.current(),
       discard: () => discard_ref.current(),
     };
     setSchemaEdit(store_key, handle);
@@ -385,6 +439,19 @@ function SchemaEditor({
         on_open_change={setConfirm_drop}
         on_dropped={on_modified}
       />
+
+      {confirm_apply && (
+        <ApplyChangesDialog
+          title="Review schema changes"
+          changes={confirm_apply.changes}
+          applying={applying}
+          on_apply={() => {
+            const { ops } = confirm_apply;
+            void run_apply(ops);
+          }}
+          on_close={() => setConfirmApply(null)}
+        />
+      )}
     </div>
   );
 }

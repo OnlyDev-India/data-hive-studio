@@ -6,6 +6,7 @@ import {
   useContext,
 } from "react";
 import type { Virtualizer } from "@tanstack/react-virtual";
+import type { DiffChange } from "@/shared/components/apply-changes-dialog";
 import type { CellClick, CellKind, DistinctMap } from "./types";
 import { COL_W_PX, GUTTER_W_PX } from "./types";
 
@@ -33,6 +34,62 @@ export interface PendingChange {
   values?: (string | null)[];
   /** insert: the drafted row's column names in the same order as `values`. */
   value_columns?: string[];
+}
+
+/** Stored value formatted for a diff line; NULL is shown as an explicit
+ *  "NULL" rather than an empty string. */
+function fmt_cell(v: string | null | undefined): string {
+  return v === null || v === undefined ? "NULL" : v;
+}
+
+/** Renders a row's columns as `col: value` lines, one per line, for an
+ *  insert/delete diff block. Blank/absent values are dropped for an insert
+ *  (skip-empty is the default there — see `QueryOp::Insert`), always kept
+ *  for a delete (the row's full stored contents matter for review). */
+function row_lines(
+  columns: string[] | undefined,
+  values: (string | null)[] | undefined,
+  kind: "insert" | "delete",
+): string {
+  return (columns ?? [])
+    .map((col, i) => [col, values?.[i]] as const)
+    .filter(([, v]) => kind === "delete" || (v !== null && v !== ""))
+    .map(([col, v]) => `${col}: ${fmt_cell(v)}`)
+    .join("\n");
+}
+
+/** Maps the grid's own `PendingChange` shape onto the shared `DiffChange`
+ *  shape the review dialog renders — kept as a pure function next to
+ *  `PendingChange` so the two can never silently drift apart. */
+export function pending_changes_to_diff(changes: PendingChange[]): DiffChange[] {
+  return changes.map((c): DiffChange => {
+    if (c.kind === "insert") {
+      return {
+        id: c.id,
+        kind: "add",
+        entity: "row",
+        title: "New row",
+        after: row_lines(c.value_columns, c.values, "insert") || "(defaults only)",
+      };
+    }
+    if (c.kind === "delete") {
+      return {
+        id: c.id,
+        kind: "drop",
+        entity: "row",
+        title: `Row ${c.row}`,
+        before: row_lines(c.value_columns, c.values, "delete"),
+      };
+    }
+    return {
+      id: c.id,
+      kind: "alter",
+      entity: "cell",
+      title: `Row ${c.row} · ${c.column}`,
+      before: fmt_cell(c.before),
+      after: fmt_cell(c.after),
+    };
+  });
 }
 
 /** Bounding box of the selection net, in row index / display-column index. */

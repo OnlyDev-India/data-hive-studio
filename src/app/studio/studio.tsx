@@ -14,6 +14,7 @@ import {
   type ActivityEntry
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
+import { canManageOrg } from "@/shared/api/client";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { ActivityBar } from "./activity-bar";
@@ -248,7 +249,9 @@ export function Studio() {
   // The admin page exists only while an admin-scoped session is live;
   // otherwise the shell falls back to the landing view.
   const admin_available = useStudioStore((s) =>
-    Object.values(s.serverSessions).some((x) => x.me.is_admin),
+    Object.values(s.serverSessions).some((x) =>
+      canManageOrg(x.me, x.profile.org_id),
+    ),
   );
   const effective_view = view === "admin" && !admin_available ? "home" : view;
   const landing = effective_view === "home";

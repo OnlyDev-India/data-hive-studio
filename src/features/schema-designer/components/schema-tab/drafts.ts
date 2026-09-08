@@ -1,4 +1,5 @@
 import type { DefaultMode, SchemaOp, TableSchema } from "@/shared/api";
+import type { DiffChange } from "@/shared/components/apply-changes-dialog";
 
 /** Types offered in the dropdown. SQLite accepts any declared type; the
  *  PostgreSQL-specific entries only matter for PG connections. */
@@ -462,4 +463,244 @@ export function build_ops(
     });
   }
   return ops;
+}
+
+/** Full "column definition" line for a diff row: `name TYPE [NOT NULL] [DEFAULT x]`. */
+function col_line(
+  name: string,
+  data_type: string,
+  not_null: boolean,
+  default_text: string,
+): string {
+  return [
+    name,
+    data_type || "?",
+    not_null ? "NOT NULL" : null,
+    default_text ? `DEFAULT ${default_text}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** Full "index definition" line for a diff row. */
+function idx_line(name: string, columns: string[], unique: boolean): string {
+  return `${name} ON (${columns.join(", ")})${unique ? " UNIQUE" : ""}`;
+}
+
+/** Mirrors `build_ops`'s traversal/conditions exactly (same order, same
+ *  branches) so the two never disagree on what's about to run — this just
+ *  narrates it for a human instead of emitting `SchemaOp`s. Kept as a
+ *  parallel walk rather than deriving text from the built `ops[]` because
+ *  several op kinds (`alter_column`, `set_primary_key`) only carry the NEW
+ *  value; the "before" side only exists on the draft. */
+export function describe_schema_changes(
+  orig_table: string,
+  new_table: string,
+  cols: ColDraft[],
+  idxs: IdxDraft[],
+  resolve: (n: string) => string,
+  trigs: TriggerDraft[] = [],
+  fks: FkDraft[] = [],
+  schema_pk: string[] = [],
+): DiffChange[] {
+  const out: DiffChange[] = [];
+  let n = 0;
+  const next = () => `c${n++}`;
+
+  if (new_table !== orig_table) {
+    out.push({
+      id: next(),
+      kind: "alter",
+      entity: "table",
+      title: "Table name",
+      before: orig_table,
+      after: new_table,
+    });
+  }
+
+  for (const c of cols) {
+    if (c.dropped && c.orig_name) {
+      out.push({
+        id: next(),
+        kind: "drop",
+        entity: "column",
+        title: c.orig_name,
+        before: col_line(
+          c.orig_name,
+          c.orig_data_type ?? "",
+          !!c.orig_not_null,
+          c.orig_default ?? "",
+        ),
+      });
+    }
+  }
+  for (const c of cols) {
+    if (c.dropped || c.orig_name) continue;
+    const name = c.name.trim();
+    if (!name) continue;
+    out.push({
+      id: next(),
+      kind: "add",
+      entity: "column",
+      title: name,
+      after: col_line(name, c.data_type.trim(), c.not_null, c.default_text),
+    });
+  }
+  for (const c of cols) {
+    if (c.dropped || !c.orig_name) continue;
+    const name = c.name.trim();
+    const type_changed = c.data_type.trim() !== (c.orig_data_type ?? "");
+    const nn_changed = c.not_null !== !!c.orig_not_null;
+    const def_changed = c.default_text !== (c.orig_default ?? "");
+    const renamed = name !== c.orig_name;
+    if (!renamed && !type_changed && !nn_changed && !def_changed) continue;
+    out.push({
+      id: next(),
+      kind: "alter",
+      entity: "column",
+      title: renamed ? `${c.orig_name} → ${name}` : name,
+      before: col_line(
+        c.orig_name,
+        c.orig_data_type ?? "",
+        !!c.orig_not_null,
+        c.orig_default ?? "",
+      ),
+      after: col_line(name, c.data_type.trim(), c.not_null, c.default_text),
+    });
+  }
+
+  const dropped_idx = new Set<string>();
+  for (const ix of idxs) {
+    if (ix.system) continue;
+    if (!ix.orig_name || !ix.dropped) continue;
+    out.push({
+      id: next(),
+      kind: "drop",
+      entity: "index",
+      title: ix.orig_name,
+      before: idx_line(
+        ix.orig_name,
+        ix.orig_columns ?? [],
+        !!ix.orig_unique,
+      ),
+    });
+    dropped_idx.add(ix.id);
+  }
+  for (const ix of idxs) {
+    if (ix.system || ix.dropped) continue;
+    const name = ix.name.trim();
+    if (!name || ix.columns.length === 0) continue;
+    const is_new = ix.orig_name === null;
+    const final_cols = ix.columns.map(resolve);
+    const changed =
+      !is_new &&
+      (name !== ix.orig_name ||
+        ix.unique !== !!ix.orig_unique ||
+        JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns) ||
+        idx_extras_changed(ix));
+    if (!is_new && changed && !dropped_idx.has(ix.id)) {
+      out.push({
+        id: next(),
+        kind: "drop",
+        entity: "index",
+        title: ix.orig_name as string,
+        before: idx_line(
+          ix.orig_name as string,
+          ix.orig_columns ?? [],
+          !!ix.orig_unique,
+        ),
+      });
+    }
+    if (is_new || changed) {
+      out.push({
+        id: next(),
+        kind: "add",
+        entity: "index",
+        title: name,
+        after: idx_line(name, final_cols, ix.unique),
+      });
+    }
+  }
+
+  for (const t of trigs) {
+    if (t.dropped && t.orig_name) {
+      out.push({
+        id: next(),
+        kind: "drop",
+        entity: "trigger",
+        title: t.orig_name,
+        before: t.orig_sql ?? t.orig_name,
+      });
+    }
+  }
+  for (const t of trigs) {
+    if (t.dropped || !trig_is_dirty(t)) continue;
+    if (t.orig_name) {
+      out.push({
+        id: next(),
+        kind: "drop",
+        entity: "trigger",
+        title: t.orig_name,
+        before: t.orig_sql ?? t.orig_name,
+      });
+    }
+    out.push({
+      id: next(),
+      kind: "add",
+      entity: "trigger",
+      title: trigger_name_from_sql(t.sql) || "(unnamed)",
+      after: t.sql.trim(),
+    });
+  }
+
+  const final_pk = cols
+    .filter((c) => !c.dropped && c.primary_key)
+    .map((c) => resolve(c.name.trim()))
+    .filter(Boolean);
+  if (JSON.stringify(final_pk) !== JSON.stringify(schema_pk)) {
+    out.push({
+      id: next(),
+      kind: "alter",
+      entity: "primary key",
+      title: "Primary key",
+      before: schema_pk.length ? `(${schema_pk.join(", ")})` : "(none)",
+      after: final_pk.length ? `(${final_pk.join(", ")})` : "(none)",
+    });
+  }
+
+  for (const f of fks) {
+    if (
+      (!f.dropped && f.orig_name !== null && fk_is_dirty(f)) ||
+      (f.dropped && f.orig_name)
+    ) {
+      out.push({
+        id: next(),
+        kind: "drop",
+        entity: "foreign key",
+        title: f.orig_name as string,
+        before: `${f.orig_name} — ${f.columns.join(", ")} → ${f.ref_table}(${f.ref_columns.join(", ")})`,
+      });
+    }
+  }
+  for (const f of fks) {
+    if (f.dropped || !fk_is_dirty(f)) continue;
+    const cols2 = f.columns.map(resolve).filter(Boolean);
+    if (cols2.length === 0 || !f.ref_table.trim() || f.ref_columns.length === 0)
+      continue;
+    const actions = [
+      f.on_delete && `ON DELETE ${f.on_delete}`,
+      f.on_update && `ON UPDATE ${f.on_update}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    out.push({
+      id: next(),
+      kind: "add",
+      entity: "foreign key",
+      title: `${cols2.join(", ")} → ${f.ref_table}`,
+      after: `${cols2.join(", ")} → ${f.ref_table}(${f.ref_columns.join(", ")})${actions ? ` ${actions}` : ""}`,
+    });
+  }
+
+  return out;
 }

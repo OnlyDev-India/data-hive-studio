@@ -44,8 +44,11 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { ExportMenu } from "@/features/data-export";
 import { NotificationBell } from "@/features/notifications";
-import { ApplyChangesDialog } from "@/shared/components/data-grid/apply-changes-dialog";
-import type { PendingChange } from "@/shared/components/data-grid/grid-context";
+import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
+import {
+  pending_changes_to_diff,
+  type PendingChange,
+} from "@/shared/components/data-grid/grid-context";
 import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
 
 export function ActionBar() {
@@ -293,9 +296,10 @@ export function ActionBar() {
                 </span>
                 <Button
                   size="sm"
-                  className="h-6 px-2 text-xs"
+                  className="h-6 rounded-r-none px-2 text-xs"
                   disabled={schemaEdit.busy || schemaEdit.count === 0}
-                  onClick={() => schemaEdit.apply()}
+                  title="Review and apply the pending schema changes"
+                  onClick={() => schemaEdit.review()}
                 >
                   {schemaEdit.busy ? (
                     <Loader2 className="size-3.5 animate-spin" />
@@ -304,8 +308,32 @@ export function ActionBar() {
                   )}
                   {schemaEdit.busy
                     ? "Applying…"
-                    : `Apply (${schemaEdit.count})`}
+                    : `Review & Apply${schemaEdit.count > 1 ? ` (${schemaEdit.count})` : ""}`}
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        size="iconXs"
+                        disabled={schemaEdit.busy || schemaEdit.count === 0}
+                        aria-label="Pending schema changes options"
+                        title="Pending schema changes options"
+                        className="-ml-0.5 rounded-l-none"
+                      />
+                    }
+                  >
+                    <ChevronUp className="size-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => schemaEdit.apply()}
+                      disabled={schemaEdit.busy}
+                    >
+                      <Check className="size-3.5" />
+                      Apply
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   variant="ghost"
                   size="iconXs"
@@ -434,7 +462,8 @@ export function ActionBar() {
       </footer>
       {apply_changes && bridge && (
         <ApplyChangesDialog
-          changes={apply_changes}
+          changes={pending_changes_to_diff(apply_changes)}
+          selectable
           on_apply={(keepIds) => bridge.apply_pending(keepIds)}
           on_close={() => setApplyChanges(null)}
         />

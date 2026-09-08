@@ -1,15 +1,27 @@
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
 import {
   Checkbox,
 } from "@/shared/components/ui/checkbox";
-import { Check, Cloud, Copy, Eraser, HardDrive, Link2, Save } from "lucide-react";
+import {
+  Check,
+  Cloud,
+  Copy,
+  Eraser,
+  HardDrive,
+  Link2,
+  Save,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import { type FormTabKey } from "./form-tabs";
+import { FilePathInput } from "./file-path-input";
+import { SshFields } from "./ssh-fields";
 
 export interface MongoFormValues {
   name: string;
@@ -24,11 +36,29 @@ export interface MongoFormValues {
   srv: boolean;
   /** Require TLS on a plain mongodb:// connection (srv:// gets it by default). */
   tls: boolean;
+  /** Path to a CA certificate file verifying the server's certificate. */
+  ssl_ca_file: string;
+  /** Path to a client cert+key PEM file for mutual TLS (mTLS) —
+   *  MongoDB's `tlsCertificateKeyFile`, both combined in one file. */
+  ssl_client_cert_file: string;
+  ssh_host: string;
+  ssh_port: string;
+  ssh_user: string;
+  /** "password" | "key". */
+  ssh_auth_mode: string;
+  ssh_password: string;
+  ssh_key_file: string;
+  ssh_key_passphrase: string;
+  ssh_host_key_fingerprint: string;
 }
 
 export interface MongoPanelProps {
   form: MongoFormValues;
   setField: (key: keyof MongoFormValues, value: string | boolean) => void;
+  // Which section tab (General/SSH/SSL) is active — owned by the parent so
+  // the tab bar itself can render above the card, where the old
+  // per-database-type tabs used to live.
+  tab: FormTabKey;
   testing: boolean;
   test_ok: boolean | null;
   test_error: string | null;
@@ -58,6 +88,7 @@ export interface MongoPanelProps {
 export function MongoPanel({
   form,
   setField,
+  tab,
   testing,
   test_ok,
   test_error,
@@ -80,6 +111,7 @@ export function MongoPanel({
   onClear,
 }: MongoPanelProps) {
   const disabled = connecting || testing || form.database.trim().length === 0;
+  const tls_active = form.srv || form.tls;
 
   return (
     <>
@@ -121,74 +153,133 @@ export function MongoPanel({
       </div>
       {url_error && <p className="text-destructive text-xs">{url_error}</p>}
 
-      {/* Connection fields */}
-      <div className="grid grid-cols-[1fr_5rem] gap-2">
-        <Input
-          placeholder="host"
-          value={form.host}
-          onChange={(e) => setField("host", e.target.value)}
-        />
-        <Input
-          placeholder="port"
-          inputMode="numeric"
-          value={form.port}
-          onChange={(e) => setField("port", e.target.value)}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          placeholder="user"
-          value={form.user}
-          onChange={(e) => setField("user", e.target.value)}
-        />
-        <Input
-          type="password"
-          placeholder="password"
-          value={form.password}
-          onChange={(e) => setField("password", e.target.value)}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          placeholder="database"
-          value={form.database}
-          onChange={(e) => setField("database", e.target.value)}
-        />
-        <Input
-          placeholder="auth source (admin)"
-          value={form.auth_db}
-          onChange={(e) => setField("auth_db", e.target.value)}
-        />
-      </div>
+      {tab === "general" && (
+        <div className="flex flex-col gap-3 pt-1">
+          <div className="grid grid-cols-[1fr_5rem] gap-2">
+            <Input
+              placeholder={
+                form.srv ? "host" : "host, or host1:port1,host2:port2,..."
+              }
+              value={form.host}
+              onChange={(e) => setField("host", e.target.value)}
+            />
+            <Input
+              placeholder="port"
+              inputMode="numeric"
+              value={form.port}
+              onChange={(e) => setField("port", e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              placeholder="user"
+              value={form.user}
+              onChange={(e) => setField("user", e.target.value)}
+            />
+            <Input
+              type="password"
+              placeholder="password"
+              value={form.password}
+              onChange={(e) => setField("password", e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              placeholder="database"
+              value={form.database}
+              onChange={(e) => setField("database", e.target.value)}
+            />
+            <Input
+              placeholder="auth source (admin)"
+              value={form.auth_db}
+              onChange={(e) => setField("auth_db", e.target.value)}
+            />
+          </div>
 
-      {/* SRV checkbox */}
-      <div className="flex items-center gap-2">
-        <Checkbox
-          checked={form.srv}
-          onCheckedChange={(checked) => setField("srv", checked)}
-        />
-        <label className="text-sm text-muted-foreground">Use mongodb+srv:// (DNS seedlist, no port)</label>
-      </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={form.srv}
+              onCheckedChange={(checked) => setField("srv", checked)}
+            />
+            <label className="text-muted-foreground text-sm">
+              Use mongodb+srv:// (DNS seedlist, no port)
+            </label>
+          </div>
 
-      {/* TLS checkbox — mongodb+srv:// already gets TLS by default, so this
-          only matters (and is only shown) for a plain mongodb:// connection. */}
-      {!form.srv && (
-        <div className="flex items-center gap-2">
-          <Checkbox
-            checked={form.tls}
-            onCheckedChange={(checked) => setField("tls", checked)}
+          <Input
+            placeholder="connection name (optional)"
+            value={form.name}
+            onChange={(e) => setField("name", e.target.value)}
           />
-          <label className="text-sm text-muted-foreground">Require TLS</label>
         </div>
       )}
 
-      <Input
-        placeholder="connection name (optional)"
-        value={form.name}
-        onChange={(e) => setField("name", e.target.value)}
-      />
+      {tab === "ssh" &&
+        (form.srv ? (
+          <p className="text-muted-foreground py-6 text-center text-xs">
+            An SSH tunnel can't be combined with mongodb+srv:// — turn off
+            "DNS seedlist" in the General tab and list the replica set
+            members directly in the Host field instead.
+          </p>
+        ) : (
+          <div className="pt-1">
+            <SshFields value={form} onChange={(key, value) => setField(key, value)} />
+          </div>
+        ))}
 
-      <div className="flex gap-2">
+      {tab === "ssl" && (
+        <div className="flex flex-col gap-3 pt-1">
+          {/* Always visible — mongodb+srv:// already implies TLS, so the
+              checkbox is checked and locked in that case, but still shown,
+              so it's clear WHY the cert fields below appear instead of
+              them just materializing with no explanation. */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={tls_active}
+              disabled={form.srv}
+              onCheckedChange={(checked) => setField("tls", checked)}
+            />
+            <label className="text-muted-foreground text-sm">
+              Require TLS
+              {form.srv && " (implied by mongodb+srv://)"}
+            </label>
+          </div>
+
+          {tls_active && (
+            <div className="grid gap-2">
+              {/* Both optional: the driver verifies against the public CA
+                  trust store by default, so a server with a normally-signed
+                  certificate (Atlas, etc.) needs neither of these — they
+                  only matter for a self-signed/private-CA server, or one
+                  that specifically demands a client certificate (mTLS). */}
+              <div className="grid gap-1">
+                <Label className="text-muted-foreground text-[11px] font-normal">
+                  CA certificate file (optional — only needed for a
+                  self-signed or private-CA server)
+                </Label>
+                <FilePathInput
+                  placeholder="/path/to/ca.pem"
+                  value={form.ssl_ca_file}
+                  onChange={(v) => setField("ssl_ca_file", v)}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-muted-foreground text-[11px] font-normal">
+                  Client certificate + key (optional, for mTLS — one
+                  combined PEM file)
+                </Label>
+                <FilePathInput
+                  placeholder="/path/to/client.pem"
+                  value={form.ssl_client_cert_file}
+                  onChange={(v) => setField("ssl_client_cert_file", v)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1">
         <Button
           variant="outline"
           onClick={onTest}

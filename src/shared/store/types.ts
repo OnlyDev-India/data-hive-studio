@@ -130,9 +130,15 @@ export interface SchemaEditHandle {
   /** True while an Apply is in flight — the status bar disables the buttons
    *  and shows a spinner on Apply. */
   busy: boolean;
-  /** Runs the batch; resolves when the transaction finished (success or
-   *  rolled-back failure), so close-guards can await it. */
+  /** Runs the batch directly (no review dialog); resolves when the
+   *  transaction finished (success or rolled-back failure), so close-guards
+   *  can await it. */
   apply: () => void | Promise<void>;
+  /** Opens the review dialog (a diff of every staged change); the actual
+   *  run only happens once the user confirms there. Used by the action
+   *  bar's primary button — `apply` stays the direct/no-dialog path for
+   *  close-guards and the dropdown's "Apply" option. */
+  review: () => void;
   discard: () => void;
 }
 
@@ -240,6 +246,26 @@ export interface SavedConnParams {
   srv?: boolean;
   /** MongoDB only: require TLS on a plain mongodb:// connection. */
   tls?: boolean;
+  /** Path to a CA certificate file verifying the server's certificate. */
+  ssl_ca_file?: string;
+  /** Path to a client certificate for mutual TLS (mTLS). PostgreSQL: paired
+   *  with `ssl_client_key_file`. MongoDB: a single PEM with both the
+   *  certificate and its (unencrypted) private key. */
+  ssl_client_cert_file?: string;
+  /** PostgreSQL only: path to the client certificate's private key file. */
+  ssl_client_key_file?: string;
+  /** Reach the database through an SSH tunnel — a set `ssh_host` is what
+   *  means "enabled" here, mirroring `SshConfig` on the Rust side. */
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  /** "password" | "key". */
+  ssh_auth_mode?: string;
+  ssh_key_file?: string;
+  /** Trust-on-first-use host key pin — see `ssh_tunnel::SshConfig`. */
+  ssh_host_key_fingerprint?: string;
+  ssh_password?: string;
+  ssh_key_passphrase?: string;
   /** SQLite only: real file path prefilled into the connect form. */
   source_path?: string | null;
 }
@@ -581,11 +607,11 @@ export interface StudioStore {
   serverSessions: Record<
     string,
     {
-      profile: { id: string; name: string; url: string };
-      me: { device_id: string; is_admin: boolean };
+      profile: { id: string; name: string; url: string; org_id: string };
+      me: import("@/shared/api/server-admin").MeResult;
       /** Granted connections as namespaced ids (`srv:<profile>:<conn>`). */
       connIds: string[];
-      /** Full shared-connection entries incl. this device's access level. */
+      /** Full shared-connection entries incl. this user's effective access. */
       connections: {
         id: string;
         name: string;
@@ -599,8 +625,8 @@ export interface StudioStore {
         auth_db?: string;
         srv?: boolean;
         tls?: boolean;
-        data_access: "readonly" | "readwrite";
-        can_edit: boolean;
+        can_read: boolean;
+        can_update: boolean;
         can_delete: boolean;
       }[];
     }
