@@ -315,8 +315,8 @@ export function MongoPanel({
             {!is_document_db && (
               <p className="text-muted-foreground text-2xs">
                 For Amazon DocumentDB: TLS above with a downloaded{" "}
-                <code className="text-3xs">global-bundle.pem</code> as
-                the CA certificate, plus both fields below.
+                <code className="text-3xs">global-bundle.pem</code> as the CA
+                certificate, plus both fields below.
               </p>
             )}
             <div className="flex items-center gap-2">
@@ -470,7 +470,7 @@ export function MongoPanel({
                 >
                   <Cloud className="size-3.5" />
                   {s.profile.name}
-                  <span className="text-muted-foreground ml-auto text-3xs">
+                  <span className="text-muted-foreground text-3xs ml-auto">
                     shared
                   </span>
                 </DropdownMenuItem>

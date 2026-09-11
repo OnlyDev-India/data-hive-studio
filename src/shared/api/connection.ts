@@ -502,20 +502,27 @@ export function tableSchema(
   database?: string,
   schema?: string,
 ): Promise<TableSchema> {
-  return dedupe(`schema:${connId} ${database ?? ""} ${schema ?? ""} ${table}`, () =>
-    dispatchDbCall<TableSchema>(connId, {
-      httpMethod: "GET",
-      httpPath: (id) => {
-        const query = new URLSearchParams();
-        if (database) query.set("database", database);
-        if (schema) query.set("schema", schema);
-        const qs = query.toString();
-        return `/v1/c/${encodeURIComponent(id)}/schema/${encodeURIComponent(table)}${qs ? `?${qs}` : ""}`;
-      },
-      serverCmd: "server_table_schema",
-      localCmd: "table_schema",
-      args: { connId, database: database ?? null, schema: schema ?? null, table },
-    }),
+  return dedupe(
+    `schema:${connId} ${database ?? ""} ${schema ?? ""} ${table}`,
+    () =>
+      dispatchDbCall<TableSchema>(connId, {
+        httpMethod: "GET",
+        httpPath: (id) => {
+          const query = new URLSearchParams();
+          if (database) query.set("database", database);
+          if (schema) query.set("schema", schema);
+          const qs = query.toString();
+          return `/v1/c/${encodeURIComponent(id)}/schema/${encodeURIComponent(table)}${qs ? `?${qs}` : ""}`;
+        },
+        serverCmd: "server_table_schema",
+        localCmd: "table_schema",
+        args: {
+          connId,
+          database: database ?? null,
+          schema: schema ?? null,
+          table,
+        },
+      }),
   );
 }
 
@@ -589,7 +596,14 @@ export async function duplicateTable(
     },
     serverCmd: "server_duplicate_table",
     localCmd: "duplicate_table",
-    args: { connId, database: database ?? null, schema: schema ?? null, source, target, copyData },
+    args: {
+      connId,
+      database: database ?? null,
+      schema: schema ?? null,
+      source,
+      target,
+      copyData,
+    },
   });
 }
 

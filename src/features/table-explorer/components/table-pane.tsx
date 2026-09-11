@@ -220,7 +220,7 @@ export function TablePane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex shrink-0 items-center gap-1 border-b px-3 min-h-8">
+      <div className="bg-background flex min-h-8 shrink-0 items-center gap-1 border-b px-3">
         {/* Views/matviews have no editable schema — hide the Schema tab. */}
         {is_table ? (
           <ModeTabs

@@ -229,7 +229,8 @@ export async function fetchSiblingTables(
   const results = await Promise.allSettled(
     siblings.map((db) =>
       listSchemaObjects(connId, isMongo ? "" : "public", "table", db).then(
-        (objs) => objs.map((o) => ({ name: o.name, kind: "table", database: db })),
+        (objs) =>
+          objs.map((o) => ({ name: o.name, kind: "table", database: db })),
       ),
     ),
   );
@@ -378,13 +379,17 @@ export function buildOpenTabItems(): PaletteItem[] {
  *  of DOM nodes at once. */
 const PREVIEW_COUNT = 8;
 const MATCH_CAP = 50;
-function previewOrMatch(tables: PaletteTable[] | null, query: string): PaletteTable[] {
+function previewOrMatch(
+  tables: PaletteTable[] | null,
+  query: string,
+): PaletteTable[] {
   const source = tables ?? [];
   const q = query.trim().toLowerCase();
   if (!q) return source.slice(0, PREVIEW_COUNT);
   return source
     .filter(
-      (t) => t.name.toLowerCase().includes(q) || t.kind.toLowerCase().includes(q),
+      (t) =>
+        t.name.toLowerCase().includes(q) || t.kind.toLowerCase().includes(q),
     )
     .slice(0, MATCH_CAP);
 }
@@ -423,8 +428,16 @@ export function buildTableItems(
     section: noun,
     icon: <Table2 className="size-4" />,
     run: () => {
-      if (is_mongo) void openMongoCollection(active_conn.id, t.name, t.database);
-      else s.openTable(active_conn.id, t.name, undefined, t.database, t.database ? "public" : undefined);
+      if (is_mongo)
+        void openMongoCollection(active_conn.id, t.name, t.database);
+      else
+        s.openTable(
+          active_conn.id,
+          t.name,
+          undefined,
+          t.database,
+          t.database ? "public" : undefined,
+        );
     },
   }));
 }
@@ -544,8 +557,15 @@ export function buildSchemaOpenItems(
     scope: t.database,
     icon: <Table2 className="size-4" />,
     run: () => {
-      if (is_mongo) void openMongoCollectionSchema(active_conn.id, t.name, t.database);
-      else s.openStructure(active_conn.id, t.name, t.database, t.database ? "public" : undefined);
+      if (is_mongo)
+        void openMongoCollectionSchema(active_conn.id, t.name, t.database);
+      else
+        s.openStructure(
+          active_conn.id,
+          t.name,
+          t.database,
+          t.database ? "public" : undefined,
+        );
     },
   }));
 }

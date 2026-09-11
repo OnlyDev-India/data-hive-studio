@@ -92,7 +92,8 @@ export function TreeToggleRow({
               // (gray when disconnected, its real color once connected) —
               // every other kind (schema, roles, table/view/procedure/…)
               // always shows its own semantic color, at any depth.
-              "[&>svg]:text-muted-foreground": kind === "database" && !icon_badge,
+              "[&>svg]:text-muted-foreground":
+                kind === "database" && !icon_badge,
             })}
           >
             {icon}

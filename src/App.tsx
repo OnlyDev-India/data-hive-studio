@@ -40,9 +40,7 @@ function App() {
     const on_context_menu = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (
-        target?.closest(
-          "input, textarea, [contenteditable='true'], .cm-editor",
-        )
+        target?.closest("input, textarea, [contenteditable='true'], .cm-editor")
       ) {
         return;
       }
@@ -56,7 +54,10 @@ function App() {
   // `runStartupBootstrap`'s own check only ever fires once, at launch.
   useEffect(() => {
     if (WEB) return;
-    const id = setInterval(() => void checkForUpdate(), UPDATE_CHECK_INTERVAL_MS);
+    const id = setInterval(
+      () => void checkForUpdate(),
+      UPDATE_CHECK_INTERVAL_MS,
+    );
     return () => clearInterval(id);
   }, []);
 

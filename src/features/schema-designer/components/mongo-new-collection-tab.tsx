@@ -69,7 +69,8 @@ export function MongoNewCollectionTab({
   const trimmed = name.trim();
   const valid = trimmed !== "";
   const has_draft = trimmed !== "";
-  const target_database = database && database !== own_database ? database : undefined;
+  const target_database =
+    database && database !== own_database ? database : undefined;
 
   const do_create = async () => {
     if (creating || !valid) return;
@@ -82,7 +83,9 @@ export function MongoNewCollectionTab({
         detail: `db.createCollection("${trimmed}")${database ? ` on ${database}` : ""}`,
       });
       on_modified();
-      useStudioStore.getState().openMongo(conn_id, database || own_database, trimmed);
+      useStudioStore
+        .getState()
+        .openMongo(conn_id, database || own_database, trimmed);
     } catch (e) {
       push_notification({
         kind: "error",
@@ -141,7 +144,10 @@ export function MongoNewCollectionTab({
         </div>
         <div className="grid gap-2">
           <label className="text-sm font-medium">Database</label>
-          <Select value={database || undefined} onValueChange={(v) => v && setDatabase(v)}>
+          <Select
+            value={database || undefined}
+            onValueChange={(v) => v && setDatabase(v)}
+          >
             <SelectTrigger className="w-44" size="sm">
               <SelectValue />
             </SelectTrigger>
@@ -164,15 +170,17 @@ export function MongoNewCollectionTab({
         </div>
         <pre className="bg-muted/50 max-h-40 overflow-auto rounded p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
           <code>
-            {trimmed ? `db.createCollection("${trimmed}")` : "Enter a collection name."}
+            {trimmed
+              ? `db.createCollection("${trimmed}")`
+              : "Enter a collection name."}
           </code>
         </pre>
       </div>
 
       <p className="text-muted-foreground text-xs">
-        MongoDB is schemaless — there's nothing else to define here. Add
-        fields by inserting documents once the collection is open, and
-        manage indexes from its Schema tab.
+        MongoDB is schemaless — there's nothing else to define here. Add fields
+        by inserting documents once the collection is open, and manage indexes
+        from its Schema tab.
       </p>
     </div>
   );

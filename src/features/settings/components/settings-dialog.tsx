@@ -76,7 +76,7 @@ export function SettingsDialog({
                 ))}
               </div>
             </ResizablePanel>
-            <ResizableHandle className="bg-transparent hover:bg-accent active:bg-primary/60" />
+            <ResizableHandle className="hover:bg-accent active:bg-primary/60 bg-transparent" />
             <ResizablePanel defaultSize="74%" minSize="50%">
               <div className="h-full w-full overflow-y-auto p-6">
                 {section === "appearance" && <AppearanceSection />}

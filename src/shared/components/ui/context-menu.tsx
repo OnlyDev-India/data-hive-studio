@@ -99,7 +99,7 @@ function ContextMenuItem({
       data-variant={variant}
       onClick={onSelect}
       className={cn(
-        "data-highlighted:bg-accent data-highlighted:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:data-highlighted:bg-destructive/10 data-[variant=destructive]:data-highlighted:text-destructive relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-inset:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 h-6.5",
+        "data-highlighted:bg-accent data-highlighted:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:data-highlighted:bg-destructive/10 data-[variant=destructive]:data-highlighted:text-destructive relative flex h-6.5 cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-inset:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -166,10 +166,7 @@ function ContextMenuLabel({
     <ContextMenuPrimitive.GroupLabel
       data-slot="context-menu-label"
       data-inset={inset}
-      className={cn(
-        "px-2 py-1 text-xs font-medium data-inset:pl-8",
-        className,
-      )}
+      className={cn("px-2 py-1 text-xs font-medium data-inset:pl-8", className)}
       {...props}
     />
   );

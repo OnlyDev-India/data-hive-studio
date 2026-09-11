@@ -130,7 +130,10 @@ function UpdateBadgeButton({ className }: { className?: string }) {
     if (announced_version.current === updateInfo.version) return;
     announced_version.current = updateInfo.version;
     setCalloutOpen(true);
-    const t = setTimeout(() => setCalloutOpen(false), UPDATE_CALLOUT_AUTO_DISMISS_MS);
+    const t = setTimeout(
+      () => setCalloutOpen(false),
+      UPDATE_CALLOUT_AUTO_DISMISS_MS,
+    );
     return () => clearTimeout(t);
   }, [updateInfo, skippedVersion]);
 

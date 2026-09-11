@@ -43,8 +43,18 @@ describe("schemaDesignerActions", () => {
 
   it("setNewTable/clearNewTable register and remove by key, independent of other keys", () => {
     const store = makeStore();
-    const a = { create: vi.fn(), creating: false, valid: true, has_draft: true };
-    const b = { create: vi.fn(), creating: false, valid: false, has_draft: false };
+    const a = {
+      create: vi.fn(),
+      creating: false,
+      valid: true,
+      has_draft: true,
+    };
+    const b = {
+      create: vi.fn(),
+      creating: false,
+      valid: false,
+      has_draft: false,
+    };
     store.getState().setNewTable("a", a);
     store.getState().setNewTable("b", b);
     store.getState().clearNewTable("a");

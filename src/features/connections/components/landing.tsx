@@ -604,7 +604,9 @@ export function Landing() {
     pool_min: optionalNumber(mongo.pool_min),
     connect_timeout_secs: optionalNumber(mongo.connect_timeout_secs),
     idle_timeout_secs: optionalNumber(mongo.idle_timeout_secs),
-    server_selection_timeout_secs: optionalNumber(mongo.server_selection_timeout_secs),
+    server_selection_timeout_secs: optionalNumber(
+      mongo.server_selection_timeout_secs,
+    ),
     // Rejected server-side too (mixing srv:// with a tunnel makes no sense
     // — SRV resolves to however many hosts the DNS records list), but skip
     // even sending it in that case so the error is unambiguous.
@@ -1000,7 +1002,9 @@ export function Landing() {
           pool_max: m.pool_max != null ? String(m.pool_max) : "",
           pool_min: m.pool_min != null ? String(m.pool_min) : "",
           connect_timeout_secs:
-            m.connect_timeout_secs != null ? String(m.connect_timeout_secs) : "",
+            m.connect_timeout_secs != null
+              ? String(m.connect_timeout_secs)
+              : "",
           idle_timeout_secs:
             m.idle_timeout_secs != null ? String(m.idle_timeout_secs) : "",
           server_selection_timeout_secs:
@@ -1037,7 +1041,9 @@ export function Landing() {
           pool_max: pgv.pool_max != null ? String(pgv.pool_max) : "",
           pool_min: pgv.pool_min != null ? String(pgv.pool_min) : "",
           connect_timeout_secs:
-            pgv.connect_timeout_secs != null ? String(pgv.connect_timeout_secs) : "",
+            pgv.connect_timeout_secs != null
+              ? String(pgv.connect_timeout_secs)
+              : "",
           idle_timeout_secs:
             pgv.idle_timeout_secs != null ? String(pgv.idle_timeout_secs) : "",
           max_lifetime_secs:

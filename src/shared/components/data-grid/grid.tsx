@@ -166,13 +166,11 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // banner. Cleared automatically whenever a new op starts/succeeds.
   useEffect(() => {
     if (op_error) {
-      useStudioStore
-        .getState()
-        .pushNotification({
-          kind: "error",
-          title: "Operation failed",
-          detail: op_error,
-        });
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Operation failed",
+        detail: op_error,
+      });
     }
   }, [op_error]);
 

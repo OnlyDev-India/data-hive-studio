@@ -22,12 +22,7 @@ export type DistinctMap = Record<string, (string | null)[]>;
 
 /** The editor widget a cell gets, based on its declared type and distinct values. */
 export type CellKind =
-  | "text"
-  | "bool"
-  | "date"
-  | "datetime"
-  | "dropdown"
-  | "array";
+  "text" | "bool" | "date" | "datetime" | "dropdown" | "array";
 
 /** A filter row built from the UI: column + operator + optional value. */
 export interface GridFilter {

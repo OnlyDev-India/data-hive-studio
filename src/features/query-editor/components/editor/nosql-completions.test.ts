@@ -6,8 +6,20 @@ import type { TableSchema } from "@/shared/api";
 const schemas: Record<string, TableSchema> = {
   teams: {
     columns: [
-      { name: "name", data_type: "string", not_null: false, primary_key: false, default: null },
-      { name: "age", data_type: "int", not_null: false, primary_key: false, default: null },
+      {
+        name: "name",
+        data_type: "string",
+        not_null: false,
+        primary_key: false,
+        default: null,
+      },
+      {
+        name: "age",
+        data_type: "int",
+        not_null: false,
+        primary_key: false,
+        default: null,
+      },
     ],
     foreign_keys: [],
     indexes: [],
@@ -18,11 +30,14 @@ const schemas: Record<string, TableSchema> = {
 vi.mock("@/shared/api", () => ({
   tableSchema: vi.fn((_connId: string, table: string) => {
     const s = schemas[table];
-    return s ? Promise.resolve(s) : Promise.reject(new Error("no such collection"));
+    return s
+      ? Promise.resolve(s)
+      : Promise.reject(new Error("no such collection"));
   }),
 }));
 
-const { nosqlConsoleCompletions, NOSQL_SHELL_COMPLETIONS } = await import("./nosql-completions");
+const { nosqlConsoleCompletions, NOSQL_SHELL_COMPLETIONS } =
+  await import("./nosql-completions");
 
 function ctxFor(doc: string, pos = doc.length) {
   const state = EditorState.create({ doc });
@@ -33,7 +48,11 @@ describe("nosqlConsoleCompletions", () => {
   const collections = [{ label: "teams", type: "property" as const }];
 
   it("suggests collections + db-level aggregate right after db. — never collection methods", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db."));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("teams");
@@ -45,7 +64,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests ONLY (collection) methods right after db.<collection>. — never collections", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams."));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("aggregate");
@@ -54,18 +77,21 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("filters collections by partial prefix (db.te)", async () => {
-    const source = nosqlConsoleCompletions(
-      "c1",
-      NOSQL_SHELL_COMPLETIONS,
-      [{ label: "teams", type: "property" }, { label: "orders", type: "property" }],
-    );
+    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, [
+      { label: "teams", type: "property" },
+      { label: "orders", type: "property" },
+    ]);
     const result = await source(ctxFor("db.te"));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("teams");
   });
 
   it("suggests field names + top-level logical operators at a find() filter's top level", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams.find({"));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("name");
@@ -77,7 +103,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests field names when typing inside an open quote for a key", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const doc = 'db.teams.find({"na';
     const result = await source(ctxFor(doc));
     const labels = result?.options.map((o) => o.label) ?? [];
@@ -87,7 +117,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests comparison operators one level inside a field's condition object", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams.find({age: {"));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("$gt");
@@ -99,7 +133,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests aggregation stage names as a pipeline stage's key", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams.aggregate([{"));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("$match");
@@ -108,7 +146,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests field names inside a $match stage's own filter body", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams.aggregate([{$match: {"));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("name");
@@ -116,7 +158,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests update operators at an update document's top level (2nd arg)", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor('db.teams.updateOne({name:"a"}, {'));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("$set");
@@ -125,8 +171,14 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests field names inside $set's value (2nd arg, one level deeper)", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
-    const result = await source(ctxFor('db.teams.updateOne({name:"a"}, {$set: {'));
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
+    const result = await source(
+      ctxFor('db.teams.updateOne({name:"a"}, {$set: {'),
+    );
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("name");
     expect(labels).toContain("age");
@@ -134,7 +186,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("suggests only field names (no operators) inside insertOne's document", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams.insertOne({"));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("name");
@@ -142,7 +198,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("operator completions insert a snippet, not just the bare key", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor("db.teams.find({"));
     const and = result?.options.find((o) => o.label === "$and");
     const gt = (await source(ctxFor("db.teams.find({age: {")))?.options.find(
@@ -153,7 +213,11 @@ describe("nosqlConsoleCompletions", () => {
   });
 
   it("returns null (falls through) at a value position, not a key position", async () => {
-    const source = nosqlConsoleCompletions("c1", NOSQL_SHELL_COMPLETIONS, collections);
+    const source = nosqlConsoleCompletions(
+      "c1",
+      NOSQL_SHELL_COMPLETIONS,
+      collections,
+    );
     const result = await source(ctxFor('db.teams.find({name: "a'));
     // No static suggestion list applies to a string VALUE — shell fallback
     // prefix-matches against methods/collections/keywords, none of which

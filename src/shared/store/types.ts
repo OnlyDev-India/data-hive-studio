@@ -533,7 +533,9 @@ export interface StudioStore {
    *  handle (with `.downloadAndInstall()`) isn't stored here — it's not
    *  serializable, so it lives in a module-level singleton in that file. */
   updateInfo: { version: string; body: string | null } | null;
-  setUpdateInfo: (info: { version: string; body: string | null } | null) => void;
+  setUpdateInfo: (
+    info: { version: string; body: string | null } | null,
+  ) => void;
   /** The update dialog's open state — shown from the title-bar badge or the
    *  Help menu's "Check for Updates…". */
   updateDialogOpen: boolean;

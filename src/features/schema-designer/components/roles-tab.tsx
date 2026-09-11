@@ -96,13 +96,11 @@ export function RolesTab({ conn_id }: { conn_id: string; tab_key: string }) {
                 onClick={() => setSelected(r.name)}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                  active?.name === r.name
-                    ? "bg-accent"
-                    : "hover:bg-accent/50",
+                  active?.name === r.name ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
                 {r.superuser ? (
-                  <ShieldCheck className="text-amber-500 size-3.5 shrink-0" />
+                  <ShieldCheck className="size-3.5 shrink-0 text-amber-500" />
                 ) : (
                   <Users className="text-muted-foreground size-3.5 shrink-0" />
                 )}
@@ -123,7 +121,7 @@ export function RolesTab({ conn_id }: { conn_id: string; tab_key: string }) {
           <div className="mx-auto flex max-w-2xl flex-col gap-4">
             <div className="flex items-center gap-2">
               {active.superuser ? (
-                <ShieldCheck className="text-amber-500 size-4 shrink-0" />
+                <ShieldCheck className="size-4 shrink-0 text-amber-500" />
               ) : (
                 <Users className="text-muted-foreground size-4 shrink-0" />
               )}
@@ -141,7 +139,7 @@ export function RolesTab({ conn_id }: { conn_id: string; tab_key: string }) {
                 active.attributes.map((a) => (
                   <span
                     key={a}
-                    className="bg-accent rounded px-1.5 py-px text-2xs font-medium"
+                    className="bg-accent text-2xs rounded px-1.5 py-px font-medium"
                   >
                     {a}
                   </span>
@@ -163,9 +161,7 @@ export function RolesTab({ conn_id }: { conn_id: string; tab_key: string }) {
               </Field>
             </div>
 
-            {active.comment && (
-              <Field label="Comment">{active.comment}</Field>
-            )}
+            {active.comment && <Field label="Comment">{active.comment}</Field>}
           </div>
         )}
       </div>

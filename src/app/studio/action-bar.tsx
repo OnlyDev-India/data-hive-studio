@@ -124,7 +124,7 @@ export function ActionBar() {
             {conn ? conn.name : "No connection"}
           </span>
           {conn && (
-            <span className="shrink-0 text-3xs tracking-wide uppercase">
+            <span className="text-3xs shrink-0 tracking-wide uppercase">
               {prettyKind(conn.kind)}
             </span>
           )}
@@ -153,7 +153,7 @@ export function ActionBar() {
                   </span>
                   {query_preview && (
                     <code
-                      className="text-muted-foreground/70 min-w-0 truncate font-mono text-2xs"
+                      className="text-muted-foreground/70 text-2xs min-w-0 truncate font-mono"
                       title={query_preview}
                     >
                       {query_preview}
@@ -459,7 +459,7 @@ function Pagination({
       >
         <ChevronLeft className="size-3.5" />
       </Button>
-      <span className="flex h-6 shrink-0 items-center border-x px-1.5 text-2xs">
+      <span className="text-2xs flex h-6 shrink-0 items-center border-x px-1.5">
         {bridge.page + 1} / {bridge.total_pages}
       </span>
       <Button

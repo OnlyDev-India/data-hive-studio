@@ -1,2 +1,2 @@
 export { TablePane } from "./components/table-pane";
-export { MongoCollectionPane } from './components/mongo-collection-pane';
+export { MongoCollectionPane } from "./components/mongo-collection-pane";

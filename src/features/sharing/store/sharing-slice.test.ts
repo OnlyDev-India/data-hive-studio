@@ -38,7 +38,15 @@ function session(overrides?: { connId?: string }) {
       user_id: "u1",
       email: "alice@example.test",
       name: "Alice",
-      orgs: [{ id: "org1", name: "Team", slug: "team", created_ms: 0, role: "member" as const }],
+      orgs: [
+        {
+          id: "org1",
+          name: "Team",
+          slug: "team",
+          created_ms: 0,
+          role: "member" as const,
+        },
+      ],
     },
     connections: [
       {

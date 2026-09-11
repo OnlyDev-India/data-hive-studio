@@ -52,7 +52,7 @@ engine) and React — small installs, native performance.
 ## Features
 
 - **Multi-database**: SQLite (open a local `.db` file directly), PostgreSQL,
-  and MongoDB — MongoDB gets full CRUD grid editing *and* the SQL editor
+  and MongoDB — MongoDB gets full CRUD grid editing _and_ the SQL editor
   (queries translate to `find`/`aggregate`), not a stripped-down mode.
 - **Spreadsheet-style data grid**: inline cell editing per data type, foreign
   key cells jump to the referenced row, multi-cell selection, context menu
@@ -88,11 +88,11 @@ Grab the latest build for macOS, Windows, or Linux from
 
 Builds aren't code-signed yet, so first launch needs one extra step:
 
-| Platform | First-launch step |
-| --- | --- |
-| macOS | Gatekeeper blocks unsigned apps. Run `xattr -cr "/Applications/DH Studio.app"` once in Terminal, then open normally. |
-| Windows | SmartScreen shows "Windows protected your PC". Click **More info** → **Run anyway**. |
-| Linux | `.deb`/`.rpm` install normally. For `.AppImage`, `chmod +x` it first (needs `libfuse2` on Ubuntu 22.04+). |
+| Platform | First-launch step                                                                                                    |
+| -------- | -------------------------------------------------------------------------------------------------------------------- |
+| macOS    | Gatekeeper blocks unsigned apps. Run `xattr -cr "/Applications/DH Studio.app"` once in Terminal, then open normally. |
+| Windows  | SmartScreen shows "Windows protected your PC". Click **More info** → **Run anyway**.                                 |
+| Linux    | `.deb`/`.rpm` install normally. For `.AppImage`, `chmod +x` it first (needs `libfuse2` on Ubuntu 22.04+).            |
 
 Full details are on each [release page](https://github.com/abhishek-dagar/data-hive-studio/releases).
 

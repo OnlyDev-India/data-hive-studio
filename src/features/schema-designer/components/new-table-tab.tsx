@@ -250,7 +250,8 @@ export function NewTableTab({
   // passing `undefined` (rather than the resolved name) keeps `runSql`'s
   // activity-log entry and the connection's secondary-pool bookkeeping
   // identical to how every OTHER "app" query already targets its own db.
-  const target_database = database && database !== own_database ? database : undefined;
+  const target_database =
+    database && database !== own_database ? database : undefined;
 
   // Per-database schema list + default schema, cached by database name so
   // switching back and forth between databases (own included) instantly
@@ -258,7 +259,9 @@ export function NewTableTab({
   // database's schemas on screen — a plain "last database fetched" ref
   // can't tell "already have this one cached" apart from "just came from
   // this one," so a real per-key cache is needed, not a single slot.
-  const schemas_cache = useRef<Record<string, { list: string[]; default_schema: string }>>({});
+  const schemas_cache = useRef<
+    Record<string, { list: string[]; default_schema: string }>
+  >({});
 
   useEffect(() => {
     if (!is_pg) return;
@@ -273,7 +276,10 @@ export function NewTableTab({
         // current active schema — same rule the switch effect below uses,
         // so picking a database (own included) always behaves the same way.
         const default_schema = overview.schemas[0] ?? "public";
-        schemas_cache.current[own_database] = { list: overview.schemas, default_schema };
+        schemas_cache.current[own_database] = {
+          list: overview.schemas,
+          default_schema,
+        };
         setDatabases(overview.databases);
         setSchemas(overview.schemas);
         setDatabase(own_database);
@@ -335,7 +341,12 @@ export function NewTableTab({
     void (async () => {
       try {
         const objects = is_pg
-          ? await listSchemaObjects(conn_id, schema || "public", "table", target_database)
+          ? await listSchemaObjects(
+              conn_id,
+              schema || "public",
+              "table",
+              target_database,
+            )
           : await listSchemaObjects(conn_id, "", "table");
         if (!cancelled) setTableNames(objects.map((o) => o.name));
       } catch {
@@ -353,7 +364,12 @@ export function NewTableTab({
     const cached = ref_meta[ref_table];
     if (cached) return cached;
     try {
-      const schema_info = await tableSchema(conn_id, ref_table, target_database, is_pg ? schema : undefined);
+      const schema_info = await tableSchema(
+        conn_id,
+        ref_table,
+        target_database,
+        is_pg ? schema : undefined,
+      );
       const cols = schema_info.columns.map((c) => c.name);
       const pk_cols = schema_info.columns
         .filter((c) => c.primary_key)
@@ -400,7 +416,13 @@ export function NewTableTab({
   const do_create = async () => {
     if (creating) return;
     const target_schema = is_pg ? schema : undefined;
-    const built = buildCreateSql(table_name, columns, fks, target_schema, is_pg);
+    const built = buildCreateSql(
+      table_name,
+      columns,
+      fks,
+      target_schema,
+      is_pg,
+    );
     if (!built.ok) {
       push_notification({
         kind: "error",
@@ -431,7 +453,14 @@ export function NewTableTab({
   };
 
   const preview = useMemo(
-    () => buildCreateSql(table_name, columns, fks, is_pg ? schema : undefined, is_pg),
+    () =>
+      buildCreateSql(
+        table_name,
+        columns,
+        fks,
+        is_pg ? schema : undefined,
+        is_pg,
+      ),
     [table_name, columns, fks, is_pg, schema],
   );
 
@@ -515,7 +544,10 @@ export function NewTableTab({
           <>
             <div className="grid gap-2">
               <label className="text-sm font-medium">Database</label>
-              <Select value={database || undefined} onValueChange={(v) => v && setDatabase(v)}>
+              <Select
+                value={database || undefined}
+                onValueChange={(v) => v && setDatabase(v)}
+              >
                 <SelectTrigger className="w-44" size="sm">
                   <SelectValue />
                 </SelectTrigger>
@@ -538,7 +570,9 @@ export function NewTableTab({
                 onValueChange={(v) => v && setSchema(v)}
               >
                 <SelectTrigger className="w-36" size="sm">
-                  <SelectValue placeholder={schemas_loading ? "Loading…" : undefined} />
+                  <SelectValue
+                    placeholder={schemas_loading ? "Loading…" : undefined}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>

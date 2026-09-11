@@ -419,10 +419,7 @@ export function PgPanel({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button
-                  variant="secondary"
-                  disabled={saving_to !== null}
-                >
+                <Button variant="secondary" disabled={saving_to !== null}>
                   <Save className="size-4" />
                   {saving_to ? "Saving…" : "Save"}
                 </Button>
@@ -439,7 +436,7 @@ export function PgPanel({
                 >
                   <Cloud className="size-3.5" />
                   {s.profile.name}
-                  <span className="text-muted-foreground ml-auto text-3xs">
+                  <span className="text-muted-foreground text-3xs ml-auto">
                     shared
                   </span>
                 </DropdownMenuItem>

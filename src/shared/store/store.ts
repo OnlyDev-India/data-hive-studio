@@ -281,7 +281,12 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               } catch {
                 /* keychain entry missing/unreadable — user re-enters on connect */
               }
-              next[meta.name] = { ...meta, password, ssh_password, ssh_key_passphrase };
+              next[meta.name] = {
+                ...meta,
+                password,
+                ssh_password,
+                ssh_key_passphrase,
+              };
             }
             set({ savedLocal: next });
           } catch {

@@ -122,7 +122,9 @@ export function FilterBar({
           <Button
             size="sm"
             variant="outline"
-            className={cn("bg-secondary relative h-6",{"border-primary text-primary bg-primary/20":active_count>0})}
+            className={cn("bg-secondary relative h-6", {
+              "border-primary text-primary bg-primary/20": active_count > 0,
+            })}
           >
             <Filter className="size-3" />
             Filter
@@ -341,7 +343,7 @@ function ConjunctionToggle({
           variant={value === c ? "default" : "ghost"}
           size="sm"
           className={cn(
-            "h-5 cursor-pointer rounded px-2 py-0.5 text-2xs font-semibold",
+            "text-2xs h-5 cursor-pointer rounded px-2 py-0.5 font-semibold",
             value !== c && "text-muted-foreground",
           )}
           onClick={() => onChange(c)}

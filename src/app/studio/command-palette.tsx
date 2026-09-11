@@ -46,7 +46,7 @@ function highlightMatch(text: string, query: string): ReactNode {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="bg-transparent font-semibold text-primary">
+      <mark className="text-primary bg-transparent font-semibold">
         {text.slice(idx, idx + query.length)}
       </mark>
       {text.slice(idx + query.length)}
@@ -205,7 +205,8 @@ export function CommandPalette() {
   // empty against `own_tables` — reset whenever the target connection
   // changes so a stale sibling list never survives a switch.
   const q = rest.trim().toLowerCase();
-  const own_has_match = !q || (own_tables ?? []).some((t) => tableMatches(t, q));
+  const own_has_match =
+    !q || (own_tables ?? []).some((t) => tableMatches(t, q));
   const need_siblings = want_tables && own_ready && !!q && !own_has_match;
   const [siblings, setSiblings] = useState<PaletteTable[] | null>(null);
   const [siblings_for, setSiblingsFor] = useState<string | null>(null);
@@ -236,7 +237,8 @@ export function CommandPalette() {
     () => (!q || own_has_match ? own_tables : (siblings ?? [])),
     [q, own_has_match, own_tables, siblings],
   );
-  const tablesLoading = want_tables && (!own_ready || (need_siblings && !siblings));
+  const tablesLoading =
+    want_tables && (!own_ready || (need_siblings && !siblings));
 
   const items = useMemo<PaletteItem[]>(() => {
     if (!open) return [];
@@ -346,7 +348,8 @@ export function CommandPalette() {
   // row may not even be mounted) — `scrollToIndex` is virtualizer-aware.
   useEffect(() => {
     const row_idx = item_row_of[selected];
-    if (row_idx !== undefined) row_virtualizer.scrollToIndex(row_idx, { align: "auto" });
+    if (row_idx !== undefined)
+      row_virtualizer.scrollToIndex(row_idx, { align: "auto" });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- row_virtualizer's methods are stable; only `selected`/content should retrigger this
   }, [selected, item_row_of]);
 
@@ -479,7 +482,10 @@ export function CommandPalette() {
             // scrollbar still reflects every row even though most never
             // touch the DOM.
             <div
-              style={{ height: row_virtualizer.getTotalSize(), position: "relative" }}
+              style={{
+                height: row_virtualizer.getTotalSize(),
+                position: "relative",
+              }}
             >
               {row_virtualizer.getVirtualItems().map((v) => {
                 const row = rows[v.index];
@@ -514,7 +520,9 @@ export function CommandPalette() {
                     style={row_style}
                     className={cn(
                       "flex items-center gap-3 rounded-md px-2.5 py-1 text-left text-sm",
-                      i === selected ? "bg-primary/10 text-primary" : "text-foreground",
+                      i === selected
+                        ? "bg-primary/10 text-primary"
+                        : "text-foreground",
                       cmd.disabled && "opacity-40",
                     )}
                   >

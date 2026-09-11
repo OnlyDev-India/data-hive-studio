@@ -23,7 +23,9 @@ export async function checkForUpdate(): Promise<void> {
     pending_update = update;
     useStudioStore
       .getState()
-      .setUpdateInfo(update ? { version: update.version, body: update.body ?? null } : null);
+      .setUpdateInfo(
+        update ? { version: update.version, body: update.body ?? null } : null,
+      );
   } catch {
     // Offline, rate-limited, malformed manifest, … — leave `updateInfo` as
     // it was; a failed check is not the same as "no update available".

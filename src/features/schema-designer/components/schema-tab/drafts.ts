@@ -578,11 +578,7 @@ export function describe_schema_changes(
       kind: "drop",
       entity: "index",
       title: ix.orig_name,
-      before: idx_line(
-        ix.orig_name,
-        ix.orig_columns ?? [],
-        !!ix.orig_unique,
-      ),
+      before: idx_line(ix.orig_name, ix.orig_columns ?? [], !!ix.orig_unique),
     });
     dropped_idx.add(ix.id);
   }

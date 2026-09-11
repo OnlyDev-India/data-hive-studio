@@ -46,7 +46,12 @@ export function DropTableDialog({
     if (dropping) return;
     setDropping(true);
     try {
-      await executeOp(conn_id, { kind: "drop_table", table }, database, schema_name);
+      await executeOp(
+        conn_id,
+        { kind: "drop_table", table },
+        database,
+        schema_name,
+      );
       push_notification({
         kind: "success",
         title: `${object_noun === "table" ? "Table" : "Collection"} “${table}” dropped`,

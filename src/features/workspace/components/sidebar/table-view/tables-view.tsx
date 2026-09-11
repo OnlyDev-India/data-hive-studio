@@ -34,8 +34,18 @@ import {
   type SchemaObjectKind,
 } from "@/shared/api";
 import { useStudioStore, type StudioStore } from "@/shared/store";
-import { depthPadding, filterObjects, objectKey, uniqueCopyName, timestampedCopyName } from "./catalog-tree-utils";
-import { TreeToggleRow, LazyObjectRows, LazyTableRows } from "./catalog-tree-rows";
+import {
+  depthPadding,
+  filterObjects,
+  objectKey,
+  uniqueCopyName,
+  timestampedCopyName,
+} from "./catalog-tree-utils";
+import {
+  TreeToggleRow,
+  LazyObjectRows,
+  LazyTableRows,
+} from "./catalog-tree-rows";
 import { TableListItem } from "./table-list-item";
 import {
   DropDialog,
@@ -488,7 +498,8 @@ export function TablesBrowser({
     for (const tab of conn_tabs ?? []) {
       if (tab.kind !== "table") continue;
       const db = tab.database ?? pg_current_db;
-      const schema = tab.schema ?? (db === pg_current_db ? pg_active_schema : "");
+      const schema =
+        tab.schema ?? (db === pg_current_db ? pg_active_schema : "");
       if (schema) set.add(`db:${db}/schema:${schema}`);
     }
     return set;
@@ -943,9 +954,7 @@ export function TablesBrowser({
     // so skip it there and let the backend reject a real collision.
     const taken =
       !confirm_duplicate.sibling &&
-      (tables ?? []).some(
-        (t) => t.name.toLowerCase() === target.toLowerCase(),
-      );
+      (tables ?? []).some((t) => t.name.toLowerCase() === target.toLowerCase());
     if (taken) {
       setDupeError(`A table named “${target}” already exists.`);
       return;
@@ -1002,9 +1011,7 @@ export function TablesBrowser({
     // same guard above).
     const taken =
       !confirm_duplicate_mongo.sibling &&
-      (tables ?? []).some(
-        (t) => t.name.toLowerCase() === target.toLowerCase(),
-      );
+      (tables ?? []).some((t) => t.name.toLowerCase() === target.toLowerCase());
     if (taken) {
       setDupeMongoError(`A collection named “${target}” already exists.`);
       return;
@@ -1097,7 +1104,7 @@ export function TablesBrowser({
         tabIndex={0}
         aria-busy={reloading}
         className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto outline-none transition-opacity",
+          "flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity outline-none",
           // A reload of an ALREADY-loaded list (switching schema back and
           // forth, a background refresh) stays on-screen and just dims a
           // touch — the spinning Refresh icon above already signals it's
@@ -1292,8 +1299,9 @@ export function TablesBrowser({
                     ) : (
                       db_row
                     )}
-                    {db_expanded && schemas_state !== "loading" && (
-                      visible_schemas === null ? (
+                    {db_expanded &&
+                      schemas_state !== "loading" &&
+                      (visible_schemas === null ? (
                         <p
                           className="text-muted-foreground py-1 text-sm"
                           style={depthPadding(1)}
@@ -1429,7 +1437,11 @@ export function TablesBrowser({
                                                     ? undefined
                                                     : db,
                                                 schema,
-                                                sibling: { database: db, schema, kind: cat.kind },
+                                                sibling: {
+                                                  database: db,
+                                                  schema,
+                                                  kind: cat.kind,
+                                                },
                                               })
                                             }
                                             on_drop={(name) =>
@@ -1441,7 +1453,11 @@ export function TablesBrowser({
                                                     ? undefined
                                                     : db,
                                                 schema,
-                                                sibling: { database: db, schema, kind: cat.kind },
+                                                sibling: {
+                                                  database: db,
+                                                  schema,
+                                                  kind: cat.kind,
+                                                },
                                               })
                                             }
                                             on_open={(name) =>
@@ -1603,7 +1619,11 @@ export function TablesBrowser({
                             ask_duplicate_mongo({
                               name,
                               database: db,
-                              sibling: { database: db, schema: "", kind: "table" },
+                              sibling: {
+                                database: db,
+                                schema: "",
+                                kind: "table",
+                              },
                             })
                           }
                           on_drop={(name) =>
@@ -1611,7 +1631,11 @@ export function TablesBrowser({
                               name,
                               kind: "table",
                               database: db,
-                              sibling: { database: db, schema: "", kind: "table" },
+                              sibling: {
+                                database: db,
+                                schema: "",
+                                kind: "table",
+                              },
                             })
                           }
                           on_open={(name) =>

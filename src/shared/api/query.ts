@@ -37,7 +37,13 @@ export async function runSql(
     httpBody: { sql, database: database ?? null, schema: schema ?? null },
     serverCmd: "server_run_sql",
     localCmd: "run_sql",
-    args: { connId, database: database ?? null, schema: schema ?? null, sql, origin },
+    args: {
+      connId,
+      database: database ?? null,
+      schema: schema ?? null,
+      sql,
+      origin,
+    },
   });
 }
 

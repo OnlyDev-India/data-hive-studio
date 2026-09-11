@@ -157,10 +157,14 @@ export function schemaCompletions(
     // first since it's the more specific match (the single-dot pattern
     // below only ever captures the LAST identifier before the LAST dot, so
     // it can't tell "schema.table." apart from "table." on its own).
-    const two_dotted = /([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)\.(\w*)$/.exec(before);
+    const two_dotted = /([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)\.(\w*)$/.exec(
+      before,
+    );
     if (two_dotted) {
       if (two_dotted[3] || ctx.explicit) return null;
-      const cols = byTable.get(`${two_dotted[1]}.${two_dotted[2]}`.toLowerCase());
+      const cols = byTable.get(
+        `${two_dotted[1]}.${two_dotted[2]}`.toLowerCase(),
+      );
       return cols && cols.length > 0
         ? { from: ctx.pos, options: cols, validFor: /^[\w$]*$/ }
         : null;
@@ -186,7 +190,9 @@ export function schemaCompletions(
     // table. Scoped to the statement the cursor is actually in (see
     // `statementAt`), not the whole document.
     if (!inFieldPosition(before)) return null;
-    const refs = referencedTables(statementAt(ctx.state.doc.toString(), ctx.pos));
+    const refs = referencedTables(
+      statementAt(ctx.state.doc.toString(), ctx.pos),
+    );
     if (refs.size === 0) return null;
     const seen = new Set<string>();
     const options: Completion[] = [];

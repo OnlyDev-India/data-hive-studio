@@ -145,7 +145,11 @@ export function AboutSection() {
             href={`https://github.com/${REPO}`}
             target="_blank"
             rel="noreferrer"
-            className={buttonVariants({ variant: "outline", size: "sm", className: "gap-1.5" })}
+            className={buttonVariants({
+              variant: "outline",
+              size: "sm",
+              className: "gap-1.5",
+            })}
           >
             <ExternalLink className="size-3.5" />
             GitHub

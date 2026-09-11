@@ -86,7 +86,7 @@ export function MembersPanel({
         >
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{m.name}</div>
-            <div className="text-muted-foreground truncate text-2xs">
+            <div className="text-muted-foreground text-2xs truncate">
               {m.email}
             </div>
           </div>
@@ -122,7 +122,7 @@ export function MembersPanel({
           >
             <Trash2 className="size-3.5" />
             {removing === m.user_id && (
-              <span className="ml-0.5 text-3xs">confirm</span>
+              <span className="text-3xs ml-0.5">confirm</span>
             )}
           </Button>
         </div>

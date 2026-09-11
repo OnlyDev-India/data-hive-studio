@@ -57,9 +57,8 @@ export function notificationsActions(set: SetState, get: GetState) {
       }));
     },
     unreadCount() {
-      return get().notifications.filter(
-        (n: StudioNotification) => !n.read,
-      ).length;
+      return get().notifications.filter((n: StudioNotification) => !n.read)
+        .length;
     },
     dismissToast(id: string) {
       set((s) => ({ toastQueue: s.toastQueue.filter((x) => x.id !== id) }));

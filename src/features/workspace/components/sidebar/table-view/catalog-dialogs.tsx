@@ -146,8 +146,8 @@ export function DuplicateMongoDialog({
         <DialogHeader>
           <DialogTitle>Duplicate collection</DialogTitle>
           <DialogDescription>
-            Create a copy of “{name}”. Indexes are always copied; documents
-            only if you choose to below.
+            Create a copy of “{name}”. Indexes are always copied; documents only
+            if you choose to below.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
@@ -312,7 +312,12 @@ export function DbSchemaDdlDialog({
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" size="sm" disabled={busy} onClick={on_cancel}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={on_cancel}
+          >
             Cancel
           </Button>
           <Button
@@ -321,7 +326,11 @@ export function DbSchemaDdlDialog({
             disabled={busy}
             onClick={on_confirm}
           >
-            {busy ? "Working…" : dialog?.kind.endsWith("-drop") ? "Drop" : "Create"}
+            {busy
+              ? "Working…"
+              : dialog?.kind.endsWith("-drop")
+                ? "Drop"
+                : "Create"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -35,7 +35,7 @@ const PanelRightIcon = ({
         x="3"
         y="3"
         rx="2"
-        className={cn("fill-transparent stroke-2 stroke-muted-foreground", {
+        className={cn("stroke-muted-foreground fill-transparent stroke-2", {
           "fill-primary/60": active,
         })}
       />
@@ -56,7 +56,7 @@ const PanelRightIcon = ({
       />
 
       {/* Divider */}
-      <path d="M15 3v18" stroke="2" className="fill-red-500"/>
+      <path d="M15 3v18" stroke="2" className="fill-red-500" />
     </svg>
   );
 };
