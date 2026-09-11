@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Palette, Search } from "lucide-react";
+import { Info, Palette, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,10 +13,11 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { AppearanceSection } from "./appearance";
 import { CommandPaletteSection } from "./command-palette-section";
+import { AboutSection } from "./about";
 import { Button } from "@/shared/components/ui";
 import { useTheme } from "@/shared/theme/theme";
 
-type SectionId = "appearance" | "command-palette";
+type SectionId = "appearance" | "command-palette" | "about";
 
 interface SectionMeta {
   id: SectionId;
@@ -27,6 +28,7 @@ interface SectionMeta {
 const SECTIONS: SectionMeta[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "command-palette", label: "Command Palette", icon: Search },
+  { id: "about", label: "About", icon: Info },
 ];
 
 export function SettingsDialog({
@@ -42,11 +44,11 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="min-h-[80%] min-w-[80%]">
+      <DialogContent className="min-h-[85%] min-w-[95%]">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         {/* The default close button is rendered by the dialog; content is
             tall enough that we don't add a title bar here. */}
-        <div className="-mx-6 -mt-6 flex overflow-hidden rounded-t-2xl border-b">
+        <div className="-mx-4 -mt-4 flex overflow-hidden rounded-t-2xl border-b">
           <ResizablePanelGroup orientation="horizontal" className="h-full">
             <ResizablePanel
               defaultSize="26%"
@@ -79,6 +81,7 @@ export function SettingsDialog({
               <div className="h-full w-full overflow-y-auto p-6">
                 {section === "appearance" && <AppearanceSection />}
                 {section === "command-palette" && <CommandPaletteSection />}
+                {section === "about" && <AboutSection />}
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>

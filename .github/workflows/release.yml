@@ -86,19 +86,31 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Unsigned build for now (no Apple/Windows signing secrets configured).
-      # macOS Gatekeeper and Windows SmartScreen will warn on first launch.
-      # To sign later: add APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD /
-      # APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
-      # and/or WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD as repo
-      # secrets, then pass them through this step's `env` — tauri-action
-      # picks them up automatically, no other change needed here.
+      # Unsigned OS build for now (no Apple/Windows CODE-signing secrets
+      # configured). macOS Gatekeeper and Windows SmartScreen will warn on
+      # first launch. To sign later: add APPLE_CERTIFICATE /
+      # APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY / APPLE_ID /
+      # APPLE_PASSWORD / APPLE_TEAM_ID and/or WINDOWS_CERTIFICATE /
+      # WINDOWS_CERTIFICATE_PASSWORD as repo secrets, then pass them through
+      # this step's `env` — tauri-action picks them up automatically, no
+      # other change needed here.
+      #
+      # TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) below is a SEPARATE, already-
+      # required scheme — the in-app updater's own minisign keypair, not OS
+      # code-signing. `bundle.createUpdaterArtifacts: true` (tauri.conf.json)
+      # means every build NEEDS these two secrets set to produce the signed
+      # update payload + `latest.json` manifest; the build fails without
+      # them. Add them once as repo secrets (Settings → Secrets → Actions)
+      # from the keypair generated via `bunx tauri signer generate`.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.check-version.outputs.tag }}
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
+          includeUpdaterJson: true
           releaseBody: |
             **New**
             - Team server: sign in with Google or GitHub instead of an admin-minted token — create or join an organization and share connections with your team

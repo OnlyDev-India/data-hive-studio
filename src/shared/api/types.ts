@@ -61,6 +61,39 @@ export interface CatalogOverview {
   active_schema: string;
 }
 
+/** A category of schema-scoped object the sidebar's catalog tree can list —
+ *  one fixed set of rows under every Postgres schema node. MongoDB only ever
+ *  returns rows for "table" (its collections); every other kind is empty. */
+export type SchemaObjectKind =
+  | "table"
+  | "view"
+  | "materialized_view"
+  | "procedure"
+  | "function"
+  | "sequence"
+  | "type";
+
+/** One row in a `listSchemaObjects`/`listRoles` result — `extra` is optional
+ *  secondary context shown alongside the name (a function's signature, a
+ *  sequence's last value, a role's superuser/login flags). */
+export interface SchemaObject {
+  name: string;
+  extra: string | null;
+}
+
+/** Full attribute set for one role (Postgres) — the Users & Privileges tab's
+ *  detail panel. `listRoles` stays the short name+summary pair above. */
+export interface RoleDetail {
+  name: string;
+  attributes: string[];
+  can_login: boolean;
+  superuser: boolean;
+  conn_limit: number;
+  valid_until: string | null;
+  comment: string | null;
+  member_of: string[];
+}
+
 export interface IndexInfo {
   name: string;
   unique: boolean;

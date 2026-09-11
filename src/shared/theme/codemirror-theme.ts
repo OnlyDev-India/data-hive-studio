@@ -7,7 +7,7 @@ import { tags as t } from "@lezer/highlight";
 // both light and dark mode (it re-resolves when `.dark` flips on <html>).
 export const appEditorTheme = EditorView.theme({
   "&": {
-    backgroundColor: "var(--background)",
+    backgroundColor: "#282C34",
     color: "var(--foreground)",
     fontSize: "14px",
     height: "100%",
@@ -41,7 +41,7 @@ export const appEditorTheme = EditorView.theme({
     color: "var(--foreground)",
   },
   ".cm-gutters": {
-    backgroundColor: "var(--background)",
+    backgroundColor: "#282C34",
     color: "var(--muted-foreground)",
     borderRight: "0",
   },

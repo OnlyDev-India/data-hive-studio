@@ -12,7 +12,10 @@ import {
 import { basename, cn, statementRanges } from "@/shared/lib/utils";
 import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
 import {
-  listTables,
+  catalogOverview,
+  listDatabases,
+  listSchemaObjects,
+  listSchemasIn,
   runMongo,
   runSqlStream,
   tableSchema,
@@ -23,6 +26,7 @@ import {
 import { pickSqlSavePath } from "@/shared/lib/platform";
 import { useStudioStore } from "@/shared/store";
 import { QueryEditor, type QueryEditorHandle } from "./editor";
+import { EditorRunToolbar } from "./editor-run-toolbar";
 
 /** A single failed-statement marker pushed to the editor via `setErrors`. */
 type ErrorRange = { from: number; to: number; message: string };
@@ -205,9 +209,119 @@ function SqlEditorBody({
   );
   const editorRef = useRef<QueryEditorHandle>(null);
   const { ranges: error_ranges, sync: sync_errors } = useErrorRanges(editorRef);
-  // Drives the action bar's run-target button wording ("Run selection" vs.
-  // "Run query" at the cursor) — see QueryEditorProps.onSelectionChange.
+  // Drives the run-target button wording ("Run selection" vs. "Run query"
+  // at the cursor) — see QueryEditorProps.onSelectionChange.
   const [has_selection, setHasSelection] = useState(false);
+
+  // ---- Target database. Every kind but SQLite (single-file, no such
+  // concept within one connection) supports switching it — including a
+  // MongoDB connection's SQL tab (Phase-4 SQL-on-Mongo translates the
+  // query, but still targets a real database — same `database` param
+  // `run_sql` already takes for Postgres). The Mongo CONSOLE tab
+  // (`MongoEditorBody` below) is separate and has its own `db` state; this
+  // is specifically the plain "SQL" tab kind, usable against either
+  // dialect. Defaults to the connection's own primary database; every run
+  // targets whichever database is currently selected.
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  const is_pg = conn?.kind === "postgres";
+  const supports_multi_db = conn?.kind !== "sqlite";
+  const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
+  const own_database = recent_params?.database ?? conn?.name ?? "";
+  const [database, setDatabase] = useState("");
+  const [databases, setDatabases] = useState<string[]>([]);
+  useEffect(() => {
+    if (!supports_multi_db) return;
+    let cancelled = false;
+    void listDatabases(conn_id)
+      .then((list) => {
+        if (cancelled) return;
+        setDatabases(list);
+        setDatabase(own_database);
+      })
+      .catch(() => {
+        /* picker stays empty — every run just targets the own database */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- own_database intentionally excluded: derived from the same conn_id, only needs its initial value here
+  }, [conn_id, supports_multi_db]);
+  const target_database = database && database !== own_database ? database : undefined;
+
+  // ---- Known schemas + their table lists (Postgres only) — there's no
+  // separate schema PICKER: the user names a non-default schema straight in
+  // the query (`public.users`, `otherschema.orders`), and this is what lets
+  // the editor still hint/lint those references correctly instead of only
+  // ever knowing about the default schema's tables (see
+  // `schemaCompletions`'s doc comment for the full reasoning).
+  const [known_schemas, setKnownSchemas] = useState<string[]>([]);
+  useEffect(() => {
+    if (!is_pg || !database) return;
+    let cancelled = false;
+    void listSchemasIn(conn_id, database === own_database ? undefined : database)
+      .then((list) => {
+        if (!cancelled) setKnownSchemas(list);
+      })
+      .catch(() => {
+        /* stays empty — hints just fall back to the `tables` prop below */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conn_id, is_pg, database, own_database]);
+
+  // Every known schema's table list — cheap (names only), so fetched eagerly
+  // for all of them at once rather than waiting on the user to reference one
+  // first. Powers the `schema.` → table-name completions.
+  const [schema_tables, setSchemaTables] = useState<Record<string, string[]>>({});
+  const schema_tables_cache = useRef(new Map<string, string[]>());
+  useEffect(() => {
+    if (!is_pg || known_schemas.length === 0) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        for (const s of known_schemas) {
+          if (cancelled) return;
+          const cache_key = `${conn_id} ${database} ${s}`;
+          if (schema_tables_cache.current.has(cache_key)) continue;
+          try {
+            const objects = await listSchemaObjects(conn_id, s, "table", target_database);
+            schema_tables_cache.current.set(cache_key, objects.map((o) => o.name));
+          } catch {
+            schema_tables_cache.current.set(cache_key, []);
+          }
+        }
+        if (cancelled) return;
+        const next: Record<string, string[]> = {};
+        for (const s of known_schemas) {
+          next[s] = schema_tables_cache.current.get(`${conn_id} ${database} ${s}`) ?? [];
+        }
+        setSchemaTables(next);
+      })();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [conn_id, is_pg, database, target_database, known_schemas]);
+
+  // Bare (unqualified) table names for hints — the UNION across every known
+  // schema, not just the default one: `FROM <table>` completions/lint work
+  // regardless of which schema a table actually lives in, same as typing no
+  // schema at all means "look everywhere" for the real database too. Only
+  // once the user types `schema.` does a specific one narrow it down (via
+  // `schemaTables` below). A name shared by two schemas just collides into
+  // one bare entry — nothing to disambiguate without a real scope, same as
+  // any unqualified reference. Falls back to the (primary-database) `tables`
+  // prop while `schema_tables` hasn't resolved yet, rather than flashing
+  // empty completions/lint for that gap — also the whole story for SQLite,
+  // which has no schema concept at all.
+  const effective_tables = is_pg
+    ? Object.keys(schema_tables).length > 0
+      ? [...new Set(Object.values(schema_tables).flat())]
+      : tables
+    : tables;
+
   const setSql = useCallback(
     (v: string) => {
       const text = v ?? "";
@@ -232,36 +346,44 @@ function SqlEditorBody({
   const next_id = useRef(0);
   const next_label = useRef(1);
 
-  // Column completions per table for the editor. Fetched once per table
-  // (cached across refreshes) whenever the table list changes.
+  // Column completions per table for the editor: a bare `"table"` key for
+  // every table in every known schema (drives plain `table.`/`alias.`
+  // completions and field-position suggestions the same way regardless of
+  // which schema it actually lives in — see `effective_tables`'s own doc
+  // comment for why), PLUS a `"schema.table"` key for each so
+  // `schema.table.` completes correctly once the user does name one.
+  // SQLite (no `schema_tables` at all) just gets bare keys for the plain
+  // `tables` prop, same as before this had any schema awareness.
   const [schema, setSchema] = useState<Record<string, Completion[]>>({});
-  // Completion hints per `${connId} ${table}`, shared by EVERY SQL tab
-  // in the session — a second tab (or reopening one) costs zero describes.
+  // Completion hints per `${connId} ${database} ${schema} ${table}`, shared
+  // by EVERY SQL tab in the session — a second tab (or reopening one) costs
+  // zero describes. Database/schema are part of the key (not just the
+  // table name) so the same-named table in a different database/schema
+  // never serves another one's stale column list.
   const schema_cache = useRef(sharedCompletionCache);
-  const tables_ref = useRef(tables);
-  useEffect(() => {
-    tables_ref.current = tables;
-  });
-  const table_key = useMemo(() => (tables ?? []).join(" "), [tables]);
 
   useEffect(() => {
-    const list = tables_ref.current;
-    if (!list || list.length === 0) return;
+    const targets: { schema: string | undefined; table: string }[] = is_pg
+      ? Object.entries(schema_tables).flatMap(([s, ts]) =>
+          ts.map((t) => ({ schema: s, table: t })),
+        )
+      : (tables ?? []).map((t) => ({ schema: undefined, table: t }));
+    if (targets.length === 0) return;
     let cancelled = false;
     // BACKGROUND prefetch: strictly SEQUENTIAL with an idle delay. A parallel
     // flood of N describes used to saturate the connection pool and delay the
     // user's first real query (table opens felt stuck behind it).
     const timer = setTimeout(() => {
       void (async () => {
-        for (const t of list) {
+        for (const { schema: s, table: t } of targets) {
           if (cancelled) return;
-          const cache_key = `${conn_id} ${t}`;
+          const cache_key = `${conn_id} ${target_database ?? ""} ${s ?? ""} ${t}`;
           if (schema_cache.current.has(cache_key)) continue;
           try {
-            const s = await tableSchema(conn_id, t);
+            const described = await tableSchema(conn_id, t, target_database, s);
             schema_cache.current.set(
               cache_key,
-              s.columns.map((c) => ({
+              described.columns.map((c) => ({
                 label: c.name,
                 type: "property",
                 detail: c.data_type,
@@ -273,9 +395,15 @@ function SqlEditorBody({
         }
         if (cancelled) return;
         const next: Record<string, Completion[]> = {};
-        for (const t of list) {
-          const cols = schema_cache.current.get(`${conn_id} ${t}`);
-          if (cols) next[t] = cols;
+        for (const { schema: s, table: t } of targets) {
+          const cache_key = `${conn_id} ${target_database ?? ""} ${s ?? ""} ${t}`;
+          const cols = schema_cache.current.get(cache_key);
+          if (!cols) continue;
+          // Bare key always (last schema to resolve wins on a name shared
+          // across schemas — see `effective_tables`); qualified key too
+          // when there's a schema to qualify with.
+          next[t] = cols;
+          if (s) next[`${s}.${t}`] = cols;
         }
         setSchema(next);
       })();
@@ -284,7 +412,7 @@ function SqlEditorBody({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [conn_id, table_key]);
+  }, [conn_id, is_pg, target_database, schema_tables, tables]);
 
   const add_tab = useCallback((): number => {
     const id = ++next_id.current;
@@ -344,13 +472,18 @@ function SqlEditorBody({
       };
       let res: QueryResult;
       try {
-        res = await runSqlStream(conn_id, query, (chunk) => {
-          if (chunk.columns) acc.cols = chunk.columns;
-          if (chunk.rows.length > 0) {
-            acc.rows.push(...chunk.rows);
-            if (!raf) raf = requestAnimationFrame(flush);
-          }
-        });
+        res = await runSqlStream(
+          conn_id,
+          query,
+          (chunk) => {
+            if (chunk.columns) acc.cols = chunk.columns;
+            if (chunk.rows.length > 0) {
+              acc.rows.push(...chunk.rows);
+              if (!raf) raf = requestAnimationFrame(flush);
+            }
+          },
+          target_database,
+        );
       } catch (e) {
         res = {
           columns: [],
@@ -378,7 +511,7 @@ function SqlEditorBody({
         sync_errors();
       }
     },
-    [patch_tab, conn_id, on_modified, on_schema_modified, sync_errors],
+    [patch_tab, conn_id, target_database, on_modified, on_schema_modified, sync_errors],
   );
 
   const run_all = useCallback(() => {
@@ -487,27 +620,41 @@ function SqlEditorBody({
         <ResizablePanel
           defaultSize="40%"
           minSize="15%"
-          className="bg-background flex-col pb-3"
+          className="flex-col border-b"
         >
-          <div className="flex h-full min-h-0 flex-col gap-3">
-            <QueryEditor
-              ref={editorRef}
-              value={sql_text}
-              onChange={setSql}
-              onRun={() => void run_all()}
-              onRunTarget={run_target}
-              onSelectionChange={setHasSelection}
-              onSave={() => void save_sql()}
-              tables={tables}
-              schema={schema}
-              height="100%"
+          <div className="flex h-full min-h-0 flex-col">
+            <EditorRunToolbar
+              has_selection={has_selection}
+              can_run_target={sql_text.trim().length > 0}
+              has_text={sql_text.trim().length > 0}
+              on_run_target={run_target}
+              on_run_all={run_all}
+              db_kind={conn?.kind}
+              database={supports_multi_db ? database : undefined}
+              databases={supports_multi_db ? databases : undefined}
+              on_database_change={supports_multi_db ? setDatabase : undefined}
             />
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <QueryEditor
+                ref={editorRef}
+                value={sql_text}
+                onChange={setSql}
+                onRun={() => void run_all()}
+                onRunTarget={run_target}
+                onSelectionChange={setHasSelection}
+                onSave={() => void save_sql()}
+                tables={effective_tables}
+                schema={schema}
+                schemaTables={is_pg ? schema_tables : undefined}
+                height="100%"
+              />
+            </div>
           </div>
         </ResizablePanel>
 
         <ResizableHandle className="bg-background hover:bg-accent h-1!" />
 
-        <ResizablePanel defaultSize="60%" minSize="25%" className="flex-col border-t">
+        <ResizablePanel defaultSize="60%" minSize="25%" className="flex-col bg-background">
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
               items={strip_items}
@@ -618,10 +765,31 @@ function MongoEditorBody({
    *  showing stale data until a manual reload. */
   on_modified?: () => void;
 }) {
+  // The connection's own database vs. the CURRENT one (switched via the
+  // toolbar picker below, or by typing `use <db>` — both update `db`,
+  // console has always supported the latter, the picker is just a more
+  // discoverable way to do the same thing).
   const [db, setDb] = useState(database);
+  const [databases, setDatabases] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void catalogOverview(conn_id)
+      .then((overview) => {
+        if (!cancelled) setDatabases(overview.databases);
+      })
+      .catch(() => {
+        /* picker stays empty — `use <db>` still works as free text */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conn_id]);
   // Collection names, offered as `db.<TAB>` completions — bare JSON queries
   // (no `db.<collection>.` prefix) aren't supported; every command names its
-  // collection explicitly, same as the real Mongo shell.
+  // collection explicitly, same as the real Mongo shell. Refetched on every
+  // `db` change (including a typed `use <db>`, not just the picker) — this
+  // used to only ever fetch the connection's OWN database once on mount,
+  // silently offering the wrong database's collection names after a switch.
   const [collections, setCollections] = useState<string[]>([]);
   // Seed text handed over by other features (e.g. opening a picked .js file):
   // openMongoConsole(connId, database, text) stashes it under this tab's key;
@@ -666,8 +834,13 @@ function MongoEditorBody({
     let cancelled = false;
     void (async () => {
       try {
-        const tables = await listTables(conn_id);
-        if (!cancelled) setCollections(tables.map((t) => t.name));
+        const objects = await listSchemaObjects(
+          conn_id,
+          "",
+          "table",
+          db && db !== database ? db : undefined,
+        );
+        if (!cancelled) setCollections(objects.map((o) => o.name));
       } catch {
         /* sidebar already reports connection errors */
       }
@@ -675,7 +848,7 @@ function MongoEditorBody({
     return () => {
       cancelled = true;
     };
-  }, [conn_id]);
+  }, [conn_id, db, database]);
 
   const patch = useCallback((id: number, p: Partial<MongoEntry>) => {
     setEntries((cur) => cur.map((e) => (e.id === id ? { ...e, ...p } : e)));
@@ -832,27 +1005,40 @@ function MongoEditorBody({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ResizablePanelGroup orientation="vertical">
-        <ResizablePanel defaultSize="38%" minSize="15%" className="flex-col">
-          <div className="flex h-full min-h-0 flex-col gap-3">
-            <QueryEditor
-              ref={editorRef}
-              value={script_text}
-              onChange={setScript}
-              onRun={() => void run_all()}
-              onRunTarget={run_target}
-              onSelectionChange={setHasSelection}
-              onSave={() => void save_script()}
-              language="js"
-              jsCompletions={collections}
-              connId={conn_id}
-              height="100%"
+        <ResizablePanel defaultSize="38%" minSize="15%" className="flex-col border-b">
+          <div className="flex h-full min-h-0 flex-col">
+            <EditorRunToolbar
+              has_selection={has_selection}
+              can_run_target={script_text.trim().length > 0}
+              has_text={script_text.trim().length > 0}
+              on_run_target={run_target}
+              on_run_all={run_all}
+              db_kind="mongodb"
+              database={db}
+              databases={databases}
+              on_database_change={setDb}
             />
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <QueryEditor
+                ref={editorRef}
+                value={script_text}
+                onChange={setScript}
+                onRun={() => void run_all()}
+                onRunTarget={run_target}
+                onSelectionChange={setHasSelection}
+                onSave={() => void save_script()}
+                language="js"
+                jsCompletions={collections}
+                connId={conn_id}
+                height="100%"
+              />
+            </div>
           </div>
         </ResizablePanel>
 
-        <ResizableHandle className="bg-transparent hover:bg-accent h-1!" />
+        <ResizableHandle className="bg-background hover:bg-accent h-1!" />
 
-        <ResizablePanel defaultSize="62%" minSize="25%" className="flex-col border-t">
+        <ResizablePanel defaultSize="62%" minSize="25%" className="flex-col">
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
               items={strip_items}

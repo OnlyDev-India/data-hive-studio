@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/shared/components/ui/input";
-import { createMongoCollection, getActiveSchema } from "@/shared/api";
+import { catalogOverview, createMongoCollection } from "@/shared/api";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 import { useStudioStore } from "@/shared/store";
 
 interface MongoNewCollectionTabProps {
@@ -13,9 +21,12 @@ interface MongoNewCollectionTabProps {
 }
 
 /** MongoDB's "New table" equivalent: MongoDB is schemaless, so there's no
- *  column/type/FK editor to fill in — just a collection name. Indexes (the
- *  one DDL concept Mongo shares with SQL tables) are added afterward from
- *  the collection's own Schema tab (`MongoIndexesEditor`), once it exists. */
+ *  column/type/FK editor to fill in — just a collection name and a
+ *  database picker (Mongo has no schema level, so that's the only target
+ *  selector needed, unlike the SQL NewTableTab's database+schema pair).
+ *  Indexes (the one DDL concept Mongo shares with SQL tables) are added
+ *  afterward from the collection's own Schema tab (`MongoIndexesEditor`),
+ *  once it exists. */
 export function MongoNewCollectionTab({
   conn_id,
   tab_key,
@@ -23,23 +34,31 @@ export function MongoNewCollectionTab({
   on_modified,
 }: MongoNewCollectionTabProps) {
   const [name, setName] = useState("");
+  const [own_database, setOwnDatabase] = useState("");
   const [database, setDatabase] = useState("");
+  const [databases, setDatabases] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const push_notification = useStudioStore((s) => s.pushNotification);
   const setNewTable = useStudioStore((s) => s.setNewTable);
   const clearNewTable = useStudioStore((s) => s.clearNewTable);
 
-  // Shown for context ("creating in database X") — Mongo connections can
-  // span several databases (see the sidebar's database switcher), so it
-  // isn't always obvious which one a bare "New table" click targets.
+  // Defaults to the connection's own active database, same as before this
+  // became a real picker — Mongo connections can span several databases
+  // (see the sidebar's database switcher), so it isn't always obvious which
+  // one a bare "New table" click targets without either this default or an
+  // explicit choice.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const db = await getActiveSchema(conn_id);
-        if (!cancelled) setDatabase(db);
+        const overview = await catalogOverview(conn_id);
+        if (cancelled) return;
+        setDatabases(overview.databases);
+        setOwnDatabase(overview.active_schema);
+        setDatabase(overview.active_schema);
       } catch {
-        /* leave blank — creation still targets the connection's active db */
+        /* selector stays empty — creation still targets the connection's
+         * active db (server default when `database` is omitted). */
       }
     })();
     return () => {
@@ -50,19 +69,20 @@ export function MongoNewCollectionTab({
   const trimmed = name.trim();
   const valid = trimmed !== "";
   const has_draft = trimmed !== "";
+  const target_database = database && database !== own_database ? database : undefined;
 
   const do_create = async () => {
     if (creating || !valid) return;
     setCreating(true);
     try {
-      await createMongoCollection(conn_id, trimmed);
+      await createMongoCollection(conn_id, trimmed, target_database);
       push_notification({
         kind: "success",
         title: `Collection ${trimmed} created`,
         detail: `db.createCollection("${trimmed}")${database ? ` on ${database}` : ""}`,
       });
       on_modified();
-      useStudioStore.getState().openMongo(conn_id, database, trimmed);
+      useStudioStore.getState().openMongo(conn_id, database || own_database, trimmed);
     } catch (e) {
       push_notification({
         kind: "error",
@@ -106,22 +126,36 @@ export function MongoNewCollectionTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-6">
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Collection name</label>
-        <Input
-          autoFocus
-          placeholder="users"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void do_create();
-          }}
-        />
-        {database && (
-          <p className="text-muted-foreground text-xs">
-            Creates in database <span className="font-mono">{database}</span>.
-          </p>
-        )}
+      <div className="flex gap-3">
+        <div className="grid flex-1 gap-2">
+          <label className="text-sm font-medium">Collection name</label>
+          <Input
+            autoFocus
+            placeholder="users"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void do_create();
+            }}
+          />
+        </div>
+        <div className="grid gap-2">
+          <label className="text-sm font-medium">Database</label>
+          <Select value={database || undefined} onValueChange={(v) => v && setDatabase(v)}>
+            <SelectTrigger className="w-44" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {databases.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="bg-background rounded-md border p-3">

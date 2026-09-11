@@ -24,7 +24,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
-import { TabTypeIcon } from "@/shared/components/tab-type-icon";
 import { cn } from "@/shared/lib/utils";
 import {
   tabEquals,
@@ -34,6 +33,7 @@ import {
   type StudioTab,
 } from "@/shared/store";
 import { shouldSuppressTabClick } from "../lib/use-tab-drag";
+import { IconTypeMap } from "@/shared/components/icons/types";
 
 interface TabBarProps {
   /** Id of the leaf pane this strip belongs to — stamped on each tab item
@@ -120,13 +120,20 @@ export function TabBar({
   return (
     <div
       ref={strip_ref}
+      // The WHOLE strip (not just individual tab items) is a drop target —
+      // see `hovered_strip` in `use-tab-drag.ts`, which hit-tests this
+      // container's full rect first and only then looks for a specific tab
+      // to insert before/after. Without it, dropping on the strip's empty
+      // trailing space, or on a pane with zero tabs (nothing for the old
+      // per-item hit-test to match against at all), silently did nothing.
+      data-tab-strip={paneId}
       // `scroll-pr` reserves space matching the sticky +/dropdown cluster's
       // own width (see below) in `scrollIntoView`'s notion of "visible" —
       // without it, scrolling the last tab flush to the strip's true right
       // edge lands it exactly where that opaque, always-on-top cluster
       // sits, so the tab itself (its label, its close button) ends up
       // rendered underneath and hidden rather than actually in view.
-      className="bg-background flex max-h-8.5 min-h-8.5 w-full shrink-0 scroll-pr-[60px] scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
+      className="bg-background flex max-h-8.5 min-h-8.5 w-full shrink-0 scroll-pr-15 scrollbar-none items-center gap-1 overflow-x-auto border-b pl-1.5 [&::-webkit-scrollbar]:hidden"
       onPointerDown={on_strip_pointer_down}
       // A real drag suppresses the follow-up click so tabs don't get selected.
       onClickCapture={(e) => {
@@ -245,6 +252,7 @@ function TabItem({
   const dragging = useStudioStore(
     (s) => !!s.dragTab && tabKey(s.dragTab.tab) === key,
   );
+  const tabTypeIcon = IconTypeMap[tab.kind];
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -265,7 +273,7 @@ function TabItem({
               dragging && "ring-primary/60 opacity-30 ring-2",
             )}
           >
-            <TabTypeIcon tab={tab} />
+            {tabTypeIcon}
             <span className="max-w-56 truncate">
               {tabLabel(tab, file_name)}
             </span>

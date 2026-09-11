@@ -73,6 +73,45 @@ pub struct CatalogOverview {
     pub active_schema: String,
 }
 
+/// A category of schema-scoped object the sidebar's catalog tree can list —
+/// one fixed set of rows under every Postgres schema node. MongoDB only ever
+/// uses `Table` (its collections); the rest don't apply there.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SchemaObjectKind {
+    Table,
+    View,
+    MaterializedView,
+    Procedure,
+    Function,
+    Sequence,
+    Type,
+}
+
+/// One row in a `list_schema_objects`/`list_roles` result — just a name plus
+/// an optional secondary bit of context the sidebar shows alongside it (a
+/// function's signature, a sequence's last value, a role's superuser flag).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SchemaObject {
+    pub name: String,
+    pub extra: Option<String>,
+}
+
+/// Full attribute set for one role (Postgres) — the Users & Privileges tab's
+/// detail panel. `list_roles` above stays a short name+one-line-summary pair
+/// for the sidebar tree; this is the structured version for a real UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoleDetail {
+    pub name: String,
+    pub attributes: Vec<String>,
+    pub can_login: bool,
+    pub superuser: bool,
+    pub conn_limit: i32,
+    pub valid_until: Option<String>,
+    pub comment: Option<String>,
+    pub member_of: Vec<String>,
+}
+
 
 /// One database family's driver: connection handling plus every operation
 /// the UI can perform. SQLite ships as the built-in adapter; other engines
@@ -82,36 +121,99 @@ pub trait DbAdapter: Send + Sync {
     async fn list_tables(&self) -> DbResult<Vec<TableInfo>>;
     /// Column/FK/index/trigger metadata plus every introspection statement
     /// executed to gather it (for the activity log's full-SQL view).
-    async fn table_schema(&self, table: &str) -> DbResult<(TableSchema, Vec<String>)>;
-    async fn run_sql(&self, sql: &str) -> DbResult<QueryResult>;
-    async fn execute_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<u64>;
-    async fn run_sql_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<QueryResult>;
-    async fn execute_op(&self, op: &QueryOp) -> DbResult<OpOutcome>;
+    /// `database`/`schema`: `None` means this connection's own primary
+    /// database / current active schema (every existing call site keeps
+    /// behaving identically) — `Some` targets a specific database/schema
+    /// directly instead of reading the adapter's ambient state, so a table
+    /// pane pinned to a SIBLING database (or a different schema than
+    /// whatever's currently active) never race-leaks against another pane's
+    /// target. Postgres routes `Some(database)` through `PgAdapter::pool_for`
+    /// (see its own doc comment) — the same secondary-pool mechanism the
+    /// sidebar's catalog-browsing calls already use.
+    async fn table_schema(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+    ) -> DbResult<(TableSchema, Vec<String>)>;
+    /// `database`: `None` = this connection's own database. `schema`, when
+    /// given (Postgres only — ignored elsewhere), resolves every
+    /// UNQUALIFIED name in `sql` through that schema instead of the
+    /// connection's own default — a transaction-local `search_path`, not a
+    /// rewrite of the SQL text itself (see the Postgres impl).
+    async fn run_sql(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        sql: &str,
+    ) -> DbResult<QueryResult>;
+    async fn execute_params(
+        &self,
+        database: Option<&str>,
+        sql: &str,
+        params: &[Option<String>],
+    ) -> DbResult<u64>;
+    async fn run_sql_params(
+        &self,
+        database: Option<&str>,
+        sql: &str,
+        params: &[Option<String>],
+    ) -> DbResult<QueryResult>;
+    /// See `table_schema`'s doc comment for `database`/`schema` semantics.
+    async fn execute_op(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        op: &QueryOp,
+    ) -> DbResult<OpOutcome>;
     async fn execute_op_stream(
         &self,
+        database: Option<&str>,
+        schema: Option<&str>,
         op: &QueryOp,
         on_batch: BatchSink<'_>,
     ) -> DbResult<OpOutcome>;
-    async fn run_sql_stream(&self, sql: &str, on_batch: BatchSink<'_>) -> DbResult<QueryResult>;
-    async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>>;
+    async fn run_sql_stream(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        sql: &str,
+        on_batch: BatchSink<'_>,
+    ) -> DbResult<QueryResult>;
+    /// See `table_schema`'s doc comment for `database`/`schema` semantics.
+    async fn apply_schema_ops_batch(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        ops: &[SchemaOp],
+    ) -> DbResult<Vec<String>>;
     /// Duplicate a table/collection under a new name; returns the statements
     /// that ran (activity log). `copy_data` is honored by MongoDB (the
     /// sidebar's right-click "Duplicate collection" offers a copy-data
     /// checkbox); SQL adapters don't respect it yet and always copy
-    /// structure + indexes + data, pending the same UI for SQL tables.
+    /// structure + indexes + data, pending the same UI for SQL tables. See
+    /// `table_schema`'s doc comment for `database`/`schema` semantics.
     async fn duplicate_table(
         &self,
+        database: Option<&str>,
+        schema: Option<&str>,
         source: &str,
         target: &str,
         copy_data: bool,
     ) -> DbResult<Vec<String>> {
-        let _ = (source, target, copy_data);
+        let _ = (database, schema, source, target, copy_data);
         Err(DbError::InvalidOperation(
             "duplicate table is not supported by this adapter".into(),
         ))
     }
-    /// Refresh a materialized view (Postgres).
-    async fn refresh_matview(&self, _name: &str) -> DbResult<()> {
+    /// Refresh a materialized view (Postgres). See `table_schema`'s doc
+    /// comment for `database`/`schema` semantics.
+    async fn refresh_matview(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _name: &str,
+    ) -> DbResult<()> {
         Err(DbError::InvalidOperation(
             "refreshing materialized views is not supported by this adapter".into(),
         ))
@@ -128,6 +230,62 @@ pub trait DbAdapter: Send + Sync {
     async fn list_databases(&self) -> DbResult<Vec<String>> {
         Err(DbError::InvalidOperation(
             "database listing is not supported by this adapter".into(),
+        ))
+    }
+    /// Objects of one `kind` in `schema` — the sidebar catalog tree's
+    /// Tables/Views/Materialized Views/Procedures/Functions/Sequences/Types
+    /// rows. `database`, when `Some`, targets a SIBLING database on the same
+    /// server rather than this connection's own one: Postgres opens (or
+    /// reuses) a secondary connection pool for it (see `PgAdapter::pool_for`)
+    /// since a single Postgres connection can't otherwise reach another
+    /// database at all; MongoDB just addresses `database` directly (one
+    /// `mongodb::Client` can already talk to any database with no extra
+    /// connection), and only ever returns rows for `Table` (its collections)
+    /// — every other kind is empty rather than an error, so the sidebar can
+    /// render Mongo's simpler tree shape without special-casing kind by kind.
+    async fn list_schema_objects(
+        &self,
+        _database: Option<&str>,
+        _schema: &str,
+        _kind: SchemaObjectKind,
+    ) -> DbResult<Vec<SchemaObject>> {
+        Err(DbError::InvalidOperation(
+            "schema object listing is not supported by this adapter".into(),
+        ))
+    }
+    /// Schemas within `database` (`None` = this connection's own database) —
+    /// like `list_schemas` but for a specific, possibly non-active database,
+    /// so the sidebar tree can expand a sibling database's schema list.
+    async fn list_schemas_in(&self, _database: Option<&str>) -> DbResult<Vec<String>> {
+        Err(DbError::InvalidOperation(
+            "schema browsing is not supported by this adapter".into(),
+        ))
+    }
+    /// Server-wide roles (Postgres `pg_roles`) — cluster-level, so unlike
+    /// everything above this takes no database/schema argument: the same
+    /// roles are visible identically from every database on the server.
+    async fn list_roles(&self) -> DbResult<Vec<SchemaObject>> {
+        Err(DbError::InvalidOperation(
+            "role listing is not supported by this adapter".into(),
+        ))
+    }
+    /// Full attribute set for every role — the Users & Privileges tab. Same
+    /// cluster-wide scope as `list_roles`.
+    async fn list_role_details(&self) -> DbResult<Vec<RoleDetail>> {
+        Err(DbError::InvalidOperation(
+            "role detail listing is not supported by this adapter".into(),
+        ))
+    }
+    /// Close ONE sibling database's own connection right now (Postgres: the
+    /// secondary pool `pool_for` opened for it), instead of waiting for its
+    /// normal idle eviction — the sidebar's per-database "Disconnect" for
+    /// anything other than this connection's own primary database. Engines
+    /// without a separate per-database connection (MongoDB: one client
+    /// already reaches every database, nothing extra to close) don't need
+    /// this — the frontend just closes that database's tabs itself.
+    async fn disconnect_database(&self, _database: &str) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "closing an individual database's connection is not supported by this adapter".into(),
         ))
     }
     /// Fetch a page of documents from a collection (MongoDB).
@@ -230,11 +388,13 @@ pub trait DbAdapter: Send + Sync {
             "creating schemas is not supported by this adapter".into(),
         ))
     }
-    /// Create a new collection in the active database (MongoDB). An explicit
-    /// create is optional in Mongo (a collection also springs into existence
-    /// on its first insert) but this gives "New table" a real, immediate
-    /// equivalent for Mongo connections instead of SQL DDL.
-    async fn create_collection(&self, _name: &str) -> DbResult<()> {
+    /// Create a new collection (MongoDB). An explicit create is optional in
+    /// Mongo (a collection also springs into existence on its first insert)
+    /// but this gives "New table" a real, immediate equivalent for Mongo
+    /// connections instead of SQL DDL. `database` (`None` = this
+    /// connection's own primary database) targets a sibling database's
+    /// catalog tree row, same as `duplicate_table`'s own `database` param.
+    async fn create_collection(&self, _database: Option<&str>, _name: &str) -> DbResult<()> {
         Err(DbError::InvalidOperation(
             "creating collections is not supported by this adapter".into(),
         ))
@@ -536,6 +696,53 @@ pub async fn list_databases(conn_id: &str) -> DbResult<Vec<String>> {
     with_connection(conn_id, |a| async move { a.list_databases().await }).await
 }
 
+/// Schemas within `database` (`None` = this connection's own database) —
+/// the sidebar catalog tree's per-database schema list.
+pub async fn list_schemas_in(conn_id: &str, database: Option<&str>) -> DbResult<Vec<String>> {
+    let database = database.map(str::to_string);
+    with_connection(conn_id, |a| async move {
+        a.list_schemas_in(database.as_deref()).await
+    })
+    .await
+}
+
+/// Objects of one kind (table/view/matview/procedure/function/sequence/type)
+/// in one schema of `database` (`None` = this connection's own database) —
+/// the sidebar catalog tree's per-schema category rows.
+pub async fn list_schema_objects(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: &str,
+    kind: SchemaObjectKind,
+) -> DbResult<Vec<SchemaObject>> {
+    let database = database.map(str::to_string);
+    let schema = schema.to_string();
+    with_connection(conn_id, |a| async move {
+        a.list_schema_objects(database.as_deref(), &schema, kind)
+            .await
+    })
+    .await
+}
+
+/// Server-wide roles (Postgres) — the sidebar catalog tree's "Users &
+/// Privileges" row, shown once per connection regardless of which database
+/// node it's rendered under.
+pub async fn list_roles(conn_id: &str) -> DbResult<Vec<SchemaObject>> {
+    with_connection(conn_id, |a| async move { a.list_roles().await }).await
+}
+
+/// Full role attribute set — the Users & Privileges tab.
+pub async fn list_role_details(conn_id: &str) -> DbResult<Vec<RoleDetail>> {
+    with_connection(conn_id, |a| async move { a.list_role_details().await }).await
+}
+
+/// Close ONE sibling database's own connection right now — the sidebar's
+/// per-database "Disconnect".
+pub async fn disconnect_database(conn_id: &str, database: &str) -> DbResult<()> {
+    let database = database.to_string();
+    with_connection(conn_id, |a| async move { a.disconnect_database(&database).await }).await
+}
+
 /// Fetch a page of documents from a MongoDB collection.
 pub async fn list_documents(
     conn_id: &str,
@@ -657,9 +864,57 @@ macro_rules! named_ddl_op {
 named_ddl_op!(create_database, create_database, "ddl", "CREATE DATABASE {}");
 named_ddl_op!(drop_database, drop_database, "drop_table", "DROP DATABASE {}");
 named_ddl_op!(create_schema, create_schema, "ddl", "CREATE SCHEMA {}");
-named_ddl_op!(create_collection, create_collection, "ddl", "db.createCollection(\"{}\")");
 named_ddl_op!(set_active_schema, set_active_schema, "schema", "SET SCHEMA {}");
-named_ddl_op!(refresh_matview, refresh_matview, "ddl", "REFRESH MATERIALIZED VIEW {}");
+
+/// Create a new collection (MongoDB). `database` (`None` = this
+/// connection's own primary database) targets a sibling database's catalog
+/// tree row — hand-written instead of `named_ddl_op!` for the extra param,
+/// same owned-to-borrowed conversion reason as `list_schema_objects`.
+pub async fn create_collection(
+    conn_id: &str,
+    database: Option<&str>,
+    name: &str,
+) -> DbResult<()> {
+    let t = std::time::Instant::now();
+    let target = format!("db.createCollection(\"{name}\")");
+    let database = database.map(str::to_string);
+    let name = name.to_string();
+    let res = with_connection(conn_id, move |a| async move {
+        a.create_collection(database.as_deref(), &name).await
+    })
+    .await;
+    match &res {
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "app"),
+    }
+    res
+}
+
+/// Refresh a materialized view. `database`/`schema`: `None` = this
+/// connection's own primary database / active schema — see
+/// `DbAdapter::table_schema`'s doc comment for the general semantics. A
+/// sidebar action, never the editor — app-initiated.
+pub async fn refresh_matview(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    name: &str,
+) -> DbResult<()> {
+    let t = std::time::Instant::now();
+    let target = format!("REFRESH MATERIALIZED VIEW {name}");
+    let name = name.to_string();
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.refresh_matview(database.as_deref(), schema.as_deref(), &name).await
+    })
+    .await;
+    match &res {
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "app"),
+    }
+    res
+}
 
 /// Drop a schema; `cascade` also drops every object inside it. A
 /// sidebar/schema-designer action, never the editor — app-initiated.
@@ -687,14 +942,23 @@ pub async fn active_schema(conn_id: &str) -> DbResult<String> {
 /// prefetching all funnel through here, and none of them are the SQL/Mongo
 /// editor, so this always logs as app-initiated (see `run_sql`/`run_mongo`
 /// for the only "user" sources).
-pub async fn table_schema(conn_id: &str, table: &str) -> DbResult<TableSchema> {
+pub async fn table_schema(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    table: &str,
+) -> DbResult<TableSchema> {
     let t = std::time::Instant::now();
     let target = format!("describe {table}");
     let table = table.to_string();
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
     // The adapter hands back its introspection statements with the schema —
     // per-call ownership, so concurrent describes can't interleave captures.
-    let res = with_connection(conn_id, move |a| async move { a.table_schema(&table).await })
-        .await;
+    let res = with_connection(conn_id, move |a| async move {
+        a.table_schema(database.as_deref(), schema.as_deref(), &table).await
+    })
+    .await;
     match &res {
         Ok((_, stmts)) if !stmts.is_empty() => {
             crate::activity::log_stmt_ok_origin(conn_id, "schema", &stmts.join("\n\n"), t, 0, "app")
@@ -710,12 +974,23 @@ pub async fn table_schema(conn_id: &str, table: &str) -> DbResult<TableSchema> {
 /// comment) from every other caller of this same function (the sidebar's
 /// own housekeeping queries, the schema designer's "create table" apply):
 /// only the former is a query the user actually wrote and ran themselves.
-pub async fn run_sql(conn_id: &str, sql: &str, origin: &str) -> DbResult<QueryResult> {
+pub async fn run_sql(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    sql: &str,
+    origin: &str,
+) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     // Owned copy for the activity log — the closure below consumes a clone.
     let full_sql = sql.to_string();
     let sql = full_sql.clone();
-    let res = with_connection(conn_id, move |a| async move { a.run_sql(&sql).await }).await;
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.run_sql(database.as_deref(), schema.as_deref(), &sql).await
+    })
+    .await;
     match &res {
         Ok(r) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, activity_rows(r), origin),
         Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, origin),
@@ -725,14 +1000,21 @@ pub async fn run_sql(conn_id: &str, sql: &str, origin: &str) -> DbResult<QueryRe
 
 /// Only ever called for a grid-built DML/DDL statement (never free-form
 /// editor SQL) — always logged as app-initiated.
-pub async fn execute_params(conn_id: &str, sql: &str, params: &[Option<String>]) -> DbResult<u64> {
+pub async fn execute_params(
+    conn_id: &str,
+    database: Option<&str>,
+    sql: &str,
+    params: &[Option<String>],
+) -> DbResult<u64> {
     let t = std::time::Instant::now();
     let full_sql = sql.to_string();
     let sql = full_sql.clone();
     let params: Vec<Option<String>> = params.to_vec();
-    let res =
-        with_connection(conn_id, move |a| async move { a.execute_params(&sql, &params).await })
-            .await;
+    let database = database.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.execute_params(database.as_deref(), &sql, &params).await
+    })
+    .await;
     match &res {
         Ok(n) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, *n as i64, "app"),
         Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, "app"),
@@ -744,6 +1026,7 @@ pub async fn execute_params(conn_id: &str, sql: &str, params: &[Option<String>])
 /// SQL editor, so always logged as app-initiated).
 pub async fn run_sql_params(
     conn_id: &str,
+    database: Option<&str>,
     sql: &str,
     params: &[Option<String>],
 ) -> DbResult<QueryResult> {
@@ -751,8 +1034,11 @@ pub async fn run_sql_params(
     let full_sql = sql.to_string();
     let sql = full_sql.clone();
     let params: Vec<Option<String>> = params.to_vec();
-    let res = with_connection(conn_id, move |a| async move { a.run_sql_params(&sql, &params).await })
-        .await;
+    let database = database.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.run_sql_params(database.as_deref(), &sql, &params).await
+    })
+    .await;
     match &res {
         Ok(r) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, activity_rows(r), "app"),
         Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, "app"),
@@ -790,11 +1076,21 @@ fn op_label(op: &QueryOp) -> (&'static str, String) {
 /// The data grid's structured select/count/insert/update/delete actions —
 /// never the SQL editor (which always goes through `run_sql`/
 /// `run_sql_stream` instead) — so always logged as app-initiated.
-pub async fn execute_op(conn_id: &str, op: &QueryOp) -> DbResult<QueryResult> {
+pub async fn execute_op(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    op: &QueryOp,
+) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let (kind, target) = op_label(op);
     let op = op.clone();
-    let res = with_connection(conn_id, move |a| async move { a.execute_op(&op).await }).await;
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.execute_op(database.as_deref(), schema.as_deref(), &op).await
+    })
+    .await;
     match &res {
         Ok(outcome) => match &outcome.sql {
             Some(sql) => {
@@ -820,15 +1116,19 @@ pub async fn execute_op(conn_id: &str, op: &QueryOp) -> DbResult<QueryResult> {
 /// Same app-initiated origin as `execute_op` — see its doc comment.
 pub async fn execute_op_stream(
     conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
     op: &QueryOp,
     on_batch: impl FnMut(QueryChunk) -> DbResult<()> + Send,
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let (kind, target) = op_label(op);
     let op = op.clone();
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
     let mut sink = on_batch;
     let res = with_connection(conn_id, move |a| async move {
-        a.execute_op_stream(&op, &mut sink).await
+        a.execute_op_stream(database.as_deref(), schema.as_deref(), &op, &mut sink).await
     })
     .await;
     match &res {
@@ -851,15 +1151,19 @@ pub async fn execute_op_stream(
 /// same as `log_stmt_ok`/`log_stmt_err`'s default below.
 pub async fn run_sql_stream(
     conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
     sql: &str,
     on_batch: impl FnMut(QueryChunk) -> DbResult<()> + Send,
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let full_sql = sql.to_string();
     let sql = full_sql.clone();
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
     let mut sink = on_batch;
     let res = with_connection(conn_id, move |a| async move {
-        a.run_sql_stream(&sql, &mut sink).await
+        a.run_sql_stream(database.as_deref(), schema.as_deref(), &sql, &mut sink).await
     })
     .await;
     match &res {
@@ -881,6 +1185,8 @@ pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {
 /// app-initiated.
 pub async fn duplicate_table(
     conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
     source: &str,
     target: &str,
     copy_data: bool,
@@ -892,8 +1198,11 @@ pub async fn duplicate_table(
     );
     let source = source.to_string();
     let target = target.to_string();
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
     let res = with_connection(conn_id, move |a| async move {
-        a.duplicate_table(&source, &target, copy_data).await
+        a.duplicate_table(database.as_deref(), schema.as_deref(), &source, &target, copy_data)
+            .await
     })
     .await;
     match &res {
@@ -911,12 +1220,19 @@ pub async fn duplicate_table(
 /// together, or a failure on any op rolls the whole batch back. Returns every
 /// statement that ran so the UI can show/copy what happened. The schema
 /// designer's "Apply" button, never the editor — app-initiated.
-pub async fn apply_schema_ops(conn_id: &str, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
+pub async fn apply_schema_ops(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    ops: &[SchemaOp],
+) -> DbResult<Vec<String>> {
     let t = std::time::Instant::now();
     let target = format!("{} DDL statement(s)", ops.len());
     let ops = ops.to_vec();
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
     let res = with_connection(conn_id, move |a| async move {
-        a.apply_schema_ops_batch(&ops).await
+        a.apply_schema_ops_batch(database.as_deref(), schema.as_deref(), &ops).await
     })
     .await;
     match &res {

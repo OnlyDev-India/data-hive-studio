@@ -119,11 +119,28 @@ fn load_or_create_master_key(data_dir: &PathBuf) -> [u8; 32] {
     std::fs::create_dir_all(data_dir).expect("create data dir for master-key fallback");
     let key_path = data_dir.join("master.key");
     if key_path.exists() {
+        // Re-lock permissions in case this file predates the chmod below
+        // (written by an older build).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+        }
         let hex_key = std::fs::read_to_string(&key_path).expect("read master.key");
         return hex::decode(hex_key.trim()).expect("master.key must be hex").try_into().expect("32 bytes");
     }
     let key: [u8; 32] = rand::random();
     std::fs::write(&key_path, hex::encode(key)).expect("persist master.key");
+    // Whoever reads this file decrypts every stored connection password on
+    // the server — restrict it the same way the desktop app's own key file
+    // is restricted (`secret_file.rs`), instead of leaving it at the
+    // process's default umask.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))
+            .expect("chmod master.key");
+    }
     println!(
         "generated new master key at {} — losing this file makes stored passwords unrecoverable. \
          On a host without a PERSISTENT disk (e.g. Vercel), set DH_MASTER_KEY explicitly instead: \

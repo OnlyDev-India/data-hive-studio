@@ -1,5 +1,6 @@
 import { WEB } from "@/shared/api/web";
 import { bootstrapWorkspaceRestore, useStudioStore } from "@/shared/store";
+import { checkForUpdate } from "@/features/updater";
 
 const BOOTSTRAP_TIMEOUT_MS = 8_000;
 
@@ -34,6 +35,11 @@ export async function runStartupBootstrap(
   // instantly once this is cached, so lifting the splash doesn't trade one
   // blank moment for another.
   void import("@/app/studio/studio");
+
+  // Fire-and-forget: never awaited, never delays the splash. Whenever it
+  // resolves (could be well after first paint), the title-bar badge/Help
+  // menu just pick up `updateInfo` reactively.
+  void checkForUpdate();
 
   const work = (async () => {
     await Promise.all([

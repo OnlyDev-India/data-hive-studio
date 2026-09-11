@@ -16,7 +16,7 @@ function TooltipContent({
   side = "top",
   align = "center",
   sideOffset = 4,
-  showArrow = false,
+  showArrow = true,
   children,
   ...props
 }: TooltipPrimitive.Popup.Props & {
@@ -44,7 +44,7 @@ function TooltipContent({
         >
           {children}
           {showArrow && (
-            <TooltipPrimitive.Arrow className="bg-foreground block size-1.5 translate-x-[-50%] rotate-45" />
+            <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-xs data-[side=bottom]:top-1 data-[side=inline-end]:top-1/2! data-[side=inline-end]:-left-1 data-[side=inline-end]:-translate-y-1/2 data-[side=inline-start]:top-1/2! data-[side=inline-start]:-right-1 data-[side=inline-start]:-translate-y-1/2 data-[side=left]:top-1/2! data-[side=left]:-right-1 data-[side=left]:-translate-y-1/2 data-[side=right]:top-1/2! data-[side=right]:-left-1 data-[side=right]:-translate-y-1/2 data-[side=top]:-bottom-2.5" />
           )}
         </TooltipPrimitive.Popup>
       </TooltipPrimitive.Positioner>

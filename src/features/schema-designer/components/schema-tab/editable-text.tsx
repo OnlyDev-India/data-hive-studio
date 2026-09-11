@@ -87,7 +87,7 @@ export function EditableText({
         else if (e.key === "Escape") setEditing(false);
       }}
       onBlur={commit}
-      className={cn("h-7", className)}
+      className={cn(className)}
     />
   );
 }

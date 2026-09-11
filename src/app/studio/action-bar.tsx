@@ -6,11 +6,8 @@ import {
   ChevronUp,
   FileCode2,
   Loader2,
-  Play,
   Plus,
   RefreshCw,
-  TextCursorInput,
-  TextSelect,
   Trash2,
   X,
 } from "lucide-react";
@@ -24,7 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
-import { TabTypeIcon } from "@/shared/components/tab-type-icon";
 import {
   useActiveConnection,
   usePaneMode,
@@ -47,7 +43,8 @@ import {
   pending_changes_to_diff,
   type PendingChange,
 } from "@/shared/components/data-grid/grid-context";
-import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
+import { formatQueryPreview } from "./query-preview";
+import { IconTypeMap } from "@/shared/components/icons/types";
 
 export function ActionBar() {
   const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
@@ -94,17 +91,26 @@ export function ActionBar() {
       ? (s.sqlTabs[active_key] ?? null)
       : null,
   );
+  // Status-bar-only text — what the grid is effectively running, built from
+  // the SAME structured op it already exposes for exports, so it can never
+  // disagree with the actual filters/sort in effect.
+  const is_mongo_like = conn?.kind === "mongodb" || conn?.kind === "documentdb";
+  const query_preview =
+    bridge && paneMode === "data"
+      ? formatQueryPreview(
+          bridge.get_filtered_op(),
+          bridge.page_size,
+          is_mongo_like,
+        )
+      : null;
 
   return (
     <TooltipProvider delay={500}>
       <footer className="bg-muted/60 text-muted-foreground flex h-9 shrink-0 items-stretch overflow-hidden border-t text-xs select-none">
-        {/* Section 1 — disconnect */}
-        <div
-          className="bg-background flex w-14 shrink-0 items-center justify-center border-r"
-          title={conn ? conn.name : "No connection"}
-        >
-          <DisconnectDbBtn conn={conn} />
-        </div>
+        {/* Section 1 — empty spacer, kept for layout: this used to hold the
+            disconnect button, now moved to the sidebar's database row
+            context menu (see `TablesBrowser` in tables-view.tsx). */}
+        <div className="w-14 shrink-0 border-r" />
         {/* Section 2 — connection details (flows with the sidebar width) */}
         <div
           className={cn(
@@ -118,7 +124,7 @@ export function ActionBar() {
             {conn ? conn.name : "No connection"}
           </span>
           {conn && (
-            <span className="shrink-0 text-[10px] tracking-wide uppercase">
+            <span className="shrink-0 text-3xs tracking-wide uppercase">
               {prettyKind(conn.kind)}
             </span>
           )}
@@ -131,7 +137,7 @@ export function ActionBar() {
         <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-2 overflow-x-auto px-3">
           {active ? (
             <>
-              <TabTypeIcon tab={active} />
+              {IconTypeMap[active.kind]}
               <span className="text-foreground/80 max-w-40 truncate font-medium">
                 {tabLabel(active)}
               </span>
@@ -145,6 +151,14 @@ export function ActionBar() {
                   <span className="text-muted-foreground/80 shrink-0">
                     {bridge.rows} of {bridge.total} rows
                   </span>
+                  {query_preview && (
+                    <code
+                      className="text-muted-foreground/70 min-w-0 truncate font-mono text-2xs"
+                      title={query_preview}
+                    >
+                      {query_preview}
+                    </code>
+                  )}
                 </>
               )}
               {!bridge && sqlConsole?.result && (
@@ -161,6 +175,12 @@ export function ActionBar() {
             </>
           ) : (
             <span className="truncate">No tab open</span>
+          )}
+          {/* Divider between the status text above and the grid controls
+              below — the reference direction called for reading these as
+              two distinct clusters instead of one dense row. */}
+          {active && (
+            <span className="bg-border mx-1 h-4 w-px shrink-0" aria-hidden />
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {bridge && paneMode === "data" && (
@@ -404,47 +424,6 @@ export function ActionBar() {
                 </Button>
               </ActionBarTooltip>
             )}
-            {sqlConsole && (
-              <ActionBarTooltip
-                label={
-                  sqlConsole.has_selection
-                    ? "Run the selected statement(s)"
-                    : "Run the query at the cursor"
-                }
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 bg-transparent px-2 text-xs"
-                  disabled={
-                    !sqlConsole.can_run_target || !sqlConsole.run_target
-                  }
-                  onClick={() => sqlConsole.run_target?.()}
-                >
-                  {sqlConsole.has_selection ? (
-                    <TextSelect className="size-3.5" />
-                  ) : (
-                    <TextCursorInput className="size-3.5" />
-                  )}
-                  {sqlConsole.has_selection ? "Run selection" : "Run query"}
-                </Button>
-              </ActionBarTooltip>
-            )}
-            {sqlConsole && (
-              <ActionBarTooltip label="Run all statements">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 bg-transparent px-2 text-xs"
-                  disabled={!sqlConsole.has_text || !sqlConsole.run_all}
-                  title="Run all statements"
-                  onClick={() => sqlConsole.run_all?.()}
-                >
-                  <Play className="size-3.5" />
-                  Run all
-                </Button>
-              </ActionBarTooltip>
-            )}
             <ActionBarTooltip label="Notifications">
               <NotificationBell />
             </ActionBarTooltip>
@@ -480,7 +459,7 @@ function Pagination({
       >
         <ChevronLeft className="size-3.5" />
       </Button>
-      <span className="flex h-6 shrink-0 items-center border-x px-1.5 text-[11px]">
+      <span className="flex h-6 shrink-0 items-center border-x px-1.5 text-2xs">
         {bridge.page + 1} / {bridge.total_pages}
       </span>
       <Button
@@ -512,7 +491,7 @@ function LimitInput({
   };
   return (
     <div className="flex h-6 items-center gap-1 rounded-md border px-1.5">
-      <span className="text-[10px] tracking-wide uppercase">Limit</span>
+      <span className="text-3xs tracking-wide uppercase">Limit</span>
       <Input
         type="number"
         min={1}
@@ -525,7 +504,7 @@ function LimitInput({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        className="h-6 w-10 rounded-none border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
+        className="w-10 rounded-none border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
       />
     </div>
   );

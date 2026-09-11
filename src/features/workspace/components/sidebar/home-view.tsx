@@ -2,7 +2,10 @@ import {
   AlertTriangle,
   ChevronRight,
   Cloud,
+  Copy,
+  CopyPlus,
   Database,
+  Pencil,
   Pin,
   Plug,
   RefreshCw,
@@ -21,10 +24,17 @@ import { reopenRecent } from "@/features/connections";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/shared/components/ui/context-menu";
 import { useStudioStore } from "@/shared/store";
 import type { SavedConnParams } from "@/shared/store";
-import { DBIcons } from "@/shared/components/icons/types";
 import type { DbKind } from "@/shared/api";
+import { DBIcons } from "@/shared/components/icons/types";
 
 /** Collapsible sidebar section. An OPEN section stretches to fill all
  *  remaining height; CLOSED ones shrink to just their header row, stacking
@@ -62,7 +72,7 @@ function Collapse({
         <Icon className="size-3.5" />
         {label}
         {count !== undefined && (
-          <span className="bg-muted ml-auto rounded-full px-1.5 text-[10px]">
+          <span className="bg-muted text-3xs ml-auto rounded-full px-1.5">
             {count}
           </span>
         )}
@@ -91,6 +101,8 @@ export function HomeView({
 }) {
   const saved_local = useStudioStore((s) => s.savedLocal);
   const delete_saved = useStudioStore((s) => s.deleteSavedLocal);
+  const save_local = useStudioStore((s) => s.saveLocal);
+  const push_notification = useStudioStore((s) => s.pushNotification);
   const pins = useStudioStore((s) => s.pins);
   const toggle_pin = useStudioStore((s) => s.togglePin);
   const server_sessions = useStudioStore((s) => s.serverSessions);
@@ -149,6 +161,36 @@ export function HomeView({
     }
     return out;
   }, [saved_local, home_query]);
+
+  const copy_saved_name = async (name: string) => {
+    try {
+      await navigator.clipboard.writeText(name);
+    } catch {
+      // Clipboard unavailable in this webview; ignore.
+    }
+  };
+
+  /** `<name> copy`, `<name> copy 2`, … — same numbered-suffix convention
+   *  used for duplicating a table/collection (see `uniqueCopyName` in the
+   *  catalog tree). */
+  const duplicate_saved = async (
+    name: string,
+    kind: SavedConnParams["kind"],
+    params: SavedConnParams,
+  ) => {
+    let target = `${name} copy`;
+    let i = 2;
+    while (target in saved_local) {
+      target = `${name} copy ${i}`;
+      i += 1;
+    }
+    await save_local(target, { ...params, kind, name: target });
+    push_notification({
+      kind: "success",
+      title: "Connection duplicated",
+      detail: target,
+    });
+  };
 
   const recent_filtered = useMemo(() => {
     if (!home_query) return recent;
@@ -277,11 +319,11 @@ export function HomeView({
                     title={entry.connect_title}
                     onClick={entry.on_click}
                     onDoubleClick={entry.on_double_click}
-                    className="hover:bg-accent group h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
+                    className="hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                   >
                     {DBIcon && <DBIcon className="size-4 shrink-0" />}
                     <span className="truncate font-medium">{entry.label}</span>
-                    <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
+                    <span className="text-muted-foreground text-3xs ml-auto shrink-0 uppercase">
                       {entry.source}
                     </span>
                     <span
@@ -384,7 +426,7 @@ export function HomeView({
                           source_path: null,
                         });
                       }}
-                      className="hover:bg-accent h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
+                      className="hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                     >
                       <DBIcon className="text-muted-foreground size-4 shrink-0" />
                       <span className="truncate font-medium">{c.name}</span>
@@ -483,47 +525,94 @@ export function HomeView({
               const { id: pin_id, name, kind, params } = row;
               const is_pinned = pins.includes(pin_id);
               const DBIcon = DBIcons[kind] ?? Database;
+              const row_button = (
+                <Button
+                  variant="ghost"
+                  title="Load into the connect form"
+                  onClick={() => request_prefill(kind, { ...params })}
+                  onDoubleClick={() =>
+                    request_prefill(kind, { ...params }, true)
+                  }
+                  className="hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
+                >
+                  <DBIcon className="text-muted-foreground size-4 shrink-0" />
+                  <span className="truncate font-medium">{name}</span>
+                  <span className="ml-auto flex shrink-0 items-center gap-1">
+                    <span
+                      aria-label={`Delete ${name}`}
+                      className="text-muted-foreground hover:text-destructive invisible group-hover:visible"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        delete_saved(name);
+                      }}
+                    >
+                      <X className="size-3.5" />
+                    </span>
+                    <span
+                      aria-label={is_pinned ? `Unpin ${name}` : `Pin ${name}`}
+                      className="hover:text-amber-500"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle_pin(pin_id);
+                      }}
+                    >
+                      <Pin
+                        className={cn(
+                          "size-3.5",
+                          is_pinned && "fill-amber-400 text-amber-400",
+                        )}
+                      />
+                    </span>
+                  </span>
+                </Button>
+              );
               return (
                 <li key={name}>
-                  <Button
-                    variant="ghost"
-                    title="Load into the connect form"
-                    onClick={() => request_prefill(kind, { ...params })}
-                    onDoubleClick={() =>
-                      request_prefill(kind, { ...params }, true)
-                    }
-                    className="hover:bg-accent group h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
-                  >
-                    <DBIcon className="text-muted-foreground size-4 shrink-0" />
-                    <span className="truncate font-medium">{name}</span>
-                    <span className="ml-auto flex shrink-0 items-center gap-1">
-                      <span
-                        aria-label={`Delete ${name}`}
-                        className="text-muted-foreground hover:text-destructive invisible group-hover:visible"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          delete_saved(name);
-                        }}
+                  <ContextMenu>
+                    <ContextMenuTrigger className="contents">
+                      {row_button}
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-52">
+                      <ContextMenuItem
+                        onSelect={() => request_prefill(kind, { ...params }, true)}
                       >
-                        <X className="size-3.5" />
-                      </span>
-                      <span
-                        aria-label={is_pinned ? `Unpin ${name}` : `Pin ${name}`}
-                        className="hover:text-amber-500"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggle_pin(pin_id);
-                        }}
+                        <Plug className="size-3.5" />
+                        Open Connection
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => void copy_saved_name(name)}
                       >
-                        <Pin
-                          className={cn(
-                            "size-3.5",
-                            is_pinned && "fill-amber-400 text-amber-400",
-                          )}
-                        />
-                      </span>
-                    </span>
-                  </Button>
+                        <Copy className="size-3.5" />
+                        Copy Name
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() =>
+                          request_prefill(kind, { ...params }, false, {
+                            source: "local",
+                            oldName: name,
+                            name,
+                          })
+                        }
+                      >
+                        <Pencil className="size-3.5" />
+                        Edit Connection
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => void duplicate_saved(name, kind, params)}
+                      >
+                        <CopyPlus className="size-3.5" />
+                        Duplicate Connection
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        variant="destructive"
+                        onSelect={() => void delete_saved(name)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete Connection
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 </li>
               );
             })}
@@ -556,7 +645,8 @@ export function HomeView({
               // "mongodb" for a DocumentDB connection by design — prefer
               // the saved-params record's kind, which remembers which
               // picker entry was actually used, when one's available.
-              const DBIcon = DBIcons[recents_params[conn.id]?.kind ?? conn.kind] ?? Database;
+              const DBIcon =
+                DBIcons[recents_params[conn.id]?.kind ?? conn.kind] ?? Database;
               return (
                 <li key={conn.id}>
                   <Button
@@ -601,7 +691,7 @@ export function HomeView({
                       }
                     }}
                     className={cn(
-                      "hover:bg-accent h-7 w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                      "hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
                       !server_connected &&
                         "text-muted-foreground/50 line-through",
                     )}

@@ -322,7 +322,9 @@ function ArrayCell({ value }: { value: string }) {
   if (items.length === 0) {
     return (
       <span className="text-muted-foreground inline-flex items-center gap-1 truncate">
-        <span className="bg-muted rounded px-1 py-px text-[10px]">empty</span>
+        <span className="bg-muted rounded px-1 py-px text-3xs">
+          empty
+        </span>
       </span>
     );
   }
@@ -331,14 +333,14 @@ function ArrayCell({ value }: { value: string }) {
       {items.slice(0, 4).map((v) => (
         <span
           key={v}
-          className="bg-primary/10 text-primary truncate rounded px-1 py-px text-[10px]"
+          className="bg-primary/10 text-primary truncate rounded px-1 py-px text-3xs"
           style={{ maxWidth: "5rem" }}
         >
           {v}
         </span>
       ))}
       {items.length > 4 && (
-        <span className="text-muted-foreground shrink-0 text-[10px]">
+        <span className="text-muted-foreground shrink-0 text-3xs">
           +{items.length - 4}
         </span>
       )}

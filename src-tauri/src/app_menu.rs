@@ -173,12 +173,22 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<(Menu<R>, FileMenu
         ],
     )?;
 
+    let check_updates = MenuItem::with_id(
+        app,
+        "help.check_updates",
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
     let help_menu = Submenu::with_id_and_items(
         app,
         "help",
         "Help",
         true,
         &[
+            &check_updates,
+            #[cfg(not(target_os = "macos"))]
+            &PredefinedMenuItem::separator(app)?,
             #[cfg(not(target_os = "macos"))]
             &PredefinedMenuItem::about(app, None, Some(about.clone()))?,
         ],

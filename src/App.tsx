@@ -5,6 +5,11 @@ import { WebGate } from "./web/WebGate";
 import { TitleBar, shouldShowTitleBar } from "./app/studio/title-bar";
 import { SplashScreen } from "./app/splash-screen";
 import { runStartupBootstrap } from "./app/bootstrap";
+import { checkForUpdate } from "@/features/updater";
+
+// Re-check on this cadence for sessions left open a long time — the
+// startup check (`runStartupBootstrap`) only ever runs once, at launch.
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /** The whole studio shell is code-split behind the theme provider. */
 const Studio = lazy(() =>
@@ -45,6 +50,14 @@ function App() {
     };
     document.addEventListener("contextmenu", on_context_menu);
     return () => document.removeEventListener("contextmenu", on_context_menu);
+  }, []);
+
+  // Periodic re-check for sessions that stay open across the interval —
+  // `runStartupBootstrap`'s own check only ever fires once, at launch.
+  useEffect(() => {
+    if (WEB) return;
+    const id = setInterval(() => void checkForUpdate(), UPDATE_CHECK_INTERVAL_MS);
+    return () => clearInterval(id);
   }, []);
 
   return (

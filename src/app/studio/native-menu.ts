@@ -68,6 +68,13 @@ export function handleMenuAction(id: string) {
     case "connection.home":
       s.setView("home");
       break;
+    case "help.check_updates":
+      // An explicit menu click, unlike the passive title-bar badge, always
+      // deserves an answer — the dialog itself runs a fresh on-demand check
+      // when it opens with no `updateInfo` yet (see UpdateDialog) and shows
+      // "You're up to date" rather than nothing.
+      s.setUpdateDialogOpen(true);
+      break;
   }
 }
 

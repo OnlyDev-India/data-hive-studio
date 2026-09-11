@@ -210,6 +210,13 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const [on_screen, setOnScreen] = useState(true);
   const saved_scroll = useRef(0);
   const was_shown = useRef(true);
+  // Mirrored into a ref so the "snap to top" effect below can read the
+  // CURRENT visibility without depending on it — see that effect's comment
+  // for why `on_screen` reactively triggering it is the actual bug.
+  const on_screen_ref = useRef(on_screen);
+  useEffect(() => {
+    on_screen_ref.current = on_screen;
+  });
   // Options are memoized so tanstack never sees a brand-new option object
   // (fresh closures) on re-renders. A freshly-recreated options bag makes the
   // virtualizer's internal no-deps layout effect diff "changed" state every
@@ -266,19 +273,28 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   }, [row_virtualizer]);
 
   // A fresh page/query invalidates the old scroll position; snap back to the
-  // top. This is keyed to the real row data + offset (not `rows_to_render`,
-  // which is rebuilt on every pending/dirty overlay change), and it defers to
-  // the next animation frame so the virtualizer's own layout effect has
-  // already reconciled the spacer. Forcing `measure()` here re-enters the
-  // notify→setState loop inside tanstack (spacer/row-size measurement feedback),
-  // so we let its ResizeObserver do the reconciliation instead.
+  // top. This is keyed to the real row data + offset ONLY (not `on_screen`
+  // — that used to be a dependency here too, which meant this effect ALSO
+  // reran every time the tab became visible again, racing the reveal
+  // handler above: both schedule a requestAnimationFrame, both run in the
+  // same frame, and this one's unconditional `scrollTo({ top: 0 })` fired
+  // right after the reveal handler restored the real saved position,
+  // stomping it back to a wrong offset instead of where the user left it.
+  // `on_screen` is read from a ref instead, purely to skip scrolling a
+  // hidden element — not to retrigger on every visibility toggle). Not
+  // keyed to `rows_to_render` either, which is rebuilt on every
+  // pending/dirty overlay change, and defers to the next animation frame so
+  // the virtualizer's own layout effect has already reconciled the spacer.
+  // Forcing `measure()` here re-enters the notify→setState loop inside
+  // tanstack (spacer/row-size measurement feedback), so we let its
+  // ResizeObserver do the reconciliation instead.
   useEffect(() => {
-    if (!on_screen) return;
+    if (!on_screen_ref.current) return;
     const raf = requestAnimationFrame(() => {
       root_ref.current?.scrollTo({ top: 0 });
     });
     return () => cancelAnimationFrame(raf);
-  }, [rows, row_offset, on_screen]);
+  }, [rows, row_offset]);
 
   const on_sort = useCallback(
     (col: string, asc: boolean) => {

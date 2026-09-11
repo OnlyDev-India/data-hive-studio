@@ -40,6 +40,8 @@ export function TablePane({
   on_modified,
   initial_filters,
   on_open_reference,
+  database,
+  schema: db_schema,
 }: {
   conn_id: string;
   tab_key: string;
@@ -54,6 +56,12 @@ export function TablePane({
     column: string,
     value: string | null,
   ) => void;
+  /** `undefined` = this connection's own primary database/active schema —
+   *  set when this tab was opened from a database/schema other than the
+   *  connection's own (the sidebar catalog tree's multi-database browsing —
+   *  see `open_object` in tables-view.tsx). */
+  database?: string;
+  schema?: string;
 }) {
   const mode = usePaneMode(conn_id, tab_key);
   const setPaneMode = useStudioStore((s) => s.setPaneMode);
@@ -92,7 +100,7 @@ export function TablePane({
     let cancelled = false;
     void (async () => {
       try {
-        const s = await tableSchema(conn_id, table);
+        const s = await tableSchema(conn_id, table, database, db_schema);
         if (!cancelled) {
           setSchema(s);
           setFailed(false);
@@ -107,7 +115,7 @@ export function TablePane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, revision, refresh_rev]);
+  }, [conn_id, table, revision, refresh_rev, database, db_schema]);
 
   // Bounded distinct values for enum/bool columns (dropdown editors + filters).
   // Booleans are special-cased: their domain is FIXED (true/false), so on
@@ -151,12 +159,17 @@ export function TablePane({
             ) {
               return [col, ["true", "false"] as (string | null)[]] as const;
             }
-            const res = await executeOp(conn_id, {
-              kind: "select_distinct",
-              table,
-              column: col,
-              limit: DISTINCT_LIMIT,
-            });
+            const res = await executeOp(
+              conn_id,
+              {
+                kind: "select_distinct",
+                table,
+                column: col,
+                limit: DISTINCT_LIMIT,
+              },
+              database,
+              db_schema,
+            );
             return [col, res.rows.map((r) => r[0] ?? null)] as const;
           } catch {
             return [col, [] as (string | null)[]] as const;
@@ -171,7 +184,16 @@ export function TablePane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, combined_rev, distinct_cols, is_postgres, schema]);
+  }, [
+    conn_id,
+    table,
+    combined_rev,
+    distinct_cols,
+    is_postgres,
+    schema,
+    database,
+    db_schema,
+  ]);
 
   const add_filter = (filter: Omit<GridFilter, "id">) => {
     setFilters((cur) => {
@@ -198,7 +220,7 @@ export function TablePane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex shrink-0 items-center gap-1 border-b px-3">
+      <div className="bg-background flex shrink-0 items-center gap-1 border-b px-3 min-h-8">
         {/* Views/matviews have no editable schema — hide the Schema tab. */}
         {is_table ? (
           <ModeTabs
@@ -267,6 +289,8 @@ export function TablePane({
                   props_busy={schema_busy}
                   on_refresh={bump_refresh}
                   on_open_reference={on_open_reference}
+                  database={database}
+                  schema_name={db_schema}
                 />
               </div>
               <div
@@ -282,6 +306,8 @@ export function TablePane({
                     store_key={tab_key}
                     on_modified={on_modified}
                     on_applied={() => setMode("data")}
+                    database={database}
+                    schema_name={db_schema}
                   />
                 </Suspense>
               </div>

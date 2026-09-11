@@ -82,9 +82,15 @@ export function ExportMenu({
         op = { kind: "select", table: base.table };
       }
       const acc: (string | null)[][] = [];
-      const meta = await executeOpStream(conn_id, op, (chunk) => {
-        acc.push(...chunk.rows);
-      });
+      const meta = await executeOpStream(
+        conn_id,
+        op,
+        (chunk) => {
+          acc.push(...chunk.rows);
+        },
+        bridge.database,
+        bridge.schema_name,
+      );
       const payload = {
         ...base,
         columns: meta.columns.length > 0 ? meta.columns : base.columns,

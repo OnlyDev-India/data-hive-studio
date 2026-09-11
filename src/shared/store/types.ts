@@ -83,6 +83,14 @@ export interface GridBridge {
   /** Structured SELECT matching the grid's current filters and sort, WITHOUT
    *  pagination — run it to fetch every matching row (used by exports). */
   get_filtered_op: () => Extract<QueryOp, { kind: "select" }>;
+  /** `undefined` = this connection's own primary database/active schema —
+   *  mirrors the Grid component's own `database`/`schema_name` props (see
+   *  `grid.tsx`), so a consumer driven purely by the bridge (the export
+   *  menu, not a direct child of Grid) can still target the right
+   *  database/schema instead of silently defaulting to the connection's
+   *  own primary one for a table opened from a sibling database. */
+  database?: string;
+  schema_name?: string;
 }
 
 /** A single data-grid row captured for the right-side JSON viewer. */
@@ -181,11 +189,8 @@ export interface SqlTabHandleBase {
    *  after a successful save even though `has_text` may still be true. */
   is_dirty: boolean;
   save: () => Promise<boolean>;
-  /** Run all queries in the editor. */
   run_all?: () => void;
-  /** Whether a target (selection) can be run. */
   can_run_target?: boolean;
-  /** Run the selected query target. */
   run_target?: () => void;
   /** Whether the editor currently has a non-empty selection — lets the
    *  action bar's run-target button say "Run selection" only when that's
@@ -522,6 +527,23 @@ export interface StudioStore {
   disconnectPendingId: string | null;
   setDisconnectPendingId: (id: string | null) => void;
 
+  /** A newer release than the running version, once the background/on-demand
+   *  check (`src/features/updater/update-check.ts`) finds one — null while
+   *  unchecked, up to date, or the check failed. The plugin's actual `Update`
+   *  handle (with `.downloadAndInstall()`) isn't stored here — it's not
+   *  serializable, so it lives in a module-level singleton in that file. */
+  updateInfo: { version: string; body: string | null } | null;
+  setUpdateInfo: (info: { version: string; body: string | null } | null) => void;
+  /** The update dialog's open state — shown from the title-bar badge or the
+   *  Help menu's "Check for Updates…". */
+  updateDialogOpen: boolean;
+  setUpdateDialogOpen: (open: boolean) => void;
+  /** Version the user chose "Skip" for — persisted so the title-bar badge
+   *  doesn't keep nagging about the SAME release, but reappears once a
+   *  newer one ships. */
+  skippedUpdateVersion: string | null;
+  setSkippedUpdateVersion: (version: string | null) => void;
+
   /** User-customizable trigger prefixes for the command palette's quick-open
    *  sub-modes (Settings → Command Palette). `>` (app commands) is fixed and
    *  not part of this — these four are the only ones a user can rename. */
@@ -556,8 +578,15 @@ export interface StudioStore {
     connId: string,
     name: string,
     initialFilters?: GridFilter[],
+    database?: string,
+    schema?: string,
   ) => void;
-  openStructure: (connId: string, name: string) => void;
+  openStructure: (
+    connId: string,
+    name: string,
+    database?: string,
+    schema?: string,
+  ) => void;
   /** `seedFileName`, when given, marks `seedText` as loaded from that real
    *  file (openFileTab) — the tab starts clean (not dirty) and shows this as
    *  its name, instead of treating the seed as unsaved new work. `paneId`,
@@ -573,6 +602,8 @@ export interface StudioStore {
   openNewTable: (connId: string, paneId?: string) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
   openActivityTab: (connId: string) => void;
+  /** Open (or focus — it is a singleton per connection) the Users & Privileges tab. */
+  openRolesTab: (connId: string) => void;
   /** Open a MongoDB collection tab (data view). */
   openMongo: (connId: string, database: string, collection: string) => void;
   /** Open a MongoDB console tab for the given connection & database.

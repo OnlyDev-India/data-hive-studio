@@ -15,6 +15,7 @@ import { cn } from "@/shared/lib/utils";
 export function MongoCollectionPane({
   conn_id,
   tab_key,
+  database,
   collection,
   on_modified,
 }: {
@@ -55,7 +56,7 @@ export function MongoCollectionPane({
     let cancelled = false;
     void (async () => {
       try {
-        const s = await tableSchema(conn_id, collection);
+        const s = await tableSchema(conn_id, collection, database);
         if (!cancelled) {
           setSchema(s);
           setFailed(false);
@@ -70,7 +71,7 @@ export function MongoCollectionPane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, collection, schema_rev]);
+  }, [conn_id, collection, schema_rev, database]);
 
   const add_filter = (filter: Omit<GridFilter, "id">) => {
     setFilters((cur) => {
@@ -158,6 +159,7 @@ export function MongoCollectionPane({
                   distinct={{}}
                   on_refresh={refresh_data_only}
                   kind="mongo"
+                  database={database}
                 />
               </div>
               <div
@@ -168,6 +170,7 @@ export function MongoCollectionPane({
               >
                 <MongoSchemaView
                   conn_id={conn_id}
+                  database={database}
                   tab_key={tab_key}
                   collection={collection}
                   schema={schema}
@@ -181,13 +184,11 @@ export function MongoCollectionPane({
             </>
           )
         )}
-        {mode === "data" &&
-          !failed &&
-          (gridBridge?.loading || !schema) && (
-            <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
-              <Loader2 className="text-muted-foreground size-5 animate-spin" />
-            </div>
-          )}
+        {mode === "data" && !failed && (gridBridge?.loading || !schema) && (
+          <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
+            <Loader2 className="text-muted-foreground size-5 animate-spin" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -199,6 +200,7 @@ export function MongoCollectionPane({
  *  (indexes ARE a per-collection concept in Mongo, unlike columns). */
 function MongoSchemaView({
   conn_id,
+  database,
   tab_key,
   collection,
   schema,
@@ -206,6 +208,7 @@ function MongoSchemaView({
   on_dropped,
 }: {
   conn_id: string;
+  database: string;
   tab_key: string;
   collection: string;
   schema: TableSchema;
@@ -230,7 +233,7 @@ function MongoSchemaView({
           <div
             className={cn(
               grid,
-              "text-muted-foreground border-b px-3 py-2 text-[11px] font-medium",
+              "text-muted-foreground border-b px-3 py-2 text-2xs font-medium",
             )}
           >
             <span>Field</span>
@@ -240,13 +243,16 @@ function MongoSchemaView({
           {schema.columns.map((c) => (
             <div key={c.name} className={cn(grid, "px-3 py-1.5 text-sm")}>
               <span className="font-mono">{c.name}</span>
-              <span className="text-muted-foreground text-xs">{c.data_type}</span>
+              <span className="text-muted-foreground text-xs">
+                {c.data_type}
+              </span>
               <span />
             </div>
           ))}
         </div>
         <MongoSchemaEditor
           conn_id={conn_id}
+          database={database}
           collection={collection}
           schema={schema}
           store_key={tab_key}

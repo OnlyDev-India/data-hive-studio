@@ -2,6 +2,8 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useTheme, type ThemeMode } from "@/shared/theme/theme";
 import { listAccents, type AccentId } from "@/shared/theme/accent";
+import { listFonts, type FontId } from "@/shared/theme/font";
+import { listCornerStyles, type CornerStyleId } from "@/shared/theme/corners";
 
 const THEMES: {
   id: ThemeMode;
@@ -13,10 +15,21 @@ const THEMES: {
   { id: "system", label: "Auto", icon: Monitor },
 ];
 
+/** Fixed percent stops for the Scaling row — a handful of round numbers,
+ *  not a free-form input, matching the Theme/Accent/Font rows' own
+ *  pick-one-of-a-few pattern. */
+const SCALES: { percent: number; label: string }[] = [
+  { percent: 90, label: "Small" },
+  { percent: 100, label: "Default" },
+  { percent: 110, label: "Large" },
+  { percent: 125, label: "Larger" },
+  { percent: 150, label: "Largest" },
+];
+
 /** macOS-style appearance page: a light/dark/auto theme picker with preview
  *  swatches that reflect the selected mode. */
 export function AppearanceSection() {
-  const { mode, setMode, accent } = useTheme();
+  const { mode, setMode, accent, font, scale, cornerStyle } = useTheme();
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -27,11 +40,12 @@ export function AppearanceSection() {
         </p>
       </header>
 
-      {/* macOS-style settings rows: label column on the left, options on the
-          right. */}
-      <div className="divide-border divide-y rounded-xl border">
-        <SettingRow label="Theme">
-          <div className="flex justify-end gap-3">
+      {/* Bento-style grid: Theme gets the full width (its preview swatches
+          need the room), the rest pair up two-to-a-row instead of every
+          setting stacking as its own full-width strip. */}
+      <div className="grid grid-cols-2 gap-3">
+        <SettingCard label="Theme" className="col-span-2" horizontal>
+          <div className="flex gap-3">
             {THEMES.map(({ id, label, icon: Icon }) => {
               const active = mode === id;
               return (
@@ -54,10 +68,10 @@ export function AppearanceSection() {
               );
             })}
           </div>
-        </SettingRow>
+        </SettingCard>
 
-        <SettingRow label="Accent color">
-          <div className="flex flex-wrap items-center justify-end gap-2">
+        <SettingCard label="Accent color">
+          <div className="flex flex-wrap gap-2">
             {listAccents().map((acc) => (
               <AccentSwatch
                 key={acc.id}
@@ -67,22 +81,81 @@ export function AppearanceSection() {
               />
             ))}
           </div>
-        </SettingRow>
+        </SettingCard>
+
+        <SettingCard label="Corners">
+          <div className="flex flex-wrap gap-2">
+            {listCornerStyles().map((c) => (
+              <CornerSwatch
+                key={c.id}
+                id={c.id}
+                name={c.name}
+                radius={c.lg}
+                active={cornerStyle === c.id}
+              />
+            ))}
+          </div>
+        </SettingCard>
+
+        <SettingCard label="Font">
+          <div className="flex flex-wrap gap-2">
+            {listFonts().map((f) => (
+              <FontSwatch
+                key={f.id}
+                id={f.id}
+                stack={f.stack}
+                name={f.name}
+                active={font === f.id}
+              />
+            ))}
+          </div>
+        </SettingCard>
+
+        <SettingCard label="Scaling">
+          <div className="flex flex-wrap gap-2">
+            {SCALES.map((s) => (
+              <ScaleSwatch
+                key={s.percent}
+                percent={s.percent}
+                label={s.label}
+                active={scale === s.percent}
+              />
+            ))}
+          </div>
+        </SettingCard>
       </div>
     </div>
   );
 }
 
-/** A two-column "label | options" settings row. */
-function SettingRow({
+/** A bento-grid settings card. Default is label-on-top, options-below — fits
+ *  comfortably at half width so two cards can share a row. `horizontal`
+ *  switches to label-left, options-right instead, for a card that already
+ *  spans the full row and has the room to spare. */
+function SettingCard({
   label,
+  className,
+  horizontal,
   children,
 }: {
   label: string;
+  className?: string;
+  horizontal?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex justify-between gap-6 px-4 py-3">
+    <div
+      className={cn(
+        // `bg-card` is identical to `bg-background` in light mode here (both
+        // pure white) — `bg-muted/40` stays visibly distinct from the page
+        // in both themes instead.
+        "bg-muted/40 rounded-xl border p-4",
+        horizontal
+          ? "flex items-start justify-between gap-6"
+          : "flex flex-col gap-2.5",
+        className,
+      )}
+    >
       <span className="text-sm font-medium">{label}</span>
       {children}
     </div>
@@ -196,6 +269,107 @@ function AccentSwatch({
           }}
         />
       )}
+    </button>
+  );
+}
+
+function FontSwatch({
+  id,
+  stack,
+  name,
+  active,
+}: {
+  id: FontId;
+  stack: string;
+  name: string;
+  active: boolean;
+}) {
+  const { setFont } = useTheme();
+  return (
+    <button
+      aria-label={`Font ${name}`}
+      aria-pressed={active}
+      onClick={() => setFont(id)}
+      title={name}
+      className={cn(
+        "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+        active
+          ? "border-primary bg-primary/10 text-foreground"
+          : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
+      )}
+    >
+      <span className="text-base leading-none" style={{ fontFamily: stack }}>
+        Ag
+      </span>
+      <span className="text-2xs font-medium">{name}</span>
+    </button>
+  );
+}
+
+function CornerSwatch({
+  id,
+  name,
+  radius,
+  active,
+}: {
+  id: CornerStyleId;
+  name: string;
+  radius: string;
+  active: boolean;
+}) {
+  const { setCornerStyle } = useTheme();
+  return (
+    <button
+      aria-label={`Corners ${name}`}
+      aria-pressed={active}
+      onClick={() => setCornerStyle(id)}
+      title={name}
+      className={cn(
+        "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+        active
+          ? "border-primary bg-primary/10 text-foreground"
+          : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
+      )}
+    >
+      <span
+        className="border-foreground/50 block size-5 border-2"
+        style={{ borderRadius: radius }}
+      />
+      <span className="text-2xs font-medium">{name}</span>
+    </button>
+  );
+}
+
+function ScaleSwatch({
+  percent,
+  label,
+  active,
+}: {
+  percent: number;
+  label: string;
+  active: boolean;
+}) {
+  const { setScale } = useTheme();
+  return (
+    <button
+      aria-label={`Scale ${label} (${percent}%)`}
+      aria-pressed={active}
+      onClick={() => setScale(percent)}
+      title={`${label} — ${percent}%`}
+      className={cn(
+        "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+        active
+          ? "border-primary bg-primary/10 text-foreground"
+          : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
+      )}
+    >
+      <span
+        className="leading-none"
+        style={{ fontSize: `${13 * (percent / 100)}px` }}
+      >
+        Aa
+      </span>
+      <span className="text-2xs font-medium">{percent}%</span>
     </button>
   );
 }

@@ -97,7 +97,7 @@ function Toast({ n }: { n: StudioNotification }) {
             <Button
               variant="ghost"
               size="sm"
-              className="mt-1 h-5 px-1.5 text-[11px]"
+              className="mt-1 h-5 px-1.5 text-2xs"
               onClick={(e) => {
                 e.stopPropagation();
                 n.actionFn!();

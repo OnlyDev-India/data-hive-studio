@@ -1769,36 +1769,80 @@ impl DbAdapter for SqliteAdapter {
     async fn active_schema(&self) -> DbResult<String> {
         Ok("main".to_string())
     }
-    async fn table_schema(&self, table: &str) -> DbResult<(TableSchema, Vec<String>)> {
+    // `database`/`schema` are ignored throughout — a SQLite connection IS a
+    // single file with a single implicit schema, so there is no sibling
+    // target these could ever address (unlike Postgres, where they route to
+    // `PgAdapter::pool_for`/an explicit schema).
+    async fn table_schema(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        table: &str,
+    ) -> DbResult<(TableSchema, Vec<String>)> {
         SqliteAdapter::table_schema(self, table).await
     }
-    async fn run_sql(&self, sql: &str) -> DbResult<QueryResult> {
+    async fn run_sql(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        sql: &str,
+    ) -> DbResult<QueryResult> {
         SqliteAdapter::run_sql(self, sql).await
     }
-    async fn execute_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<u64> {
+    async fn execute_params(
+        &self,
+        _database: Option<&str>,
+        sql: &str,
+        params: &[Option<String>],
+    ) -> DbResult<u64> {
         SqliteAdapter::execute_params(self, sql, params).await
     }
-    async fn run_sql_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<QueryResult> {
+    async fn run_sql_params(
+        &self,
+        _database: Option<&str>,
+        sql: &str,
+        params: &[Option<String>],
+    ) -> DbResult<QueryResult> {
         SqliteAdapter::run_sql_params(self, sql, params).await
     }
-    async fn execute_op(&self, op: &QueryOp) -> DbResult<super::OpOutcome> {
+    async fn execute_op(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        op: &QueryOp,
+    ) -> DbResult<super::OpOutcome> {
         SqliteAdapter::execute_op(self, op).await
     }
     async fn execute_op_stream(
         &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
         op: &QueryOp,
         mut on_batch: BatchSink<'_>,
     ) -> DbResult<super::OpOutcome> {
         SqliteAdapter::execute_op_stream(self, op, &mut on_batch).await
     }
-    async fn run_sql_stream(&self, sql: &str, mut on_batch: BatchSink<'_>) -> DbResult<QueryResult> {
+    async fn run_sql_stream(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        sql: &str,
+        mut on_batch: BatchSink<'_>,
+    ) -> DbResult<QueryResult> {
         SqliteAdapter::run_sql_stream(self, sql, &mut on_batch).await
     }
-    async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
+    async fn apply_schema_ops_batch(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        ops: &[SchemaOp],
+    ) -> DbResult<Vec<String>> {
         SqliteAdapter::apply_schema_ops_batch(self, ops).await
     }
     async fn duplicate_table(
         &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
         source: &str,
         target: &str,
         copy_data: bool,
