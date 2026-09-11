@@ -48,6 +48,12 @@ interface SchemaTabProps {
   /** Called after a successful Apply — the pane uses it to jump back to
    *  Data so the user sees refreshed rows immediately. */
   on_applied?: () => void;
+  /** `undefined` = this connection's own primary database/active schema —
+   *  set when this table lives in a database/schema other than the
+   *  connection's own (the sidebar catalog tree's multi-database browsing —
+   *  see `open_object` in tables-view.tsx). */
+  database?: string;
+  schema_name?: string;
 }
 
 export function SchemaTab({
@@ -56,6 +62,8 @@ export function SchemaTab({
   store_key,
   on_modified,
   on_applied,
+  database,
+  schema_name,
 }: SchemaTabProps) {
   const [schema, setSchema] = useState<TableSchema | null>(null);
   const [load_error, setLoadError] = useState<string | null>(null);
@@ -65,7 +73,7 @@ export function SchemaTab({
     let cancelled = false;
     void (async () => {
       try {
-        const s = await tableSchema(conn_id, table);
+        const s = await tableSchema(conn_id, table, database, schema_name);
         if (!cancelled) {
           setSchema(s);
           setLoadError(null);
@@ -80,7 +88,7 @@ export function SchemaTab({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, rev]);
+  }, [conn_id, table, rev, database, schema_name]);
 
   if (schema === null) {
     return (
@@ -106,6 +114,8 @@ export function SchemaTab({
       on_modified={on_modified}
       on_applied={on_applied}
       on_refresh={() => setRev((r) => r + 1)}
+      database={database}
+      schema_name={schema_name}
     />
   );
 }
@@ -118,6 +128,9 @@ interface SchemaEditorProps {
   on_modified: () => void;
   on_applied?: () => void;
   on_refresh: () => void;
+  /** `undefined` = this connection's own primary database/active schema. */
+  database?: string;
+  schema_name?: string;
 }
 
 /** Owns the draft state (columns / indexes / table name), the Apply pipeline
@@ -130,6 +143,8 @@ function SchemaEditor({
   on_modified,
   on_applied,
   on_refresh,
+  database,
+  schema_name,
 }: SchemaEditorProps) {
   // Reset the drafts whenever a NEW schema object arrives (initial load,
   // Refresh click, or post-Apply reload). Identity comparison is deliberate:
@@ -275,7 +290,7 @@ function SchemaEditor({
   const run_apply = async (ops: SchemaOp[]) => {
     setApplying(true);
     try {
-      const ran = await applySchemaOps(conn_id, ops);
+      const ran = await applySchemaOps(conn_id, ops, database, schema_name);
       push_notification({
         kind: "success",
         title: `Schema updated — ${ran.length} statement${ran.length === 1 ? "" : "s"} applied`,
@@ -412,6 +427,8 @@ function SchemaEditor({
             />
             <ForeignKeysPanel
               conn_id={conn_id}
+              database={database}
+              schema_name={schema_name}
               fks={fks}
               columns={cols.filter((c) => !c.dropped).map((c) => c.name.trim())}
               disabled={applying}
@@ -438,6 +455,8 @@ function SchemaEditor({
         open={confirm_drop}
         on_open_change={setConfirm_drop}
         on_dropped={on_modified}
+        database={database}
+        schema_name={schema_name}
       />
 
       {confirm_apply && (
@@ -503,7 +522,7 @@ function TableNameHeading({
           else if (e.key === "Escape") on_cancel();
         }}
         placeholder="table name"
-        className="h-8 max-w-xs"
+        className="max-w-xs"
       />
       <Button
         size="iconXs"

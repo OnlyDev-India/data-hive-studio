@@ -4,7 +4,6 @@
 
 :root {
   color-scheme: light;
-  --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -45,6 +44,24 @@
   --selection-foreground: oklch(1 0 0);
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
   --scrollbar-thumb: #ccc;
+
+  /* Runtime-overridable indirection for `--font-sans` below — same pattern
+   * `--color-primary: var(--primary)` uses for accent colors, so
+   * font.ts's applyFont() can override this on <html> without a rebuild. */
+  --font-sans-active: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Same indirection, for corner style ("Round" default — see
+   * src/shared/theme/corners.ts). Needed because @theme inline entries
+   * with a literal value (no var() of their own) get that literal INLINED
+   * straight into every rounded-* utility at build time — e.g.
+   * `.rounded-sm{border-radius:6px}`, no runtime custom property at all —
+   * so corners.ts would have nothing to override. Routing through a plain
+   * :root var here forces Tailwind to inline `var(--radius-sm-active)`
+   * instead, which corners.ts can then override on <html>. */
+  --radius-sm-active: 6px;
+  --radius-md-active: 6px;
+  --radius-lg-active: 10px;
+  --radius-xl-active: 14px;
 }
 
 .dark {
@@ -91,12 +108,22 @@
 }
 
 @theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-sans-active);
   --font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* Below text-xs (0.75rem) — these two sizes were already the app's de
+   * facto micro-type scale (scattered as `text-[0.6875rem]`/
+   * `text-[0.625rem]` across dozens of sidebar/meta-text spots); naming
+   * them here makes that scale a real, reusable step instead of a
+   * repeated magic number, and keeps every such spot in sync going
+   * forward. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: 0.875rem;
+  --radius-sm: var(--radius-sm-active);
+  --radius-md: var(--radius-md-active);
+  --radius-lg: var(--radius-lg-active);
+  --radius-xl: var(--radius-xl-active);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

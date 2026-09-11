@@ -74,6 +74,13 @@ interface GridProps {
   /** False while the grid stays mounted but another view owns the tab's
    *  action-bar bridge; the grid re-registers its bridge when active again. */
   active?: boolean;
+  /** `undefined` = this connection's own primary database/active schema —
+   *  set when this pane's table lives in a database/schema other than the
+   *  connection's own (the sidebar catalog tree's multi-database browsing —
+   *  see `open_object` in tables-view.tsx). Named `schema_name` (not
+   *  `schema`) since that prop is already the `TableSchema` object. */
+  database?: string;
+  schema_name?: string;
 }
 
 // Render one cell value as a SQL literal. Values are always single-quoted —
@@ -103,6 +110,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     on_open_reference,
     props_busy = false,
     active = true,
+    database,
+    schema_name,
   },
   ref,
 ) {
@@ -546,12 +555,17 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           cols.map((c, ci) => [c, p.values[ci] ?? null]),
         );
         ops.push(
-          executeOp(conn_id, {
-            kind: "insert",
-            table,
-            values,
-            skip_empty: true,
-          }),
+          executeOp(
+            conn_id,
+            {
+              kind: "insert",
+              table,
+              values,
+              skip_empty: true,
+            },
+            database,
+            schema_name,
+          ),
         );
       }
       for (const [key, value] of edits) {
@@ -568,19 +582,24 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         if (!match_row) continue;
         patches.push({ real, col, value });
         ops.push(
-          executeOp(conn_id, {
-            kind: "update",
-            table,
-            set: { [col]: value },
-            match_row,
-          }),
+          executeOp(
+            conn_id,
+            {
+              kind: "update",
+              table,
+              set: { [col]: value },
+              match_row,
+            },
+            database,
+            schema_name,
+          ),
         );
       }
       for (const g of dels) {
         const real = g - offset;
         if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
         const op = row_delete_op(real + ins_len);
-        if (op) ops.push(executeOp(conn_id, op));
+        if (op) ops.push(executeOp(conn_id, op, database, schema_name));
       }
       if (ops.length === 0) return;
       const inserted = ins_len;
@@ -634,6 +653,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       match_for,
       row_delete_op,
       offset,
+      database,
+      schema_name,
     ],
   );
 
@@ -842,14 +863,21 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
                 if (!raf) raf = requestAnimationFrame(flush);
               }
             },
+            database,
+            schema_name,
           ),
           need_count
-            ? executeOp(conn_id, {
-                kind: "count",
-                table,
-                filters,
-                custom_where: user_where,
-              })
+            ? executeOp(
+                conn_id,
+                {
+                  kind: "count",
+                  table,
+                  filters,
+                  custom_where: user_where,
+                },
+                database,
+                schema_name,
+              )
             : Promise.resolve(null),
         ]);
         if (raf) cancelAnimationFrame(raf);
@@ -882,6 +910,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     offset,
     revision,
     local_rev,
+    database,
+    schema_name,
   ]);
 
   // Distinct values per column (bounded) are fetched by the owning pane and
@@ -984,6 +1014,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         order_by: ctl.sort_col ?? undefined,
         order_dir: ctl.sort_asc ? "ASC" : "DESC",
       }),
+      database,
+      schema_name,
     }),
     [
       result,
@@ -1007,6 +1039,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       build_pending_sql,
       build_pending_changes,
       table,
+      database,
+      schema_name,
       column_types,
       filters,
       user_where,

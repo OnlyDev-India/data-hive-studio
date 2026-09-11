@@ -13,8 +13,9 @@ use crate::server::gateway::ConnWithAccess;
 use crate::server::grants::Grant;
 use crate::server::orgs::{OrgInvite, OrgMember, OrgRole, Organization};
 use crate::server::router::{
-    ActiveSchemaBody, CreateCollectionBody, DuplicateBody, GrantBody, InsertDocumentBody,
-    MongoDocumentsBody, RunMongoBody, SaveDocumentBody, SchemaOpsBody, SqlBody,
+    ActiveSchemaBody, CreateCollectionBody, DisconnectDatabaseBody, DuplicateBody, ExecuteOpBody,
+    GrantBody, InsertDocumentBody, MongoDocumentsBody, RunMongoBody, SaveDocumentBody,
+    SchemaObjectsBody, SchemaOpsBody, SchemasInBody, SqlBody,
 };
 use crate::server::store::AuditEntry;
 use crate::server::vault::{ConnInput, ConnMeta};
@@ -289,17 +290,61 @@ impl ServerClient {
         self.get(&format!("/v1/c/{conn_id}/schemas")).await
     }
 
-    pub async fn table_schema(&self, conn_id: &str, table: &str) -> Result<TableSchema, String> {
-        self.get(&format!("/v1/c/{conn_id}/schema/{table}")).await
+    /// `database`/`schema`: `None` = this connection's own primary database
+    /// / active schema — see `DbAdapter::table_schema`'s doc comment.
+    pub async fn table_schema(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+    ) -> Result<TableSchema, String> {
+        let mut query = String::new();
+        if let Some(d) = database {
+            query.push_str(&format!("?database={}", urlencode(d)));
+        }
+        if let Some(s) = schema {
+            query.push_str(&format!("{}schema={}", if query.is_empty() { "?" } else { "&" }, urlencode(s)));
+        }
+        self.get(&format!("/v1/c/{conn_id}/schema/{table}{query}")).await
     }
 
-    pub async fn run_sql(&self, conn_id: &str, sql: &str) -> Result<QueryResult, String> {
-        self.send(reqwest::Method::POST, &format!("/v1/c/{conn_id}/sql"), SqlBody { sql: sql.into() })
-            .await
+    pub async fn run_sql(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
+        sql: &str,
+    ) -> Result<QueryResult, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/sql"),
+            SqlBody {
+                sql: sql.into(),
+                database: database.map(str::to_string),
+                schema: schema.map(str::to_string),
+            },
+        )
+        .await
     }
 
-    pub async fn execute_op(&self, conn_id: &str, op: &QueryOp) -> Result<QueryResult, String> {
-        self.send(reqwest::Method::POST, &format!("/v1/c/{conn_id}/op"), op).await
+    pub async fn execute_op(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
+        op: &QueryOp,
+    ) -> Result<QueryResult, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/op"),
+            ExecuteOpBody {
+                op: op.clone(),
+                database: database.map(str::to_string),
+                schema: schema.map(str::to_string),
+            },
+        )
+        .await
     }
 
     pub async fn list_databases(&self, conn_id: &str) -> Result<Vec<String>, String> {
@@ -308,6 +353,55 @@ impl ServerClient {
 
     pub async fn catalog_overview(&self, conn_id: &str) -> Result<CatalogOverview, String> {
         self.get(&format!("/v1/c/{conn_id}/catalog")).await
+    }
+
+    pub async fn list_schemas_in(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/schemas-in"),
+            SchemasInBody { database: database.map(str::to_string) },
+        )
+        .await
+    }
+
+    pub async fn list_schema_objects(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+        schema: &str,
+        kind: crate::db::SchemaObjectKind,
+    ) -> Result<Vec<crate::db::SchemaObject>, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/schema-objects"),
+            SchemaObjectsBody {
+                database: database.map(str::to_string),
+                schema: schema.to_string(),
+                kind,
+            },
+        )
+        .await
+    }
+
+    pub async fn list_roles(&self, conn_id: &str) -> Result<Vec<crate::db::SchemaObject>, String> {
+        self.get(&format!("/v1/c/{conn_id}/roles")).await
+    }
+
+    pub async fn list_role_details(&self, conn_id: &str) -> Result<Vec<crate::db::RoleDetail>, String> {
+        self.get(&format!("/v1/c/{conn_id}/role-details")).await
+    }
+
+    pub async fn disconnect_database(&self, conn_id: &str, database: &str) -> Result<(), String> {
+        self.empty_with_body(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/disconnect-database"),
+            DisconnectDatabaseBody { database: database.into() },
+        )
+        .await
     }
 
     pub async fn active_schema(&self, conn_id: &str) -> Result<String, String> {
@@ -326,12 +420,18 @@ impl ServerClient {
     pub async fn apply_schema_ops_batch(
         &self,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> Result<Vec<String>, String> {
         self.send(
             reqwest::Method::POST,
             &format!("/v1/c/{conn_id}/schema-ops"),
-            SchemaOpsBody { ops: ops.to_vec() },
+            SchemaOpsBody {
+                ops: ops.to_vec(),
+                database: database.map(str::to_string),
+                schema: schema.map(str::to_string),
+            },
         )
         .await
     }
@@ -339,6 +439,8 @@ impl ServerClient {
     pub async fn duplicate_table(
         &self,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         source: &str,
         target: &str,
         copy_data: bool,
@@ -346,7 +448,13 @@ impl ServerClient {
         self.send(
             reqwest::Method::POST,
             &format!("/v1/c/{conn_id}/duplicate"),
-            DuplicateBody { source: source.into(), target: target.into(), copy_data },
+            DuplicateBody {
+                source: source.into(),
+                target: target.into(),
+                copy_data,
+                database: database.map(str::to_string),
+                schema: schema.map(str::to_string),
+            },
         )
         .await
     }
@@ -435,11 +543,19 @@ impl ServerClient {
         .await
     }
 
-    pub async fn create_collection(&self, conn_id: &str, name: &str) -> Result<(), String> {
+    pub async fn create_collection(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+        name: &str,
+    ) -> Result<(), String> {
         self.empty_with_body(
             reqwest::Method::POST,
             &format!("/v1/c/{conn_id}/mongo/collections"),
-            CreateCollectionBody { name: name.into() },
+            CreateCollectionBody {
+                name: name.into(),
+                database: database.map(str::to_string),
+            },
         )
         .await
     }

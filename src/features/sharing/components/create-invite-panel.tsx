@@ -46,7 +46,9 @@ export function CreateInviteForm({
   orgId: string;
   on_created: () => void;
 }) {
-  const pushNotification = useStudioStore((s: StudioStore) => s.pushNotification);
+  const pushNotification = useStudioStore(
+    (s: StudioStore) => s.pushNotification,
+  );
   const [role, setRole] = useState<OrgRole>("member");
   const [max_uses, setMaxUses] = useState("");
   const [expires_days, setExpiresDays] = useState("");
@@ -86,7 +88,11 @@ export function CreateInviteForm({
     <div className="flex flex-col gap-4 rounded-md border p-3">
       <div className="grid gap-1.5">
         <Label htmlFor="ci-role">Role granted on redemption</Label>
-        <Select id="ci-role" value={role} onValueChange={(v) => setRole(v as OrgRole)}>
+        <Select
+          id="ci-role"
+          value={role}
+          onValueChange={(v) => setRole(v as OrgRole)}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -131,7 +137,7 @@ export function CreateInviteForm({
 
       {created_code && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3">
-          <p className="mb-1 text-[11px] font-medium tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
+          <p className="mb-1 text-2xs font-medium tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
             Invite code — share it with whoever you're inviting
           </p>
           <div className="flex items-center gap-2">

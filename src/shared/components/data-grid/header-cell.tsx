@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  ArrowUpDown,
+  Check,
   ChevronDown,
+  Copy,
   KeyRound,
   Pin,
   X,
@@ -48,6 +49,8 @@ export function HeaderCell({
   const toggle_pin = ctx.on_toggle_pin;
 
   const [open, setOpen] = useState(false);
+  const [type_open, setTypeOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
   const drag_start = useRef<{ x: number; w: number } | null>(null);
   // While a page query is in flight, header sort/pin actions pause — they
@@ -104,23 +107,27 @@ export function HeaderCell({
       className={merged}
       style={{ width, ...(is_pinned ? { left: `${px}px` } : {}) }}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="default"
-        className={cn(
-          "flex h-auto w-full min-w-0 cursor-pointer justify-start gap-1 overflow-hidden rounded-none px-3 py-2 text-left",
-          is_sorted
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-        title="Column options"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="min-w-0 flex-1 truncate">
+      <div className="flex h-8 w-full min-w-0 items-center gap-1 overflow-hidden px-3">
+        {/* Name + type, same line — clicking anywhere here shows column
+            details (the type popover below). The sort/pin dropdown only
+            opens from the chevron, its own separate click target. */}
+        <button
+          type="button"
+          className={cn(
+            "flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden text-left",
+            is_sorted
+              ? "text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          title="Column details"
+          onClick={() => {
+            setCopied(false);
+            setTypeOpen((o) => !o);
+          }}
+        >
           {key_kind && (
             <span
-              className="mr-1 inline-flex items-center gap-0.5 align-[-2px]"
+              className="inline-flex shrink-0 items-center gap-0.5"
               title={KEY_TITLES[key_kind]}
             >
               {(key_kind === "primary" || key_kind === "both") && (
@@ -131,24 +138,65 @@ export function HeaderCell({
               )}
             </span>
           )}
-          {col}
+          <span className="truncate">{col}</span>
           {type_label && (
-            <span className="text-muted-foreground/60 ml-1.5 text-[10px] font-normal tracking-wide uppercase">
+            <span className="text-muted-foreground/60 shrink-0 truncate text-3xs font-normal tracking-wide uppercase">
               {type_label}
             </span>
           )}
-        </span>
-        {is_sorted ? (
-          is_asc ? (
+        </button>
+        {is_sorted &&
+          (is_asc ? (
             <ArrowUp className="size-3 shrink-0" />
           ) : (
             <ArrowDown className="size-3 shrink-0" />
-          )
-        ) : (
-          <ArrowUpDown className="size-3 shrink-0 opacity-40" />
-        )}
-        <ChevronDown className="size-3 shrink-0 opacity-50" />
-      </Button>
+          ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="iconXs"
+          className="shrink-0 cursor-pointer"
+          title="Column options"
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronDown className="size-3" />
+        </Button>
+      </div>
+      {type_open && type_label && (
+        <>
+          <div
+            className="fixed inset-0 z-50"
+            onClick={() => setTypeOpen(false)}
+          />
+          <div className="bg-popover text-popover-foreground absolute top-full left-0 z-50 mt-1 w-56 rounded-md border p-2.5 text-xs shadow-md">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Column</span>
+              <button
+                type="button"
+                title="Copy type"
+                aria-label="Copy type"
+                className="text-muted-foreground hover:text-foreground cursor-pointer"
+                onClick={() => {
+                  void navigator.clipboard.writeText(type_label).then(() => {
+                    setCopied(true);
+                  });
+                }}
+              >
+                {copied ? (
+                  <Check className="size-3" />
+                ) : (
+                  <Copy className="size-3" />
+                )}
+              </button>
+            </div>
+            <div className="mt-0.5 truncate font-mono">{col}</div>
+            <div className="text-muted-foreground mt-2">Type</div>
+            <div className="text-info-dark mt-0.5 font-mono break-words">
+              {type_label}
+            </div>
+          </div>
+        </>
+      )}
       {open && (
         <>
           <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} />

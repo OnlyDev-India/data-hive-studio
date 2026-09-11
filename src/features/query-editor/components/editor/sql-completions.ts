@@ -89,20 +89,29 @@ const ALIAS_STOP_LOOKAHEAD = new RegExp(
 ).source;
 
 /** Tables (and their aliases) referenced by FROM/JOIN/UPDATE/INSERT INTO
- * clauses, mapped from lowercased alias-or-name to the real table name. */
+ * clauses, mapped from lowercased alias-or-name to the real table name —
+ * schema-qualified (`"schema.table"`) when the reference itself was, so a
+ * query naming a non-default schema still gets real column completions for
+ * it (see `schemaCompletions`'s own doc comment for why there's no separate
+ * schema PICKER: the query text is the only source of truth for which
+ * schema a reference means). */
 export function referencedTables(sql: string): Map<string, string> {
   const out = new Map<string, string>();
   const re = new RegExp(
-    `\\b(?:from|join|update|into)\\s+"?([A-Za-z_][\\w$]*)"?([ \\t\\r\\n]+(?:as[ \\t\\r\\n]+)?"?${ALIAS_STOP_LOOKAHEAD}([A-Za-z_][\\w$]*)"?)?`,
+    `\\b(?:from|join|update|into)\\s+(?:"?([A-Za-z_][\\w$]*)"?\\.)?"?([A-Za-z_][\\w$]*)"?([ \\t\\r\\n]+(?:as[ \\t\\r\\n]+)?"?${ALIAS_STOP_LOOKAHEAD}([A-Za-z_][\\w$]*)"?)?`,
     "gi",
   );
   let m: RegExpExecArray | null;
   while ((m = re.exec(sql))) {
-    const table = m[1];
-    let alias: string | undefined = m[3];
+    const table_schema = m[1];
+    const table = m[2];
+    let alias: string | undefined = m[4];
     if (alias && ALIAS_STOP.has(alias.toLowerCase())) alias = undefined;
-    out.set((alias ?? table).toLowerCase(), table);
-    if (!out.has(table.toLowerCase())) out.set(table.toLowerCase(), table);
+    const qualified = table_schema ? `${table_schema}.${table}` : table;
+    out.set((alias ?? table).toLowerCase(), qualified);
+    if (!out.has(table.toLowerCase())) out.set(table.toLowerCase(), qualified);
+    if (table_schema && !out.has(qualified.toLowerCase()))
+      out.set(qualified.toLowerCase(), qualified);
   }
   return out;
 }
@@ -120,25 +129,54 @@ export function inFieldPosition(before: string): boolean {
 
 /** Extra completions on top of lang-sql's built-ins: auto-open the columns
  * right after `table.` / `alias.` (the built-in source stays quiet there
- * until Ctrl+Space), and suggest columns of every table referenced in the
- * statement at field positions like the SELECT list or WHERE clause — so
- * columns show up as soon as a table's been named in FROM/JOIN, without
- * having to type `tablename.` again. */
+ * until Ctrl+Space), the TABLES right after `schema.` (there's no separate
+ * schema picker — the query text itself is the only place a non-default
+ * schema is named, so hinting has to key off it directly), the columns
+ * right after `schema.table.`, and suggest columns of every table
+ * referenced in the statement at field positions like the SELECT list or
+ * WHERE clause — so columns show up as soon as a table's been named in
+ * FROM/JOIN, without having to type `tablename.` again. */
 export function schemaCompletions(
   schema: Record<string, Completion[]>,
+  schema_tables: Record<string, string[]> = {},
 ): CompletionSource {
   const byTable = new Map<string, Completion[]>();
   for (const [t, cols] of Object.entries(schema))
     byTable.set(t.toLowerCase(), cols);
+  const bySchema = new Map<string, Completion[]>();
+  for (const [s, tables] of Object.entries(schema_tables))
+    bySchema.set(
+      s.toLowerCase(),
+      tables.map((t) => ({ label: t, type: "table" })),
+    );
 
   return (ctx: CompletionContext): CompletionResult | null => {
     const before = ctx.state.doc.sliceString(0, ctx.pos);
 
-    // `table.` / `alias.` with nothing typed after the dot yet.
+    // `schema.table.` with nothing typed after the SECOND dot yet — checked
+    // first since it's the more specific match (the single-dot pattern
+    // below only ever captures the LAST identifier before the LAST dot, so
+    // it can't tell "schema.table." apart from "table." on its own).
+    const two_dotted = /([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)\.(\w*)$/.exec(before);
+    if (two_dotted) {
+      if (two_dotted[3] || ctx.explicit) return null;
+      const cols = byTable.get(`${two_dotted[1]}.${two_dotted[2]}`.toLowerCase());
+      return cols && cols.length > 0
+        ? { from: ctx.pos, options: cols, validFor: /^[\w$]*$/ }
+        : null;
+    }
+
+    // `schema.` (tables in it) / `table.` / `alias.` (its columns), with
+    // nothing typed after the dot yet.
     const dotted = /([A-Za-z_][\w$]*)\.(\w*)$/.exec(before);
     if (dotted) {
-      const cols =
-        dotted[2] || ctx.explicit ? null : byTable.get(dotted[1].toLowerCase());
+      if (dotted[2] || ctx.explicit) return null;
+      const name = dotted[1].toLowerCase();
+      const tables = bySchema.get(name);
+      if (tables && tables.length > 0) {
+        return { from: ctx.pos, options: tables, validFor: /^[\w$]*$/ };
+      }
+      const cols = byTable.get(name);
       return cols && cols.length > 0
         ? { from: ctx.pos, options: cols, validFor: /^[\w$]*$/ }
         : null;

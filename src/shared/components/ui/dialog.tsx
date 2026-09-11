@@ -2,6 +2,7 @@ import * as React from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
+import { Button } from "./button";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -16,7 +17,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 fixed inset-0 z-100 bg-black/50",
+        "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 fixed inset-0 z-100 bg-black/25 dark:bg-background/70",
         className,
       )}
       {...props}
@@ -35,16 +36,24 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "bg-background ring-1/10 ring-ring/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-top-[2%] data-closed:slide-out-to-left-1/2 data-open:slide-in-from-top-[2%] data-open:slide-in-from-left-1/2 fixed top-[50%] left-[50%] z-100 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl border p-6 shadow-lg duration-200 sm:max-w-lg",
+          "bg-background ring-1/10 ring-ring/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-top-[2%] data-closed:slide-out-to-left-1/2 data-open:slide-in-from-top-[2%] data-open:slide-in-from-left-1/2 fixed top-[50%] left-[50%] z-100 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border p-4 shadow-lg duration-200 sm:max-w-lg",
           className,
         )}
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 cursor-pointer rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:outline-hidden disabled:pointer-events-none">
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        <DialogPrimitive.Close
+          render={
+            <Button
+              variant="ghost"
+              size="iconSm"
+              className="absolute top-2 right-2"
+            >
+              <XIcon className="size-4" />
+              <span className="sr-only">Close</span>
+            </Button>
+          }
+        />
       </DialogPrimitive.Popup>
     </DialogPortal>
   );
@@ -65,7 +74,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "bg-muted/50 -mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-lg border-t p-4 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}

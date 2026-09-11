@@ -40,10 +40,10 @@ import {
 import { DragGhost, PaneView, Sidebar, useTabDrag } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
 import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
-import { MongoNewCollectionTab } from "@/features/schema-designer";
+import { MongoNewCollectionTab, RolesTab } from "@/features/schema-designer";
 import { ActivityBar } from "./activity-bar";
 import { LeftPanelSlot } from "./left-panel";
-import { ConnectionTabs, Landing } from "@/features/connections";
+import { Landing } from "@/features/connections";
 
 // Heavy tab contents are code-split: the query console (SQL + Mongo shell,
 // one file — see EditorTab's own doc comment) pulls in CodeMirror, and the
@@ -68,18 +68,12 @@ const MIN_TABLES_LOADING_MS = 350;
 /** One open connection's full workspace: sidebar + tab strip + tab contents. */
 export default function Workspace({
   conn,
-  conns,
-  active_conn_id,
-  on_switch_conn,
   landing,
   on_home,
   on_tables,
   on_activity,
 }: {
   conn: ConnectionInfo;
-  conns: ConnectionInfo[];
-  active_conn_id: string | null;
-  on_switch_conn: (id: string) => void;
   landing: boolean;
   on_home: () => void;
   on_tables: () => void;
@@ -208,8 +202,12 @@ export default function Workspace({
   });
 
   const openTable = useCallback(
-    (name: string, filters?: GridFilter[]) =>
-      open_table(conn_id, name, filters),
+    (
+      name: string,
+      filters?: GridFilter[],
+      database?: string,
+      schema?: string,
+    ) => open_table(conn_id, name, filters, database, schema),
     [open_table, conn_id],
   );
   // FK cell jump: open the referenced table in a new tab, filtered to the
@@ -433,15 +431,6 @@ export default function Workspace({
         on_activity={on_activity}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Landing has its own database-kind bar; connection tabs only make
-            sense once at least one database is open. */}
-        {!landing && (
-          <ConnectionTabs
-            conns={conns}
-            active_id={active_conn_id}
-            on_switch={on_switch_conn}
-          />
-        )}
         <div className="flex min-h-0 flex-1">
           <LeftPanelSlot open={leftPanelOpen} width={sidebarWidth}>
             <Sidebar
@@ -663,7 +652,12 @@ function WorkspaceContent({
     refColumn: string,
     value: string | null,
   ) => void;
-  openTable: (name: string, filters?: GridFilter[]) => void;
+  openTable: (
+    name: string,
+    filters?: GridFilter[],
+    database?: string,
+    schema?: string,
+  ) => void;
   on_close: (tab: StudioTab) => void;
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
@@ -796,6 +790,8 @@ function WorkspaceContent({
                 on_modified={bump}
                 initial_filters={tab.initialFilters}
                 on_open_reference={openReference}
+                database={tab.database}
+                schema={tab.schema}
               />
             ) : tab.kind === "sql" ? (
               <Suspense fallback={<TabFallback />}>
@@ -838,6 +834,8 @@ function WorkspaceContent({
               </Suspense>
             ) : tab.kind === "activity" ? (
               <ActivityDetailsTab conn_id={conn_id} tab_key={key} />
+            ) : tab.kind === "roles" ? (
+              <RolesTab conn_id={conn_id} tab_key={key} />
             ) : conn.kind === "mongodb" ? (
               <MongoNewCollectionTab
                 conn_id={conn_id}
@@ -852,7 +850,9 @@ function WorkspaceContent({
                   tab_key={key}
                   active={is_active}
                   on_modified={bump}
-                  on_created={openTable}
+                  on_created={(name, database, schema) =>
+                    openTable(name, undefined, database, schema)
+                  }
                 />
               </Suspense>
             )}

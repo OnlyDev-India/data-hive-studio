@@ -109,9 +109,15 @@ interface QueryEditorProps {
   onSave?: () => void;
   /** Table names offered as completions. */
   tables?: string[];
-  /** Column completions per table. Enables column suggestions after
-   * `table.` and in field positions. */
+  /** Column completions per table (bare `"table"` keys for the connection's
+   * default schema, `"schema.table"` keys for every other known schema).
+   * Enables column suggestions after `table.` / `schema.table.` and in
+   * field positions. */
   schema?: Record<string, Completion[]>;
+  /** Table names per schema — enables the TABLE suggestions offered right
+   *  after typing `schema.` (there's no separate schema picker; the query
+   *  text itself is what names a non-default schema). */
+  schemaTables?: Record<string, string[]>;
   /** "sql" (SQLite dialect) or "js" (JavaScript highlighting + colors —
    * used by the MongoDB console). */
   language?: "sql" | "js";
@@ -148,6 +154,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       onSave,
       tables,
       schema,
+      schemaTables,
       jsCompletions,
       connId,
       className,
@@ -370,7 +377,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       }));
       // Built once — see the identical comment in the "js" branch above for
       // why this can't be called inside the languageData callback.
-      const schemaSource = schemaCompletions(schema ?? {});
+      const schemaSource = schemaCompletions(schema ?? {}, schemaTables ?? {});
       return [
         ...appEditorExtensions,
         sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
@@ -396,6 +403,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     }, [
       tables,
       schema,
+      schemaTables,
       language,
       jsCompletions,
       connId,

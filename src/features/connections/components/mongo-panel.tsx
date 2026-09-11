@@ -1,9 +1,7 @@
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import {
-  Checkbox,
-} from "@/shared/components/ui/checkbox";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   Check,
   Cloud,
@@ -244,13 +242,16 @@ export function MongoPanel({
       {tab === "ssh" &&
         (form.srv ? (
           <p className="text-muted-foreground py-6 text-center text-xs">
-            An SSH tunnel can't be combined with mongodb+srv:// — turn off
-            "DNS seedlist" in the General tab and list the replica set
-            members directly in the Host field instead.
+            An SSH tunnel can't be combined with mongodb+srv:// — turn off "DNS
+            seedlist" in the General tab and list the replica set members
+            directly in the Host field instead.
           </p>
         ) : (
           <div className="pt-1">
-            <SshFields value={form} onChange={(key, value) => setField(key, value)} />
+            <SshFields
+              value={form}
+              onChange={(key, value) => setField(key, value)}
+            />
           </div>
         ))}
 
@@ -283,7 +284,7 @@ export function MongoPanel({
                   DocumentDB: it authenticates over username/password
                   (SCRAM) only, not client certificates. */}
               <div className="grid gap-1">
-                <Label className="text-muted-foreground text-[11px] font-normal">
+                <Label className="text-muted-foreground text-2xs font-normal">
                   {is_document_db
                     ? "CA certificate file — AWS's global-bundle.pem"
                     : "CA certificate file (optional — only needed for a self-signed or private-CA server)"}
@@ -296,9 +297,9 @@ export function MongoPanel({
               </div>
               {!is_document_db && (
                 <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-[11px] font-normal">
-                    Client certificate + key (optional, for mTLS — one
-                    combined PEM file)
+                  <Label className="text-muted-foreground text-2xs font-normal">
+                    Client certificate + key (optional, for mTLS — one combined
+                    PEM file)
                   </Label>
                   <FilePathInput
                     placeholder="/path/to/client.pem"
@@ -312,10 +313,10 @@ export function MongoPanel({
 
           <div className="flex flex-col gap-3 border-t pt-3">
             {!is_document_db && (
-              <p className="text-muted-foreground text-[11px]">
+              <p className="text-muted-foreground text-2xs">
                 For Amazon DocumentDB: TLS above with a downloaded{" "}
-                <code className="text-[10px]">global-bundle.pem</code> as the
-                CA certificate, plus both fields below.
+                <code className="text-3xs">global-bundle.pem</code> as
+                the CA certificate, plus both fields below.
               </p>
             )}
             <div className="flex items-center gap-2">
@@ -328,7 +329,7 @@ export function MongoPanel({
               </label>
             </div>
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Replica set name (e.g. rs0)
                 {!is_document_db &&
                   " — leave blank for plain MongoDB or the local DocumentDB emulator"}
@@ -347,7 +348,7 @@ export function MongoPanel({
         <div className="flex flex-col gap-3 pt-1">
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Max pool connections (default 10)
               </Label>
               <Input
@@ -358,7 +359,7 @@ export function MongoPanel({
               />
             </div>
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Min pool connections (default 0)
               </Label>
               <Input
@@ -371,18 +372,20 @@ export function MongoPanel({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Connect timeout, seconds (default 10)
               </Label>
               <Input
                 type="number"
                 placeholder="10"
                 value={form.connect_timeout_secs}
-                onChange={(e) => setField("connect_timeout_secs", e.target.value)}
+                onChange={(e) =>
+                  setField("connect_timeout_secs", e.target.value)
+                }
               />
             </div>
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Server selection timeout, seconds (default 30)
               </Label>
               <Input
@@ -396,9 +399,9 @@ export function MongoPanel({
             </div>
           </div>
           <div className="grid gap-1">
-            <Label className="text-muted-foreground text-[11px] font-normal">
-              Idle timeout, seconds (default: never) — a pooled connection
-              open this long with nothing happening gets closed
+            <Label className="text-muted-foreground text-2xs font-normal">
+              Idle timeout, seconds (default: never) — a pooled connection open
+              this long with nothing happening gets closed
             </Label>
             <Input
               type="number"
@@ -467,7 +470,7 @@ export function MongoPanel({
                 >
                   <Cloud className="size-3.5" />
                   {s.profile.name}
-                  <span className="text-muted-foreground ml-auto text-[10px]">
+                  <span className="text-muted-foreground ml-auto text-3xs">
                     shared
                   </span>
                 </DropdownMenuItem>

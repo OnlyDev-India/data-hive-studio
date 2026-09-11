@@ -94,6 +94,19 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ disconnectPendingId: id });
         },
 
+        updateInfo: null,
+        setUpdateInfo(info) {
+          set({ updateInfo: info });
+        },
+        updateDialogOpen: false,
+        setUpdateDialogOpen(open) {
+          set({ updateDialogOpen: open });
+        },
+        skippedUpdateVersion: null,
+        setSkippedUpdateVersion(version) {
+          set({ skippedUpdateVersion: version });
+        },
+
         paletteKeywords: DEFAULT_PALETTE_KEYWORDS,
         setPaletteKeyword(key, value) {
           set((s) => ({
@@ -453,6 +466,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           rightSidebarWidth: s.rightSidebarWidth,
           paletteKeywords: s.paletteKeywords,
           showAppActivity: s.showAppActivity,
+          skippedUpdateVersion: s.skippedUpdateVersion,
         }),
       },
     ),

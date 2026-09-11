@@ -63,34 +63,36 @@ export function useTabDrag(connId: string) {
 
   useEffect(() => {
     /** Any tab strip the pointer is currently over (any pane), and the
-     *  insert index within it — mirrors the single-strip version this app
-     *  already had, just scanning every mounted strip via `data-tab-pane`. */
+     *  insert index within it. Hit-tests the WHOLE strip container
+     *  (`data-tab-strip`, its full rect) first — not just individual tab
+     *  items — so the strip's empty trailing space, the sticky +/dropdown
+     *  cluster's area, and a pane with zero tabs (nothing for a per-item
+     *  test to match) are all valid drop targets, not just existing tabs
+     *  themselves. Once a strip matches, its own tab items (`data-tab-
+     *  index`) decide WHERE in it to insert. */
     const hovered_strip = (
       x: number,
       y: number,
     ): { paneId: string; index: number } | null => {
-      const items = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-tab-pane]"),
+      const strips = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-tab-strip]"),
       );
-      const in_row = items.filter((it) => {
-        const r = it.getBoundingClientRect();
-        return y >= r.top && y <= r.bottom;
-      });
-      if (in_row.length === 0) return null;
-      for (const it of in_row) {
-        const r = it.getBoundingClientRect();
-        if (x < r.left + r.width / 2) {
-          return {
-            paneId: it.dataset.tabPane ?? "",
-            index: Number(it.dataset.tabIndex),
-          };
+      for (const strip of strips) {
+        const r = strip.getBoundingClientRect();
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+        const paneId = strip.dataset.tabStrip ?? "";
+        const items = Array.from(
+          strip.querySelectorAll<HTMLElement>("[data-tab-index]"),
+        );
+        for (const it of items) {
+          const ir = it.getBoundingClientRect();
+          if (x < ir.left + ir.width / 2) {
+            return { paneId, index: Number(it.dataset.tabIndex) };
+          }
         }
+        return { paneId, index: items.length };
       }
-      const last = in_row[in_row.length - 1];
-      return {
-        paneId: last.dataset.tabPane ?? "",
-        index: Number(last.dataset.tabIndex) + 1,
-      };
+      return null;
     };
 
     /** Which pane's CONTENT area (below any strip) the pointer is over, and

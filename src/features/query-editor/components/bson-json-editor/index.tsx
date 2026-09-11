@@ -45,6 +45,16 @@ import { bsonSyntaxLinter } from "./bson-lint";
 // for the SQL/Mongo console's own lint tooltips.
 const editorTooltips = tooltips({ parent: document.body });
 
+// Being a `document.body` child only fixes CLIPPING, not stacking: the
+// JSON inspector modal (json-viewer/index.tsx) is itself a `z-100` overlay
+// with its own content (e.g. the search bar) painted inside that stacking
+// context, so a tooltip with no z-index of its own — a plain later body
+// sibling — still renders BEHIND all of it. Comfortably above every z-index
+// used anywhere else in the app (highest otherwise is `z-110`).
+const tooltipStackingTheme = EditorView.baseTheme({
+  ".cm-tooltip": { zIndex: "1000" },
+});
+
 const CTR_SET = new Set<string>(MONGO_BSON_CONSTRUCTORS);
 
 // ---- Syntax colours (mirror the app theme's semantic tokens). -------------
@@ -203,7 +213,6 @@ const readonlyHintField = StateField.define<Tooltip | null>({
         return {
           pos: e.value,
           above: true,
-          strictSide: true,
           arrow: true,
           create: () => ({ dom: createReadonlyHintDom() }),
         };
@@ -320,13 +329,17 @@ export function BsonEditor({
             ])),
         readonlyHint(readOnly, onReadonlyClick),
         readonlyHintArrowTheme,
+        // Unconditional, unlike the linter below: the read-only hint tooltip
+        // ONLY ever shows when `readOnly` is true, so gating this the same
+        // way as the linter left it with none of the anti-clip/anti-stacking
+        // fixes below applied to the one tooltip that needed them most.
+        editorTooltips,
+        tooltipStackingTheme,
         // Real-time syntax linting (see bson-lint.ts) — skipped read-only,
         // same reasoning as the SQL/Mongo console editor: nothing to type,
         // nothing to fix, so it'd only ever flag already-saved, unchangeable
         // content as an error.
-        ...(readOnly
-          ? []
-          : [editorTooltips, linter(bsonSyntaxLinter()), inlineDiagnostics]),
+        ...(readOnly ? [] : [linter(bsonSyntaxLinter()), inlineDiagnostics]),
         ...(extraExtensions ?? []),
       ];
     },

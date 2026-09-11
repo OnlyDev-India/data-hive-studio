@@ -336,7 +336,10 @@ export function Landing() {
     port: Number(pg.port) || 5432,
     user: pg.user.trim(),
     password: pg.password,
-    database: pg.database.trim(),
+    // Blank = connect without picking one first (Postgres always has a
+    // "postgres" maintenance database) — the sidebar's database switcher
+    // lets you browse/pick the real target once connected.
+    database: pg.database.trim() || "postgres",
     ssl_mode: pg.ssl_mode,
     ssl_ca_file: pg.ssl_ca_file.trim() || undefined,
     ssl_client_cert_file: pg.ssl_client_cert_file.trim() || undefined,
@@ -529,7 +532,7 @@ export function Landing() {
   const want_kind = useRef<SharedDbKind | null>(null);
 
   const pg_connect_click = async () => {
-    if (pg_connecting || !pg.database.trim()) return;
+    if (pg_connecting) return;
     setPgConnecting(true);
     try {
       if (WEB) {
@@ -1057,7 +1060,9 @@ export function Landing() {
   // keep this safe across home/studio navigation.
   useEffect(() => {
     if (want_kind.current !== "postgres" || !want_connect.current) return;
-    if (!pg.database.trim() || pg_connecting) return;
+    // `host` (not `database`, now optional) as the "prefill has landed"
+    // signal — always non-empty for any real connection, unlike database.
+    if (!pg.host.trim() || pg_connecting) return;
     want_kind.current = null;
     want_connect.current = false;
     // Microtask keeps setState out of the effect body itself.

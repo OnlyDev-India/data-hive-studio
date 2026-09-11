@@ -111,8 +111,8 @@ export function ServerMenu() {
                   <span
                     className={
                       session
-                        ? "text-[10px] font-medium text-emerald-600"
-                        : "text-muted-foreground text-[10px]"
+                        ? "text-3xs font-medium text-emerald-600"
+                        : "text-muted-foreground text-3xs"
                     }
                   >
                     {serverBusy ? "…" : session ? "connected" : "connect"}

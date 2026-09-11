@@ -24,6 +24,8 @@ export function DropTableDialog({
   /** "table" (SQL) or "collection" (MongoDB) — only the wording differs, the
    *  op is the same generic `QueryOp::DropTable` either way. */
   object_noun = "table",
+  database,
+  schema_name,
 }: {
   conn_id: string;
   table: string;
@@ -31,6 +33,11 @@ export function DropTableDialog({
   on_open_change: (open: boolean) => void;
   on_dropped: () => void;
   object_noun?: "table" | "collection";
+  /** `undefined` = this connection's own primary database/active schema
+   *  (Postgres) — Mongo callers always pass their collection's real
+   *  database explicitly. */
+  database?: string;
+  schema_name?: string;
 }) {
   const [dropping, setDropping] = useState(false);
   const push_notification = useStudioStore((s) => s.pushNotification);
@@ -39,7 +46,7 @@ export function DropTableDialog({
     if (dropping) return;
     setDropping(true);
     try {
-      await executeOp(conn_id, { kind: "drop_table", table });
+      await executeOp(conn_id, { kind: "drop_table", table }, database, schema_name);
       push_notification({
         kind: "success",
         title: `${object_noun === "table" ? "Table" : "Collection"} “${table}” dropped`,
