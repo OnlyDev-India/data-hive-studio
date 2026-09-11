@@ -60,14 +60,22 @@ const CTR_SET = new Set<string>(MONGO_BSON_CONSTRUCTORS);
 // ---- Syntax colours (mirror the app theme's semantic tokens). -------------
 const bsonHighlightStyle = HighlightStyle.define([
   { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
-  { tag: [t.punctuation, t.paren, t.brace, t.squareBracket], color: "var(--muted-foreground)" },
+  {
+    tag: [t.punctuation, t.paren, t.brace, t.squareBracket],
+    color: "var(--muted-foreground)",
+  },
   { tag: t.operator, color: "var(--foreground)" },
   { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
   { tag: [t.bool, t.null], color: "var(--warning-dark)" },
   { tag: t.number, color: "var(--warning-dark)" },
   { tag: [t.string, t.special(t.string)], color: "var(--success-dark)" },
   {
-    tag: [t.propertyName, t.variableName, t.standard(t.name), t.special(t.name)],
+    tag: [
+      t.propertyName,
+      t.variableName,
+      t.standard(t.name),
+      t.special(t.name),
+    ],
     color: "var(--foreground)",
   },
   {
@@ -83,10 +91,7 @@ const keyMark = Decoration.mark({ class: "json-key" });
  *  documents as block/sequence expressions (no PropertyName nodes), so the key
  *  nodes would be String-tagged like ordinary string values and painted the
  *  same color. A `"..."` token directly followed by `:` is always a key. */
-function markQuotedKeys(
-  doc: string,
-  pending: DecorationRange[],
-) {
+function markQuotedKeys(doc: string, pending: DecorationRange[]) {
   let i = 0;
   while (i < doc.length) {
     const open = doc.indexOf('"', i);
@@ -108,7 +113,8 @@ function markQuotedKeys(
     let after = close + 1;
     while (after < doc.length && (doc[after] === " " || doc[after] === "\t"))
       after += 1;
-    if (doc[after] === ":") pending.push({ from: open, to: close + 1, mark: keyMark });
+    if (doc[after] === ":")
+      pending.push({ from: open, to: close + 1, mark: keyMark });
     i = close + 1;
   }
 }
@@ -322,11 +328,11 @@ export function BsonEditor({
         javascript(),
         syntaxHighlighting(bsonHighlightStyle),
         bsonDecorator(),
-        (constructorsOnly
+        constructorsOnly
           ? autocompletion({ override: [constructorCompletions] })
           : EditorState.languageData.of(() => [
               { autocomplete: constructorCompletions },
-            ])),
+            ]),
         readonlyHint(readOnly, onReadonlyClick),
         readonlyHintArrowTheme,
         // Unconditional, unlike the linter below: the read-only hint tooltip
@@ -345,7 +351,13 @@ export function BsonEditor({
     },
     // The component-level extensions supercede whatever the host passes in;
     // extraExtensions is memoized by the host so reconfiguration stays cheap.
-    [extraExtensions, constructorsOnly, constructorCompletions, readOnly, onReadonlyClick],
+    [
+      extraExtensions,
+      constructorsOnly,
+      constructorCompletions,
+      readOnly,
+      onReadonlyClick,
+    ],
   );
 
   // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set
@@ -380,7 +392,7 @@ export function BsonEditor({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-md border bg-background",
+        "bg-background overflow-hidden rounded-md border",
         compact && "text-xs",
         className,
       )}

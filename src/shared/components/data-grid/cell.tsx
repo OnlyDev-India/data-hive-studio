@@ -130,7 +130,7 @@ export function Cell({ row, col, dci }: CellProps) {
       : undefined;
 
   const cellClass = cn(
-    "group/cell relative flex min-w-0 items-center overflow-visible border-r border-border/40 px-3 py-1.5 text-sm w-36 shrink-0 cursor-cell select-none",
+    "group/cell relative flex min-w-0 items-center overflow-visible border-r border-border/40 px-2 py-1 text-sm w-36 shrink-0 cursor-cell select-none",
     is_selected && "bg-primary/15",
     dirty && !is_selected && "bg-yellow-300/10",
     deleted && "line-through",
@@ -322,9 +322,7 @@ function ArrayCell({ value }: { value: string }) {
   if (items.length === 0) {
     return (
       <span className="text-muted-foreground inline-flex items-center gap-1 truncate">
-        <span className="bg-muted rounded px-1 py-px text-3xs">
-          empty
-        </span>
+        <span className="bg-muted text-3xs rounded px-1 py-px">empty</span>
       </span>
     );
   }
@@ -333,14 +331,14 @@ function ArrayCell({ value }: { value: string }) {
       {items.slice(0, 4).map((v) => (
         <span
           key={v}
-          className="bg-primary/10 text-primary truncate rounded px-1 py-px text-3xs"
+          className="bg-primary/10 text-primary text-3xs truncate rounded px-1 py-px"
           style={{ maxWidth: "5rem" }}
         >
           {v}
         </span>
       ))}
       {items.length > 4 && (
-        <span className="text-muted-foreground shrink-0 text-3xs">
+        <span className="text-muted-foreground text-3xs shrink-0">
           +{items.length - 4}
         </span>
       )}

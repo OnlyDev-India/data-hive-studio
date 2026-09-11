@@ -233,7 +233,7 @@ function MongoSchemaView({
           <div
             className={cn(
               grid,
-              "text-muted-foreground border-b px-3 py-2 text-2xs font-medium",
+              "text-muted-foreground text-2xs border-b px-3 py-2 font-medium",
             )}
           >
             <span>Field</span>

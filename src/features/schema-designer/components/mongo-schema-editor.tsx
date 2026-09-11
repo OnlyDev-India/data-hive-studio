@@ -103,9 +103,7 @@ export function MongoSchemaEditor({
     setEditingName(false);
   };
 
-  const [confirm_apply, setConfirmApply] = useState<DiffChange[] | null>(
-    null,
-  );
+  const [confirm_apply, setConfirmApply] = useState<DiffChange[] | null>(null);
 
   /** Direct apply, no review dialog — close-guards and the dropdown's
    *  "Apply" option (mirrors the grid's Review & Apply / Apply split). */

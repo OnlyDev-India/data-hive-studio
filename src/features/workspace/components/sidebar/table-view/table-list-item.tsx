@@ -1,4 +1,12 @@
-import { Copy, CopyPlus, Eye, RefreshCw, ShieldCheck, Table as TableIcon, Trash2 } from "lucide-react";
+import {
+  Copy,
+  CopyPlus,
+  Eye,
+  RefreshCw,
+  ShieldCheck,
+  Table as TableIcon,
+  Trash2,
+} from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import {

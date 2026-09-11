@@ -124,17 +124,23 @@ export function useTabDrag(connId: string) {
           y > r.bottom + EDGE_SLOP
         )
           continue;
-        const candidates: [number, "left" | "right" | "top" | "bottom", number][] =
-          [
-            [x - r.left, "left", r.width],
-            [r.right - x, "right", r.width],
-            [y - r.top, "top", r.height],
-            [r.bottom - y, "bottom", r.height],
-          ];
+        const candidates: [
+          number,
+          "left" | "right" | "top" | "bottom",
+          number,
+        ][] = [
+          [x - r.left, "left", r.width],
+          [r.right - x, "right", r.width],
+          [y - r.top, "top", r.height],
+          [r.bottom - y, "bottom", r.height],
+        ];
         candidates.sort((a, b) => a[0] - b[0]);
         const [minDist, edge, span] = candidates[0];
         const paneId = el.dataset.paneContentId ?? "";
-        return { paneId, edge: span > 0 && minDist / span < 0.25 ? edge : "center" };
+        return {
+          paneId,
+          edge: span > 0 && minDist / span < 0.25 ? edge : "center",
+        };
       }
       return null;
     };
@@ -157,7 +163,11 @@ export function useTabDrag(connId: string) {
       if (strip && strip.paneId) {
         setDropTarget(null);
         const last = last_strip.current;
-        if (!last || last.paneId !== strip.paneId || last.index !== strip.index) {
+        if (
+          !last ||
+          last.paneId !== strip.paneId ||
+          last.index !== strip.index
+        ) {
           last_strip.current = strip;
           movePaneTab(p.connId, p.tab, strip.paneId, strip.index);
         }

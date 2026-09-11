@@ -211,7 +211,7 @@ export function CellEditor() {
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") cancel();
       }}
-      className="border-none outline-none"
+      className="h-full! rounded-none! border-none outline-none"
     />
   );
 
@@ -230,6 +230,7 @@ export function CellEditor() {
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") cancel();
       }}
+      className="h-full! rounded-none! border-none outline-none"
     />
   );
 
@@ -279,7 +280,11 @@ export function CellEditor() {
       value={value === null ? "__dh_null" : value || undefined}
       onValueChange={(v) => commit(v === "__dh_null" ? null : v)}
     >
-      <SelectTrigger className="h-7 w-full" size="sm" aria-label="Pick a value">
+      <SelectTrigger
+        className="h-full w-full"
+        size="sm"
+        aria-label="Pick a value"
+      >
         <SelectValue placeholder="—" />
       </SelectTrigger>
       <SelectContent className={"bg-background border"}>
@@ -305,7 +310,9 @@ export function CellEditor() {
   );
 
   let editor;
-  if (kind === "array")
+  if (editAsText) {
+    editor = text_input();
+  } else if (kind === "array")
     editor = (
       <ArrayCellEditor
         value={value}
@@ -322,7 +329,9 @@ export function CellEditor() {
   else if (is_number) editor = number_input();
   else editor = text_input();
 
-  return <div className="relative flex min-w-0 items-center">{editor}</div>;
+  return (
+    <div className="relative flex w-full min-w-0 items-center">{editor}</div>
+  );
 }
 
 /** Array-of-enum (e.g. `permission[]`) tag multi-select editor. The value is a

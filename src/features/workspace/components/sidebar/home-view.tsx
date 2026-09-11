@@ -574,7 +574,9 @@ export function HomeView({
                     </ContextMenuTrigger>
                     <ContextMenuContent className="w-52">
                       <ContextMenuItem
-                        onSelect={() => request_prefill(kind, { ...params }, true)}
+                        onSelect={() =>
+                          request_prefill(kind, { ...params }, true)
+                        }
                       >
                         <Plug className="size-3.5" />
                         Open Connection
@@ -598,7 +600,9 @@ export function HomeView({
                         Edit Connection
                       </ContextMenuItem>
                       <ContextMenuItem
-                        onSelect={() => void duplicate_saved(name, kind, params)}
+                        onSelect={() =>
+                          void duplicate_saved(name, kind, params)
+                        }
                       >
                         <CopyPlus className="size-3.5" />
                         Duplicate Connection

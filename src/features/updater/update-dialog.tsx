@@ -24,7 +24,9 @@ export function UpdateDialog() {
   const open = useStudioStore((s) => s.updateDialogOpen);
   const setOpen = useStudioStore((s) => s.setUpdateDialogOpen);
   const updateInfo = useStudioStore((s) => s.updateInfo);
-  const setSkippedUpdateVersion = useStudioStore((s) => s.setSkippedUpdateVersion);
+  const setSkippedUpdateVersion = useStudioStore(
+    (s) => s.setSkippedUpdateVersion,
+  );
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState<{
@@ -76,7 +78,10 @@ export function UpdateDialog() {
     try {
       await downloadAndInstallUpdate((event) => {
         if (event.event === "Started") {
-          setProgress({ downloaded: 0, total: event.data.contentLength ?? null });
+          setProgress({
+            downloaded: 0,
+            total: event.data.contentLength ?? null,
+          });
         } else if (event.event === "Progress") {
           setProgress((p) => ({
             downloaded: (p?.downloaded ?? 0) + event.data.chunkLength,
@@ -94,8 +99,9 @@ export function UpdateDialog() {
 
   const downloading = phase === "downloading";
   const checking_or_upToDate = phase === "checking" || phase === "up-to-date";
-  const percent =
-    progress?.total ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100)) : null;
+  const percent = progress?.total
+    ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !downloading && setOpen(o)}>
@@ -152,10 +158,17 @@ export function UpdateDialog() {
             </Button>
           ) : (
             <>
-              <Button variant="outline" onClick={handle_skip} disabled={downloading}>
+              <Button
+                variant="outline"
+                onClick={handle_skip}
+                disabled={downloading}
+              >
                 Skip
               </Button>
-              <Button onClick={() => void handle_update()} disabled={downloading}>
+              <Button
+                onClick={() => void handle_update()}
+                disabled={downloading}
+              >
                 {downloading ? "Updating…" : "Update & Restart"}
               </Button>
             </>

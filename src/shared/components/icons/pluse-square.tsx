@@ -34,8 +34,7 @@ export function SquarePlusIcon({
             "stroke-primary": active,
           },
           {
-            "hover:stroke-primary group-hover:stroke-primary":
-              !disabled,
+            "hover:stroke-primary group-hover:stroke-primary": !disabled,
           },
         )}
       />

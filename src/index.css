@@ -45,6 +45,18 @@
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
   --scrollbar-thumb: #ccc;
 
+  /* Chrome surfaces a shade off `--background` — DBX's real desktop app
+   * (apps/desktop/src/styles/tokens.css, not its docs site) gives toolbars/
+   * gutters their own slightly-tinted surface instead of just inheriting
+   * the page background; `color-mix` against `--foreground` keeps that
+   * relationship correct automatically in both themes instead of a second
+   * literal palette to keep in sync. */
+  --editor-toolbar: color-mix(
+    in oklab,
+    var(--background) 97%,
+    var(--foreground)
+  );
+
   /* Runtime-overridable indirection for `--font-sans` below — same pattern
    * `--color-primary: var(--primary)` uses for accent colors, so
    * font.ts's applyFont() can override this on <html> without a rebuild. */
@@ -160,6 +172,7 @@
   --color-info-dark: var(--info-dark);
   --color-selection: var(--selection);
   --color-selection-foreground: var(--selection-foreground);
+  --color-editor-toolbar: var(--editor-toolbar);
 }
 
 @layer base {

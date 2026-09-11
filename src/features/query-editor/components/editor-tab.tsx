@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Loader2, X } from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
+import { format as formatSql } from "sql-formatter";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -23,7 +24,7 @@ import {
   type MongoRunResult,
   type QueryResult,
 } from "@/shared/api";
-import { pickSqlSavePath } from "@/shared/lib/platform";
+import { pickSqlFile, pickSqlSavePath } from "@/shared/lib/platform";
 import { useStudioStore } from "@/shared/store";
 import { QueryEditor, type QueryEditorHandle } from "./editor";
 import { EditorRunToolbar } from "./editor-run-toolbar";
@@ -117,10 +118,13 @@ function ResultTabStrip({
  *  `seedFileNames` check below), `file_name` is what the tab strip shows
  *  once it's been saved at least once. `pick_and_write` does the
  *  kind-specific save-dialog + write; only the resulting path/bytes flow
- *  back here. */
+ *  back here. `open` is the toolbar's "Open" button: loads a picked file
+ *  straight into THIS tab (replacing its text) rather than opening a new
+ *  one — for that, see `openFileTab` in workspace.tsx instead. */
 function useUnsavedQueryTracking(
   tab_key: string,
   text: string,
+  set_text: (v: string) => void,
   pick_and_write: (text: string) => Promise<string | null>,
 ) {
   const [saved_baseline, setSavedBaseline] = useState(() => {
@@ -146,7 +150,22 @@ function useUnsavedQueryTracking(
     setFileName(basename(path));
     return true;
   }, [pick_and_write]);
-  return { is_dirty, file_name, save };
+  const open = useCallback(async () => {
+    try {
+      const file = await pickSqlFile();
+      if (!file) return;
+      set_text(file.text);
+      setSavedBaseline(file.text);
+      setFileName(file.name);
+    } catch (e) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Could not open file",
+        detail: String(e),
+      });
+    }
+  }, [set_text]);
+  return { is_dirty, file_name, save, open };
 }
 
 // ---- SQL --------------------------------------------------------------
@@ -212,6 +231,12 @@ function SqlEditorBody({
   // Drives the run-target button wording ("Run selection" vs. "Run query"
   // at the cursor) — see QueryEditorProps.onSelectionChange.
   const [has_selection, setHasSelection] = useState(false);
+  // Toolbar toggle: turns off the live syntax/unknown-table linter (run
+  // errors still show regardless — a separate mechanism, see `setErrors`).
+  // Sometimes wanted when writing SQL against tables the app hasn't learned
+  // about yet (e.g. right after a bulk DDL run) that would otherwise flag
+  // everything as "unknown".
+  const [lint_enabled, setLintEnabled] = useState(true);
 
   // ---- Target database. Every kind but SQLite (single-file, no such
   // concept within one connection) supports switching it — including a
@@ -246,7 +271,8 @@ function SqlEditorBody({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- own_database intentionally excluded: derived from the same conn_id, only needs its initial value here
   }, [conn_id, supports_multi_db]);
-  const target_database = database && database !== own_database ? database : undefined;
+  const target_database =
+    database && database !== own_database ? database : undefined;
 
   // ---- Known schemas + their table lists (Postgres only) — there's no
   // separate schema PICKER: the user names a non-default schema straight in
@@ -258,7 +284,10 @@ function SqlEditorBody({
   useEffect(() => {
     if (!is_pg || !database) return;
     let cancelled = false;
-    void listSchemasIn(conn_id, database === own_database ? undefined : database)
+    void listSchemasIn(
+      conn_id,
+      database === own_database ? undefined : database,
+    )
       .then((list) => {
         if (!cancelled) setKnownSchemas(list);
       })
@@ -273,7 +302,9 @@ function SqlEditorBody({
   // Every known schema's table list — cheap (names only), so fetched eagerly
   // for all of them at once rather than waiting on the user to reference one
   // first. Powers the `schema.` → table-name completions.
-  const [schema_tables, setSchemaTables] = useState<Record<string, string[]>>({});
+  const [schema_tables, setSchemaTables] = useState<Record<string, string[]>>(
+    {},
+  );
   const schema_tables_cache = useRef(new Map<string, string[]>());
   useEffect(() => {
     if (!is_pg || known_schemas.length === 0) return;
@@ -285,8 +316,16 @@ function SqlEditorBody({
           const cache_key = `${conn_id} ${database} ${s}`;
           if (schema_tables_cache.current.has(cache_key)) continue;
           try {
-            const objects = await listSchemaObjects(conn_id, s, "table", target_database);
-            schema_tables_cache.current.set(cache_key, objects.map((o) => o.name));
+            const objects = await listSchemaObjects(
+              conn_id,
+              s,
+              "table",
+              target_database,
+            );
+            schema_tables_cache.current.set(
+              cache_key,
+              objects.map((o) => o.name),
+            );
           } catch {
             schema_tables_cache.current.set(cache_key, []);
           }
@@ -294,7 +333,9 @@ function SqlEditorBody({
         if (cancelled) return;
         const next: Record<string, string[]> = {};
         for (const s of known_schemas) {
-          next[s] = schema_tables_cache.current.get(`${conn_id} ${database} ${s}`) ?? [];
+          next[s] =
+            schema_tables_cache.current.get(`${conn_id} ${database} ${s}`) ??
+            [];
         }
         setSchemaTables(next);
       })();
@@ -304,6 +345,29 @@ function SqlEditorBody({
       clearTimeout(timer);
     };
   }, [conn_id, is_pg, database, target_database, known_schemas]);
+
+  // Collection names for the CURRENTLY SELECTED database (MongoDB's SQL tab
+  // only — Postgres has its own per-schema fetch above, SQLite has no
+  // multi-database concept at all). Without this, switching the toolbar's
+  // database dropdown left `tables`/hints/lint pinned to whatever the
+  // (primary-database-only) `tables` prop was seeded with, so an unqualified
+  // table reference against the NEW database kept linting as "unknown" and
+  // vice versa.
+  const [mongo_db_tables, setMongoDbTables] = useState<string[]>([]);
+  useEffect(() => {
+    if (conn?.kind !== "mongodb" || !database) return;
+    let cancelled = false;
+    void listSchemaObjects(conn_id, "", "table", target_database)
+      .then((objects) => {
+        if (!cancelled) setMongoDbTables(objects.map((o) => o.name));
+      })
+      .catch(() => {
+        /* stays whatever it was — hints/lint just fall back to `tables` below */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conn_id, conn?.kind, database, target_database]);
 
   // Bare (unqualified) table names for hints — the UNION across every known
   // schema, not just the default one: `FROM <table>` completions/lint work
@@ -316,11 +380,23 @@ function SqlEditorBody({
   // prop while `schema_tables` hasn't resolved yet, rather than flashing
   // empty completions/lint for that gap — also the whole story for SQLite,
   // which has no schema concept at all.
-  const effective_tables = is_pg
-    ? Object.keys(schema_tables).length > 0
-      ? [...new Set(Object.values(schema_tables).flat())]
-      : tables
-    : tables;
+  // Memoized: a fresh array every render (this component re-renders on
+  // every keystroke) would retrigger the column-completions prefetch
+  // effect below on every keystroke too, since it depends on this by
+  // reference — see that effect's own comment.
+  const effective_tables = useMemo(
+    () =>
+      is_pg
+        ? Object.keys(schema_tables).length > 0
+          ? [...new Set(Object.values(schema_tables).flat())]
+          : tables
+        : conn?.kind === "mongodb"
+          ? mongo_db_tables.length > 0
+            ? mongo_db_tables
+            : tables
+          : tables,
+    [is_pg, schema_tables, tables, conn?.kind, mongo_db_tables],
+  );
 
   const setSql = useCallback(
     (v: string) => {
@@ -341,6 +417,23 @@ function SqlEditorBody({
   // non-string value, whatever the actual source of a bad update turns out
   // to be (e.g. dev-mode HMR preserving a stale/mismatched state shape).
   const sql_text = typeof sql === "string" ? sql : String(sql ?? "");
+  const format_sql = useCallback(() => {
+    try {
+      setSql(
+        formatSql(sql_text, {
+          language: is_pg
+            ? "postgresql"
+            : conn?.kind === "sqlite"
+              ? "sqlite"
+              : "sql",
+        }),
+      );
+    } catch {
+      // Leave the text untouched — sql-formatter throws on SQL it can't
+      // parse (mid-edit, a dialect quirk it doesn't know); silently doing
+      // nothing beats replacing a query the user was actively writing.
+    }
+  }, [sql_text, is_pg, conn, setSql]);
   const [tabs, setTabs] = useState<SqlResultTab[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const next_id = useRef(0);
@@ -367,7 +460,7 @@ function SqlEditorBody({
       ? Object.entries(schema_tables).flatMap(([s, ts]) =>
           ts.map((t) => ({ schema: s, table: t })),
         )
-      : (tables ?? []).map((t) => ({ schema: undefined, table: t }));
+      : (effective_tables ?? []).map((t) => ({ schema: undefined, table: t }));
     if (targets.length === 0) return;
     let cancelled = false;
     // BACKGROUND prefetch: strictly SEQUENTIAL with an idle delay. A parallel
@@ -412,7 +505,7 @@ function SqlEditorBody({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [conn_id, is_pg, target_database, schema_tables, tables]);
+  }, [conn_id, is_pg, target_database, schema_tables, effective_tables]);
 
   const add_tab = useCallback((): number => {
     const id = ++next_id.current;
@@ -509,9 +602,17 @@ function SqlEditorBody({
           error_ranges.current.set(id, { ...range, message: res.error });
         else error_ranges.current.delete(id);
         sync_errors();
+        editorRef.current?.markRunResult(res.error ? null : range);
       }
     },
-    [patch_tab, conn_id, target_database, on_modified, on_schema_modified, sync_errors],
+    [
+      patch_tab,
+      conn_id,
+      target_database,
+      on_modified,
+      on_schema_modified,
+      sync_errors,
+    ],
   );
 
   const run_all = useCallback(() => {
@@ -574,7 +675,8 @@ function SqlEditorBody({
     is_dirty,
     file_name,
     save: save_sql,
-  } = useUnsavedQueryTracking(tab_key, sql_text, pick_and_write);
+    open: open_sql_file,
+  } = useUnsavedQueryTracking(tab_key, sql_text, setSql, pick_and_write);
 
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
@@ -614,6 +716,50 @@ function SqlEditorBody({
     has_error: !!t.result?.error,
   }));
 
+  const editor_pane = (
+    <div className="flex h-full min-h-0 flex-col">
+      <EditorRunToolbar
+        has_selection={has_selection}
+        can_run_target={sql_text.trim().length > 0}
+        has_text={sql_text.trim().length > 0}
+        on_run_target={run_target}
+        on_run_all={run_all}
+        db_kind={conn?.kind}
+        database={supports_multi_db ? database : undefined}
+        databases={supports_multi_db ? databases : undefined}
+        on_database_change={supports_multi_db ? setDatabase : undefined}
+        on_format={format_sql}
+        lint_enabled={lint_enabled}
+        on_toggle_lint={() => setLintEnabled((v) => !v)}
+        is_dirty={is_dirty}
+        on_save={() => void save_sql()}
+        on_open={() => void open_sql_file()}
+      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <QueryEditor
+          ref={editorRef}
+          value={sql_text}
+          onChange={setSql}
+          onRun={() => void run_all()}
+          onRunTarget={run_target}
+          onSelectionChange={setHasSelection}
+          onSave={() => void save_sql()}
+          tables={effective_tables}
+          schema={schema}
+          schemaTables={is_pg ? schema_tables : undefined}
+          lintEnabled={lint_enabled}
+          height="100%"
+        />
+      </div>
+    </div>
+  );
+
+  // No result tabs yet: give the editor the full pane instead of splitting
+  // 40/60 with an empty results section underneath it.
+  if (tabs.length === 0) {
+    return <div className="flex h-full min-h-0 flex-col">{editor_pane}</div>;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ResizablePanelGroup orientation="vertical">
@@ -622,39 +768,16 @@ function SqlEditorBody({
           minSize="15%"
           className="flex-col border-b"
         >
-          <div className="flex h-full min-h-0 flex-col">
-            <EditorRunToolbar
-              has_selection={has_selection}
-              can_run_target={sql_text.trim().length > 0}
-              has_text={sql_text.trim().length > 0}
-              on_run_target={run_target}
-              on_run_all={run_all}
-              db_kind={conn?.kind}
-              database={supports_multi_db ? database : undefined}
-              databases={supports_multi_db ? databases : undefined}
-              on_database_change={supports_multi_db ? setDatabase : undefined}
-            />
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
-              <QueryEditor
-                ref={editorRef}
-                value={sql_text}
-                onChange={setSql}
-                onRun={() => void run_all()}
-                onRunTarget={run_target}
-                onSelectionChange={setHasSelection}
-                onSave={() => void save_sql()}
-                tables={effective_tables}
-                schema={schema}
-                schemaTables={is_pg ? schema_tables : undefined}
-                height="100%"
-              />
-            </div>
-          </div>
+          {editor_pane}
         </ResizablePanel>
 
         <ResizableHandle className="bg-background hover:bg-accent h-1!" />
 
-        <ResizablePanel defaultSize="60%" minSize="25%" className="flex-col bg-background">
+        <ResizablePanel
+          defaultSize="60%"
+          minSize="25%"
+          className="bg-background flex-col"
+        >
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
               items={strip_items}
@@ -803,6 +926,9 @@ function MongoEditorBody({
   // Drives the action bar's run-target button wording ("Run selection" vs.
   // "Run query" at the cursor) — see QueryEditorProps.onSelectionChange.
   const [has_selection, setHasSelection] = useState(false);
+  // Toolbar toggle for the live shell-syntax linter — see the identical
+  // state in SqlEditorBody above.
+  const [lint_enabled, setLintEnabled] = useState(true);
   const setScript = useCallback(
     (v: string) => {
       const text = v ?? DEFAULT_SCRIPT;
@@ -826,6 +952,28 @@ function MongoEditorBody({
   // `.trim()`/`.slice()`/CodeMirror's `value` prop.
   const script_text =
     typeof script === "string" ? script : String(script ?? "");
+  // Dynamically imported (not a static import up top) so prettier's
+  // standalone bundle + babel/estree plugins — sizeable, and this is the
+  // only place in the app that would ever need them — only ever load once
+  // the user actually clicks Format, not on every editor mount.
+  const format_script = useCallback(async () => {
+    try {
+      const [{ format }, babel, estree] = await Promise.all([
+        import("prettier/standalone"),
+        import("prettier/plugins/babel"),
+        import("prettier/plugins/estree"),
+      ]);
+      const formatted = await format(script_text, {
+        parser: "babel",
+        plugins: [babel.default, estree.default],
+      });
+      setScript(formatted);
+    } catch {
+      // Leave the text untouched — e.g. a `use <db>` shell command isn't
+      // valid JS, so a script mixing it in fails to parse; same fallback
+      // as the SQL editor's format_sql.
+    }
+  }, [script_text, setScript]);
   const [entries, setEntries] = useState<MongoEntry[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const next_id = useRef(0);
@@ -866,11 +1014,14 @@ function MongoEditorBody({
         const res = await runMongo(conn_id, db, null, text);
         patch(id, { result: res });
         if (res.switch_db) setDb(res.switch_db);
-        if (res.error) flag_error(res.error);
-        else {
+        if (res.error) {
+          flag_error(res.error);
+          if (range) editorRef.current?.markRunResult(null);
+        } else {
           if (range) {
             error_ranges.current.delete(id);
             sync_errors();
+            editorRef.current?.markRunResult(range);
           }
           if (!res.is_select) on_modified?.();
         }
@@ -891,6 +1042,7 @@ function MongoEditorBody({
           },
         });
         flag_error(message);
+        if (range) editorRef.current?.markRunResult(null);
       } finally {
         patch(id, { running: false });
       }
@@ -966,7 +1118,8 @@ function MongoEditorBody({
     is_dirty,
     file_name,
     save: save_script,
-  } = useUnsavedQueryTracking(tab_key, script_text, pick_and_write);
+    open: open_script_file,
+  } = useUnsavedQueryTracking(tab_key, script_text, setScript, pick_and_write);
 
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
@@ -1005,7 +1158,11 @@ function MongoEditorBody({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ResizablePanelGroup orientation="vertical">
-        <ResizablePanel defaultSize="38%" minSize="15%" className="flex-col border-b">
+        <ResizablePanel
+          defaultSize="38%"
+          minSize="15%"
+          className="flex-col border-b"
+        >
           <div className="flex h-full min-h-0 flex-col">
             <EditorRunToolbar
               has_selection={has_selection}
@@ -1017,6 +1174,12 @@ function MongoEditorBody({
               database={db}
               databases={databases}
               on_database_change={setDb}
+              on_format={() => void format_script()}
+              lint_enabled={lint_enabled}
+              on_toggle_lint={() => setLintEnabled((v) => !v)}
+              is_dirty={is_dirty}
+              on_save={() => void save_script()}
+              on_open={() => void open_script_file()}
             />
             <div className="flex min-h-0 flex-1 flex-col gap-3">
               <QueryEditor
@@ -1030,6 +1193,7 @@ function MongoEditorBody({
                 language="js"
                 jsCompletions={collections}
                 connId={conn_id}
+                lintEnabled={lint_enabled}
                 height="100%"
               />
             </div>

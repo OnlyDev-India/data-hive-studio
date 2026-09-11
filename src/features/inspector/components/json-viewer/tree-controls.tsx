@@ -79,7 +79,7 @@ export function TreeControls({
       </label>
       {searching && (
         <>
-          <span className="text-muted-foreground shrink-0 text-2xs tabular-nums">
+          <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
             {matchCount === 0
               ? "0/0"
               : `${(activeMatch % matchCount) + 1}/${matchCount}`}

@@ -107,7 +107,7 @@ export function HeaderCell({
       className={merged}
       style={{ width, ...(is_pinned ? { left: `${px}px` } : {}) }}
     >
-      <div className="flex h-8 w-full min-w-0 items-center gap-1 overflow-hidden px-3">
+      <div className="flex h-7 w-full min-w-0 items-center gap-1 overflow-hidden px-2">
         {/* Name + type, same line — clicking anywhere here shows column
             details (the type popover below). The sort/pin dropdown only
             opens from the chevron, its own separate click target. */}
@@ -140,7 +140,7 @@ export function HeaderCell({
           )}
           <span className="truncate">{col}</span>
           {type_label && (
-            <span className="text-muted-foreground/60 shrink-0 truncate text-3xs font-normal tracking-wide uppercase">
+            <span className="text-muted-foreground/60 text-3xs shrink-0 truncate font-normal tracking-wide uppercase">
               {type_label}
             </span>
           )}
@@ -191,7 +191,7 @@ export function HeaderCell({
             </div>
             <div className="mt-0.5 truncate font-mono">{col}</div>
             <div className="text-muted-foreground mt-2">Type</div>
-            <div className="text-info-dark mt-0.5 font-mono break-words">
+            <div className="text-info-dark wrap-break-words mt-0.5 font-mono">
               {type_label}
             </div>
           </div>

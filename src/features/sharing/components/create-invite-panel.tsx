@@ -137,7 +137,7 @@ export function CreateInviteForm({
 
       {created_code && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3">
-          <p className="mb-1 text-2xs font-medium tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
+          <p className="text-2xs mb-1 font-medium tracking-wide text-emerald-600 uppercase dark:text-emerald-400">
             Invite code — share it with whoever you're inviting
           </p>
           <div className="flex items-center gap-2">

@@ -90,7 +90,10 @@ export function nosqlSyntaxLinter(collections: string[]) {
         // would otherwise count as a "statement" here — flagging a missing
         // `;` right after it, i.e. inside/around a comment the user never
         // meant to be checked at all.
-        if (child.type.name === "LineComment" || child.type.name === "BlockComment")
+        if (
+          child.type.name === "LineComment" ||
+          child.type.name === "BlockComment"
+        )
           continue;
         stmts.push({ from: child.from, to: child.to });
       }
@@ -102,7 +105,8 @@ export function nosqlSyntaxLinter(collections: string[]) {
           // Not a real error — the combined chunk may still run fine (or
           // may not); this is a heads-up, not something blocking Run.
           severity: "warning",
-          message: 'Missing ";" here — otherwise this is treated as one query with the next line',
+          message:
+            'Missing ";" here — otherwise this is treated as one query with the next line',
         });
       }
 

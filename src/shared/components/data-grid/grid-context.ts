@@ -61,7 +61,9 @@ function row_lines(
 /** Maps the grid's own `PendingChange` shape onto the shared `DiffChange`
  *  shape the review dialog renders — kept as a pure function next to
  *  `PendingChange` so the two can never silently drift apart. */
-export function pending_changes_to_diff(changes: PendingChange[]): DiffChange[] {
+export function pending_changes_to_diff(
+  changes: PendingChange[],
+): DiffChange[] {
   return changes.map((c): DiffChange => {
     if (c.kind === "insert") {
       return {
@@ -69,7 +71,8 @@ export function pending_changes_to_diff(changes: PendingChange[]): DiffChange[] 
         kind: "add",
         entity: "row",
         title: "New row",
-        after: row_lines(c.value_columns, c.values, "insert") || "(defaults only)",
+        after:
+          row_lines(c.value_columns, c.values, "insert") || "(defaults only)",
       };
     }
     if (c.kind === "delete") {

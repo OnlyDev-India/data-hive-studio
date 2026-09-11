@@ -142,8 +142,7 @@ interface CstNode {
 const DIALECTS = ["sqlite", "postgresql"] as const;
 
 type ParseForLint =
-  | { ok: true; program: CstNode }
-  | { ok: false; diagnostic: Diagnostic };
+  { ok: true; program: CstNode } | { ok: false; diagnostic: Diagnostic };
 
 function parseForLint(doc: string): ParseForLint {
   let message: string | null = null;

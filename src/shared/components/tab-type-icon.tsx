@@ -26,14 +26,10 @@ export function TabTypeIcon({
     case "mongo":
       return <MongoIcon className={cn("size-3.5", className)} />;
     case "sql":
-      return (
-        <Code className={cn("text-emerald-400 size-3.5", className)} />
-      );
+      return <Code className={cn("size-3.5 text-emerald-400", className)} />;
     case "new-table":
       return (
-        <SquarePlus
-          className={cn("text-orange-400 size-3.5", className)}
-        />
+        <SquarePlus className={cn("size-3.5 text-orange-400", className)} />
       );
     case "mongo-console":
       return <Terminal className={cn("size-3.5 text-sky-400", className)} />;

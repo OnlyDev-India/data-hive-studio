@@ -163,13 +163,13 @@ export function ActivityBar({
               <ShieldCheck className="size-5" />
             </BarButton>
           )}
-        <BarButton
-          active={false}
-          label="Settings"
-          onClick={() => set_settings_open(true)}
-        >
-          <Settings className="size-5" />
-        </BarButton>
+          <BarButton
+            active={false}
+            label="Settings"
+            onClick={() => set_settings_open(true)}
+          >
+            <Settings className="size-5" />
+          </BarButton>
         </div>
         <SettingsDialog open={settings_open} onOpenChange={set_settings_open} />
       </nav>

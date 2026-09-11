@@ -6,11 +6,7 @@ import {
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
 import { Button } from "@/shared/components/ui/button";
-import {
-  useStudioStore,
-  type PaneNode,
-  type StudioTab,
-} from "@/shared/store";
+import { useStudioStore, type PaneNode, type StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
 import { TabBar } from "./tab-bar";
 import { PaneDropOverlay } from "./pane-drop-overlay";
@@ -81,7 +77,9 @@ function SplitPaneView({
     <ResizablePanelGroup
       orientation={node.direction}
       onLayoutChanged={(layout) => {
-        const sizes = node.children.map((c, i) => layout[c.id] ?? node.sizes[i]);
+        const sizes = node.children.map(
+          (c, i) => layout[c.id] ?? node.sizes[i],
+        );
         resizeSplit(shared.connId, node.id, sizes);
       }}
     >
@@ -92,7 +90,7 @@ function SplitPaneView({
               title="Drag to resize"
               // Matches the sidebar's resize divider: invisible until
               // hovered/dragged, no permanent grip icon.
-              className="bg-transparent hover:bg-accent active:bg-primary/60"
+              className="hover:bg-accent active:bg-primary/60 bg-transparent"
             />
           )}
           <ResizablePanel
@@ -197,10 +195,7 @@ function LeafPaneView({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => on_new_sql(node.id)}
-              >
+              <Button variant="outline" onClick={() => on_new_sql(node.id)}>
                 <Code className="size-3.5" />
                 SQL editor
               </Button>
@@ -213,10 +208,7 @@ function LeafPaneView({
                   NoSQL console
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={() => on_new_table(node.id)}
-              >
+              <Button variant="outline" onClick={() => on_new_table(node.id)}>
                 <SquarePlus className="size-3.5" />
                 Create table
               </Button>

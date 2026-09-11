@@ -18,7 +18,13 @@ export type StudioTab =
     }
   | { kind: "sql"; id: number }
   | { kind: "new-table"; id: number }
-  | { kind: "mongo"; conn_id: string; database: string; collection: string; tabId: number }
+  | {
+      kind: "mongo";
+      conn_id: string;
+      database: string;
+      collection: string;
+      tabId: number;
+    }
   /** MongoDB console (JSON query / aggregate / shell subset). Multiple per
    *  connection are allowed, like SQL editors. `database` is the console's
    *  initial db context (switchable via `use <db>` inside the editor). */
@@ -87,9 +93,7 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
   }
   if (a.kind === "mongo-console") {
     return (
-      b.kind === "mongo-console" &&
-      a.conn_id === b.conn_id &&
-      a.id === b.id
+      b.kind === "mongo-console" && a.conn_id === b.conn_id && a.id === b.id
     );
   }
   return true;
