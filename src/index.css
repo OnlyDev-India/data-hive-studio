@@ -2,21 +2,36 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Palette below is DBX's own default theme — apps/desktop/src/styles/
+ * globals.css's `@supports (color: oklch(...))` :root/.dark block, its real
+ * desktop app (not the docs site linked earlier, which is a different,
+ * Fumadocs-based stylesheet with nothing in common with an app UI). Every
+ * variable NAME here predates this pass and stays as-is (several are load-
+ * bearing: accent.ts overrides --primary/--primary-light/--primary-dark at
+ * runtime for the accent-color picker, and --*-light/--*-dark are consumed
+ * directly across bson-json-editor, inline-diagnostics, doc-hover, the
+ * connection panels, etc.) — only the color VALUES changed, plus a small
+ * set of new chrome-surface tokens DBX has that this file didn't.
+ *
+ * Deliberately NOT brought over: DBX's --chart-1..5 and its dedicated
+ * --sidebar-* sub-palette (shadcn-vue's Sidebar component reads those; nothing
+ * in this codebase does, so they'd just be unused config). Add them if a
+ * consumer actually shows up. */
 :root {
   color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(0.985 0 0);
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
   --primary-light: oklch(0.95 0 0);
   --primary-dark: oklch(0.145 0 0);
-  --secondary: oklch(0.92 0 0);
+  --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.985 0 0);
+  --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
@@ -27,16 +42,16 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
 
-  --success: oklch(0.65 0.16 145);
-  --success-foreground: oklch(0.985 0 0);
-  --success-light: oklch(0.95 0.08 145);
-  --success-dark: oklch(0.35 0.16 145);
-  --warning: oklch(0.65 0.16 55);
-  --warning-foreground: oklch(0.985 0 0);
-  --warning-light: oklch(0.95 0.08 55);
-  --warning-dark: oklch(0.35 0.16 55);
+  --success: oklch(0.62 0.17 150);
+  --success-foreground: oklch(0.97 0.02 150);
+  --success-light: oklch(0.95 0.08 150);
+  --success-dark: oklch(0.35 0.17 150);
+  --warning: oklch(0.7 0.15 70);
+  --warning-foreground: oklch(0.98 0.02 85);
+  --warning-light: oklch(0.95 0.08 70);
+  --warning-dark: oklch(0.35 0.15 70);
   --info: oklch(0.55 0.18 250);
-  --info-foreground: oklch(0.985 0 0);
+  --info-foreground: oklch(0.97 0.02 250);
   --info-light: oklch(0.95 0.08 250);
   --info-dark: oklch(0.35 0.18 250);
   --bson-ctor: oklch(0.42 0.17 292);
@@ -45,17 +60,16 @@
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
   --scrollbar-thumb: #ccc;
 
-  /* Chrome surfaces a shade off `--background` — DBX's real desktop app
-   * (apps/desktop/src/styles/tokens.css, not its docs site) gives toolbars/
-   * gutters their own slightly-tinted surface instead of just inheriting
-   * the page background; `color-mix` against `--foreground` keeps that
-   * relationship correct automatically in both themes instead of a second
-   * literal palette to keep in sync. */
-  --editor-toolbar: color-mix(
-    in oklab,
-    var(--background) 97%,
-    var(--foreground)
-  );
+  /* Chrome surfaces a literal shade off `--background`, matching DBX's own
+   * calibrated values (its editor toolbar/gutter/sidebar header aren't a
+   * flat color-mix formula — hand-tuned per theme) instead of the
+   * color-mix approximation this token started as. */
+  --chrome: oklch(0.97 0 0);
+  --chrome-muted: oklch(0.95 0 0);
+  --content: oklch(1 0 0);
+  --editor-toolbar: oklch(0.985 0 0);
+  --gutter: oklch(0.965 0 0);
+  --sidebar-header: oklch(0.985 0 0);
 
   /* Runtime-overridable indirection for `--font-sans` below — same pattern
    * `--color-primary: var(--primary)` uses for accent colors, so
@@ -78,45 +92,52 @@
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.18 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.269 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --primary-light: oklch(0.25 0 0);
-  --primary-dark: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-light: oklch(0.25 0.08 22.216);
-  --destructive-dark: oklch(0.85 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: oklch(0.19 0.004 285);
+  --foreground: oklch(0.88 0.006 285);
+  --card: oklch(0.225 0.005 285);
+  --card-foreground: oklch(0.88 0.006 285);
+  --popover: oklch(0.235 0.005 285);
+  --popover-foreground: oklch(0.89 0.006 285);
+  --primary: oklch(0.86 0.008 285);
+  --primary-foreground: oklch(0.19 0.004 285);
+  --primary-light: oklch(0.28 0.006 285);
+  --primary-dark: oklch(0.9 0.008 285);
+  --secondary: oklch(0.285 0.006 285);
+  --secondary-foreground: oklch(0.88 0.006 285);
+  --muted: oklch(0.285 0.006 285);
+  --muted-foreground: oklch(0.68 0.008 285);
+  --accent: oklch(0.305 0.008 285);
+  --accent-foreground: oklch(0.9 0.006 285);
+  --destructive: oklch(0.68 0.18 24);
+  --destructive-light: oklch(0.25 0.08 24);
+  --destructive-dark: oklch(0.85 0.18 24);
+  --border: oklch(0.54 0.006 285 / 28%);
+  --input: oklch(0.54 0.006 285 / 34%);
+  --ring: oklch(0.62 0.008 285);
 
-  --success: oklch(0.65 0.16 145);
-  --success-foreground: oklch(0.205 0 0);
-  --success-light: oklch(0.25 0.08 145);
-  --success-dark: oklch(0.75 0.16 145);
-  --warning: oklch(0.65 0.16 55);
-  --warning-foreground: oklch(0.205 0 0);
-  --warning-light: oklch(0.25 0.08 55);
-  --warning-dark: oklch(0.75 0.16 55);
-  --info: oklch(0.65 0.18 250);
-  --info-foreground: oklch(0.985 0 0);
+  --success: oklch(0.78 0.16 150);
+  --success-foreground: oklch(0.22 0.03 150);
+  --success-light: oklch(0.25 0.08 150);
+  --success-dark: oklch(0.75 0.16 150);
+  --warning: oklch(0.82 0.15 85);
+  --warning-foreground: oklch(0.28 0.05 85);
+  --warning-light: oklch(0.25 0.08 85);
+  --warning-dark: oklch(0.75 0.15 85);
+  --info: oklch(0.75 0.12 250);
+  --info-foreground: oklch(0.25 0.04 250);
   --info-light: oklch(0.25 0.08 250);
-  --info-dark: oklch(0.75 0.18 250);
+  --info-dark: oklch(0.75 0.12 250);
   --bson-ctor: oklch(0.8 0.16 292);
   --selection: oklch(0.55 0.18 55);
   --selection-foreground: oklch(0.205 0 0);
   --scrollbar-thumb: #555;
+
+  --chrome: oklch(0.225 0.005 285);
+  --chrome-muted: oklch(0.25 0.006 285);
+  --content: oklch(0.19 0.004 285);
+  --editor-toolbar: oklch(0.215 0.005 285);
+  --gutter: oklch(0.205 0.004 285);
+  --sidebar-header: oklch(0.215 0.005 285);
 }
 
 @theme inline {
@@ -172,7 +193,12 @@
   --color-info-dark: var(--info-dark);
   --color-selection: var(--selection);
   --color-selection-foreground: var(--selection-foreground);
+  --color-chrome: var(--chrome);
+  --color-chrome-muted: var(--chrome-muted);
+  --color-content: var(--content);
   --color-editor-toolbar: var(--editor-toolbar);
+  --color-gutter: var(--gutter);
+  --color-sidebar-header: var(--sidebar-header);
 }
 
 @layer base {
@@ -261,4 +287,8 @@
 .json-key,
 .json-key span {
   color: var(--info-dark) !important;
+}
+
+.cm-statement-run {
+  @apply bg-success/20 text-success hover:bg-success/40 rounded-full;
 }

@@ -46,7 +46,6 @@ import {
   LazyObjectRows,
   LazyTableRows,
 } from "./catalog-tree-rows";
-import { TableListItem } from "./table-list-item";
 import {
   DropDialog,
   DuplicateDialog,
@@ -112,6 +111,7 @@ export function TablesBrowser({
   reloading = false,
   search_value,
   on_search_change,
+  object_created,
 }: {
   conn_id: string;
   tables: { name: string; kind: string }[] | null;
@@ -121,6 +121,16 @@ export function TablesBrowser({
   reloading?: boolean;
   search_value: string;
   on_search_change: (v: string) => void;
+  /** A table/collection was just created somewhere outside this tree (New
+   *  Table / Mongo's New Collection tab) — a NEW object reference every
+   *  time one succeeds, so the effect below re-fires even for a repeat
+   *  creation with identical fields. `database`/`schema` empty string =
+   *  this connection's own database / no schema (Mongo, or SQLite). */
+  object_created?: {
+    database: string;
+    schema: string;
+    kind: SchemaObjectKind;
+  } | null;
 }) {
   const search = search_value;
   const [selected_name, setSelectedName] = useState<string | null>(null);
@@ -638,6 +648,52 @@ export function TablesBrowser({
     },
     [ensure_objects],
   );
+  // A table/collection created outside this tree (New Table / New
+  // Collection tabs) — refresh that node.
+  useEffect(() => {
+    if (!object_created) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to an external creation event, not deriving render state
+    refresh_sibling_objects({
+      database: object_created.database || pg_current_db,
+      schema: object_created.schema,
+      kind: object_created.kind,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only `object_created` itself should retrigger this
+  }, [object_created]);
+  // The refresh button's actual handler: `on_refresh` alone only refetches
+  // the primary database's flat `tables` list (see its own doc comment on
+  // `SiblingTarget`) — every OTHER already-loaded node (sibling databases,
+  // non-default schemas, non-"table" categories) lives in `schema_lists`/
+  // `object_lists` here and needs its own re-fetch, or a refresh would
+  // silently leave everything but the primary list stale.
+  const refresh_everything = useCallback(() => {
+    on_refresh();
+    for (const database of Object.keys(schema_lists)) {
+      if (schema_lists[database] === undefined) continue;
+      setSchemaLists((cur) => {
+        if (!(database in cur)) return cur;
+        const next = { ...cur };
+        delete next[database];
+        return next;
+      });
+      ensure_schemas(database);
+    }
+    for (const key of Object.keys(object_lists)) {
+      if (object_lists[key] === undefined) continue;
+      const [database, schema, kind] = key.split("\n") as [
+        string,
+        string,
+        SchemaObjectKind,
+      ];
+      refresh_sibling_objects({ database, schema, kind });
+    }
+  }, [
+    on_refresh,
+    schema_lists,
+    object_lists,
+    ensure_schemas,
+    refresh_sibling_objects,
+  ]);
   /** Open an object found anywhere in the catalog tree. Browsing (expanding
    *  tree nodes to see names) never touches the connection's active
    *  database/schema — the new `listSchemasIn`/`listSchemaObjects` calls
@@ -696,7 +752,11 @@ export function TablesBrowser({
   );
 
   // ---- Grants viewer for a table/view/matview ----
-  const [grants_for, setGrantsFor] = useState<string | null>(null);
+  const [grants_for, setGrantsFor] = useState<{
+    name: string;
+    database?: string;
+    schema: string;
+  } | null>(null);
   const [grants_rows, setGrantsRows] = useState<(string | null)[][] | null>(
     null,
   );
@@ -706,7 +766,9 @@ export function TablesBrowser({
     let cancelled = false;
     runSql(
       conn_id,
-      `SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema='${esc_lit(pg_active_schema)}' AND table_name='${esc_lit(grants_for)}' ORDER BY 1, 2`,
+      `SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema='${esc_lit(grants_for.schema)}' AND table_name='${esc_lit(grants_for.name)}' ORDER BY 1, 2`,
+      "app",
+      grants_for.database,
     )
       .then((res) => {
         if (!cancelled) setGrantsRows(res.rows);
@@ -717,7 +779,7 @@ export function TablesBrowser({
     return () => {
       cancelled = true;
     };
-  }, [grants_for, conn_id, is_pg, pg_active_schema]);
+  }, [grants_for, conn_id, is_pg]);
 
   // ---- List filtering + keyboard navigation ------------------------------
   const loading = tables === null || reloading;
@@ -1084,7 +1146,7 @@ export function TablesBrowser({
         title="Reload all tables"
         className="size-7"
         disabled={reloading}
-        onClick={on_refresh}
+        onClick={refresh_everything}
       >
         <RefreshCw className={cn("size-3.5", reloading && "animate-spin")} />
       </Button>
@@ -1092,102 +1154,101 @@ export function TablesBrowser({
   );
 
   // The connection's own active database(+schema for PG)'s "Tables"
-  // category gets the full existing treatment — this list, keyboard nav,
-  // drop/duplicate/rename dialogs — sourced from the `tables` prop the
-  // workspace already fetches for it, not a new lazy fetch. This is ALSO
-  // the entirety of a SQLite connection's sidebar (no database/schema tree
-  // exists there), rendered unconditionally in that case below.
+  // category — same `LazyTableRows`/`TableListItem` every sibling
+  // database/schema uses, just fed straight from the `tables` prop the
+  // workspace already fetches eagerly for it instead of a lazy fetch. This
+  // is ALSO the entirety of a SQLite connection's sidebar (no database/
+  // schema tree exists there), rendered unconditionally in that case below.
   const active_tables_list_ui = (
-    <>
-      <div
-        ref={list_ref}
-        tabIndex={0}
-        aria-busy={reloading}
-        className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity outline-none",
-          // A reload of an ALREADY-loaded list (switching schema back and
-          // forth, a background refresh) stays on-screen and just dims a
-          // touch — the spinning Refresh icon above already signals it's
-          // in flight. Only a true first load (nothing to show yet) blanks
-          // the list with skeletons; re-showing those on every reload was
-          // the bug (a schema you'd already opened looked like it forgot
-          // its tables every time you came back to it).
-          reloading && tables !== null && "opacity-60",
-        )}
-        onKeyDown={handle_nav_keys}
-      >
-        {tables === null ? (
-          <div className="flex flex-col gap-1">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="bg-muted/60 h-7 w-full animate-pulse rounded-md"
-              />
-            ))}
-          </div>
-        ) : filtered_tables.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-4 text-center text-sm">
-            No tables found.
-          </p>
-        ) : (
-          filtered_tables.map((t) => (
-            <TableListItem
-              key={t.name}
-              name={t.name}
-              kind={t.kind}
-              is_mongo={is_mongo}
-              is_selected={t.name === (selected_name ?? active_table)}
-              disabled={dupe_submitting || dupe_mongo_submitting}
-              on_select={() => {
-                setSelectedName(t.name);
-                // Focus the list so arrow keys / Enter work right away
-                // (WebKit does not focus buttons on click).
-                list_ref.current?.focus();
-              }}
-              on_open={() => {
-                if (is_mongo) {
-                  store_open_mongo(conn_id, pg_current_db, t.name);
-                } else {
-                  on_open_table(t.name);
-                }
-              }}
-              on_view_structure={() => open_structure(conn_id, t.name)}
-              on_copy={() => void copy_name(t.name)}
-              on_duplicate={() =>
-                is_mongo ? ask_duplicate_mongo(t) : ask_duplicate(t)
-              }
-              on_drop={() => setConfirmDrop({ name: t.name, kind: t.kind })}
-              on_view_grants={() => {
-                setGrantsRows(null);
-                setGrantsFor(t.name);
-              }}
-              on_refresh_matview={
-                t.kind === "matview"
-                  ? () =>
-                      void (async () => {
-                        try {
-                          await refreshMatview(conn_id, t.name);
-                          on_refresh();
-                          push_notification({
-                            kind: "success",
-                            title: "Materialized view refreshed",
-                            detail: t.name,
-                          });
-                        } catch (e) {
-                          push_notification({
-                            kind: "error",
-                            title: "Refresh failed",
-                            detail: String(e),
-                          });
-                        }
-                      })()
-                  : undefined
-              }
+    <div
+      ref={list_ref}
+      tabIndex={0}
+      aria-busy={reloading}
+      className={cn(
+        "flex min-h-0 flex-1 flex-col overflow-y-auto transition-opacity outline-none",
+        // A reload of an ALREADY-loaded list (switching schema back and
+        // forth, a background refresh) stays on-screen and just dims a
+        // touch — the spinning Refresh icon above already signals it's
+        // in flight. Only a true first load (nothing to show yet) blanks
+        // the list with skeletons; re-showing those on every reload was
+        // the bug (a schema you'd already opened looked like it forgot
+        // its tables every time you came back to it).
+        reloading && tables !== null && "opacity-60",
+      )}
+      onKeyDown={handle_nav_keys}
+    >
+      {tables === null ? (
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-muted/60 h-7 w-full animate-pulse rounded-md"
             />
-          ))
-        )}
-      </div>
-    </>
+          ))}
+        </div>
+      ) : (
+        <LazyTableRows
+          state={filtered_tables}
+          empty_label="No tables found."
+          depth={0}
+          is_mongo={is_mongo}
+          selected_name={selected_name ?? active_table}
+          disabled={dupe_submitting || dupe_mongo_submitting}
+          on_select={(name) => {
+            setSelectedName(name);
+            // Focus the list so arrow keys / Enter work right away
+            // (WebKit does not focus buttons on click).
+            list_ref.current?.focus();
+          }}
+          on_open={(name) => {
+            if (is_mongo) {
+              store_open_mongo(conn_id, pg_current_db, name);
+            } else {
+              on_open_table(name);
+            }
+          }}
+          on_view_structure={(name) => open_structure(conn_id, name)}
+          on_copy={(name) => void copy_name(name)}
+          on_duplicate={(name) =>
+            is_mongo ? ask_duplicate_mongo({ name }) : ask_duplicate({ name })
+          }
+          on_drop={(name) =>
+            setConfirmDrop({
+              name,
+              kind:
+                filtered_tables.find((x) => x.name === name)?.kind ?? "table",
+            })
+          }
+          on_view_grants={
+            is_mongo
+              ? undefined
+              : (name) => {
+                  setGrantsRows(null);
+                  setGrantsFor({ name, schema: pg_active_schema });
+                }
+          }
+          on_refresh_matview={(name) =>
+            void (async () => {
+              try {
+                await refreshMatview(conn_id, name);
+                on_refresh();
+                push_notification({
+                  kind: "success",
+                  title: "Materialized view refreshed",
+                  detail: name,
+                });
+              } catch (e) {
+                push_notification({
+                  kind: "error",
+                  title: "Refresh failed",
+                  detail: String(e),
+                });
+              }
+            })()
+          }
+        />
+      )}
+    </div>
   );
 
   return (
@@ -1375,8 +1436,6 @@ export function TablesBrowser({
                                   const cat_expanded =
                                     (searching && cat.kind === "table") ||
                                     tree_expanded.has(cat_id);
-                                  const is_active_tables =
-                                    is_active_schema && cat.kind === "table";
                                   const cache_key = objectKey(
                                     db,
                                     schema,
@@ -1398,16 +1457,12 @@ export function TablesBrowser({
                                         depth={2}
                                         loading={
                                           cat_expanded &&
-                                          !is_active_tables &&
                                           (cat_state === "loading" ||
                                             cat_state === undefined)
                                         }
                                         onClick={() => {
                                           toggle_tree(cat_id);
-                                          if (
-                                            !cat_expanded &&
-                                            !is_active_tables
-                                          ) {
+                                          if (!cat_expanded) {
                                             ensure_objects(
                                               db,
                                               schema,
@@ -1417,18 +1472,75 @@ export function TablesBrowser({
                                         }}
                                       />
                                       {cat_expanded &&
-                                        (is_active_tables ? (
-                                          <div style={depthPadding(3)}>
-                                            {active_tables_list_ui}
-                                          </div>
-                                        ) : cat.kind === "table" ||
-                                          cat.kind === "view" ||
-                                          cat.kind === "materialized_view" ? (
+                                        (cat.kind === "table" ||
+                                        cat.kind === "view" ||
+                                        cat.kind === "materialized_view" ? (
                                           <LazyTableRows
                                             state={cat_state}
                                             empty_label={`No ${cat.label.toLowerCase()}.`}
                                             depth={3}
                                             kind={cat.kind}
+                                            on_view_structure={(name) =>
+                                              open_structure(
+                                                conn_id,
+                                                name,
+                                                db === pg_current_db
+                                                  ? undefined
+                                                  : db,
+                                                schema,
+                                              )
+                                            }
+                                            on_view_grants={(name) => {
+                                              setGrantsRows(null);
+                                              setGrantsFor({
+                                                name,
+                                                database:
+                                                  db === pg_current_db
+                                                    ? undefined
+                                                    : db,
+                                                schema,
+                                              });
+                                            }}
+                                            on_copy={(name) =>
+                                              void copy_name(name)
+                                            }
+                                            on_refresh_matview={
+                                              cat.kind === "materialized_view"
+                                                ? (name) =>
+                                                    void (async () => {
+                                                      try {
+                                                        await refreshMatview(
+                                                          conn_id,
+                                                          name,
+                                                          db === pg_current_db
+                                                            ? undefined
+                                                            : db,
+                                                          schema,
+                                                        );
+                                                        refresh_sibling_objects(
+                                                          {
+                                                            database: db,
+                                                            schema,
+                                                            kind: cat.kind,
+                                                          },
+                                                        );
+                                                        push_notification({
+                                                          kind: "success",
+                                                          title:
+                                                            "Materialized view refreshed",
+                                                          detail: name,
+                                                        });
+                                                      } catch (e) {
+                                                        push_notification({
+                                                          kind: "error",
+                                                          title:
+                                                            "Refresh failed",
+                                                          detail: String(e),
+                                                        });
+                                                      }
+                                                    })()
+                                                : undefined
+                                            }
                                             on_duplicate={(name) =>
                                               ask_duplicate({
                                                 name,
@@ -1541,13 +1653,12 @@ export function TablesBrowser({
                     depth={0}
                     loading={
                       db_expanded &&
-                      !is_active_db &&
                       (object_lists[cache_key] === "loading" ||
                         object_lists[cache_key] === undefined)
                     }
                     onClick={() => {
                       toggle_tree(db_id);
-                      if (!db_expanded && !is_active_db) {
+                      if (!db_expanded) {
                         ensure_objects(db, "", "table");
                       }
                     }}
@@ -1600,49 +1711,49 @@ export function TablesBrowser({
                     ) : (
                       db_row
                     )}
-                    {db_expanded &&
-                      (is_active_db ? (
-                        <div style={depthPadding(1)}>
-                          {active_tables_list_ui}
-                        </div>
-                      ) : (
-                        <LazyTableRows
-                          state={
-                            searching
-                              ? filterObjects(object_lists[cache_key], search_q)
-                              : object_lists[cache_key]
-                          }
-                          empty_label="No collections."
-                          kind="table"
-                          depth={1}
-                          on_duplicate={(name) =>
-                            ask_duplicate_mongo({
-                              name,
+                    {db_expanded && (
+                      <LazyTableRows
+                        state={
+                          searching
+                            ? filterObjects(object_lists[cache_key], search_q)
+                            : object_lists[cache_key]
+                        }
+                        empty_label="No collections."
+                        kind="table"
+                        depth={1}
+                        is_mongo
+                        on_view_structure={(name) =>
+                          open_structure(conn_id, name, db, "")
+                        }
+                        on_copy={(name) => void copy_name(name)}
+                        on_duplicate={(name) =>
+                          ask_duplicate_mongo({
+                            name,
+                            database: is_active_db ? undefined : db,
+                            sibling: {
                               database: db,
-                              sibling: {
-                                database: db,
-                                schema: "",
-                                kind: "table",
-                              },
-                            })
-                          }
-                          on_drop={(name) =>
-                            setConfirmDrop({
-                              name,
+                              schema: "",
                               kind: "table",
+                            },
+                          })
+                        }
+                        on_drop={(name) =>
+                          setConfirmDrop({
+                            name,
+                            kind: "table",
+                            database: is_active_db ? undefined : db,
+                            sibling: {
                               database: db,
-                              sibling: {
-                                database: db,
-                                schema: "",
-                                kind: "table",
-                              },
-                            })
-                          }
-                          on_open={(name) =>
-                            void open_object(db, "", name, "table")
-                          }
-                        />
-                      ))}
+                              schema: "",
+                              kind: "table",
+                            },
+                          })
+                        }
+                        on_open={(name) =>
+                          void open_object(db, "", name, "table")
+                        }
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -1700,7 +1811,7 @@ export function TablesBrowser({
       <GrantsDialog
         open={grants_for !== null}
         on_open_change={(o) => !o && setGrantsFor(null)}
-        name={grants_for}
+        name={grants_for?.name ?? null}
         rows={grants_rows}
       />
 

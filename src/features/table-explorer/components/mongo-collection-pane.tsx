@@ -5,6 +5,9 @@ import {
   type FilterColumn,
 } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
+import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
+import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
+import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import { ModeTabs } from "./mode-tabs";
 import { MongoSchemaEditor } from "@/features/schema-designer";
 import { useStudioStore, usePaneMode } from "@/shared/store";
@@ -28,6 +31,13 @@ export function MongoCollectionPane({
   // Subscribe to the grid's bridge so the pane re-renders with its live state
   // (rows / buffered edits / loading) — the grid is the only data view now.
   const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
+  const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
+  const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
+  const [stopped_waiting, setStoppedWaiting] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the soft-stop flag when a new load starts
+    if (gridBridge?.loading) setStoppedWaiting(false);
+  }, [gridBridge?.loading]);
   const mode = usePaneMode(conn_id, tab_key);
   const setPaneMode = useStudioStore((s) => s.setPaneMode);
   const setMode = useCallback(
@@ -100,13 +110,25 @@ export function MongoCollectionPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex shrink-0 items-center gap-1 border-b px-3">
-        <ModeTabs
-          mode={mode}
-          warn_no_pk={!!schema && schema.columns.every((c) => !c.primary_key)}
-          on_change={setMode}
-        />
-        <div className="ml-auto flex items-center gap-1">
+      <div className="bg-background flex shrink-0 scrollbar-none items-center justify-between gap-1 overflow-auto border-b px-3">
+        <div className="flex items-center gap-1">
+          <ModeTabs
+            mode={mode}
+            warn_no_pk={!!schema && schema.columns.every((c) => !c.primary_key)}
+            on_change={setMode}
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {mode === "data" && gridBridge && (
+            <GridActionBar bridge={gridBridge} conn_id={conn_id} />
+          )}
+          {mode === "schema" && (schemaEdit || schemaPane) && (
+            <SchemaActionBar
+              schemaEdit={schemaEdit}
+              schemaPane={schemaPane}
+              drop_label="Drop collection"
+            />
+          )}
           {mode === "data" && (
             <FilterBar
               columns={columns}
@@ -184,10 +206,19 @@ export function MongoCollectionPane({
             </>
           )
         )}
-        {mode === "data" && !failed && (gridBridge?.loading || !schema) && (
-          <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
-            <Loader2 className="text-muted-foreground size-5 animate-spin" />
-          </div>
+        {mode === "data" &&
+        !failed &&
+        gridBridge?.loading &&
+        !stopped_waiting ? (
+          <QueryLoadingOverlay onStop={() => setStoppedWaiting(true)} />
+        ) : (
+          mode === "data" &&
+          !failed &&
+          !schema && (
+            <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
+              <Loader2 className="text-muted-foreground size-5 animate-spin" />
+            </div>
+          )
         )}
       </div>
     </div>

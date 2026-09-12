@@ -410,7 +410,8 @@ function SqlEditorBody({
         sync_errors();
       }
     },
-    [sync_errors, tab_key],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above `run_query`'s own deps array
+    [sync_errors, tab_key, error_ranges.current],
   );
   // Belt-and-suspenders: every consumer below reads THIS, never `sql`
   // directly — guards every `.trim()`/`.slice()` call against ever seeing a
@@ -605,6 +606,7 @@ function SqlEditorBody({
         editorRef.current?.markRunResult(res.error ? null : range);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; the React Compiler's own preserve-manual-memoization rule requires `.current` specifically here, which exhaustive-deps then (correctly, in the general case) flags as not a valid dependency — a genuine conflict between the two rules, not a missing dependency
     [
       patch_tab,
       conn_id,
@@ -612,6 +614,7 @@ function SqlEditorBody({
       on_modified,
       on_schema_modified,
       sync_errors,
+      error_ranges.current,
     ],
   );
 
@@ -631,7 +634,8 @@ function SqlEditorBody({
       const id = add_tab();
       void run_query(id, s.text, { from: s.from, to: s.to });
     }
-  }, [sql_text, add_tab, run_query, sync_errors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
+  }, [sql_text, add_tab, run_query, sync_errors, error_ranges.current]);
 
   const run_target = useCallback(() => {
     const targets = editorRef.current?.getTargets() ?? [];
@@ -644,7 +648,8 @@ function SqlEditorBody({
       const id = add_tab();
       void run_query(id, text, { from: t.from, to: t.to });
     }
-  }, [add_tab, run_query, sync_errors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
+  }, [add_tab, run_query, sync_errors, error_ranges.current]);
 
   const active = tabs.find((t) => t.id === active_id) ?? null;
   // Rows/time for the action bar (no GridBridge for SQL results — they're
@@ -943,7 +948,8 @@ function MongoEditorBody({
         sync_errors();
       }
     },
-    [sync_errors, tab_key],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
+    [sync_errors, tab_key, error_ranges.current],
   );
   // Belt-and-suspenders: every consumer below reads THIS, never the raw
   // state directly — closes off any path (even one the setter guard above
@@ -1047,7 +1053,8 @@ function MongoEditorBody({
         patch(id, { running: false });
       }
     },
-    [patch, conn_id, db, sync_errors, on_modified],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
+    [patch, conn_id, db, sync_errors, on_modified, error_ranges.current],
   );
 
   const add_tab = useCallback(
@@ -1077,7 +1084,8 @@ function MongoEditorBody({
     sync_errors();
     // Each statement runs as its own result tab, exactly like the SQL editor.
     for (const s of stmts) add_tab(s.text, { from: s.from, to: s.to });
-  }, [script_text, add_tab, sync_errors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
+  }, [script_text, add_tab, sync_errors, error_ranges.current]);
 
   const run_target = useCallback(() => {
     const targets = editorRef.current?.getTargets() ?? [];
@@ -1088,7 +1096,8 @@ function MongoEditorBody({
       const cleaned = strip_comments(t.text);
       if (cleaned) add_tab(cleaned, { from: t.from, to: t.to });
     }
-  }, [add_tab, sync_errors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
+  }, [add_tab, sync_errors, error_ranges.current]);
 
   const close_tab = useCallback((id: number) => {
     setEntries((cur) => {

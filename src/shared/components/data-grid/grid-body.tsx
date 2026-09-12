@@ -10,11 +10,11 @@ import { useGrid } from "./grid-context";
  * All state and event handling lives in the grid context ({@link useGrid}),
  * so this component intentionally takes no props.
  *
- * The root div is the scroll container (and the virtualizer's scroll element):
- * only the visible window of rows is mounted, each absolutely positioned at
- * its virtual offset inside a spacer sized to the full row count. Rows are
- * single-line truncated, so heights are uniform; they are still measured on
- * mount so the estimate never has to be exact.
+ * The root div is the scroll container (and the row windower's scroll
+ * element, see use-row-window.ts): only the visible window of rows is
+ * mounted, each absolutely positioned at its offset inside a spacer sized to
+ * the full row count. Rows are single-line truncated, so heights are fixed
+ * and exact — no measurement involved.
  */
 export function GridBody() {
   const ctx = useGrid();
@@ -85,7 +85,6 @@ export function GridBody() {
             <div
               key={idx}
               data-index={idx}
-              ref={virt.measureElement}
               className={cn(
                 "hover:bg-muted/30 absolute top-0 left-0 flex w-max border-b transition-colors",
                 is_pending && "bg-yellow-300/10",

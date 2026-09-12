@@ -5,6 +5,7 @@ import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { TreeControls } from "./tree-controls";
+import { JsonViewerToolbar } from "./json-viewer-toolbar";
 import {
   parseMongoJson,
   renderMongoDocument,
@@ -474,10 +475,14 @@ export function JsonViewer({
       setQuery("");
       setActiveMatch(0);
     },
+    onClose: () => close(false),
+    disabled: !jsonRow,
+  };
+
+  const toolbarProps = {
     wrap,
     onToggleWrap: () => setWrap((w) => !w),
     onCopy: copy,
-    onClose: () => close(false),
     editable,
     editDisabled: !jsonRow?.on_edit,
     onToggleEdit: () => setEditable((v) => !v),
@@ -509,8 +514,9 @@ export function JsonViewer({
             onFocus={() => setEditorFocused(true)}
             onBlur={() => setEditorFocused(false)}
           >
-            <TreeControls
-              {...headerProps}
+            <TreeControls {...headerProps} />
+            <JsonViewerToolbar
+              {...toolbarProps}
               onExpand={() => setDialogOpen(true)}
             />
             {jsonRow ? (
@@ -569,6 +575,7 @@ export function JsonViewer({
               {...headerProps}
               onClose={() => setDialogOpen(false)}
             />
+            <JsonViewerToolbar {...toolbarProps} />
             <div className="flex min-h-0 flex-1 flex-col">
               <BsonEditor
                 {...editorProps}

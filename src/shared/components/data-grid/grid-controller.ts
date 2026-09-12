@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useRowWindow } from "./use-row-window";
 import { quoteIdent } from "@/shared/api";
 import type { CellClick, CellKind, DistinctMap } from "./types";
-import { GUTTER_W_PX, ROW_ESTIMATE_PX } from "./types";
+import { GUTTER_W_PX, ROW_HEIGHT_PX } from "./types";
 import { useGridKeyboard } from "./use-grid-keyboard";
 import {
   cellKey,
@@ -200,96 +200,22 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   // Row windowing: only the visible slice of rows is mounted. The root div
   // (attached by GridBody via on_root_ready) doubles as the scroll element;
   // ref callbacks run before layout effects, so it is set by the time the
-  // virtualizer first observes it.
-  //
-  // `enabled: on_screen` keeps virtualization honest: tabs stay mounted but
-  // hidden (display:none), and a hidden scroller measures as zero — which
-  // used to corrupt the window (rows invisible until scroll, offsets landing
-  // at the bottom, phantom spacer height). Disabled means nothing renders and
-  // nothing is measured; on reveal we remeasure and jump back.
-  const [on_screen, setOnScreen] = useState(true);
-  const saved_scroll = useRef(0);
-  const was_shown = useRef(true);
-  // Mirrored into a ref so the "snap to top" effect below can read the
-  // CURRENT visibility without depending on it — see that effect's comment
-  // for why `on_screen` reactively triggering it is the actual bug.
-  const on_screen_ref = useRef(on_screen);
-  useEffect(() => {
-    on_screen_ref.current = on_screen;
-  });
-  // Options are memoized so tanstack never sees a brand-new option object
-  // (fresh closures) on re-renders. A freshly-recreated options bag makes the
-  // virtualizer's internal no-deps layout effect diff "changed" state every
-  // render and re-notify → setState → re-render → report "Maximum update
-  // depth exceeded".
-  const virtualizer_options = useMemo(
-    () => ({
-      count: rows_to_render.length,
-      getScrollElement: () => root_ref.current,
-      estimateSize: () => ROW_ESTIMATE_PX,
-      overscan: 12,
-      enabled: on_screen,
-    }),
-    [rows_to_render.length, on_screen],
+  // windower first observes it. Fixed row height (see use-row-window.ts for
+  // why) means a hidden (display:none) tab needs no special handling: its
+  // scrollTop is preserved by the browser across the toggle, and revealing
+  // it just recomputes the range from that already-correct value.
+  const row_virtualizer = useRowWindow(
+    root_ref,
+    rows_to_render.length,
+    ROW_HEIGHT_PX,
+    12,
   );
-  // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer instance is stable; the rule can't see that
-  const row_virtualizer = useVirtualizer(virtualizer_options);
 
-  // Track whether this grid is actually on screen, remember the scroll
-  // position while it is, and put the user back exactly there on reveal.
+  // A fresh page/query invalidates the old scroll position; snap back to
+  // the top. Deferred to the next animation frame so the spacer (a plain
+  // `count * rowHeight` style, not a measured value) has already
+  // re-rendered at its new size.
   useEffect(() => {
-    const el = root_ref.current;
-    if (!el) return;
-
-    const remember = () => {
-      saved_scroll.current = el.scrollTop;
-    };
-    el.addEventListener("scroll", remember, { passive: true });
-
-    const io = new IntersectionObserver(([entry]) => {
-      const showing = entry?.isIntersecting ?? true;
-      if (showing && !was_shown.current) {
-        // Back into view: remeasure (the DOM was rebuilt while hidden),
-        // then restore the saved offset clamped to the content height —
-        // one frame later, so the spacer has its final size first.
-        row_virtualizer.measure();
-        requestAnimationFrame(() => {
-          const max = Math.max(
-            0,
-            row_virtualizer.getTotalSize() - el.clientHeight,
-          );
-          el.scrollTo({ top: Math.min(saved_scroll.current, max) });
-        });
-      }
-      was_shown.current = showing;
-      setOnScreen(showing);
-    });
-    io.observe(el);
-
-    return () => {
-      io.disconnect();
-      el.removeEventListener("scroll", remember);
-    };
-  }, [row_virtualizer]);
-
-  // A fresh page/query invalidates the old scroll position; snap back to the
-  // top. This is keyed to the real row data + offset ONLY (not `on_screen`
-  // — that used to be a dependency here too, which meant this effect ALSO
-  // reran every time the tab became visible again, racing the reveal
-  // handler above: both schedule a requestAnimationFrame, both run in the
-  // same frame, and this one's unconditional `scrollTo({ top: 0 })` fired
-  // right after the reveal handler restored the real saved position,
-  // stomping it back to a wrong offset instead of where the user left it.
-  // `on_screen` is read from a ref instead, purely to skip scrolling a
-  // hidden element — not to retrigger on every visibility toggle). Not
-  // keyed to `rows_to_render` either, which is rebuilt on every
-  // pending/dirty overlay change, and defers to the next animation frame so
-  // the virtualizer's own layout effect has already reconciled the spacer.
-  // Forcing `measure()` here re-enters the notify→setState loop inside
-  // tanstack (spacer/row-size measurement feedback), so we let its
-  // ResizeObserver do the reconciliation instead.
-  useEffect(() => {
-    if (!on_screen_ref.current) return;
     const raf = requestAnimationFrame(() => {
       root_ref.current?.scrollTo({ top: 0 });
     });

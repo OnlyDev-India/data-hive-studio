@@ -5,7 +5,7 @@ import {
   type RefObject,
   useContext,
 } from "react";
-import type { Virtualizer } from "@tanstack/react-virtual";
+import type { RowWindow } from "./use-row-window";
 import type { DiffChange } from "@/shared/components/apply-changes-dialog";
 import type { CellClick, CellKind, DistinctMap } from "./types";
 import { COL_W_PX, GUTTER_W_PX } from "./types";
@@ -276,7 +276,7 @@ export interface GridContextValue {
   /** Callback ref that stores the root div — never hand the ref object itself to JSX. */
   on_root_ready: (el: HTMLDivElement | null) => void;
   /** Row windowing state; the root div doubles as the virtualizer's scroll element. */
-  row_virtualizer: Virtualizer<HTMLDivElement, Element>;
+  row_virtualizer: RowWindow;
   on_root_mouse_down: (e: ReactMouseEvent<HTMLDivElement>) => void;
 }
 

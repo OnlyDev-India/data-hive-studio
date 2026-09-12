@@ -11,13 +11,13 @@ import {
   type Tooltip,
   type ViewUpdate,
 } from "@codemirror/view";
-import {
-  syntaxTree,
-  syntaxHighlighting,
-  HighlightStyle,
-} from "@codemirror/language";
+import { syntaxTree, syntaxHighlighting } from "@codemirror/language";
 import { linter } from "@codemirror/lint";
-import { tags as t } from "@lezer/highlight";
+import {
+  color,
+  oneDarkHighlightStyle,
+  oneDarkTheme,
+} from "@codemirror/theme-one-dark";
 import {
   EditorState,
   RangeSetBuilder,
@@ -35,6 +35,7 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { inlineDiagnostics } from "../editor/inline-diagnostics";
 import { bsonSyntaxLinter } from "./bson-lint";
+import { bsonKvFrameLayer } from "./bson-kv-frame";
 
 // CodeMirror parents lint/hover tooltips inside the editor's own DOM by
 // default, positioned `fixed` — normally viewport-relative, but a
@@ -57,35 +58,24 @@ const tooltipStackingTheme = EditorView.baseTheme({
 
 const CTR_SET = new Set<string>(MONGO_BSON_CONSTRUCTORS);
 
-// ---- Syntax colours (mirror the app theme's semantic tokens). -------------
-const bsonHighlightStyle = HighlightStyle.define([
-  { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
-  {
-    tag: [t.punctuation, t.paren, t.brace, t.squareBracket],
-    color: "var(--muted-foreground)",
+// Own classes (not the shared .bson-ctor/.json-key from index.css, which
+// json-viewer.tsx's read-only display still uses and stays theme-adaptive).
+// The text these marks wrap ALSO gets its own inner span from
+// oneDarkHighlightStyle (a key's quotes are still String-tagged) — that
+// NESTED span's own explicit color always wins over a plain rule on this
+// wrapping class, `!important` or not (inheritance never overrides a
+// descendant's own declaration). Targeting `<class> span` too, the same way
+// index.css's own .bson-ctor/.json-key rules already do, reaches the
+// nested span directly instead of just the wrapper.
+const ctorMark = Decoration.mark({ class: "cm-bson-ctor" });
+const keyMark = Decoration.mark({ class: "cm-bson-key" });
+const bsonMarkTheme = EditorView.baseTheme({
+  ".cm-bson-ctor, .cm-bson-ctor span": {
+    color: `${color.violet} !important`,
+    fontWeight: "650",
   },
-  { tag: t.operator, color: "var(--foreground)" },
-  { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
-  { tag: [t.bool, t.null], color: "var(--warning-dark)" },
-  { tag: t.number, color: "var(--warning-dark)" },
-  { tag: [t.string, t.special(t.string)], color: "var(--success-dark)" },
-  {
-    tag: [
-      t.propertyName,
-      t.variableName,
-      t.standard(t.name),
-      t.special(t.name),
-    ],
-    color: "var(--foreground)",
-  },
-  {
-    tag: [t.function(t.variableName), t.function(t.propertyName)],
-    color: "var(--bson-ctor)",
-  },
-]);
-
-const ctorMark = Decoration.mark({ class: "bson-ctor" });
-const keyMark = Decoration.mark({ class: "json-key" });
+  ".cm-bson-key, .cm-bson-key span": { color: `${color.coral} !important` },
+});
 
 /** Mark every quoted object key. The `javascript()` grammar parses these
  *  documents as block/sequence expressions (no PropertyName nodes), so the key
@@ -324,10 +314,13 @@ export function BsonEditor({
   const extensions = useMemo(
     () => {
       return [
+        oneDarkTheme,
         appEditorTheme,
+        syntaxHighlighting(oneDarkHighlightStyle),
         javascript(),
-        syntaxHighlighting(bsonHighlightStyle),
+        bsonMarkTheme,
         bsonDecorator(),
+        ...(readOnly ? [] : [bsonKvFrameLayer()]),
         constructorsOnly
           ? autocompletion({ override: [constructorCompletions] })
           : EditorState.languageData.of(() => [

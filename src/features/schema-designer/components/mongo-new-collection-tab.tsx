@@ -18,6 +18,11 @@ interface MongoNewCollectionTabProps {
   tab_key: string;
   active: boolean;
   on_modified: () => void;
+  /** Fires after a successful create with the RAW database name it landed
+   *  in (never empty) — lets the sidebar refresh that specific database's
+   *  catalog-tree node, including a sibling one `on_modified` alone can't
+   *  target. */
+  on_created?: (database: string) => void;
 }
 
 /** MongoDB's "New table" equivalent: MongoDB is schemaless, so there's no
@@ -32,6 +37,7 @@ export function MongoNewCollectionTab({
   tab_key,
   active,
   on_modified,
+  on_created,
 }: MongoNewCollectionTabProps) {
   const [name, setName] = useState("");
   const [own_database, setOwnDatabase] = useState("");
@@ -83,6 +89,7 @@ export function MongoNewCollectionTab({
         detail: `db.createCollection("${trimmed}")${database ? ` on ${database}` : ""}`,
       });
       on_modified();
+      on_created?.(database || own_database);
       useStudioStore
         .getState()
         .openMongo(conn_id, database || own_database, trimmed);

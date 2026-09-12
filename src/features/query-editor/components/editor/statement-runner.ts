@@ -16,9 +16,30 @@ import { statementRanges } from "@/shared/lib/utils";
  *  statements / in trailing whitespace. Shared by the gutter (which
  *  statement is "active") and the frame layer (what to draw a box around). */
 function currentStatement(doc: string, cursor: number) {
-  for (const r of statementRanges(doc)) {
-    if (r.end > r.start && cursor >= r.start && cursor <= r.end) {
-      return doc.slice(r.start, r.end).trim() ? r : undefined;
+  const ranges = statementRanges(doc);
+  for (const r of ranges) {
+    if (
+      r.end > r.start &&
+      cursor >= r.start &&
+      cursor <= r.end &&
+      doc.slice(r.start, r.end).trim()
+    ) {
+      return r;
+    }
+  }
+  // Cursor sitting one position past a statement's own trailing `;` (end of
+  // document, or nothing but blank space before whatever's next) — still
+  // reads as "in" that statement rather than showing no box at all. When a
+  // REAL next statement starts right there instead, the loop above already
+  // matched it, so this only fires when there isn't one.
+  for (const r of ranges) {
+    if (
+      r.end > r.start &&
+      doc[r.end] === ";" &&
+      cursor === r.end + 1 &&
+      doc.slice(r.start, r.end).trim()
+    ) {
+      return r;
     }
   }
   return undefined;
@@ -150,7 +171,11 @@ export function statementGutter(runAtCursor: () => void): Extension {
 // correct for normal single-viewport statements, but (unlike DBX's original)
 // doesn't estimate off-viewport line positions or guard against
 // thousand-line statements. Add that if queries ever get that large.
-function statementRect(view: EditorView, rawFrom: number, rawTo: number) {
+export function statementRect(
+  view: EditorView,
+  rawFrom: number,
+  rawTo: number,
+) {
   if (rawTo <= rawFrom) return null;
   const { start: from, end: to } = trimmedRange(
     view.state.sliceDoc(rawFrom, rawTo),
@@ -204,7 +229,12 @@ export function statementFrameLayer(): Extension {
       const doc = view.state.doc.toString();
       const stmt = currentStatement(doc, view.state.selection.main.head);
       if (!stmt) return [];
-      const rect = statementRect(view, stmt.start, stmt.end);
+      // `statementRanges` ends a statement's range AT the `;` (excluding
+      // it, so it can start the next range right after) — visually that
+      // left the terminator sitting just outside the box. Include it here
+      // when there is one (the last statement in the doc may have none).
+      const to = doc[stmt.end] === ";" ? stmt.end + 1 : stmt.end;
+      const rect = statementRect(view, stmt.start, to);
       return rect
         ? [
             new RectangleMarker(
