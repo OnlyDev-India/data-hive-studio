@@ -27,7 +27,6 @@ describe("useRowWindow", () => {
     const el = document.createElement("div");
     setDims(el, 300);
     const ref = createRef<HTMLDivElement>();
-    // @ts-expect-error -- assigning to a readonly ref for the test
     ref.current = el;
     const { result } = renderHook(() => useRowWindow(ref, 1000, 30, 5));
     expect(result.current.getTotalSize()).toBe(30000);
@@ -38,7 +37,6 @@ describe("useRowWindow", () => {
     setDims(el, 300); // 10 rows visible at rowHeight 30
     el.scrollTop = 300; // scrolled down 10 rows
     const ref = createRef<HTMLDivElement>();
-    // @ts-expect-error -- assigning to a readonly ref for the test
     ref.current = el;
     const { result } = renderHook(() => useRowWindow(ref, 1000, 30, 2));
     const items = result.current.getVirtualItems();
@@ -53,7 +51,6 @@ describe("useRowWindow", () => {
     setDims(el, 300);
     el.scrollTop = 0;
     const ref = createRef<HTMLDivElement>();
-    // @ts-expect-error -- assigning to a readonly ref for the test
     ref.current = el;
     const { result } = renderHook(() => useRowWindow(ref, 5, 30, 12));
     const items = result.current.getVirtualItems();
@@ -64,11 +61,10 @@ describe("useRowWindow", () => {
   it("scrollToIndex('start') puts the row at the top", () => {
     const el = document.createElement("div");
     setDims(el, 300);
-    el.scrollTo = ({ top }: { top: number }) => {
-      el.scrollTop = top;
-    };
+    el.scrollTo = ((options?: ScrollToOptions) => {
+      if (options?.top !== undefined) el.scrollTop = options.top;
+    }) as Element["scrollTo"];
     const ref = createRef<HTMLDivElement>();
-    // @ts-expect-error -- assigning to a readonly ref for the test
     ref.current = el;
     const { result } = renderHook(() => useRowWindow(ref, 1000, 30, 0));
     act(() => result.current.scrollToIndex(50, { align: "start" }));
@@ -79,11 +75,10 @@ describe("useRowWindow", () => {
     const el = document.createElement("div");
     setDims(el, 300);
     el.scrollTop = 0;
-    el.scrollTo = ({ top }: { top: number }) => {
-      el.scrollTop = top;
-    };
+    el.scrollTo = ((options?: ScrollToOptions) => {
+      if (options?.top !== undefined) el.scrollTop = options.top;
+    }) as Element["scrollTo"];
     const ref = createRef<HTMLDivElement>();
-    // @ts-expect-error -- assigning to a readonly ref for the test
     ref.current = el;
     const { result } = renderHook(() => useRowWindow(ref, 1000, 30, 0));
     act(() => result.current.scrollToIndex(2, { align: "auto" }));
@@ -94,11 +89,10 @@ describe("useRowWindow", () => {
     const el = document.createElement("div");
     setDims(el, 300); // shows rows 0..9
     el.scrollTop = 0;
-    el.scrollTo = ({ top }: { top: number }) => {
-      el.scrollTop = top;
-    };
+    el.scrollTo = ((options?: ScrollToOptions) => {
+      if (options?.top !== undefined) el.scrollTop = options.top;
+    }) as Element["scrollTo"];
     const ref = createRef<HTMLDivElement>();
-    // @ts-expect-error -- assigning to a readonly ref for the test
     ref.current = el;
     const { result } = renderHook(() => useRowWindow(ref, 1000, 30, 0));
     act(() => result.current.scrollToIndex(15, { align: "auto" }));
