@@ -30,7 +30,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+      <span className="text-muted-foreground text-3xs font-medium tracking-wide uppercase">
         {label}
       </span>
       <span className="wrap-break-words font-mono text-xs">{children}</span>
@@ -98,7 +98,7 @@ export function ActivityDetailsTab({
         {/* Full statement — the whole reason this tab exists for SQL runs. */}
         {entry.sql && (
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+            <span className="text-muted-foreground text-3xs font-medium tracking-wide uppercase">
               Statement
             </span>
             <QueryEditor
@@ -126,7 +126,7 @@ export function ActivityDetailsTab({
         >
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded px-1.5 py-px text-[11px] font-semibold",
+              "text-2xs inline-flex items-center gap-1.5 rounded px-1.5 py-px font-semibold",
               entry.ok
                 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                 : "bg-red-500/15 text-red-600 dark:text-red-400",

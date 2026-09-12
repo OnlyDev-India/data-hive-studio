@@ -103,6 +103,46 @@ forward_cmd! {
     list_databases(conn_id: String) -> Vec<String> => list_databases
 }
 
+forward_cmd! {
+    /// Server-wide roles (Postgres) — the sidebar catalog tree's "Users &
+    /// Privileges" row.
+    list_roles(conn_id: String) -> Vec<crate::db::SchemaObject> => list_roles
+}
+
+forward_cmd! {
+    /// Full role attribute set (Postgres) — the Users & Privileges tab.
+    list_role_details(conn_id: String) -> Vec<crate::db::RoleDetail> => list_role_details
+}
+
+/// Schemas within `database` (`None` = this connection's own database) — the
+/// sidebar catalog tree's per-database schema list. Hand-written (not
+/// `forward_cmd!`) since `database` needs an owned-to-borrowed conversion
+/// (`Option<String>` -> `Option<&str>`) the macro's blanket `&$arg` can't do.
+#[tauri::command]
+pub async fn list_schemas_in(
+    conn_id: String,
+    database: Option<String>,
+) -> Result<Vec<String>, String> {
+    crate::db::list_schemas_in(&conn_id, database.as_deref())
+        .await
+        .map_err(to_err)
+}
+
+/// Objects of one kind (table/view/matview/procedure/function/sequence/type)
+/// in one schema of `database` — the sidebar catalog tree's per-schema
+/// category rows. Hand-written for the same reason as `list_schemas_in`.
+#[tauri::command]
+pub async fn list_schema_objects(
+    conn_id: String,
+    database: Option<String>,
+    schema: String,
+    kind: crate::db::SchemaObjectKind,
+) -> Result<Vec<crate::db::SchemaObject>, String> {
+    crate::db::list_schema_objects(&conn_id, database.as_deref(), &schema, kind)
+        .await
+        .map_err(to_err)
+}
+
 /// Fetch a page of documents from a MongoDB collection.
 #[tauri::command]
 pub async fn list_documents(
@@ -170,6 +210,12 @@ forward_cmd! {
 }
 
 forward_cmd! {
+    /// Close ONE sibling database's own connection right now (Postgres) —
+    /// the sidebar's per-database "Disconnect".
+    disconnect_database(conn_id: String, database: String) -> () => disconnect_database
+}
+
+forward_cmd! {
     /// The schema unqualified operations currently target (Postgres).
     active_schema(conn_id: String) -> String => active_schema
 }
@@ -189,9 +235,18 @@ forward_cmd! {
     create_pg_schema(conn_id: String, name: String) -> () => create_schema
 }
 
-forward_cmd! {
-    /// Create a collection in the active database (MongoDB).
-    create_mongo_collection(conn_id: String, name: String) -> () => create_collection
+/// Create a collection (MongoDB). `database`: `None` = this connection's
+/// own primary database. Hand-written (not `forward_cmd!`) for the same
+/// owned-to-borrowed conversion reason as `list_schemas_in`.
+#[tauri::command]
+pub async fn create_mongo_collection(
+    conn_id: String,
+    database: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    crate::db::create_collection(&conn_id, database.as_deref(), &name)
+        .await
+        .map_err(to_err)
 }
 
 /// Drop a schema; `cascade` also drops every object inside it (Postgres).
@@ -204,14 +259,35 @@ pub async fn drop_pg_schema(
     crate::db::drop_schema(&conn_id, &name, cascade).await.map_err(to_err)
 }
 
-forward_cmd! {
-    /// Refresh a materialized view (Postgres).
-    refresh_matview(conn_id: String, name: String) -> () => refresh_matview
+/// Refresh a materialized view (Postgres). `database`/`schema`: `None` =
+/// this connection's own primary database / active schema. Hand-written
+/// (not `forward_cmd!`) for the same owned-to-borrowed conversion reason as
+/// `list_schemas_in`.
+#[tauri::command]
+pub async fn refresh_matview(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    crate::db::refresh_matview(&conn_id, database.as_deref(), schema.as_deref(), &name)
+        .await
+        .map_err(to_err)
 }
 
-forward_cmd! {
-    /// Fetch the schema (columns, FKs, indexes) for a table.
-    table_schema(conn_id: String, table: String) -> TableSchema => table_schema
+/// Fetch the schema (columns, FKs, indexes) for a table. `database`/
+/// `schema`: `None` = this connection's own primary database / active
+/// schema. Hand-written for the same reason as `list_schemas_in`.
+#[tauri::command]
+pub async fn table_schema(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+) -> Result<TableSchema, String> {
+    crate::db::table_schema(&conn_id, database.as_deref(), schema.as_deref(), &table)
+        .await
+        .map_err(to_err)
 }
 
 /// Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
@@ -221,25 +297,58 @@ forward_cmd! {
 /// since that macro forwards every argument by reference, which doesn't fit
 /// a plain `&str`/`String` origin tag cleanly alongside it.
 #[tauri::command]
-pub async fn run_sql(conn_id: String, sql: String, origin: String) -> Result<QueryResult, String> {
-    crate::db::run_sql(&conn_id, &sql, &origin).await.map_err(to_err)
+pub async fn run_sql(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    sql: String,
+    origin: String,
+) -> Result<QueryResult, String> {
+    crate::db::run_sql(&conn_id, database.as_deref(), schema.as_deref(), &sql, &origin)
+        .await
+        .map_err(to_err)
 }
 
-forward_cmd! {
-    /// Execute a single DML/DDL statement with bound `?` parameters.
-    execute_params(conn_id: String, sql: String, params: Vec<Option<String>>) -> u64 => execute_params
+/// Execute a single DML/DDL statement with bound `?` parameters.
+/// `database`: `None` = this connection's own primary database.
+/// Hand-written for the same owned-to-borrowed conversion reason as
+/// `list_schemas_in`.
+#[tauri::command]
+pub async fn execute_params(
+    conn_id: String,
+    database: Option<String>,
+    sql: String,
+    params: Vec<Option<String>>,
+) -> Result<u64, String> {
+    crate::db::execute_params(&conn_id, database.as_deref(), &sql, &params).await.map_err(to_err)
 }
 
-forward_cmd! {
-    /// Run a SELECT with bound `?` parameters (used by UI-built filters).
-    run_sql_params(conn_id: String, sql: String, params: Vec<Option<String>>) -> QueryResult => run_sql_params
+/// Run a SELECT with bound `?` parameters (used by UI-built filters).
+/// `database`: `None` = this connection's own primary database.
+#[tauri::command]
+pub async fn run_sql_params(
+    conn_id: String,
+    database: Option<String>,
+    sql: String,
+    params: Vec<Option<String>>,
+) -> Result<QueryResult, String> {
+    crate::db::run_sql_params(&conn_id, database.as_deref(), &sql, &params).await.map_err(to_err)
 }
 
-forward_cmd! {
-    /// Run a structured operation (select/count/insert/update/delete/...). The
-    /// connection's adapter builds the actual SQL from the details — the frontend
-    /// never writes SQL for these operations.
-    execute_op(conn_id: String, op: QueryOp) -> QueryResult => execute_op
+/// Run a structured operation (select/count/insert/update/delete/...). The
+/// connection's adapter builds the actual SQL from the details — the
+/// frontend never writes SQL for these operations. `database`/`schema`:
+/// `None` = this connection's own primary database / active schema.
+#[tauri::command]
+pub async fn execute_op(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    op: QueryOp,
+) -> Result<QueryResult, String> {
+    crate::db::execute_op(&conn_id, database.as_deref(), schema.as_deref(), &op)
+        .await
+        .map_err(to_err)
 }
 
 /// Streaming variant of [`execute_op`]: SELECT-shaped ops push row batches
@@ -248,10 +357,12 @@ forward_cmd! {
 #[tauri::command]
 pub async fn execute_op_stream(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     op: QueryOp,
     channel: tauri::ipc::Channel<QueryChunk>,
 ) -> Result<QueryResult, String> {
-    crate::db::execute_op_stream(&conn_id, &op, move |chunk| {
+    crate::db::execute_op_stream(&conn_id, database.as_deref(), schema.as_deref(), &op, move |chunk| {
         channel
             .send(chunk)
             .map_err(|e| crate::db::DbError::InvalidOperation(format!("ipc send failed: {e}")))
@@ -266,10 +377,12 @@ pub async fn execute_op_stream(
 #[tauri::command]
 pub async fn run_sql_stream(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     sql: String,
     channel: tauri::ipc::Channel<QueryChunk>,
 ) -> Result<QueryResult, String> {
-    crate::db::run_sql_stream(&conn_id, &sql, move |chunk| {
+    crate::db::run_sql_stream(&conn_id, database.as_deref(), schema.as_deref(), &sql, move |chunk| {
         channel
             .send(chunk)
             .map_err(|e| crate::db::DbError::InvalidOperation(format!("ipc send failed: {e}")))
@@ -286,21 +399,35 @@ forward_cmd! {
 /// Duplicate a table/collection under a new name; returns the statements
 /// that ran. `copy_data` controls whether documents are copied too (honored
 /// by MongoDB; SQL adapters always copy everything regardless, for now).
+/// `database`/`schema`: `None` = this connection's own primary database /
+/// active schema.
 #[tauri::command]
 pub async fn duplicate_table(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     source: String,
     target: String,
     copy_data: bool,
 ) -> Result<Vec<String>, String> {
-    crate::db::duplicate_table(&conn_id, &source, &target, copy_data)
+    crate::db::duplicate_table(&conn_id, database.as_deref(), schema.as_deref(), &source, &target, copy_data)
         .await
         .map_err(to_err)
 }
 
-forward_cmd! {
-    /// Apply staged schema (DDL) ops in order; returns every statement that ran.
-    apply_schema_ops(conn_id: String, ops: Vec<SchemaOp>) -> Vec<String> => apply_schema_ops
+/// Apply staged schema (DDL) ops in order; returns every statement that
+/// ran. `database`/`schema`: `None` = this connection's own primary
+/// database / active schema.
+#[tauri::command]
+pub async fn apply_schema_ops(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    ops: Vec<SchemaOp>,
+) -> Result<Vec<String>, String> {
+    crate::db::apply_schema_ops(&conn_id, database.as_deref(), schema.as_deref(), &ops)
+        .await
+        .map_err(to_err)
 }
 
 /// Read a file from disk as raw bytes (opened via the native dialog).

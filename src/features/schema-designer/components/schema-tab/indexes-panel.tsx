@@ -195,29 +195,29 @@ function IndexRow({
           </label>
         )}
         <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          {!ix.dropped && mongo
-            ? ix.columns.map((c, i) => (
-                <button
-                  key={c}
-                  type="button"
-                  disabled={disabled}
-                  title={`Sort ${(ix.column_dirs[i] ?? 1) < 0 ? "descending" : "ascending"} — click to flip`}
-                  className="bg-muted text-muted-foreground hover:text-foreground flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs disabled:pointer-events-none"
-                  onClick={() => toggle_dir(i)}
-                >
-                  {c}
-                  {(ix.column_dirs[i] ?? 1) < 0 ? (
-                    <ArrowDown className="size-3" />
-                  ) : (
-                    <ArrowUp className="size-3" />
-                  )}
-                </button>
-              ))
-            : (
-                <span className="text-muted-foreground truncate text-xs">
-                  {ix.columns.join(", ")}
-                </span>
-              )}
+          {!ix.dropped && mongo ? (
+            ix.columns.map((c, i) => (
+              <button
+                key={c}
+                type="button"
+                disabled={disabled}
+                title={`Sort ${(ix.column_dirs[i] ?? 1) < 0 ? "descending" : "ascending"} — click to flip`}
+                className="bg-muted text-muted-foreground hover:text-foreground flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs disabled:pointer-events-none"
+                onClick={() => toggle_dir(i)}
+              >
+                {c}
+                {(ix.column_dirs[i] ?? 1) < 0 ? (
+                  <ArrowDown className="size-3" />
+                ) : (
+                  <ArrowUp className="size-3" />
+                )}
+              </button>
+            ))
+          ) : (
+            <span className="text-muted-foreground truncate text-xs">
+              {ix.columns.join(", ")}
+            </span>
+          )}
         </span>
         <Button
           variant="ghost"
@@ -250,7 +250,8 @@ function IndexRow({
               placeholder="none"
               onChange={(e) =>
                 on_update(ix.id, {
-                  ttl_seconds: e.target.value === "" ? null : Number(e.target.value),
+                  ttl_seconds:
+                    e.target.value === "" ? null : Number(e.target.value),
                 })
               }
               className="border-input bg-background focus-visible:ring-ring/50 h-6 w-20 rounded border px-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"

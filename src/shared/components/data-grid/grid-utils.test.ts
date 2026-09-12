@@ -50,9 +50,10 @@ describe("toJsonValue", () => {
     // untouched and get double-escaped by JSON.stringify in the viewer —
     // `{"testing": "{\"name\":\"name\",\"desc\":\"desc1\"}"}` instead of a
     // real nested object.
-    expect(
-      toJsonValue('{"name":"name","desc":"desc1"}', undefined),
-    ).toEqual({ name: "name", desc: "desc1" });
+    expect(toJsonValue('{"name":"name","desc":"desc1"}', undefined)).toEqual({
+      name: "name",
+      desc: "desc1",
+    });
     expect(toJsonValue("[1,2,3]", undefined)).toEqual([1, 2, 3]);
     expect(toJsonValue('{"name":"name"}', "text")).toEqual({ name: "name" });
   });

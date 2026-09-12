@@ -3,7 +3,13 @@ import { Building2, Cloud, Loader2, Plus, TicketCheck } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { WEB, apiUrl, webOAuthStartUrl, webAddServer, deriveServerId } from "@/shared/api/web";
+import {
+  WEB,
+  apiUrl,
+  webOAuthStartUrl,
+  webAddServer,
+  deriveServerId,
+} from "@/shared/api/web";
 import {
   serversList,
   serversOAuthProviders,
@@ -122,7 +128,9 @@ export function ConnectServerForm({
           setSession({ url: apiUrl(), token: existing.token, me: existing.me });
           return;
         }
-        return serversOAuthProviders(apiUrl()).then((p) => !cancelled && setProviders(p));
+        return serversOAuthProviders(apiUrl()).then(
+          (p) => !cancelled && setProviders(p),
+        );
       })
       .catch((e: unknown) => !cancelled && setCheckError(String(e)))
       .finally(() => !cancelled && setChecking(false));
@@ -175,17 +183,31 @@ export function ConnectServerForm({
     }
   }
 
-  async function persist(org: Organization, sess: { url: string; token: string }) {
+  async function persist(
+    org: Organization,
+    sess: { url: string; token: string },
+  ) {
     setBusy(true);
     setFormError(null);
     try {
       let profileId: string;
       if (WEB) {
         const id = deriveServerId(sess.url, org.id);
-        webAddServer({ id, url: sess.url, token: sess.token, name: org.name, org_id: org.id });
+        webAddServer({
+          id,
+          url: sess.url,
+          token: sess.token,
+          name: org.name,
+          org_id: org.id,
+        });
         profileId = id;
       } else {
-        const saved = await serversSaveProfile(org.name, sess.url, sess.token, org.id);
+        const saved = await serversSaveProfile(
+          org.name,
+          sess.url,
+          sess.token,
+          org.id,
+        );
         profileId = saved.id;
       }
       on_connect({ profileId });
@@ -293,7 +315,8 @@ export function ConnectServerForm({
           </p>
         ) : checking ? (
           <div className="text-muted-foreground flex items-center gap-2 text-xs">
-            <Loader2 className="size-3.5 animate-spin" /> Checking sign-in options…
+            <Loader2 className="size-3.5 animate-spin" /> Checking sign-in
+            options…
           </div>
         ) : checkError ? (
           <p className="text-destructive text-xs">
@@ -318,7 +341,12 @@ export function ConnectServerForm({
         )}
       </div>
       {saved.length > 0 && (
-        <Button size="sm" variant="ghost" className="self-start" onClick={() => setStep("choose")}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="self-start"
+          onClick={() => setStep("choose")}
+        >
           Back
         </Button>
       )}
@@ -426,7 +454,10 @@ export function OrgPickerStep({
             placeholder="Acme Inc"
             autoFocus
           />
-          <Button disabled={disabled || !name.trim()} onClick={() => void createOrg()}>
+          <Button
+            disabled={disabled || !name.trim()}
+            onClick={() => void createOrg()}
+          >
             {localBusy && <Loader2 className="mr-1 size-4 animate-spin" />}
             Create organization
           </Button>
@@ -453,7 +484,10 @@ export function OrgPickerStep({
             placeholder="Paste invite code"
             autoFocus
           />
-          <Button disabled={disabled || !code.trim()} onClick={() => void redeem()}>
+          <Button
+            disabled={disabled || !code.trim()}
+            onClick={() => void redeem()}
+          >
             {localBusy && <Loader2 className="mr-1 size-4 animate-spin" />}
             Join organization
           </Button>

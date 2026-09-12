@@ -11,13 +11,13 @@ import {
   type Tooltip,
   type ViewUpdate,
 } from "@codemirror/view";
-import {
-  syntaxTree,
-  syntaxHighlighting,
-  HighlightStyle,
-} from "@codemirror/language";
+import { syntaxTree, syntaxHighlighting } from "@codemirror/language";
 import { linter } from "@codemirror/lint";
-import { tags as t } from "@lezer/highlight";
+import {
+  color,
+  oneDarkHighlightStyle,
+  oneDarkTheme,
+} from "@codemirror/theme-one-dark";
 import {
   EditorState,
   RangeSetBuilder,
@@ -35,6 +35,7 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { inlineDiagnostics } from "../editor/inline-diagnostics";
 import { bsonSyntaxLinter } from "./bson-lint";
+import { bsonKvFrameLayer } from "./bson-kv-frame";
 
 // CodeMirror parents lint/hover tooltips inside the editor's own DOM by
 // default, positioned `fixed` — normally viewport-relative, but a
@@ -45,38 +46,42 @@ import { bsonSyntaxLinter } from "./bson-lint";
 // for the SQL/Mongo console's own lint tooltips.
 const editorTooltips = tooltips({ parent: document.body });
 
+// Being a `document.body` child only fixes CLIPPING, not stacking: the
+// JSON inspector modal (json-viewer/index.tsx) is itself a `z-100` overlay
+// with its own content (e.g. the search bar) painted inside that stacking
+// context, so a tooltip with no z-index of its own — a plain later body
+// sibling — still renders BEHIND all of it. Comfortably above every z-index
+// used anywhere else in the app (highest otherwise is `z-110`).
+const tooltipStackingTheme = EditorView.baseTheme({
+  ".cm-tooltip": { zIndex: "1000" },
+});
+
 const CTR_SET = new Set<string>(MONGO_BSON_CONSTRUCTORS);
 
-// ---- Syntax colours (mirror the app theme's semantic tokens). -------------
-const bsonHighlightStyle = HighlightStyle.define([
-  { tag: t.comment, color: "var(--muted-foreground)", fontStyle: "italic" },
-  { tag: [t.punctuation, t.paren, t.brace, t.squareBracket], color: "var(--muted-foreground)" },
-  { tag: t.operator, color: "var(--foreground)" },
-  { tag: t.keyword, color: "var(--info-dark)", fontWeight: "600" },
-  { tag: [t.bool, t.null], color: "var(--warning-dark)" },
-  { tag: t.number, color: "var(--warning-dark)" },
-  { tag: [t.string, t.special(t.string)], color: "var(--success-dark)" },
-  {
-    tag: [t.propertyName, t.variableName, t.standard(t.name), t.special(t.name)],
-    color: "var(--foreground)",
+// Own classes (not the shared .bson-ctor/.json-key from index.css, which
+// json-viewer.tsx's read-only display still uses and stays theme-adaptive).
+// The text these marks wrap ALSO gets its own inner span from
+// oneDarkHighlightStyle (a key's quotes are still String-tagged) — that
+// NESTED span's own explicit color always wins over a plain rule on this
+// wrapping class, `!important` or not (inheritance never overrides a
+// descendant's own declaration). Targeting `<class> span` too, the same way
+// index.css's own .bson-ctor/.json-key rules already do, reaches the
+// nested span directly instead of just the wrapper.
+const ctorMark = Decoration.mark({ class: "cm-bson-ctor" });
+const keyMark = Decoration.mark({ class: "cm-bson-key" });
+const bsonMarkTheme = EditorView.baseTheme({
+  ".cm-bson-ctor, .cm-bson-ctor span": {
+    color: `${color.violet} !important`,
+    fontWeight: "650",
   },
-  {
-    tag: [t.function(t.variableName), t.function(t.propertyName)],
-    color: "var(--bson-ctor)",
-  },
-]);
-
-const ctorMark = Decoration.mark({ class: "bson-ctor" });
-const keyMark = Decoration.mark({ class: "json-key" });
+  ".cm-bson-key, .cm-bson-key span": { color: `${color.coral} !important` },
+});
 
 /** Mark every quoted object key. The `javascript()` grammar parses these
  *  documents as block/sequence expressions (no PropertyName nodes), so the key
  *  nodes would be String-tagged like ordinary string values and painted the
  *  same color. A `"..."` token directly followed by `:` is always a key. */
-function markQuotedKeys(
-  doc: string,
-  pending: DecorationRange[],
-) {
+function markQuotedKeys(doc: string, pending: DecorationRange[]) {
   let i = 0;
   while (i < doc.length) {
     const open = doc.indexOf('"', i);
@@ -98,7 +103,8 @@ function markQuotedKeys(
     let after = close + 1;
     while (after < doc.length && (doc[after] === " " || doc[after] === "\t"))
       after += 1;
-    if (doc[after] === ":") pending.push({ from: open, to: close + 1, mark: keyMark });
+    if (doc[after] === ":")
+      pending.push({ from: open, to: close + 1, mark: keyMark });
     i = close + 1;
   }
 }
@@ -203,7 +209,6 @@ const readonlyHintField = StateField.define<Tooltip | null>({
         return {
           pos: e.value,
           above: true,
-          strictSide: true,
           arrow: true,
           create: () => ({ dom: createReadonlyHintDom() }),
         };
@@ -309,30 +314,43 @@ export function BsonEditor({
   const extensions = useMemo(
     () => {
       return [
+        oneDarkTheme,
         appEditorTheme,
+        syntaxHighlighting(oneDarkHighlightStyle),
         javascript(),
-        syntaxHighlighting(bsonHighlightStyle),
+        bsonMarkTheme,
         bsonDecorator(),
-        (constructorsOnly
+        ...(readOnly ? [] : [bsonKvFrameLayer()]),
+        constructorsOnly
           ? autocompletion({ override: [constructorCompletions] })
           : EditorState.languageData.of(() => [
               { autocomplete: constructorCompletions },
-            ])),
+            ]),
         readonlyHint(readOnly, onReadonlyClick),
         readonlyHintArrowTheme,
+        // Unconditional, unlike the linter below: the read-only hint tooltip
+        // ONLY ever shows when `readOnly` is true, so gating this the same
+        // way as the linter left it with none of the anti-clip/anti-stacking
+        // fixes below applied to the one tooltip that needed them most.
+        editorTooltips,
+        tooltipStackingTheme,
         // Real-time syntax linting (see bson-lint.ts) — skipped read-only,
         // same reasoning as the SQL/Mongo console editor: nothing to type,
         // nothing to fix, so it'd only ever flag already-saved, unchangeable
         // content as an error.
-        ...(readOnly
-          ? []
-          : [editorTooltips, linter(bsonSyntaxLinter()), inlineDiagnostics]),
+        ...(readOnly ? [] : [linter(bsonSyntaxLinter()), inlineDiagnostics]),
         ...(extraExtensions ?? []),
       ];
     },
     // The component-level extensions supercede whatever the host passes in;
     // extraExtensions is memoized by the host so reconfiguration stays cheap.
-    [extraExtensions, constructorsOnly, constructorCompletions, readOnly, onReadonlyClick],
+    [
+      extraExtensions,
+      constructorsOnly,
+      constructorCompletions,
+      readOnly,
+      onReadonlyClick,
+    ],
   );
 
   // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set
@@ -367,7 +385,7 @@ export function BsonEditor({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-md border bg-background",
+        "bg-background overflow-hidden rounded-md border",
         compact && "text-xs",
         className,
       )}

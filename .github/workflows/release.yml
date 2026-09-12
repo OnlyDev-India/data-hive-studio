@@ -86,34 +86,45 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Unsigned build for now (no Apple/Windows signing secrets configured).
-      # macOS Gatekeeper and Windows SmartScreen will warn on first launch.
-      # To sign later: add APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD /
-      # APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
-      # and/or WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD as repo
-      # secrets, then pass them through this step's `env` — tauri-action
-      # picks them up automatically, no other change needed here.
+      # Unsigned OS build for now (no Apple/Windows CODE-signing secrets
+      # configured). macOS Gatekeeper and Windows SmartScreen will warn on
+      # first launch. To sign later: add APPLE_CERTIFICATE /
+      # APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY / APPLE_ID /
+      # APPLE_PASSWORD / APPLE_TEAM_ID and/or WINDOWS_CERTIFICATE /
+      # WINDOWS_CERTIFICATE_PASSWORD as repo secrets, then pass them through
+      # this step's `env` — tauri-action picks them up automatically, no
+      # other change needed here.
+      #
+      # TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) below is a SEPARATE, already-
+      # required scheme — the in-app updater's own minisign keypair, not OS
+      # code-signing. `bundle.createUpdaterArtifacts: true` (tauri.conf.json)
+      # means every build NEEDS these two secrets set to produce the signed
+      # update payload + `latest.json` manifest; the build fails without
+      # them. Add them once as repo secrets (Settings → Secrets → Actions)
+      # from the keypair generated via `bunx tauri signer generate`.
+      # (`latest.json` itself needs no extra flag here — tauri-action's
+      # `uploadUpdaterJson` input already defaults to true.)
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.check-version.outputs.tag }}
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - Team server: sign in with Google or GitHub instead of an admin-minted token — create or join an organization and share connections with your team
-            - Connect through an SSH tunnel, with TLS support for the tunneled connection
-            - MongoDB: Amazon DocumentDB support (`retryWrites`/`replicaSet` connection options)
-            - Advanced tab for tuning connection pool size and timeouts (Postgres + MongoDB)
-            - Reviewing pending changes (grid row edits, schema DDL) now shows a real unified diff — red/green line-by-line, collapsible per change — with schema changes going through the same Review & Apply flow as data edits
-            - Hovering a SQL keyword/function or MongoDB shell method in the editor now shows inline documentation
+            - In-app updates: DH Studio now checks for new versions in the background and shows an update icon in the title bar — click it (or Help > Check for Updates…) to see what's new and choose Update or Skip
+            - SQL/Mongo console: Run controls moved into a toolbar above the editor with a database picker (Postgres, MongoDB, and MySQL connections' SQL tab) — write `schema.table` directly in the query, and autocomplete/linting now covers every known schema, not just the primary one
+            - Command palette: `table:`/`schema:` search now finds tables in other databases on the same connection, not just the one currently active
+            - Sidebar: duplicate/drop support for tables in sibling databases and non-active schemas; grid export works for sibling-database tables too
+            - Settings: new About section, and a corner-radius style preset under Appearance
+            - Local secrets (debug-build fallback credential storage) are now encrypted at rest
 
             **Fixed**
-            - Desktop: right-clicking outside an editor no longer shows the raw WebView context menu (Reload/Inspect Element)
-            - Right-clicking a grid cell for a single-cell action (e.g. "View JSON") now always targets the clicked cell instead of a stale prior selection
-            - Opening a tab from the Home screen (e.g. via the Command Palette) now switches to the workspace immediately instead of staying on Home
-            - SQL/NoSQL editors no longer flag commented-out code as a lint error
-            - The tab strip now scrolls to keep a newly-opened tab visible
+            - Postgres: connections whose default schema wasn't `public` could show the wrong schema's tables in the command palette and a few other places
+            - Sidebar: disconnecting a database no longer leaves a stale "connected" badge behind
+            - Command palette: results now show immediately when it opens, instead of only after typing; keyboard navigation no longer gets hijacked when the list scrolls under a stationary mouse
 
             Full commit history: ${{ github.sha }}
 

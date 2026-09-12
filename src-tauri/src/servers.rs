@@ -54,25 +54,24 @@ fn keyring_entry(profile_id: &str) -> Result<keyring::Entry, String> {
 // on each launch, which makes development unbearable.
 
 #[cfg(debug_assertions)]
-fn token_file(app: &tauri::AppHandle, profile_id: &str) -> Result<std::path::PathBuf, String> {
+fn token_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let dir = dir.join("server-tokens");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join(profile_id))
+    Ok(dir)
+}
+
+#[cfg(debug_assertions)]
+fn token_file(app: &tauri::AppHandle, profile_id: &str) -> Result<std::path::PathBuf, String> {
+    Ok(token_dir(app)?.join(profile_id))
 }
 
 fn save_token(app: &tauri::AppHandle, profile_id: &str, token: &str) -> Result<(), String> {
     #[cfg(debug_assertions)]
     {
-        let path = token_file(app, profile_id)?;
-        std::fs::write(&path, token).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        let dir = token_dir(app)?;
+        let key = crate::secret_file::master_key(&dir)?;
+        crate::secret_file::save(&token_file(app, profile_id)?, &key, token)
     }
     #[cfg(not(debug_assertions))]
     {
@@ -84,9 +83,10 @@ fn save_token(app: &tauri::AppHandle, profile_id: &str, token: &str) -> Result<(
 fn load_token(app: &tauri::AppHandle, profile_id: &str) -> Result<String, String> {
     #[cfg(debug_assertions)]
     {
-        let path = token_file(app, profile_id)?;
-        if path.exists() {
-            return std::fs::read_to_string(path).map_err(|e| e.to_string());
+        let dir = token_dir(app)?;
+        let key = crate::secret_file::master_key(&dir)?;
+        if let Some(token) = crate::secret_file::load(&token_file(app, profile_id)?, &key)? {
+            return Ok(token);
         }
         // One-time migration from a previously used keychain entry. This may
         // prompt once; afterwards the file wins and macOS is never touched.
@@ -340,10 +340,12 @@ pub async fn server_list_schemas(conn_id: String) -> Result<Vec<String>, String>
 #[tauri::command]
 pub async fn server_table_schema(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     table: String,
 ) -> Result<dh_core::api::TableSchema, String> {
     with_remote(&conn_id, |c, r| {
-        Box::pin(async move { c.table_schema(&r, &table).await })
+        Box::pin(async move { c.table_schema(&r, database.as_deref(), schema.as_deref(), &table).await })
     })
     .await
 }
@@ -351,10 +353,12 @@ pub async fn server_table_schema(
 #[tauri::command]
 pub async fn server_run_sql(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     sql: String,
 ) -> Result<dh_core::api::QueryResult, String> {
     with_remote(&conn_id, |c, r| {
-        Box::pin(async move { c.run_sql(&r, &sql).await })
+        Box::pin(async move { c.run_sql(&r, database.as_deref(), schema.as_deref(), &sql).await })
     })
     .await
 }
@@ -362,10 +366,12 @@ pub async fn server_run_sql(
 #[tauri::command]
 pub async fn server_execute_op(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     op: dh_core::api::QueryOp,
 ) -> Result<dh_core::api::QueryResult, String> {
     with_remote(&conn_id, |c, r| {
-        Box::pin(async move { c.execute_op(&r, &op).await })
+        Box::pin(async move { c.execute_op(&r, database.as_deref(), schema.as_deref(), &op).await })
     })
     .await
 }
@@ -390,6 +396,45 @@ pub async fn server_catalog_overview(
 }
 
 #[tauri::command]
+pub async fn server_list_schemas_in(
+    conn_id: String,
+    database: Option<String>,
+) -> Result<Vec<String>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.list_schemas_in(&r, database.as_deref()).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_list_schema_objects(
+    conn_id: String,
+    database: Option<String>,
+    schema: String,
+    kind: dh_core::db::SchemaObjectKind,
+) -> Result<Vec<dh_core::db::SchemaObject>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.list_schema_objects(&r, database.as_deref(), &schema, kind).await })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn server_list_roles(conn_id: String) -> Result<Vec<dh_core::db::SchemaObject>, String> {
+    with_remote(&conn_id, |c, r| Box::pin(async move { c.list_roles(&r).await })).await
+}
+
+#[tauri::command]
+pub async fn server_list_role_details(
+    conn_id: String,
+) -> Result<Vec<dh_core::db::RoleDetail>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.list_role_details(&r).await })
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn server_active_schema(conn_id: String) -> Result<String, String> {
     with_remote(&conn_id, |c, r| Box::pin(async move { c.active_schema(&r).await })).await
 }
@@ -403,12 +448,22 @@ pub async fn server_set_active_schema(conn_id: String, schema: String) -> Result
 }
 
 #[tauri::command]
+pub async fn server_disconnect_database(conn_id: String, database: String) -> Result<(), String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.disconnect_database(&r, &database).await })
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn server_apply_schema_ops_batch(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     ops: Vec<dh_core::api::SchemaOp>,
 ) -> Result<Vec<String>, String> {
     with_remote(&conn_id, |c, r| {
-        Box::pin(async move { c.apply_schema_ops_batch(&r, &ops).await })
+        Box::pin(async move { c.apply_schema_ops_batch(&r, database.as_deref(), schema.as_deref(), &ops).await })
     })
     .await
 }
@@ -416,12 +471,16 @@ pub async fn server_apply_schema_ops_batch(
 #[tauri::command]
 pub async fn server_duplicate_table(
     conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
     source: String,
     target: String,
     copy_data: bool,
 ) -> Result<Vec<String>, String> {
     with_remote(&conn_id, |c, r| {
-        Box::pin(async move { c.duplicate_table(&r, &source, &target, copy_data).await })
+        Box::pin(async move {
+            c.duplicate_table(&r, database.as_deref(), schema.as_deref(), &source, &target, copy_data).await
+        })
     })
     .await
 }
@@ -493,9 +552,13 @@ pub async fn server_run_mongo(
 }
 
 #[tauri::command]
-pub async fn server_create_collection(conn_id: String, name: String) -> Result<(), String> {
+pub async fn server_create_collection(
+    conn_id: String,
+    database: Option<String>,
+    name: String,
+) -> Result<(), String> {
     with_remote(&conn_id, |c, r| {
-        Box::pin(async move { c.create_collection(&r, &name).await })
+        Box::pin(async move { c.create_collection(&r, database.as_deref(), &name).await })
     })
     .await
 }

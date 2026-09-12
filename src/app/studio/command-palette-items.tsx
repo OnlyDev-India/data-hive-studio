@@ -21,9 +21,8 @@ import {
   type PaletteKeywords,
 } from "@/shared/store";
 import type { ThemeMode } from "@/shared/theme/theme";
-import { TabTypeIcon } from "@/shared/components/tab-type-icon";
-import { DBIcons } from "@/shared/components/icons/types";
-import type { TableInfo } from "@/shared/api";
+import { listDatabases, listSchemaObjects, type TableInfo } from "@/shared/api";
+import { DBIcons, IconTypeMap } from "@/shared/components/icons/types";
 
 export interface PaletteItem {
   id: string;
@@ -88,14 +87,22 @@ export function resolveMode(
 }
 
 /** Whether a mode's item list depends on the fetched table/collection list —
- *  drives whether the palette bothers fetching at all. */
+ *  drives whether the palette bothers fetching at all. Deliberately excludes
+ *  "quick-open" (no prefix): with several connections/schemas open, a table
+ *  list mixed into the unscoped default was either the wrong connection's
+ *  tables or last-active-schema-only — a table now only appears once the
+ *  user types its own prefix, which is unambiguous about which connection/
+ *  schema it's listing. */
 export function modeNeedsTables(mode: PaletteMode): boolean {
-  return mode === "quick-open" || mode === "schema-open" || mode === "tables-only";
+  return mode === "schema-open" || mode === "tables-only";
 }
 
 /** The trigger text a mode's chip shows once fully typed/selected — the
  *  inverse of `resolveMode`'s prefix matching. */
-export function labelForMode(mode: PaletteMode, keywords: PaletteKeywords): string {
+export function labelForMode(
+  mode: PaletteMode,
+  keywords: PaletteKeywords,
+): string {
   switch (mode) {
     case "commands":
       return ">";
@@ -154,16 +161,84 @@ export async function openMongoDatabaseAndConsole(
     .openMongoConsole(connId, database, seedText, seedFileName);
 }
 
-async function openMongoCollection(connId: string, name: string) {
-  const database = await resolveMongoDatabase(connId);
-  useStudioStore.getState().openMongo(connId, database, name);
+/** `database`, when given, opens exactly that database (a sibling database
+ *  found via `fetchAllTables` below) instead of falling back to the
+ *  connection's own last-used/default one. */
+async function openMongoCollection(
+  connId: string,
+  name: string,
+  database?: string,
+) {
+  const db = database ?? (await resolveMongoDatabase(connId));
+  useStudioStore.getState().openMongo(connId, db, name);
 }
 
-async function openMongoCollectionSchema(connId: string, name: string) {
-  await openMongoCollection(connId, name);
+async function openMongoCollectionSchema(
+  connId: string,
+  name: string,
+  database?: string,
+) {
+  await openMongoCollection(connId, name, database);
   const s = useStudioStore.getState();
   const tab = s.workspaces[connId]?.active;
   if (tab) s.setPaneMode(connId, tabKey(tab), "schema");
+}
+
+/** A table/collection found for the palette's `table:`/`schema:` modes —
+ *  `database` is set only for a SIBLING database (not the connection's own
+ *  current one), so `run()` knows to pass an explicit override instead of
+ *  relying on ambient connection state. */
+export interface PaletteTable extends TableInfo {
+  database?: string;
+}
+
+/** Whether `t` matches search text `q` (already trimmed/lowercased) — name
+ *  or kind, the same two fields the results list itself shows. Shared by
+ *  `previewOrMatch` below and by the palette's own "does the connection's
+ *  own database already have a match" check, which decides whether sibling
+ *  databases need fetching at all (see `fetchSiblingTables`). */
+export function tableMatches(t: TableInfo, q: string): boolean {
+  return t.name.toLowerCase().includes(q) || t.kind.toLowerCase().includes(q);
+}
+
+/** Tables/collections from every OTHER database reachable through this
+ *  connection — the sidebar can browse sibling databases (Postgres: a
+ *  secondary pool via `pool_for`; MongoDB: any database on the same server,
+ *  no extra connection needed), so the palette should be able to find them
+ *  too. Deliberately NOT fetched eagerly alongside the connection's own
+ *  tables — only called once a typed search comes up empty against the own
+ *  database (see the `need_siblings` effect in `command-palette.tsx`), so a
+ *  connection with many sibling databases doesn't pay for this on every
+ *  palette open, only when the result would otherwise be "not found."
+ *  Scoped to each sibling's `public` schema for Postgres (MongoDB has no
+ *  schema layer) — one round trip per sibling database rather than
+ *  enumerating every schema of every database. Best-effort: a sibling that
+ *  fails to list (permissions, network) is just skipped, never an error. */
+export async function fetchSiblingTables(
+  connId: string,
+  isMongo: boolean,
+): Promise<PaletteTable[]> {
+  const own_db = useStudioStore.getState().recentParams[connId]?.database;
+  let siblings: string[];
+  try {
+    siblings = (await listDatabases(connId)).filter((d) => d !== own_db);
+  } catch {
+    return [];
+  }
+
+  const results = await Promise.allSettled(
+    siblings.map((db) =>
+      listSchemaObjects(connId, isMongo ? "" : "public", "table", db).then(
+        (objs) =>
+          objs.map((o) => ({ name: o.name, kind: "table", database: db })),
+      ),
+    ),
+  );
+  const entries: PaletteTable[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") entries.push(...r.value);
+  }
+  return entries;
 }
 
 /** `>` mode — the app-level command list (unchanged behavior/commands),
@@ -286,7 +361,7 @@ export function buildOpenTabItems(): PaletteItem[] {
       id: `tab:${key}`,
       label: tabLabel(tab, s.seedFileNames[key]),
       section: "Open tabs",
-      icon: <TabTypeIcon tab={tab} className="size-4" />,
+      icon: IconTypeMap[tab.kind],
       run: () => {
         const cur = useStudioStore.getState().workspaces[active_conn.id];
         const owner = cur && findOwnerLeaf(cur.layout, key);
@@ -296,11 +371,34 @@ export function buildOpenTabItems(): PaletteItem[] {
   });
 }
 
-/** `table:` prefix mode (and a section of default quick-open) — open a
- *  table/collection's Data view. */
+/** Empty query → a short preview (just enough to show something's there,
+ *  not the whole list); typed query → every match, not just whatever
+ *  happened to land in the first `PREVIEW_COUNT`. Either way capped at
+ *  `MATCH_CAP` — the results list renders every returned item (no
+ *  pagination), so this is what keeps a huge schema from dumping thousands
+ *  of DOM nodes at once. */
+const PREVIEW_COUNT = 8;
+const MATCH_CAP = 50;
+function previewOrMatch(
+  tables: PaletteTable[] | null,
+  query: string,
+): PaletteTable[] {
+  const source = tables ?? [];
+  const q = query.trim().toLowerCase();
+  if (!q) return source.slice(0, PREVIEW_COUNT);
+  return source
+    .filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) || t.kind.toLowerCase().includes(q),
+    )
+    .slice(0, MATCH_CAP);
+}
+
+/** `table:` prefix mode — open a table/collection's Data view. */
 export function buildTableItems(
-  tables: TableInfo[] | null,
+  tables: PaletteTable[] | null,
   tables_loading: boolean,
+  query: string,
 ): PaletteItem[] {
   const s = useStudioStore.getState();
   const active_conn = activeConn();
@@ -320,15 +418,26 @@ export function buildTableItems(
       },
     ];
   }
-  return (tables ?? []).slice(0, 100).map((t) => ({
-    id: `table:${t.name}`,
+  return previewOrMatch(tables, query).map((t) => ({
+    id: `table:${t.database ?? ""}:${t.name}`,
     label: t.name,
     hint: t.kind,
+    // Which sibling database this came from — blank (the connection's own
+    // current database) needs no callout.
+    scope: t.database,
     section: noun,
     icon: <Table2 className="size-4" />,
     run: () => {
-      if (is_mongo) void openMongoCollection(active_conn.id, t.name);
-      else s.openTable(active_conn.id, t.name);
+      if (is_mongo)
+        void openMongoCollection(active_conn.id, t.name, t.database);
+      else
+        s.openTable(
+          active_conn.id,
+          t.name,
+          undefined,
+          t.database,
+          t.database ? "public" : undefined,
+        );
     },
   }));
 }
@@ -416,28 +525,12 @@ export function buildFilterHints(keywords: PaletteKeywords): PaletteItem[] {
     }));
 }
 
-/** Default (no prefix) mode — the three browsing sections plus the
- *  discoverable filter hints, combined. `diss:`'s disconnect ACTIONS are
- *  deliberately not mixed in here (only reachable via its own prefix) — a
- *  destructive action has no business sitting in the default browse list. */
-export function buildQuickOpenItems(
-  tables: TableInfo[] | null,
-  tables_loading: boolean,
-  keywords: PaletteKeywords,
-): PaletteItem[] {
-  return [
-    ...buildOpenTabItems(),
-    ...buildTableItems(tables, tables_loading),
-    ...buildConnectionItems(),
-    ...buildFilterHints(keywords),
-  ];
-}
-
 /** `schema:` prefix mode — same table/collection list as quick-open, but
  *  every result opens in its Schema view instead of its Data view. */
 export function buildSchemaOpenItems(
-  tables: TableInfo[] | null,
+  tables: PaletteTable[] | null,
   tables_loading: boolean,
+  query: string,
 ): PaletteItem[] {
   const active_conn = activeConn();
   if (!active_conn) return [];
@@ -457,14 +550,22 @@ export function buildSchemaOpenItems(
   }
 
   const s = useStudioStore.getState();
-  return (tables ?? []).slice(0, 100).map((t) => ({
-    id: `schema:${t.name}`,
+  return previewOrMatch(tables, query).map((t) => ({
+    id: `schema:${t.database ?? ""}:${t.name}`,
     label: t.name,
     hint: `Open ${is_mongo ? "collection" : "table"} schema`,
+    scope: t.database,
     icon: <Table2 className="size-4" />,
     run: () => {
-      if (is_mongo) void openMongoCollectionSchema(active_conn.id, t.name);
-      else s.openStructure(active_conn.id, t.name);
+      if (is_mongo)
+        void openMongoCollectionSchema(active_conn.id, t.name, t.database);
+      else
+        s.openStructure(
+          active_conn.id,
+          t.name,
+          t.database,
+          t.database ? "public" : undefined,
+        );
     },
   }));
 }

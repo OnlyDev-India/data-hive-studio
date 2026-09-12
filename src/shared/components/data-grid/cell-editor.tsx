@@ -162,11 +162,9 @@ export function CellEditor() {
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  // eslint-disable-next-line react-hooks/refs -- event handler
                   cancel();
                 } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
-                  // eslint-disable-next-line react-hooks/refs -- event handler
                   commit();
                 }
               }}
@@ -206,12 +204,14 @@ export function CellEditor() {
         setVal(e.target.value);
         push_live(e.target.value);
       }}
+      // eslint-disable-next-line react-hooks/refs -- event handler, not render
       onBlur={() => commit()}
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
+        // eslint-disable-next-line react-hooks/refs -- event handler, not render
         else if (e.key === "Escape") cancel();
       }}
-      className="h-7 border-none outline-none"
+      className="h-full! rounded-none! border-none outline-none"
     />
   );
 
@@ -230,7 +230,7 @@ export function CellEditor() {
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") cancel();
       }}
-      className="h-7"
+      className="h-full! rounded-none! border-none outline-none"
     />
   );
 
@@ -254,8 +254,8 @@ export function CellEditor() {
       }
       onValueChange={(v) => {
         if (v === "__null") commit(null);
-        else if (v === "__true") commit(value==="false"?"true":"1");
-        else commit(value==="true"?"false":"0");
+        else if (v === "__true") commit(value === "false" ? "true" : "1");
+        else commit(value === "true" ? "false" : "0");
       }}
     >
       <SelectTrigger
@@ -280,7 +280,11 @@ export function CellEditor() {
       value={value === null ? "__dh_null" : value || undefined}
       onValueChange={(v) => commit(v === "__dh_null" ? null : v)}
     >
-      <SelectTrigger className="h-7 w-full" size="sm" aria-label="Pick a value">
+      <SelectTrigger
+        className="h-full w-full"
+        size="sm"
+        aria-label="Pick a value"
+      >
         <SelectValue placeholder="—" />
       </SelectTrigger>
       <SelectContent className={"bg-background border"}>
@@ -306,7 +310,9 @@ export function CellEditor() {
   );
 
   let editor;
-  if (kind === "array")
+  if (editAsText) {
+    editor = text_input();
+  } else if (kind === "array")
     editor = (
       <ArrayCellEditor
         value={value}
@@ -323,7 +329,9 @@ export function CellEditor() {
   else if (is_number) editor = number_input();
   else editor = text_input();
 
-  return <div className="relative flex min-w-0 items-center">{editor}</div>;
+  return (
+    <div className="relative flex w-full min-w-0 items-center">{editor}</div>
+  );
 }
 
 /** Array-of-enum (e.g. `permission[]`) tag multi-select editor. The value is a
@@ -349,7 +357,7 @@ function ArrayCellEditor({
   const commitNow = () => onCommit(toPgArray(sel));
   return (
     <div
-      className="bg-background z-40! absolute -top-3 left-1 flex w-72 flex-col gap-2 rounded-md border p-2 shadow-lg"
+      className="bg-background absolute -top-3 left-1 z-40! flex w-72 flex-col gap-2 rounded-md border p-2 shadow-lg"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -362,7 +370,7 @@ function ArrayCellEditor({
       }}
     >
       {value === null && (
-        <div className="text-muted-foreground text-[11px]">(set NULL)</div>
+        <div className="text-muted-foreground text-2xs">(set NULL)</div>
       )}
       <div className="flex min-h-6 flex-wrap items-center gap-1">
         {sel.map((v) => (
@@ -478,7 +486,9 @@ export function parsePgArray(src: string): string[] {
 /** Serialize an element array back to a Postgres array literal `{a,b,c}`. */
 function toPgArray(vals: string[]): string {
   const quoted = (v: string) =>
-    /[",\\{}]|\s/.test(v) ? `"${v.replaceAll("\\", "\\\\").replaceAll('"', '""')}"` : v;
+    /[",\\{}]|\s/.test(v)
+      ? `"${v.replaceAll("\\", "\\\\").replaceAll('"', '""')}"`
+      : v;
   return `{${vals.map(quoted).join(",")}}`;
 }
 

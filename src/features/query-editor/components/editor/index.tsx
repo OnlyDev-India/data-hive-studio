@@ -14,8 +14,12 @@ import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
 import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { EditorState } from "@codemirror/state";
 import { closeCompletion, startCompletion } from "@codemirror/autocomplete";
-import { keymap, tooltips, type ViewUpdate } from "@codemirror/view";
-import { syntaxHighlighting } from "@codemirror/language";
+import {
+  keymap,
+  lineNumbers,
+  tooltips,
+  type ViewUpdate,
+} from "@codemirror/view";
 import {
   forEachDiagnostic,
   linter,
@@ -23,16 +27,17 @@ import {
   type Diagnostic,
 } from "@codemirror/lint";
 import type { Completion } from "@codemirror/autocomplete";
-import {
-  appEditorExtensions,
-  appEditorTheme,
-  jsHighlightStyle,
-} from "@/shared/theme/codemirror-theme";
+import { appEditorExtensions } from "@/shared/theme/codemirror-theme";
 import { cn, statementRanges } from "@/shared/lib/utils";
 import { useShortcuts, type Shortcut } from "@/shared/hooks/use-shortcut";
 import { schemaCompletions } from "./sql-completions";
 import { sqlLinter } from "./sql-lint";
 import { nosqlSyntaxLinter } from "./nosql-lint";
+import {
+  markRunResult,
+  statementFrameLayer,
+  statementGutter,
+} from "./statement-runner";
 import { inlineDiagnostics } from "./inline-diagnostics";
 import {
   NOSQL_SHELL_COMPLETIONS,
@@ -74,6 +79,10 @@ export interface QueryEditorHandle {
    *  underlines them and shows the message on hover, independent of
    *  whatever a separate results panel shows. */
   setErrors: (errors: { from: number; to: number; message: string }[]) => void;
+  /** Marks a statement's run as finished — `range` set and successful shows
+   *  the gutter's checkmark badge on it; `null` clears any existing badge
+   *  (e.g. the run errored, or a different statement ran instead). */
+  markRunResult: (range: { from: number; to: number } | null) => void;
 }
 
 // `linter(null)` installs the diagnostics state field/underline rendering
@@ -93,6 +102,27 @@ const errorLinter = linter(null);
 // overflow/transform entirely.
 const editorTooltips = tooltips({ parent: document.body });
 
+// `lineNumbers` is always off here — an explicit `lineNumbers()` extension is
+// added instead (after the statement-run gutter, in `extensions` below) so
+// it renders to the right of the run buttons rather than always being
+// leftmost. Module-level: a fresh object every render would make
+// @uiw/react-codemirror reconfigure (and tear down/rebuild, killing any open
+// completion popup) the whole basicSetup extension set on every keystroke —
+// same concern as `completionDismissKeymap` above.
+const basicSetupConfig = {
+  lineNumbers: false,
+  highlightActiveLineGutter: true,
+  highlightActiveLine: true,
+  history: true,
+  foldGutter: false,
+  autocompletion: true,
+  closeBrackets: true,
+  bracketMatching: true,
+  indentOnInput: true,
+  searchKeymap: true,
+  tabSize: 2,
+};
+
 interface QueryEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -109,9 +139,15 @@ interface QueryEditorProps {
   onSave?: () => void;
   /** Table names offered as completions. */
   tables?: string[];
-  /** Column completions per table. Enables column suggestions after
-   * `table.` and in field positions. */
+  /** Column completions per table (bare `"table"` keys for the connection's
+   * default schema, `"schema.table"` keys for every other known schema).
+   * Enables column suggestions after `table.` / `schema.table.` and in
+   * field positions. */
   schema?: Record<string, Completion[]>;
+  /** Table names per schema — enables the TABLE suggestions offered right
+   *  after typing `schema.` (there's no separate schema picker; the query
+   *  text itself is what names a non-default schema). */
+  schemaTables?: Record<string, string[]>;
   /** "sql" (SQLite dialect) or "js" (JavaScript highlighting + colors —
    * used by the MongoDB console). */
   language?: "sql" | "js";
@@ -127,6 +163,10 @@ interface QueryEditorProps {
   readOnly?: boolean;
   enableWrapping?: boolean;
   className?: string;
+  /** Toolbar-driven toggle for the live syntax/unknown-table (or
+   *  unknown-collection) linter — off doesn't touch manually-pushed run
+   *  errors (`setErrors`), a separate mechanism. Default on. */
+  lintEnabled?: boolean;
 }
 
 /**
@@ -148,6 +188,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       onSave,
       tables,
       schema,
+      schemaTables,
       jsCompletions,
       connId,
       className,
@@ -156,6 +197,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       showLineNumber = true,
       readOnly = false,
       enableWrapping = false,
+      lintEnabled = true,
     },
     ref,
   ) {
@@ -298,6 +340,11 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           setDiagnostics(view.state, [...kept, ...runtimeDiagnostics]),
         );
       },
+      markRunResult: (range) => {
+        const view = cmsRef.current?.view;
+        if (!view) return;
+        markRunResult(view, range);
+      },
     }));
 
     const shortcuts: Shortcut[] = [
@@ -316,6 +363,17 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     const onOpenDocDetails = useCallback((entry: DocEntry) => {
       setDocDetail(entry);
     }, []);
+
+    // Kept fresh every render via plain assignment (not an effect — nothing
+    // reads it during render) rather than putting `onRunTarget` itself in
+    // `extensions`' deps below: that prop is a fresh closure every render in
+    // both callers, and rebuilding `extensions` on every keystroke would
+    // tear down/recreate the whole CodeMirror extension set (autocompletion
+    // included), killing any open completion popup — see the identical
+    // concern on `completionDismissKeymap` above.
+    const onRunTargetRef = useRef(onRunTarget);
+    onRunTargetRef.current = onRunTarget;
+    const runAtCursor = useCallback(() => onRunTargetRef.current(), []);
 
     const extensions = useMemo(() => {
       if (language === "js") {
@@ -336,12 +394,18 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           collectionOptions,
         );
         return [
-          appEditorTheme,
+          // `oneDarkTheme` (background/cursor/selection/gutter colors) +
+          // `appEditorTheme` (our completion-icon overrides) +
+          // `syntaxHighlighting(oneDarkHighlightStyle)` — the SQL branch
+          // below gets all three via this same spread; this branch used to
+          // only pull in `appEditorTheme` on its own, which has no
+          // background/color rules of its own, so the console rendered in
+          // whatever unstyled default CodeMirror falls back to.
+          ...appEditorExtensions,
           // JS parsing/highlighting. The raw language keeps CodeMirror's built-in
           // JS keyword completions (`default`, `do`, …) out of the console's
           // suggestion list — the one below is the only completion provider.
           javascriptLanguage,
-          syntaxHighlighting(jsHighlightStyle),
           // Static list (methods, shell keywords, collection names), plus
           // dot-triggered scoping so `db.` / `db.<collection>.` auto-open
           // the right subset instead of requiring a typed prefix.
@@ -356,11 +420,20 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           // only ever flag already-run, unchangeable text as an error —
           // skip it there.
           errorLinter,
-          ...(readOnly ? [] : [linter(nosqlSyntaxLinter(jsCompletions ?? []))]),
+          ...(readOnly || !lintEnabled
+            ? []
+            : [linter(nosqlSyntaxLinter(jsCompletions ?? []))]),
           editorTooltips,
           inlineDiagnostics,
           docHoverTooltip(resolveMongoDoc, onOpenDocDetails),
           docHoverTheme,
+          // Run-button gutter before the line-number gutter (basicSetup's
+          // own `lineNumbers` is disabled below — this is the only one) so
+          // it renders to the LEFT of the numbers, not the right: gutters
+          // render in extension order, leftmost first.
+          ...(readOnly ? [] : [statementGutter(runAtCursor)]),
+          ...(showLineNumber ? [lineNumbers()] : []),
+          ...(readOnly ? [] : [statementFrameLayer()]),
           ...(enableWrapping ? [EditorView.lineWrapping] : []),
         ];
       }
@@ -370,7 +443,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       }));
       // Built once — see the identical comment in the "js" branch above for
       // why this can't be called inside the languageData callback.
-      const schemaSource = schemaCompletions(schema ?? {});
+      const schemaSource = schemaCompletions(schema ?? {}, schemaTables ?? {});
       return [
         ...appEditorExtensions,
         sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
@@ -386,16 +459,25 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         // there, so every table/column reference would falsely lint as
         // unknown, and the text can't be edited anyway.
         errorLinter,
-        ...(readOnly ? [] : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
+        ...(readOnly || !lintEnabled
+          ? []
+          : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
         editorTooltips,
         inlineDiagnostics,
         docHoverTooltip(resolveSqlDoc, onOpenDocDetails),
         docHoverTheme,
+        // Run-button gutter before the line-number gutter (basicSetup's own
+        // `lineNumbers` is disabled below) so it renders to the LEFT of the
+        // numbers — see the identical comment in the "js" branch above.
+        ...(readOnly ? [] : [statementGutter(runAtCursor)]),
+        ...(showLineNumber ? [lineNumbers()] : []),
+        ...(readOnly ? [] : [statementFrameLayer()]),
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
       ];
     }, [
       tables,
       schema,
+      schemaTables,
       language,
       jsCompletions,
       connId,
@@ -403,30 +485,10 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       completionDismissKeymap,
       readOnly,
       onOpenDocDetails,
+      runAtCursor,
+      showLineNumber,
+      lintEnabled,
     ]);
-
-    // Memoized: @uiw/react-codemirror reconfigures the WHOLE extension set
-    // (tearing down and recreating every basicSetup extension, including
-    // autocompletion()) whenever this object's reference changes. Passed
-    // inline it would be a new object every render — i.e. on every
-    // keystroke, since this is a controlled editor — killing any
-    // in-progress/open completion before it could ever show.
-    const basicSetupConfig = useMemo(
-      () => ({
-        lineNumbers: showLineNumber,
-        highlightActiveLineGutter: true,
-        highlightActiveLine: true,
-        history: true,
-        foldGutter: false,
-        autocompletion: true,
-        closeBrackets: true,
-        bracketMatching: true,
-        indentOnInput: true,
-        searchKeymap: true,
-        tabSize: 2,
-      }),
-      [showLineNumber],
-    );
 
     return (
       <>

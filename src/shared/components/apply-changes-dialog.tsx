@@ -203,7 +203,7 @@ function DiffHunk({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="text-muted-foreground mb-1 flex w-full items-baseline gap-1.5 text-left text-[10px] tracking-wide uppercase"
+          className="text-muted-foreground text-3xs mb-1 flex w-full items-baseline gap-1.5 text-left tracking-wide uppercase"
         >
           <ChevronRight
             className={cn(
@@ -217,7 +217,7 @@ function DiffHunk({
           </span>
         </button>
         {open && (
-          <div className="overflow-hidden rounded border font-mono text-[12.5px] leading-5">
+          <div className="overflow-hidden rounded border font-mono text-xs leading-5">
             {c.before !== undefined && <DiffLine sign="-" text={c.before} />}
             {c.after !== undefined && <DiffLine sign="+" text={c.after} />}
           </div>

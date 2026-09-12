@@ -11,6 +11,9 @@ import { usePaneMode, useStudioStore } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
 import { FilterBar } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
+import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
+import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
+import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
   DISTINCT_LIMIT,
   type DistinctMap,
@@ -40,6 +43,8 @@ export function TablePane({
   on_modified,
   initial_filters,
   on_open_reference,
+  database,
+  schema: db_schema,
 }: {
   conn_id: string;
   tab_key: string;
@@ -54,6 +59,12 @@ export function TablePane({
     column: string,
     value: string | null,
   ) => void;
+  /** `undefined` = this connection's own primary database/active schema —
+   *  set when this tab was opened from a database/schema other than the
+   *  connection's own (the sidebar catalog tree's multi-database browsing —
+   *  see `open_object` in tables-view.tsx). */
+  database?: string;
+  schema?: string;
 }) {
   const mode = usePaneMode(conn_id, tab_key);
   const setPaneMode = useStudioStore((s) => s.setPaneMode);
@@ -65,6 +76,14 @@ export function TablePane({
   // as props_busy: the grid publishes this flag itself, so round-tripping it
   // would create a feedback loop stuck at true.
   const grid_loading = useStudioStore((s) => !!s.gridBridges[tab_key]?.loading);
+  const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
+  const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
+  const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
+  const [stopped_waiting, setStoppedWaiting] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the soft-stop flag when a new load starts
+    if (grid_loading) setStoppedWaiting(false);
+  }, [grid_loading]);
   const setMode = useCallback(
     (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
@@ -92,7 +111,7 @@ export function TablePane({
     let cancelled = false;
     void (async () => {
       try {
-        const s = await tableSchema(conn_id, table);
+        const s = await tableSchema(conn_id, table, database, db_schema);
         if (!cancelled) {
           setSchema(s);
           setFailed(false);
@@ -107,7 +126,7 @@ export function TablePane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, revision, refresh_rev]);
+  }, [conn_id, table, revision, refresh_rev, database, db_schema]);
 
   // Bounded distinct values for enum/bool columns (dropdown editors + filters).
   // Booleans are special-cased: their domain is FIXED (true/false), so on
@@ -151,12 +170,17 @@ export function TablePane({
             ) {
               return [col, ["true", "false"] as (string | null)[]] as const;
             }
-            const res = await executeOp(conn_id, {
-              kind: "select_distinct",
-              table,
-              column: col,
-              limit: DISTINCT_LIMIT,
-            });
+            const res = await executeOp(
+              conn_id,
+              {
+                kind: "select_distinct",
+                table,
+                column: col,
+                limit: DISTINCT_LIMIT,
+              },
+              database,
+              db_schema,
+            );
             return [col, res.rows.map((r) => r[0] ?? null)] as const;
           } catch {
             return [col, [] as (string | null)[]] as const;
@@ -171,7 +195,16 @@ export function TablePane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, combined_rev, distinct_cols, is_postgres, schema]);
+  }, [
+    conn_id,
+    table,
+    combined_rev,
+    distinct_cols,
+    is_postgres,
+    schema,
+    database,
+    db_schema,
+  ]);
 
   const add_filter = (filter: Omit<GridFilter, "id">) => {
     setFilters((cur) => {
@@ -198,22 +231,36 @@ export function TablePane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex shrink-0 items-center gap-1 border-b px-3">
+      <div className="bg-background flex min-h-8 shrink-0 scrollbar-none items-center justify-between gap-1 overflow-auto border-b px-3">
         {/* Views/matviews have no editable schema — hide the Schema tab. */}
-        {is_table ? (
-          <ModeTabs
-            mode={mode}
-            warn_no_pk={!!schema && schema.columns.every((c) => !c.primary_key)}
-            on_change={setMode}
-          />
-        ) : (
-          <span className="text-muted-foreground px-1 py-1 text-xs font-medium">
-            {schema?.kind === "matview" ? "Materialized view" : "View"} ·
-            read-only data
-          </span>
-        )}
-        {mode === "data" && schema && (
-          <div className="ml-auto flex items-center">
+        <div className="flex items-center gap-1">
+          {is_table ? (
+            <ModeTabs
+              mode={mode}
+              warn_no_pk={
+                !!schema && schema.columns.every((c) => !c.primary_key)
+              }
+              on_change={setMode}
+            />
+          ) : (
+            <span className="text-muted-foreground px-1 py-1 text-xs font-medium">
+              {schema?.kind === "matview" ? "Materialized view" : "View"} ·
+              read-only data
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {mode === "data" && gridBridge && (
+            <GridActionBar bridge={gridBridge} conn_id={conn_id} />
+          )}
+          {mode === "schema" && (schemaEdit || schemaPane) && (
+            <SchemaActionBar
+              schemaEdit={schemaEdit}
+              schemaPane={schemaPane}
+              drop_label="Drop table"
+            />
+          )}
+          {mode === "data" && schema && (
             <FilterBar
               columns={schema.columns.map((c) => ({
                 name: c.name,
@@ -228,8 +275,8 @@ export function TablePane({
               on_clear={clear_filters}
               on_custom_where={setCustomWhere}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
         {failed ? (
@@ -267,6 +314,8 @@ export function TablePane({
                   props_busy={schema_busy}
                   on_refresh={bump_refresh}
                   on_open_reference={on_open_reference}
+                  database={database}
+                  schema_name={db_schema}
                 />
               </div>
               <div
@@ -282,16 +331,22 @@ export function TablePane({
                     store_key={tab_key}
                     on_modified={on_modified}
                     on_applied={() => setMode("data")}
+                    database={database}
+                    schema_name={db_schema}
                   />
                 </Suspense>
               </div>
             </>
           )
         )}
-        {(!schema || schema_busy || grid_loading) && (
-          <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
-            <Loader2 className="text-muted-foreground size-5 animate-spin" />
-          </div>
+        {grid_loading && !stopped_waiting ? (
+          <QueryLoadingOverlay onStop={() => setStoppedWaiting(true)} />
+        ) : (
+          (!schema || schema_busy) && (
+            <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
+              <Loader2 className="text-muted-foreground size-5 animate-spin" />
+            </div>
+          )
         )}
       </div>
     </div>

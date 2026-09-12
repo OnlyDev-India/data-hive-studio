@@ -50,7 +50,9 @@ export function SshFields({
             if (!checked) onChange("ssh_host", "");
           }}
         />
-        <label className="text-muted-foreground text-sm">Use an SSH tunnel</label>
+        <label className="text-muted-foreground text-sm">
+          Use an SSH tunnel
+        </label>
       </div>
 
       {show && (
@@ -75,7 +77,7 @@ export function SshFields({
           />
 
           <div className="grid gap-1">
-            <Label className="text-muted-foreground text-[11px] font-normal">
+            <Label className="text-muted-foreground text-2xs font-normal">
               Authentication
             </Label>
             <Select
@@ -95,7 +97,7 @@ export function SshFields({
           {value.ssh_auth_mode === "key" ? (
             <>
               <div className="grid gap-1">
-                <Label className="text-muted-foreground text-[11px] font-normal">
+                <Label className="text-muted-foreground text-2xs font-normal">
                   Private key file
                 </Label>
                 <FilePathInput
@@ -121,17 +123,19 @@ export function SshFields({
           )}
 
           <div className="grid gap-1">
-            <Label className="text-muted-foreground text-[11px] font-normal">
-              Pinned host key (optional — leave blank to trust the server's
-              key on each connect; paste a fingerprint here to reject a
-              connection whose key doesn't match)
+            <Label className="text-muted-foreground text-2xs font-normal">
+              Pinned host key (optional — leave blank to trust the server's key
+              on each connect; paste a fingerprint here to reject a connection
+              whose key doesn't match)
             </Label>
             <div className="flex gap-1">
               <Input
                 className="min-w-0 flex-1 font-mono text-xs"
                 placeholder="SHA256:..."
                 value={value.ssh_host_key_fingerprint}
-                onChange={(e) => onChange("ssh_host_key_fingerprint", e.target.value)}
+                onChange={(e) =>
+                  onChange("ssh_host_key_fingerprint", e.target.value)
+                }
               />
               {value.ssh_host_key_fingerprint && (
                 <Button

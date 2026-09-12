@@ -155,7 +155,8 @@ function jsonEncode(s: string): string {
   // object can never break the BSON renderer.
   for (const c of String(s)) {
     if (JSON_ENCODABLE[c]) o += JSON_ENCODABLE[c];
-    else if (c < " ") o += "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
+    else if (c < " ")
+      o += "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
     else o += c;
   }
   return '"' + o + '"';
@@ -166,7 +167,11 @@ function jsonToValue(parsed: unknown): MongoJsonValue {
   if (parsed === null) return { kind: "null" };
   if (typeof parsed === "boolean") return { kind: "bool", value: parsed };
   if (typeof parsed === "number")
-    return { kind: "number", value: parsed, isInteger: Number.isSafeInteger(parsed) };
+    return {
+      kind: "number",
+      value: parsed,
+      isInteger: Number.isSafeInteger(parsed),
+    };
   if (typeof parsed === "string") return { kind: "string", value: parsed };
   if (Array.isArray(parsed))
     return { kind: "array", value: parsed.map(jsonToValue) };
@@ -255,7 +260,11 @@ function renderObject(map: Map<string, MongoJsonValue>, depth: number): string {
   let s = "{\n";
   let i = 0;
   for (const [k, val] of map) {
-    s += IND.repeat(depth + 1) + jsonEncode(k) + ": " + renderValue(val, depth + 1);
+    s +=
+      IND.repeat(depth + 1) +
+      jsonEncode(k) +
+      ": " +
+      renderValue(val, depth + 1);
     if (i < map.size - 1) s += ",";
     s += "\n";
     i++;
@@ -325,7 +334,11 @@ export function rowToDocument(
     }
     if (/^-?\d+(\.\d+)?$/.test(cell)) {
       const n = Number(cell);
-      map.set(col, { kind: "number", value: n, isInteger: Number.isSafeInteger(n) });
+      map.set(col, {
+        kind: "number",
+        value: n,
+        isInteger: Number.isSafeInteger(n),
+      });
       return;
     }
     if (cell === "true" || cell === "false") {
@@ -427,7 +440,8 @@ class Parser {
           case "u": {
             const hex = this.s.slice(this.i, this.i + 4);
             this.i += 4;
-            if (!/^[0-9a-fA-F]{4}$/.test(hex)) return this.err("bad \\u escape");
+            if (!/^[0-9a-fA-F]{4}$/.test(hex))
+              return this.err("bad \\u escape");
             out += String.fromCharCode(parseInt(hex, 16));
             break;
           }
@@ -445,7 +459,8 @@ class Parser {
     this.skipWs();
     const v = this.parseValue();
     this.skipWs();
-    if (v !== null && this.i < this.s.length) return this.err("unexpected trailing content");
+    if (v !== null && this.i < this.s.length)
+      return this.err("unexpected trailing content");
     return v;
   }
 
@@ -551,7 +566,11 @@ class Parser {
     if (text === "" || text === "-") return this.err("invalid number");
     const n = Number(text);
     if (Number.isNaN(n)) return this.err("invalid number");
-    return { kind: "number", value: n, isInteger: !isFloat && Number.isSafeInteger(n) };
+    return {
+      kind: "number",
+      value: n,
+      isInteger: !isFloat && Number.isSafeInteger(n),
+    };
   }
 
   private parseRegex(): MongoJsonValue | null {
@@ -612,7 +631,8 @@ class Parser {
         const start = this.i;
         if (this.peek() === "-") this.i++;
         while (/[0-9]/.test(this.peek() ?? "")) this.i++;
-        if (this.i === start) return this.err(`expected an argument for ${name}()`);
+        if (this.i === start)
+          return this.err(`expected an argument for ${name}()`);
         args.push(this.s.slice(start, this.i));
       }
       this.skipWs();
@@ -697,9 +717,7 @@ export function plainToMongo(v: unknown): MongoJsonValue {
     }
     return {
       kind: "object",
-      value: new Map(
-        Object.entries(o).map(([k, x]) => [k, plainToMongo(x)]),
-      ),
+      value: new Map(Object.entries(o).map(([k, x]) => [k, plainToMongo(x)])),
     };
   }
   return { kind: "string", value: String(v) };

@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
-import { serversOrgRemoveMember, serversOrgSetMemberRole } from "@/shared/api/client";
+import {
+  serversOrgRemoveMember,
+  serversOrgSetMemberRole,
+} from "@/shared/api/client";
 import { Button } from "@/shared/components/ui/button";
 import {
   Select,
@@ -83,7 +86,7 @@ export function MembersPanel({
         >
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{m.name}</div>
-            <div className="text-muted-foreground truncate text-[11px]">
+            <div className="text-muted-foreground text-2xs truncate">
               {m.email}
             </div>
           </div>
@@ -91,7 +94,10 @@ export function MembersPanel({
             value={m.role}
             onValueChange={(v) => void setRole(m.user_id, v as OrgRole)}
           >
-            <SelectTrigger className="h-7 w-28 text-xs" disabled={busy === m.user_id}>
+            <SelectTrigger
+              className="h-7 w-28 text-xs"
+              disabled={busy === m.user_id}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -116,7 +122,7 @@ export function MembersPanel({
           >
             <Trash2 className="size-3.5" />
             {removing === m.user_id && (
-              <span className="ml-0.5 text-[10px]">confirm</span>
+              <span className="text-3xs ml-0.5">confirm</span>
             )}
           </Button>
         </div>

@@ -10,11 +10,11 @@ import { useGrid } from "./grid-context";
  * All state and event handling lives in the grid context ({@link useGrid}),
  * so this component intentionally takes no props.
  *
- * The root div is the scroll container (and the virtualizer's scroll element):
- * only the visible window of rows is mounted, each absolutely positioned at
- * its virtual offset inside a spacer sized to the full row count. Rows are
- * single-line truncated, so heights are uniform; they are still measured on
- * mount so the estimate never has to be exact.
+ * The root div is the scroll container (and the row windower's scroll
+ * element, see use-row-window.ts): only the visible window of rows is
+ * mounted, each absolutely positioned at its offset inside a spacer sized to
+ * the full row count. Rows are single-line truncated, so heights are fixed
+ * and exact — no measurement involved.
  */
 export function GridBody() {
   const ctx = useGrid();
@@ -52,7 +52,7 @@ export function GridBody() {
       {/* Header: corner cell (row-number gutter header) then column headers.
           Sticks to the top of the scroller while rows window underneath. */}
       <div className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium select-none">
-        <div className="border-border/40 bg-muted sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r text-[11px]">
+        <div className="border-border/40 bg-muted text-2xs sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r">
           <span>#</span>
         </div>
         {headers.map(([col, isSorted, isPinned, px]) => (
@@ -85,7 +85,6 @@ export function GridBody() {
             <div
               key={idx}
               data-index={idx}
-              ref={virt.measureElement}
               className={cn(
                 "hover:bg-muted/30 absolute top-0 left-0 flex w-max border-b transition-colors",
                 is_pending && "bg-yellow-300/10",
@@ -100,7 +99,7 @@ export function GridBody() {
             >
               <div
                 className={cn(
-                  "border-border/40 bg-muted text-muted-foreground sticky left-0 z-7 flex w-12 shrink-0 cursor-pointer items-center justify-center border-r text-[11px] select-none",
+                  "border-border/40 bg-muted text-muted-foreground text-2xs sticky left-0 z-7 flex w-12 shrink-0 cursor-pointer items-center justify-center border-r select-none",
                   gutter_sel &&
                     "bg-primary text-primary-foreground font-medium",
                   is_pending && "bg-yellow-300/20",

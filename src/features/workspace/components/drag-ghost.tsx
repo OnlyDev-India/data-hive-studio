@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
-import { TabTypeIcon } from "@/shared/components/tab-type-icon";
 import { tabKey, tabLabel, useStudioStore } from "@/shared/store";
+import { IconTypeMap } from "@/shared/components/icons/types";
 
 /** Floating chip that follows the pointer while a tab is being dragged.
  *  Rendered ONCE per workspace (not per TabBar/pane) — with split-view many
@@ -18,7 +18,7 @@ export function DragGhost() {
       className="bg-popover text-foreground pointer-events-none fixed z-50 flex max-w-56 -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm whitespace-nowrap shadow-lg"
       style={{ left: dragPointer.x, top: dragPointer.y }}
     >
-      <TabTypeIcon tab={dragTab.tab} />
+      {IconTypeMap[dragTab.tab.kind]}
       <span className="truncate">{tabLabel(dragTab.tab, file_name)}</span>
     </div>,
     document.body,

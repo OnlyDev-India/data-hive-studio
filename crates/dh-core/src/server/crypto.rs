@@ -45,6 +45,13 @@ pub fn new_device_token() -> String {
     format!("dhk_{}", hex::encode(bytes))
 }
 
+/// A fresh random AES-256-GCM key — callers outside this crate (the desktop
+/// app's debug-build secret-file fallback, `secret_file.rs`) use this
+/// instead of depending on `rand` directly just for one array.
+pub fn random_key() -> [u8; 32] {
+    rand::random()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

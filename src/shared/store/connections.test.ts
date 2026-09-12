@@ -33,7 +33,12 @@ describe("closeConn", () => {
   });
 
   it("leaves leftPanelMode alone when other connections stay open", () => {
-    const conn2: ConnectionInfo = { ...conn, id: "c2", name: "other.db", source_path: "/tmp/other.db" };
+    const conn2: ConnectionInfo = {
+      ...conn,
+      id: "c2",
+      name: "other.db",
+      source_path: "/tmp/other.db",
+    };
     useStudioStore.getState().openConn(conn);
     useStudioStore.getState().openConn(conn2);
     useStudioStore.setState({ leftPanelMode: "activity" });

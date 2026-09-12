@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DH Studio",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "identifier": "com.dh-studio.dev",
   "build": {
     "frontendDist": "../dist",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,6 +44,14 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4NjgwNTJBMTFFMzc0RDAKUldUUWRPTVJLZ1ZvNktOb016R0c4Y3h1VzlMNWRIREl6VElVT1NveDdxdFd6djVDd0lEclRQWk4K",
+      "endpoints": [
+        "https://github.com/OnlyDev-India/data-hive-studio/releases/latest/download/latest.json"
+      ]
     }
   }
 }

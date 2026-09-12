@@ -42,7 +42,10 @@ export async function pickCertFilePath(): Promise<string | null> {
   const path = await open({
     multiple: false,
     filters: [
-      { name: "Certificates & keys", extensions: ["pem", "crt", "cer", "key", "p12", "pfx"] },
+      {
+        name: "Certificates & keys",
+        extensions: ["pem", "crt", "cer", "key", "p12", "pfx"],
+      },
       { name: "All files", extensions: ["*"] },
     ],
   });

@@ -25,7 +25,7 @@ export function LeaveConfirm({
             <Earth className="size-5 shrink-0" strokeWidth={1.75} />
             {window.location.host}
           </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="text-foreground mt-4 text-[15px] leading-relaxed">
+          <DialogPrimitive.Description className="text-foreground mt-4 text-sm leading-relaxed">
             This page is asking you to confirm that you want to leave —
             information you&rsquo;ve entered may not be saved.
           </DialogPrimitive.Description>
@@ -42,7 +42,7 @@ export function LeaveConfirm({
             </Button>
             <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Stay on page
-              <kbd className="bg-muted text-muted-foreground ml-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium">
+              <kbd className="bg-muted text-muted-foreground text-3xs ml-1 rounded-md border px-1.5 py-0.5 font-medium">
                 ESC
               </kbd>
             </Button>

@@ -161,12 +161,16 @@ function withNewTableTab(
   name: string,
   mode?: "data" | "schema",
   initialFilters?: GridFilter[],
+  database?: string,
+  schema?: string,
 ): WorkspaceTabs {
   const tab: StudioTab = {
     kind: "table",
     name,
     tabId: cur.nextTableId,
     ...(initialFilters && initialFilters.length > 0 ? { initialFilters } : {}),
+    ...(database !== undefined ? { database } : {}),
+    ...(schema !== undefined ? { schema } : {}),
   };
   const paneModes =
     mode === undefined
@@ -196,7 +200,13 @@ export function workspaceActions(set: SetState) {
     set((state) => ({ ...updater(state), view: "workspace" }));
   };
   return {
-    openTable(connId: string, name: string, initialFilters?: GridFilter[]) {
+    openTable(
+      connId: string,
+      name: string,
+      initialFilters?: GridFilter[],
+      database?: string,
+      schema?: string,
+    ) {
       openTab((state) => ({
         workspaces: putWs(
           state.workspaces,
@@ -206,16 +216,30 @@ export function workspaceActions(set: SetState) {
             name,
             undefined,
             initialFilters,
+            database,
+            schema,
           ),
         ),
       }));
     },
-    openStructure(connId: string, name: string) {
+    openStructure(
+      connId: string,
+      name: string,
+      database?: string,
+      schema?: string,
+    ) {
       openTab((state) => ({
         workspaces: putWs(
           state.workspaces,
           connId,
-          withNewTableTab(getWs(state.workspaces, connId), name, "schema"),
+          withNewTableTab(
+            getWs(state.workspaces, connId),
+            name,
+            "schema",
+            undefined,
+            database,
+            schema,
+          ),
         ),
       }));
     },
@@ -234,6 +258,30 @@ export function workspaceActions(set: SetState) {
           };
         }
         const tab: StudioTab = { kind: "activity" };
+        return {
+          workspaces: putWs(
+            state.workspaces,
+            connId,
+            addTabToFocusedPane({ ...cur, tabs: [...cur.tabs, tab] }, tab),
+          ),
+        };
+      });
+    },
+    /** Singleton Users & Privileges tab: focus it if present, else create + select. */
+    openRolesTab(connId: string) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const existing = cur.tabs.find((t) => t.kind === "roles");
+        if (existing) {
+          return {
+            workspaces: putWs(
+              state.workspaces,
+              connId,
+              focusExistingTab(cur, existing),
+            ),
+          };
+        }
+        const tab: StudioTab = { kind: "roles" };
         return {
           workspaces: putWs(
             state.workspaces,

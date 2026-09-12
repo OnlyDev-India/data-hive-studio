@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/shared/lib/utils";
-import type { ActivityEntry, TableInfo } from "@/shared/api";
+import type { ActivityEntry, SchemaObjectKind, TableInfo } from "@/shared/api";
 import { useStudioStore } from "@/shared/store";
 import { ActivityView } from "./activity-view";
 import { HomeView } from "./home-view";
-import { TablesBrowser } from "./tables-view";
+import { TablesBrowser } from "./table-view";
 
 interface SidebarProps {
   conn_id: string;
@@ -24,6 +24,12 @@ interface SidebarProps {
   mode?: "tables" | "activity";
   /** Activity mode: clicking an entry opens/updates the details tab. */
   on_activity_select?: (entry: ActivityEntry) => void;
+  /** Forwarded straight to TablesBrowser — see its own doc comment. */
+  object_created?: {
+    database: string;
+    schema: string;
+    kind: SchemaObjectKind;
+  } | null;
 }
 
 /** Left panel frame: width + resize handle, then one of three views —
@@ -39,6 +45,7 @@ export function Sidebar({
   reloading = false,
   mode = "tables",
   on_activity_select,
+  object_created,
 }: SidebarProps) {
   const [search, setSearch] = useState("");
 
@@ -70,31 +77,54 @@ export function Sidebar({
 
   return (
     <aside
-      className="bg-background relative flex h-full shrink-0 flex-col gap-3 overflow-hidden border-r"
+      className="bg-chrome relative flex h-full shrink-0 flex-col gap-3 overflow-hidden border-r"
       style={{ width: sidebarWidth }}
     >
-      {mode === "activity" ? (
+      {/* All three views stay mounted the whole time — only their visibility
+       *  toggles. Unmounting `TablesBrowser` on every Activity OR Home round
+       *  trip (the previous if/else-if/else, then a nested ternary here)
+       *  threw away its entire catalog tree state (fetched schemas/objects,
+       *  which nodes were expanded, `connected_dbs`) and re-triggered the
+       *  "Loading databases…" fetch from scratch on every single switch back
+       *  — same "stays mounted, hidden via className" pattern TablePane/
+       *  MongoCollectionPane already use for their own Data/Schema mode
+       *  switch. */}
+      <div className={mode === "activity" ? "contents" : "hidden"}>
         <ActivityView
           conn_id={conn_id}
           conn_key={conn_key}
           on_select={on_activity_select}
         />
-      ) : show_table_tools ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
-          <TablesBrowser
-            conn_id={conn_id}
-            tables={tables}
-            active_table={active_table}
-            on_open_table={on_open_table}
-            on_refresh={on_refresh}
-            reloading={reloading}
-            search_value={search}
-            on_search_change={setSearch}
-          />
-        </div>
-      ) : (
+      </div>
+      {/* No right padding: the catalog tree's own scrollbar (when it
+          overflows) should hug the sidebar's actual edge instead of
+          floating with a gap of padding between it and the border. */}
+      <div
+        className={
+          mode !== "activity" && show_table_tools
+            ? "flex min-h-0 min-w-0 flex-1 flex-col gap-3 py-2 pl-2"
+            : "hidden"
+        }
+      >
+        <TablesBrowser
+          conn_id={conn_id}
+          tables={tables}
+          active_table={active_table}
+          on_open_table={on_open_table}
+          on_refresh={on_refresh}
+          reloading={reloading}
+          search_value={search}
+          on_search_change={setSearch}
+          object_created={object_created}
+        />
+      </div>
+      <div
+        className={
+          mode !== "activity" && !show_table_tools ? "contents" : "hidden"
+        }
+      >
         <HomeView search_value={search} on_search_change={setSearch} />
-      )}
+      </div>
 
       <div
         role="separator"

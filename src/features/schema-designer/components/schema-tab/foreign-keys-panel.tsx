@@ -8,7 +8,7 @@ import {
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import { listTables, tableSchema } from "@/shared/api";
+import { listSchemaObjects, listTables, tableSchema } from "@/shared/api";
 import {
   Select,
   SelectContent,
@@ -38,6 +38,8 @@ export function ForeignKeysPanel({
   disabled = false,
   on_update,
   on_replace,
+  database,
+  schema_name,
 }: {
   conn_id: string;
   fks: FkDraft[];
@@ -46,6 +48,12 @@ export function ForeignKeysPanel({
   disabled?: boolean;
   on_update: (id: string, patch: Partial<FkDraft>) => void;
   on_replace: (updater: (fs: FkDraft[]) => FkDraft[]) => void;
+  /** `undefined` = this connection's own primary database/active schema —
+   *  the schema the referenced-table dropdown's columns are described from
+   *  (a Postgres FK can reference a table in a different schema of the SAME
+   *  database, but never a different database). */
+  database?: string;
+  schema_name?: string;
 }) {
   const [adding, setAdding] = useState(false);
   const [draft_col, setDraftCol] = useState("");
@@ -57,7 +65,16 @@ export function ForeignKeysPanel({
   const [tables_list, setTablesList] = useState<string[] | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void listTables(conn_id)
+    // Scoped to the SAME database/schema this table itself lives in — a
+    // Postgres FK can reference a different schema but never a different
+    // database (see the `database`/`schema_name` doc comment above).
+    // `listTables` has no such scoping and always lists the connection's
+    // own primary database's tables, wrong here for a table opened from a
+    // sibling database — but `listSchemaObjects` is Postgres-only (SQLite
+    // has no adapter implementation for it), so fall back to `listTables`
+    // on failure rather than leaving SQLite with an empty picker.
+    void listSchemaObjects(conn_id, schema_name || "public", "table", database)
+      .catch(() => listTables(conn_id))
       .then((ts) => {
         if (!cancelled) setTablesList(ts.map((t) => t.name));
       })
@@ -67,7 +84,7 @@ export function ForeignKeysPanel({
     return () => {
       cancelled = true;
     };
-  }, [conn_id]);
+  }, [conn_id, database, schema_name]);
   /** Columns per referenced table — fetched once, cached in state. */
   const [ref_cols_by_table, setRefColsByTable] = useState<
     Record<string, string[]>
@@ -87,7 +104,7 @@ export function ForeignKeysPanel({
     setDraftRefTable(t);
     if (!t || ref_cols_by_table[t]) return;
     setRefFetching(true);
-    void tableSchema(conn_id, t)
+    void tableSchema(conn_id, t, database, schema_name)
       .then((s) => {
         const names = s.columns.map((c) => c.name);
         setRefColsByTable((p) => ({ ...p, [t]: names }));
@@ -142,10 +159,10 @@ export function ForeignKeysPanel({
       <AccordionPanel>
         <div className="overflow-hidden rounded-md border">
           {/* Header — mirrors the row layout: constraint · on update · on delete */}
-          <div className="bg-muted/40 text-muted-foreground flex items-center gap-1.5 border-b px-3 py-1.5 text-[10px] font-medium tracking-wide uppercase">
+          <div className="bg-muted/40 text-muted-foreground text-3xs flex items-center gap-1.5 border-b px-3 py-1.5 font-medium tracking-wide uppercase">
             <span className="min-w-0 flex-1 truncate">Foreign key</span>
-            <span className="w-[6rem] shrink-0">On update</span>
-            <span className="w-[6rem] shrink-0">On delete</span>
+            <span className="w-24 shrink-0">On update</span>
+            <span className="w-24 shrink-0">On delete</span>
             <span className="w-7 shrink-0" />
           </div>
           {fks.map((fk) => (
@@ -398,7 +415,7 @@ function FkRow({
         onValueChange={(v) => on_update(fk.id, { on_update: v ?? "" })}
         disabled={disabled || fk.dropped}
       >
-        <SelectTrigger size="sm" className="h-7 w-[6rem] shrink-0 text-xs">
+        <SelectTrigger size="sm" className="h-7 w-24 shrink-0 text-xs">
           <SelectValue placeholder="on update" />
         </SelectTrigger>
         <SelectContent>
@@ -414,7 +431,7 @@ function FkRow({
         onValueChange={(v) => on_update(fk.id, { on_delete: v ?? "" })}
         disabled={disabled || fk.dropped}
       >
-        <SelectTrigger size="sm" className="h-7 w-[6rem] shrink-0 text-xs">
+        <SelectTrigger size="sm" className="h-7 w-24 shrink-0 text-xs">
           <SelectValue placeholder="on delete" />
         </SelectTrigger>
         <SelectContent>

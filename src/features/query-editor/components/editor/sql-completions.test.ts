@@ -66,7 +66,8 @@ describe("schemaCompletions", () => {
 
   it("combines columns from every table referenced via JOIN", () => {
     const source = schemaCompletions(schema);
-    const doc = "SELECT * FROM users JOIN orders ON users.id = orders.id WHERE ";
+    const doc =
+      "SELECT * FROM users JOIN orders ON users.id = orders.id WHERE ";
     const result = runSync(source, ctxFor(doc));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("email");

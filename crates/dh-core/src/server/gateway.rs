@@ -183,31 +183,51 @@ impl Gateway {
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         table: &str,
     ) -> Result<crate::api::TableSchema, String> {
         self.authorize(ctx, conn_id, false).await?;
-        self.adapter(conn_id).await?.table_schema(table).await.map(|t| t.0).map_err(|e| e.to_string())
+        self.adapter(conn_id)
+            .await?
+            .table_schema(database, schema, table)
+            .await
+            .map(|t| t.0)
+            .map_err(|e| e.to_string())
     }
 
     pub async fn run_sql(
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         sql: &str,
     ) -> Result<QueryResult, String> {
         // SQL console can contain anything → requires readwrite.
         self.authorize(ctx, conn_id, true).await?;
-        self.adapter(conn_id).await?.run_sql(sql).await.map_err(|e| e.to_string())
+        self.adapter(conn_id)
+            .await?
+            .run_sql(database, schema, sql)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn execute_op(
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         op: &QueryOp,
     ) -> Result<QueryResult, String> {
         let (_, org_id) = self.authorize(ctx, conn_id, !op_is_read(op)).await?;
-        let outcome = self.adapter(conn_id).await?.execute_op(op).await.map_err(|e| e.to_string())?;
+        let outcome = self
+            .adapter(conn_id)
+            .await?
+            .execute_op(database, schema, op)
+            .await
+            .map_err(|e| e.to_string())?;
         self.store.audit(ctx, Some(&org_id), op_action(op), conn_id, outcome.sql.as_deref()).await?;
         Ok(outcome.result)
     }
@@ -328,10 +348,15 @@ impl Gateway {
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
+        database: Option<&str>,
         name: &str,
     ) -> Result<(), String> {
         let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
-        self.adapter(conn_id).await?.create_collection(name).await.map_err(|e| e.to_string())?;
+        self.adapter(conn_id)
+            .await?
+            .create_collection(database, name)
+            .await
+            .map_err(|e| e.to_string())?;
         self.store.audit(ctx, Some(&org_id), "collection.create", conn_id, Some(name)).await?;
         Ok(())
     }
@@ -344,6 +369,8 @@ impl Gateway {
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         source: &str,
         target: &str,
         copy_data: bool,
@@ -352,7 +379,7 @@ impl Gateway {
         let stmts = self
             .adapter(conn_id)
             .await?
-            .duplicate_table(source, target, copy_data)
+            .duplicate_table(database, schema, source, target, copy_data)
             .await
             .map_err(|e| e.to_string())?;
         self.store
@@ -373,6 +400,88 @@ impl Gateway {
     ) -> Result<CatalogOverview, String> {
         self.authorize(ctx, conn_id, false).await?;
         self.adapter(conn_id).await?.catalog_overview().await.map_err(|e| e.to_string())
+    }
+
+    /// Sidebar catalog tree surface — schemas/objects/roles for a specific
+    /// (possibly sibling, possibly non-active) database on the connection's
+    /// server. Same authorize→adapter→map-err shape as everything else here;
+    /// the actual sibling-database routing (Postgres secondary pools, Mongo's
+    /// free multi-database addressing) lives entirely in the adapter.
+    pub async fn list_schemas_in(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        database: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id)
+            .await?
+            .list_schemas_in(database)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn list_schema_objects(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        database: Option<&str>,
+        schema: &str,
+        kind: crate::db::SchemaObjectKind,
+    ) -> Result<Vec<crate::db::SchemaObject>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id)
+            .await?
+            .list_schema_objects(database, schema, kind)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn list_roles(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+    ) -> Result<Vec<crate::db::SchemaObject>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id).await?.list_roles().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn list_role_details(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+    ) -> Result<Vec<crate::db::RoleDetail>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id)
+            .await?
+            .list_role_details()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Closes ONE sibling database's own connection right now — the
+    /// sidebar's per-database "Disconnect". Shared adapter state (like
+    /// `set_active_schema` below), so treated as a write: another caller
+    /// currently browsing that same sibling database would have its pool
+    /// closed out from under it too (harmless — `pool_for` just reopens it
+    /// lazily on the next query — but still a real effect on a shared
+    /// resource, not just this caller's own view).
+    pub async fn disconnect_database(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        database: &str,
+    ) -> Result<(), String> {
+        let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
+        self.adapter(conn_id)
+            .await?
+            .disconnect_database(database)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.store
+            .audit(ctx, Some(&org_id), "database.disconnect", conn_id, Some(database))
+            .await?;
+        Ok(())
     }
 
     /// Switches which database/schema UNQUALIFIED operations on this shared
@@ -405,13 +514,15 @@ impl Gateway {
         &self,
         ctx: &AuthCtx,
         conn_id: &str,
+        database: Option<&str>,
+        schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> Result<Vec<String>, String> {
         let (_, org_id) = self.authorize(ctx, conn_id, true).await?;
         let stmts = self
             .adapter(conn_id)
             .await?
-            .apply_schema_ops_batch(ops)
+            .apply_schema_ops_batch(database, schema, ops)
             .await
             .map_err(|e| e.to_string())?;
         if !stmts.is_empty() {
@@ -641,7 +752,7 @@ mod tests {
         let meta = gw.create_connection(&owner, &org_id, input()).await.unwrap();
 
         // Owner passes even against a dead adapter (that fails later, not at authz).
-        let err = gw.execute_op(&owner, &meta.id, &read_op()).await.err().unwrap();
+        let err = gw.execute_op(&owner, &meta.id, None, None, &read_op()).await.err().unwrap();
         assert!(!err.contains(ERR_FORBIDDEN), "owner should pass authz");
 
         // Someone from a DIFFERENT org (not a member at all) is forbidden outright.
@@ -654,9 +765,9 @@ mod tests {
 
         // A Viewer in the SAME org can read but not write.
         let viewer = member_of(&store, &org_id, OrgRole::Viewer).await;
-        let err = gw.run_sql(&viewer, &meta.id, "SELECT 1").await.err().unwrap();
+        let err = gw.run_sql(&viewer, &meta.id, None, None, "SELECT 1").await.err().unwrap();
         assert_eq!(err, ERR_READONLY);
-        let err3 = gw.execute_op(&viewer, &meta.id, &read_op()).await.err().unwrap();
+        let err3 = gw.execute_op(&viewer, &meta.id, None, None, &read_op()).await.err().unwrap();
         assert!(!err3.contains(ERR_FORBIDDEN) && !err3.contains(ERR_READONLY));
 
         // A Member gets read+write by default but not delete.

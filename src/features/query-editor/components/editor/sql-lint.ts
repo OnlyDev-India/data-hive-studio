@@ -30,7 +30,14 @@ export function sqlLinter(
   tables: string[],
   schema: Record<string, Completion[]>,
 ) {
-  const known_tables = new Set(tables.map((t) => t.toLowerCase()));
+  // `schema`'s own keys cover every known table too — bare `"table"` for
+  // the default schema, `"schema.table"` for every other one (see
+  // `schemaCompletions`'s doc comment) — so a schema-qualified reference
+  // has something to resolve against, not just the bare `tables` list.
+  const known_tables = new Set([
+    ...tables.map((t) => t.toLowerCase()),
+    ...Object.keys(schema).map((k) => k.toLowerCase()),
+  ]);
   const columns_by_table = new Map<string, Set<string>>();
   for (const [t, cols] of Object.entries(schema)) {
     columns_by_table.set(
@@ -59,18 +66,23 @@ export function sqlLinter(
     // flagged as if it were live.
     const masked = maskComments(doc);
 
-    // Unknown table names in FROM/JOIN/UPDATE/INSERT INTO.
-    const table_re = /\b(?:from|join|update|into)\s+"?([A-Za-z_][\w$]*)"?/gi;
+    // Unknown table names in FROM/JOIN/UPDATE/INSERT INTO — schema-qualified
+    // references (`schema.table`) are checked against the qualified name,
+    // not the bare table name alone.
+    const table_re =
+      /\b(?:from|join|update|into)\s+(?:"?([A-Za-z_][\w$]*)"?\.)?"?([A-Za-z_][\w$]*)"?/gi;
     let m: RegExpExecArray | null;
     while ((m = table_re.exec(masked))) {
-      const name = m[1];
-      if (!known_tables.has(name.toLowerCase())) {
+      const table_schema = m[1];
+      const name = m[2];
+      const qualified = table_schema ? `${table_schema}.${name}` : name;
+      if (!known_tables.has(qualified.toLowerCase())) {
         const start = m.index + m[0].length - name.length;
         diagnostics.push({
           from: start,
           to: start + name.length,
           severity: "error",
-          message: `Unknown table "${name}"`,
+          message: `Unknown table "${qualified}"`,
         });
       }
     }
@@ -130,8 +142,7 @@ interface CstNode {
 const DIALECTS = ["sqlite", "postgresql"] as const;
 
 type ParseForLint =
-  | { ok: true; program: CstNode }
-  | { ok: false; diagnostic: Diagnostic };
+  { ok: true; program: CstNode } | { ok: false; diagnostic: Diagnostic };
 
 function parseForLint(doc: string): ParseForLint {
   let message: string | null = null;

@@ -68,7 +68,12 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/v1/c/{conn_id}/close", post(conn_close))
         .route("/v1/c/{conn_id}/databases", get(conn_databases))
         .route("/v1/c/{conn_id}/catalog", get(conn_catalog))
+        .route("/v1/c/{conn_id}/schemas-in", post(conn_schemas_in))
+        .route("/v1/c/{conn_id}/schema-objects", post(conn_schema_objects))
+        .route("/v1/c/{conn_id}/roles", get(conn_roles))
+        .route("/v1/c/{conn_id}/role-details", get(conn_role_details))
         .route("/v1/c/{conn_id}/active-schema", get(conn_get_active_schema).put(conn_set_active_schema))
+        .route("/v1/c/{conn_id}/disconnect-database", post(conn_disconnect_database))
         .route("/v1/c/{conn_id}/schema-ops", post(conn_schema_ops))
         .route("/v1/c/{conn_id}/duplicate", post(conn_duplicate))
         .route("/v1/c/{conn_id}/mongo/documents", post(conn_mongo_documents))
@@ -608,12 +613,24 @@ async fn conn_schemas(State(gw): State<AppState>, auth: Auth, Path(conn_id): Pat
     }
 }
 
+/// `database`/`schema`: `None` (query string omitted) = this connection's
+/// own primary database / active schema — see `DbAdapter::table_schema`'s
+/// doc comment for the general semantics.
+#[derive(serde::Deserialize)]
+pub struct TargetQuery {
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
+}
+
 async fn conn_schema(
     State(gw): State<AppState>,
     auth: Auth,
     Path((conn_id, table)): Path<(String, String)>,
+    Query(q): Query<TargetQuery>,
 ) -> Response {
-    match gw.table_schema(&auth.0, &conn_id, &table).await {
+    match gw.table_schema(&auth.0, &conn_id, q.database.as_deref(), q.schema.as_deref(), &table).await {
         Ok(s) => Json(s).into_response(),
         Err(e) => err_res(e),
     }
@@ -622,6 +639,10 @@ async fn conn_schema(
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct SqlBody {
     pub sql: String,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
 }
 
 async fn conn_sql(
@@ -630,19 +651,38 @@ async fn conn_sql(
     Path(conn_id): Path<String>,
     Json(body): Json<SqlBody>,
 ) -> Response {
-    match gw.run_sql(&auth.0, &conn_id, &body.sql).await {
+    match gw
+        .run_sql(&auth.0, &conn_id, body.database.as_deref(), body.schema.as_deref(), &body.sql)
+        .await
+    {
         Ok(r) => Json(r).into_response(),
         Err(e) => err_res(e),
     }
+}
+
+/// `#[serde(flatten)]` keeps `op`'s own tagged JSON shape at the top level
+/// (`{ kind: "select", table: ..., ... }`) with `database`/`schema` as
+/// sibling fields, rather than nesting the op under its own key.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ExecuteOpBody {
+    #[serde(flatten)]
+    pub op: QueryOp,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
 }
 
 async fn conn_op(
     State(gw): State<AppState>,
     auth: Auth,
     Path(conn_id): Path<String>,
-    Json(op): Json<QueryOp>,
+    Json(body): Json<ExecuteOpBody>,
 ) -> Response {
-    match gw.execute_op(&auth.0, &conn_id, &op).await {
+    match gw
+        .execute_op(&auth.0, &conn_id, body.database.as_deref(), body.schema.as_deref(), &body.op)
+        .await
+    {
         Ok(r) => Json(r).into_response(),
         Err(e) => err_res(e),
     }
@@ -662,9 +702,82 @@ async fn conn_catalog(State(gw): State<AppState>, auth: Auth, Path(conn_id): Pat
     }
 }
 
+// ---- Sidebar catalog tree — schemas/objects/roles, optionally for a
+// sibling database on the same server (see `Gateway::list_schemas_in`). ----
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct SchemasInBody {
+    pub database: Option<String>,
+}
+
+async fn conn_schemas_in(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<SchemasInBody>,
+) -> Response {
+    match gw.list_schemas_in(&auth.0, &conn_id, body.database.as_deref()).await {
+        Ok(s) => Json(s).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct SchemaObjectsBody {
+    pub database: Option<String>,
+    pub schema: String,
+    pub kind: crate::db::SchemaObjectKind,
+}
+
+async fn conn_schema_objects(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<SchemaObjectsBody>,
+) -> Response {
+    match gw
+        .list_schema_objects(&auth.0, &conn_id, body.database.as_deref(), &body.schema, body.kind)
+        .await
+    {
+        Ok(o) => Json(o).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+async fn conn_roles(State(gw): State<AppState>, auth: Auth, Path(conn_id): Path<String>) -> Response {
+    match gw.list_roles(&auth.0, &conn_id).await {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+async fn conn_role_details(State(gw): State<AppState>, auth: Auth, Path(conn_id): Path<String>) -> Response {
+    match gw.list_role_details(&auth.0, &conn_id).await {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
 async fn conn_get_active_schema(State(gw): State<AppState>, auth: Auth, Path(conn_id): Path<String>) -> Response {
     match gw.active_schema(&auth.0, &conn_id).await {
         Ok(s) => Json(s).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct DisconnectDatabaseBody {
+    pub database: String,
+}
+
+async fn conn_disconnect_database(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<DisconnectDatabaseBody>,
+) -> Response {
+    match gw.disconnect_database(&auth.0, &conn_id, &body.database).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err_res(e),
     }
 }
@@ -689,6 +802,10 @@ async fn conn_set_active_schema(
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct SchemaOpsBody {
     pub ops: Vec<SchemaOp>,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
 }
 
 async fn conn_schema_ops(
@@ -697,7 +814,10 @@ async fn conn_schema_ops(
     Path(conn_id): Path<String>,
     Json(body): Json<SchemaOpsBody>,
 ) -> Response {
-    match gw.apply_schema_ops_batch(&auth.0, &conn_id, &body.ops).await {
+    match gw
+        .apply_schema_ops_batch(&auth.0, &conn_id, body.database.as_deref(), body.schema.as_deref(), &body.ops)
+        .await
+    {
         Ok(stmts) => Json(stmts).into_response(),
         Err(e) => err_res(e),
     }
@@ -709,6 +829,10 @@ pub struct DuplicateBody {
     pub target: String,
     #[serde(default)]
     pub copy_data: bool,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
 }
 
 async fn conn_duplicate(
@@ -717,7 +841,18 @@ async fn conn_duplicate(
     Path(conn_id): Path<String>,
     Json(body): Json<DuplicateBody>,
 ) -> Response {
-    match gw.duplicate_table(&auth.0, &conn_id, &body.source, &body.target, body.copy_data).await {
+    match gw
+        .duplicate_table(
+            &auth.0,
+            &conn_id,
+            body.database.as_deref(),
+            body.schema.as_deref(),
+            &body.source,
+            &body.target,
+            body.copy_data,
+        )
+        .await
+    {
         Ok(stmts) => Json(stmts).into_response(),
         Err(e) => err_res(e),
     }
@@ -834,6 +969,8 @@ async fn conn_mongo_run(
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct CreateCollectionBody {
     pub name: String,
+    #[serde(default)]
+    pub database: Option<String>,
 }
 
 async fn conn_mongo_create_collection(
@@ -842,7 +979,10 @@ async fn conn_mongo_create_collection(
     Path(conn_id): Path<String>,
     Json(body): Json<CreateCollectionBody>,
 ) -> Response {
-    match gw.create_collection(&auth.0, &conn_id, &body.name).await {
+    match gw
+        .create_collection(&auth.0, &conn_id, body.database.as_deref(), &body.name)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err_res(e),
     }

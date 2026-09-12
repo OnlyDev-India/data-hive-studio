@@ -41,15 +41,19 @@ export async function executeOpStream(
   connId: string,
   op: QueryOp,
   onChunk?: ChunkSink,
+  database?: string,
+  schema?: string,
 ): Promise<QueryResult> {
   if (isServerConn(connId) || WEB) {
     // No channel streaming over HTTP yet — fetch whole result, emit once.
-    const res = await executeOp(connId, op);
+    const res = await executeOp(connId, op, database, schema);
     emitAsChunk(res, onChunk);
     return res;
   }
   return invoke<QueryResult>("execute_op_stream", {
     connId,
+    database,
+    schema,
     op,
     channel: makeChannel(onChunk),
   });
@@ -57,20 +61,26 @@ export async function executeOpStream(
 
 /** Streaming variant of {@link runSql}: SELECT-shaped statements push row
  *  batches to `onChunk` as they come back. The resolved result carries every
- *  field EXCEPT rows. Other statements run normally and never emit chunks. */
+ *  field EXCEPT rows. Other statements run normally and never emit chunks.
+ *  `database`: omitted = this connection's own primary database. `schema`:
+ *  see {@link runSql}'s own doc comment. */
 export async function runSqlStream(
   connId: string,
   sql: string,
   onChunk?: ChunkSink,
+  database?: string,
+  schema?: string,
 ): Promise<QueryResult> {
   if (isServerConn(connId) || WEB) {
     // Still the editor's own "Run" — just a different transport.
-    const res = await runSql(connId, sql, "user");
+    const res = await runSql(connId, sql, "user", database, schema);
     emitAsChunk(res, onChunk);
     return res;
   }
   return invoke<QueryResult>("run_sql_stream", {
     connId,
+    database,
+    schema,
     sql,
     channel: makeChannel(onChunk),
   });

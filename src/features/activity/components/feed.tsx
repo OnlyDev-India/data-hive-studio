@@ -109,12 +109,12 @@ function EntryRow({
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+        <span className="text-muted-foreground text-3xs shrink-0 font-mono">
           {fmtTime(entry.ts_ms)}
         </span>
         <span
           className={cn(
-            "shrink-0 rounded px-1 py-px text-[10px] font-semibold",
+            "text-3xs shrink-0 rounded px-1 py-px font-semibold",
             style.cls,
           )}
         >
@@ -126,7 +126,7 @@ function EntryRow({
         >
           {entry.target || "—"}
         </span>
-        <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">
+        <span className="text-muted-foreground text-3xs shrink-0 tabular-nums">
           {entry.rows > 0 && (
             <>
               {entry.rows} row{entry.rows === 1 ? "" : "s"} ·{" "}
@@ -225,7 +225,7 @@ export function ActivityFeed({
         <History className="text-muted-foreground size-4 shrink-0" />
         <h2 className="text-sm font-semibold">Activity</h2>
         {visible.length > 0 && (
-          <span className="bg-muted text-muted-foreground rounded-full px-1.5 py-px text-[10px] tabular-nums">
+          <span className="bg-muted text-muted-foreground text-3xs rounded-full px-1.5 py-px tabular-nums">
             {visible.length}
           </span>
         )}
@@ -253,7 +253,7 @@ export function ActivityFeed({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         placeholder="Filter by table, kind or error…"
-        className="h-7 shrink-0 text-xs"
+        className="shrink-0 text-xs"
       />
       <div className="flex shrink-0 items-center gap-1.5 px-0.5">
         <Switch
@@ -264,7 +264,7 @@ export function ActivityFeed({
         />
         <Label
           htmlFor="show-app-activity"
-          className="text-muted-foreground text-[11px] font-normal"
+          className="text-muted-foreground text-2xs font-normal"
         >
           Show app queries{app_count > 0 ? ` (${app_count})` : ""}
         </Label>

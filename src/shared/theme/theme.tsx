@@ -16,11 +16,28 @@ import {
   type Accent as AccentColor,
   type AccentId,
 } from "./accent";
+import {
+  applyFont,
+  getFont,
+  persistFont,
+  readFont,
+  type Font,
+  type FontId,
+} from "./font";
+import { applyScale, persistScale, readScale } from "./scale";
+import {
+  applyCornerStyle,
+  getCornerStyle,
+  persistCornerStyle,
+  readCornerStyle,
+  type CornerStyle,
+  type CornerStyleId,
+} from "./corners";
 
 const STORAGE_KEY = "darkmode";
 
 export type ThemeMode = "system" | "light" | "dark";
-export type { AccentColor, AccentId };
+export type { AccentColor, AccentId, Font, FontId, CornerStyle, CornerStyleId };
 
 /** Resolve the tri-state mode to a concrete boolean. Falls back to the OS
  *  preference when unset or "system". */
@@ -46,6 +63,16 @@ interface ThemeState {
   accent: AccentId;
   /** The selected accent color (derived from `accent`). */
   accentColor: AccentColor;
+  /** Currently selected font id. */
+  font: FontId;
+  /** The selected font (derived from `font`). */
+  fontFamily: Font;
+  /** Current interface scale, as a percent of the 16px browser default. */
+  scale: number;
+  /** Currently selected corner style id. */
+  cornerStyle: CornerStyleId;
+  /** The selected corner style (derived from `cornerStyle`). */
+  cornerStyleValue: CornerStyle;
   /** Toggle light/dark relative to the CURRENT resolved value; pins the
    *  opposite preference (i.e. an explicit light or dark mode). */
   toggle: () => void;
@@ -55,6 +82,12 @@ interface ThemeState {
   setDark: (dark: boolean) => void;
   /** Set and persist an accent color. */
   setAccent: (id: AccentId) => void;
+  /** Set and persist a font. */
+  setFont: (id: FontId) => void;
+  /** Set and persist the interface scale (percent of the 16px default). */
+  setScale: (percent: number) => void;
+  /** Set and persist a corner style. */
+  setCornerStyle: (id: CornerStyleId) => void;
 }
 
 const ThemeCtx = createContext<ThemeState | null>(null);
@@ -70,6 +103,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>("system");
   const [dark, setDarkState] = useState(false);
   const [accent, setAccentState] = useState<AccentId>("graphite");
+  const [font, setFontState] = useState<FontId>("inter");
+  const [scale, setScaleState] = useState<number>(100);
+  const [cornerStyle, setCornerStyleState] = useState<CornerStyleId>("round");
 
   // Hydrate once from storage / system on mount.
   useEffect(() => {
@@ -80,6 +116,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const a = readAccent();
       setAccentState(a);
       applyAccent(a);
+      const f = readFont();
+      setFontState(f);
+      applyFont(f);
+      const sc = readScale();
+      setScaleState(sc);
+      applyScale(sc);
+      const cs = readCornerStyle();
+      setCornerStyleState(cs);
+      applyCornerStyle(cs);
       setLoaded(true);
     })();
   }, []);
@@ -133,18 +178,58 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setAccentState(id);
   }, []);
 
+  const setFont = useCallback((id: FontId) => {
+    applyFont(id);
+    persistFont(id);
+    setFontState(id);
+  }, []);
+
+  const setScale = useCallback((percent: number) => {
+    applyScale(percent);
+    persistScale(percent);
+    setScaleState(percent);
+  }, []);
+
+  const setCornerStyle = useCallback((id: CornerStyleId) => {
+    applyCornerStyle(id);
+    persistCornerStyle(id);
+    setCornerStyleState(id);
+  }, []);
+
   const value = useMemo<ThemeState>(
     () => ({
       dark,
       mode,
       accent,
       accentColor: getAccent(accent),
+      font,
+      fontFamily: getFont(font),
+      scale,
+      cornerStyle,
+      cornerStyleValue: getCornerStyle(cornerStyle),
       toggle,
       setMode,
       setDark: setDarkPinned,
       setAccent,
+      setFont,
+      setScale,
+      setCornerStyle,
     }),
-    [dark, mode, accent, toggle, setMode, setDarkPinned, setAccent],
+    [
+      dark,
+      mode,
+      accent,
+      font,
+      scale,
+      cornerStyle,
+      toggle,
+      setMode,
+      setDarkPinned,
+      setAccent,
+      setFont,
+      setScale,
+      setCornerStyle,
+    ],
   );
 
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
