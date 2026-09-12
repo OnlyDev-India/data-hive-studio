@@ -48,7 +48,7 @@ export function NotificationItem({
               <span className="mt-1 size-1.5 shrink-0 rounded-full bg-blue-500" />
             )}
             <span className="min-w-0 text-sm break-words">{n.title}</span>
-            <span className="text-muted-foreground/70 ml-auto shrink-0 text-[10px]">
+            <span className="text-muted-foreground/70 text-3xs ml-auto shrink-0">
               {new Date(n.at).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -69,7 +69,7 @@ export function NotificationItem({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-5 px-1.5 text-[11px]"
+                  className="text-2xs h-5 px-1.5"
                   onClick={() => setDetailOpen(true)}
                 >
                   View details
@@ -79,7 +79,7 @@ export function NotificationItem({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-5 px-1.5 text-[11px]"
+                  className="text-2xs h-5 px-1.5"
                   onClick={n.actionFn}
                 >
                   {n.actionLabel}

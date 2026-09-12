@@ -63,34 +63,36 @@ export function useTabDrag(connId: string) {
 
   useEffect(() => {
     /** Any tab strip the pointer is currently over (any pane), and the
-     *  insert index within it — mirrors the single-strip version this app
-     *  already had, just scanning every mounted strip via `data-tab-pane`. */
+     *  insert index within it. Hit-tests the WHOLE strip container
+     *  (`data-tab-strip`, its full rect) first — not just individual tab
+     *  items — so the strip's empty trailing space, the sticky +/dropdown
+     *  cluster's area, and a pane with zero tabs (nothing for a per-item
+     *  test to match) are all valid drop targets, not just existing tabs
+     *  themselves. Once a strip matches, its own tab items (`data-tab-
+     *  index`) decide WHERE in it to insert. */
     const hovered_strip = (
       x: number,
       y: number,
     ): { paneId: string; index: number } | null => {
-      const items = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-tab-pane]"),
+      const strips = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-tab-strip]"),
       );
-      const in_row = items.filter((it) => {
-        const r = it.getBoundingClientRect();
-        return y >= r.top && y <= r.bottom;
-      });
-      if (in_row.length === 0) return null;
-      for (const it of in_row) {
-        const r = it.getBoundingClientRect();
-        if (x < r.left + r.width / 2) {
-          return {
-            paneId: it.dataset.tabPane ?? "",
-            index: Number(it.dataset.tabIndex),
-          };
+      for (const strip of strips) {
+        const r = strip.getBoundingClientRect();
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+        const paneId = strip.dataset.tabStrip ?? "";
+        const items = Array.from(
+          strip.querySelectorAll<HTMLElement>("[data-tab-index]"),
+        );
+        for (const it of items) {
+          const ir = it.getBoundingClientRect();
+          if (x < ir.left + ir.width / 2) {
+            return { paneId, index: Number(it.dataset.tabIndex) };
+          }
         }
+        return { paneId, index: items.length };
       }
-      const last = in_row[in_row.length - 1];
-      return {
-        paneId: last.dataset.tabPane ?? "",
-        index: Number(last.dataset.tabIndex) + 1,
-      };
+      return null;
     };
 
     /** Which pane's CONTENT area (below any strip) the pointer is over, and
@@ -122,17 +124,23 @@ export function useTabDrag(connId: string) {
           y > r.bottom + EDGE_SLOP
         )
           continue;
-        const candidates: [number, "left" | "right" | "top" | "bottom", number][] =
-          [
-            [x - r.left, "left", r.width],
-            [r.right - x, "right", r.width],
-            [y - r.top, "top", r.height],
-            [r.bottom - y, "bottom", r.height],
-          ];
+        const candidates: [
+          number,
+          "left" | "right" | "top" | "bottom",
+          number,
+        ][] = [
+          [x - r.left, "left", r.width],
+          [r.right - x, "right", r.width],
+          [y - r.top, "top", r.height],
+          [r.bottom - y, "bottom", r.height],
+        ];
         candidates.sort((a, b) => a[0] - b[0]);
         const [minDist, edge, span] = candidates[0];
         const paneId = el.dataset.paneContentId ?? "";
-        return { paneId, edge: span > 0 && minDist / span < 0.25 ? edge : "center" };
+        return {
+          paneId,
+          edge: span > 0 && minDist / span < 0.25 ? edge : "center",
+        };
       }
       return null;
     };
@@ -155,7 +163,11 @@ export function useTabDrag(connId: string) {
       if (strip && strip.paneId) {
         setDropTarget(null);
         const last = last_strip.current;
-        if (!last || last.paneId !== strip.paneId || last.index !== strip.index) {
+        if (
+          !last ||
+          last.paneId !== strip.paneId ||
+          last.index !== strip.index
+        ) {
           last_strip.current = strip;
           movePaneTab(p.connId, p.tab, strip.paneId, strip.index);
         }

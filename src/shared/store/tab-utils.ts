@@ -6,16 +6,33 @@ export type StudioTab =
       name: string;
       tabId: number;
       initialFilters?: GridFilter[];
+      /** Postgres only. `undefined` = this connection's own primary
+       *  database/active schema — every existing tab keeps this behavior
+       *  with no migration. Set when a table is opened from a database/
+       *  schema other than the connection's own (the sidebar catalog
+       *  tree's multi-database browsing), so this tab keeps querying ITS
+       *  target even while other tabs stay on (or switch to) a different
+       *  one — see `open_object` in tables-view.tsx. */
+      database?: string;
+      schema?: string;
     }
   | { kind: "sql"; id: number }
   | { kind: "new-table"; id: number }
-  | { kind: "mongo"; conn_id: string; database: string; collection: string; tabId: number }
+  | {
+      kind: "mongo";
+      conn_id: string;
+      database: string;
+      collection: string;
+      tabId: number;
+    }
   /** MongoDB console (JSON query / aggregate / shell subset). Multiple per
    *  connection are allowed, like SQL editors. `database` is the console's
    *  initial db context (switchable via `use <db>` inside the editor). */
   | { kind: "mongo-console"; conn_id: string; database: string; id: number }
   /** Singleton per connection — shows the currently selected activity entry. */
-  | { kind: "activity" };
+  | { kind: "activity" }
+  /** Singleton per connection — the Users & Privileges tab (Postgres roles). */
+  | { kind: "roles" };
 
 /** `file_name`, when set, overrides the generic label for "sql"/"mongo-console"
  *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`. */
@@ -34,13 +51,15 @@ export function tabLabel(tab: StudioTab, file_name?: string | null): string {
       return tab.id === 0 ? "NoSQL console" : `NoSQL console ${tab.id + 1}`;
     case "activity":
       return "Activity";
+    case "roles":
+      return "Users & Privileges";
   }
 }
 
 export function tabKey(tab: StudioTab): string {
   switch (tab.kind) {
     case "table":
-      return `table:${tab.tabId}:${tab.name}`;
+      return `table:${tab.tabId}:${tab.database ?? ""}.${tab.schema ?? ""}.${tab.name}`;
     case "sql":
       return `sql:${tab.id}`;
     case "new-table":
@@ -51,6 +70,8 @@ export function tabKey(tab: StudioTab): string {
       return `mongo-console:${tab.conn_id}:${tab.id}`;
     case "activity":
       return "activity";
+    case "roles":
+      return "roles";
   }
 }
 
@@ -72,9 +93,7 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
   }
   if (a.kind === "mongo-console") {
     return (
-      b.kind === "mongo-console" &&
-      a.conn_id === b.conn_id &&
-      a.id === b.id
+      b.kind === "mongo-console" && a.conn_id === b.conn_id && a.id === b.id
     );
   }
   return true;

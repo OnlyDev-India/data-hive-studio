@@ -227,7 +227,10 @@ export function WebGate({ children }: GateProps) {
               )
             ) : (
               <div className="mt-4">
-                <ConnectServerForm error={gate_error} on_connect={handle_connect} />
+                <ConnectServerForm
+                  error={gate_error}
+                  on_connect={handle_connect}
+                />
               </div>
             )}
           </DialogPrimitive.Popup>

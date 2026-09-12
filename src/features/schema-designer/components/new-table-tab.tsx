@@ -11,7 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { listTables, quoteIdent, runSql, tableSchema } from "@/shared/api";
+import {
+  catalogOverview,
+  listSchemaObjects,
+  listSchemasIn,
+  quoteIdent,
+  runSql,
+  tableSchema,
+} from "@/shared/api";
 import { useStudioStore } from "@/shared/store";
 
 const COLUMN_TYPES = [
@@ -107,6 +114,8 @@ function buildCreateSql(
   table: string,
   cols: ColumnDef[],
   fks: FkDef[],
+  schema?: string,
+  is_pg?: boolean,
 ): { ok: true; sql: string } | { ok: false; error: string } {
   const table_name = table.trim();
   if (!table_name) return { ok: false, error: "Table name is required." };
@@ -120,6 +129,9 @@ function buildCreateSql(
     if (c.primary_key) pk_cols.push(c.name.trim());
   }
 
+  // Postgres has no AUTOINCREMENT keyword (that's SQLite/MySQL) — the
+  // equivalent is GENERATED ALWAYS AS IDENTITY on the column itself.
+  const auto_keyword = is_pg ? "GENERATED ALWAYS AS IDENTITY" : "AUTOINCREMENT";
   const auto_columns = cols.filter((c) => c.auto_increment).map((c) => c.name);
   if (auto_columns.length > 0) {
     const ok =
@@ -133,7 +145,7 @@ function buildCreateSql(
     if (!ok) {
       return {
         ok: false,
-        error: "AUTOINCREMENT requires a single INTEGER PRIMARY KEY column.",
+        error: `${auto_keyword} requires a single INTEGER PRIMARY KEY column.`,
       };
     }
   }
@@ -143,9 +155,13 @@ function buildCreateSql(
     const col_name = quoteIdent(c.name.trim());
     const ty = c.data_type.trim() || "TEXT";
     let def = `${col_name} ${ty}`;
+    // Postgres conventionally places the identity clause right after the
+    // type, before PRIMARY KEY; SQLite requires AUTOINCREMENT to directly
+    // follow PRIMARY KEY.
+    if (is_pg && c.auto_increment) def += ` ${auto_keyword}`;
     if (c.primary_key && pk_cols.length === 1) {
       def += " PRIMARY KEY";
-      if (c.auto_increment) def += " AUTOINCREMENT";
+      if (!is_pg && c.auto_increment) def += ` ${auto_keyword}`;
     }
     if (c.not_null) def += " NOT NULL";
     if (c.unique) def += " UNIQUE";
@@ -173,9 +189,12 @@ function buildCreateSql(
     parts.push(def);
   }
 
+  const qualified = schema
+    ? `${quoteIdent(schema)}.${quoteIdent(table_name)}`
+    : quoteIdent(table_name);
   return {
     ok: true,
-    sql: `CREATE TABLE ${quoteIdent(table_name)} (\n  ${parts.join(",\n  ")}\n);`,
+    sql: `CREATE TABLE ${qualified} (\n  ${parts.join(",\n  ")}\n);`,
   };
 }
 
@@ -187,7 +206,7 @@ interface NewTableTabProps {
    *  is registered only for the active new-table tab. */
   active: boolean;
   on_modified: () => void;
-  on_created: (name: string) => void;
+  on_created: (name: string, database?: string, schema?: string) => void;
 }
 
 export function NewTableTab({
@@ -209,12 +228,127 @@ export function NewTableTab({
   const setNewTable = useStudioStore((s) => s.setNewTable);
   const clearNewTable = useStudioStore((s) => s.clearNewTable);
 
+  // ---- Target database/schema (Postgres only — SQLite has neither
+  // concept within one connection, and Mongo creates collections through
+  // its own MongoNewCollectionTab). Defaults to the connection's own
+  // primary database + active schema, same as every table this tab
+  // creates before this feature existed.
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  const is_pg = conn?.kind === "postgres";
+  const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
+  const own_database = recent_params?.database ?? conn?.name ?? "";
+  const [database, setDatabase] = useState("");
+  const [schema, setSchema] = useState("");
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<string[]>([]);
+  // True while the schema list for the CURRENTLY selected database is being
+  // (re)fetched — the Schema dropdown disables itself for that stretch
+  // rather than briefly offering the previous database's schemas.
+  const [schemas_loading, setSchemasLoading] = useState(false);
+  // `undefined` = targeting this connection's own database — every API
+  // call here treats an explicit own-database the same as omitting it, but
+  // passing `undefined` (rather than the resolved name) keeps `runSql`'s
+  // activity-log entry and the connection's secondary-pool bookkeeping
+  // identical to how every OTHER "app" query already targets its own db.
+  const target_database =
+    database && database !== own_database ? database : undefined;
+
+  // Per-database schema list + default schema, cached by database name so
+  // switching back and forth between databases (own included) instantly
+  // restores the right list instead of leaving a previously-visited
+  // database's schemas on screen — a plain "last database fetched" ref
+  // can't tell "already have this one cached" apart from "just came from
+  // this one," so a real per-key cache is needed, not a single slot.
+  const schemas_cache = useRef<
+    Record<string, { list: string[]; default_schema: string }>
+  >({});
+
   useEffect(() => {
+    if (!is_pg) return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- claims the loading flag synchronously so the dropdown disables the instant the fetch starts; the real work is already async below
+    setSchemasLoading(true);
     void (async () => {
       try {
-        const tables = await listTables(conn_id);
-        if (!cancelled) setTableNames(tables.map((t) => t.name));
+        const overview = await catalogOverview(conn_id);
+        if (cancelled) return;
+        // Always the first schema in the list, not the connection's
+        // current active schema — same rule the switch effect below uses,
+        // so picking a database (own included) always behaves the same way.
+        const default_schema = overview.schemas[0] ?? "public";
+        schemas_cache.current[own_database] = {
+          list: overview.schemas,
+          default_schema,
+        };
+        setDatabases(overview.databases);
+        setSchemas(overview.schemas);
+        setDatabase(own_database);
+        setSchema(default_schema);
+      } catch {
+        /* selectors stay empty — table still creates in the own db/schema */
+      } finally {
+        if (!cancelled) setSchemasLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- own_database intentionally excluded: it's derived from the same conn_id and only needs the initial value on mount
+  }, [conn_id, is_pg]);
+
+  // Re-sync the schema list/selection whenever the target database changes
+  // (own database included, e.g. switching back to it after visiting a
+  // sibling) — instant from the cache above when already fetched, else a
+  // fresh `listSchemasIn` call that populates the cache for next time.
+  useEffect(() => {
+    if (!is_pg || !database) return;
+    const cached = schemas_cache.current[database];
+    if (cached) {
+      setSchemas(cached.list);
+      setSchema(cached.default_schema);
+      return;
+    }
+    let cancelled = false;
+    setSchemasLoading(true);
+    void (async () => {
+      try {
+        const list = await listSchemasIn(conn_id, database);
+        if (cancelled) return;
+        const default_schema = list[0] ?? "public";
+        schemas_cache.current[database] = { list, default_schema };
+        setSchemas(list);
+        setSchema(default_schema);
+      } catch {
+        /* keep the previous schema list */
+      } finally {
+        if (!cancelled) setSchemasLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conn_id, is_pg, database]);
+
+  // Table list for the FK "references" picker — scoped to the currently
+  // selected target database/schema, refetched whenever either changes so
+  // switching schemas doesn't offer tables that don't live there. A
+  // different target also invalidates any cached FK metadata (`ref_meta`) —
+  // same table name in a different schema is a different table.
+  useEffect(() => {
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale cached metadata synchronously the instant the target changes; the real work is already async below
+    setRefMeta({});
+    void (async () => {
+      try {
+        const objects = is_pg
+          ? await listSchemaObjects(
+              conn_id,
+              schema || "public",
+              "table",
+              target_database,
+            )
+          : await listSchemaObjects(conn_id, "", "table");
+        if (!cancelled) setTableNames(objects.map((o) => o.name));
       } catch {
         if (!cancelled) setTableNames([]);
       }
@@ -222,7 +356,7 @@ export function NewTableTab({
     return () => {
       cancelled = true;
     };
-  }, [conn_id]);
+  }, [conn_id, is_pg, schema, target_database]);
 
   /** Load a referenced table's metadata once: columns, PK, and which columns
    *  are legal FK targets. */
@@ -230,13 +364,18 @@ export function NewTableTab({
     const cached = ref_meta[ref_table];
     if (cached) return cached;
     try {
-      const schema = await tableSchema(conn_id, ref_table);
-      const cols = schema.columns.map((c) => c.name);
-      const pk_cols = schema.columns
+      const schema_info = await tableSchema(
+        conn_id,
+        ref_table,
+        target_database,
+        is_pg ? schema : undefined,
+      );
+      const cols = schema_info.columns.map((c) => c.name);
+      const pk_cols = schema_info.columns
         .filter((c) => c.primary_key)
         .map((c) => c.name);
       const valid_targets = new Set(pk_cols);
-      for (const ix of schema.indexes) {
+      for (const ix of schema_info.indexes) {
         // A single-column UNIQUE index makes that column referencable.
         if (ix.unique && ix.columns.length === 1)
           valid_targets.add(ix.columns[0]);
@@ -276,7 +415,14 @@ export function NewTableTab({
 
   const do_create = async () => {
     if (creating) return;
-    const built = buildCreateSql(table_name, columns, fks);
+    const target_schema = is_pg ? schema : undefined;
+    const built = buildCreateSql(
+      table_name,
+      columns,
+      fks,
+      target_schema,
+      is_pg,
+    );
     if (!built.ok) {
       push_notification({
         kind: "error",
@@ -287,14 +433,14 @@ export function NewTableTab({
     }
     setCreating(true);
     try {
-      await runSql(conn_id, built.sql);
+      await runSql(conn_id, built.sql, "app", target_database);
       push_notification({
         kind: "success",
         title: `Table ${table_name.trim()} created`,
         detail: built.sql,
       });
       on_modified();
-      on_created(table_name.trim());
+      on_created(table_name.trim(), target_database, target_schema);
     } catch (e) {
       push_notification({
         kind: "error",
@@ -307,8 +453,15 @@ export function NewTableTab({
   };
 
   const preview = useMemo(
-    () => buildCreateSql(table_name, columns, fks),
-    [table_name, columns, fks],
+    () =>
+      buildCreateSql(
+        table_name,
+        columns,
+        fks,
+        is_pg ? schema : undefined,
+        is_pg,
+      ),
+    [table_name, columns, fks, is_pg, schema],
   );
 
   // Publish the Create action to the action bar — but ONLY while this tab is
@@ -378,13 +531,62 @@ export function NewTableTab({
     // One scroll surface: vertical scrolling belongs to the whole tab;
     // horizontal overflow stays local to the wide columns grid.
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-6">
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Table name</label>
-        <Input
-          placeholder="users"
-          value={table_name}
-          onChange={(e) => setTableName(e.target.value)}
-        />
+      <div className="flex gap-3">
+        <div className="grid flex-1 gap-2">
+          <label className="text-sm font-medium">Table name</label>
+          <Input
+            placeholder="users"
+            value={table_name}
+            onChange={(e) => setTableName(e.target.value)}
+          />
+        </div>
+        {is_pg && (
+          <>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Database</label>
+              <Select
+                value={database || undefined}
+                onValueChange={(v) => v && setDatabase(v)}
+              >
+                <SelectTrigger className="w-44" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {databases.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {d}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Schema</label>
+              <Select
+                value={schema || undefined}
+                disabled={schemas_loading}
+                onValueChange={(v) => v && setSchema(v)}
+              >
+                <SelectTrigger className="w-36" size="sm">
+                  <SelectValue
+                    placeholder={schemas_loading ? "Loading…" : undefined}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {schemas.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
       </div>
 
       {/* shrink-0 matters: a flex item with non-visible overflow loses
@@ -414,7 +616,6 @@ export function NewTableTab({
             </span>
             <div className="w-40 shrink-0">
               <Input
-                className="h-7"
                 placeholder="column_name"
                 value={col.name}
                 onChange={(e) => patch(idx, (c) => (c.name = e.target.value))}
@@ -475,7 +676,7 @@ export function NewTableTab({
             </div>
             <div className="w-28 shrink-0">
               <Input
-                className="h-7 font-mono"
+                className="font-mono"
                 placeholder="0"
                 value={col.default}
                 onChange={(e) =>
@@ -485,7 +686,7 @@ export function NewTableTab({
             </div>
             <div className="w-36 shrink-0">
               <Input
-                className="h-7 font-mono"
+                className="font-mono"
                 placeholder="qty > 0"
                 value={col.check}
                 onChange={(e) => patch(idx, (c) => (c.check = e.target.value))}

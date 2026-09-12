@@ -78,7 +78,10 @@ export function AddIndexDialog({
     }
     const ttl_seconds =
       mongo && ttl_text.trim() !== "" ? Number(ttl_text) : null;
-    if (ttl_seconds !== null && (!Number.isFinite(ttl_seconds) || ttl_seconds < 0)) {
+    if (
+      ttl_seconds !== null &&
+      (!Number.isFinite(ttl_seconds) || ttl_seconds < 0)
+    ) {
       setLocalError("TTL must be a non-negative number of seconds.");
       return;
     }

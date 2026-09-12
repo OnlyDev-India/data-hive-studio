@@ -5,6 +5,9 @@ import type {
   ActivityEntry,
   CatalogOverview,
   ConnectionInfo,
+  RoleDetail,
+  SchemaObject,
+  SchemaObjectKind,
   SchemaOp,
   TableInfo,
   TableSchema,
@@ -175,6 +178,64 @@ export async function listDatabases(connId: string): Promise<string[]> {
   });
 }
 
+/** Schemas within `database` (omitted = this connection's own database) —
+ *  the sidebar catalog tree's per-database schema list. */
+export async function listSchemasIn(
+  connId: string,
+  database?: string,
+): Promise<string[]> {
+  return dispatchDbCall<string[]>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schemas-in`,
+    httpBody: { database: database ?? null },
+    serverCmd: "server_list_schemas_in",
+    localCmd: "list_schemas_in",
+    args: { connId, database: database ?? null },
+  });
+}
+
+/** Tables/Views/Materialized Views/Procedures/Functions/Sequences/Types in
+ *  one schema of `database` (omitted = this connection's own database) —
+ *  the sidebar catalog tree's per-schema category rows. */
+export async function listSchemaObjects(
+  connId: string,
+  schema: string,
+  kind: SchemaObjectKind,
+  database?: string,
+): Promise<SchemaObject[]> {
+  return dispatchDbCall<SchemaObject[]>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schema-objects`,
+    httpBody: { database: database ?? null, schema, kind },
+    serverCmd: "server_list_schema_objects",
+    localCmd: "list_schema_objects",
+    args: { connId, database: database ?? null, schema, kind },
+  });
+}
+
+/** Server-wide roles (Postgres) — the sidebar catalog tree's "Users &
+ *  Privileges" row. */
+export async function listRoles(connId: string): Promise<SchemaObject[]> {
+  return dispatchDbCall<SchemaObject[]>(connId, {
+    httpMethod: "GET",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/roles`,
+    serverCmd: "server_list_roles",
+    localCmd: "list_roles",
+    args: { connId },
+  });
+}
+
+/** Full attribute set for every role (Postgres) — the Users & Privileges tab. */
+export async function listRoleDetails(connId: string): Promise<RoleDetail[]> {
+  return dispatchDbCall<RoleDetail[]>(connId, {
+    httpMethod: "GET",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/role-details`,
+    serverCmd: "server_list_role_details",
+    localCmd: "list_role_details",
+    args: { connId },
+  });
+}
+
 /** Fetch a page of documents from a MongoDB collection. */
 export interface ListDocumentsParams {
   filter?: Record<string, unknown>;
@@ -202,7 +263,12 @@ export async function listDocuments(
   return dispatchDbCall<MongoDocumentsResult>(connId, {
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/documents`,
-    httpBody: { collection, filter: args.filter, skip: args.skip, limit: args.limit },
+    httpBody: {
+      collection,
+      filter: args.filter,
+      skip: args.skip,
+      limit: args.limit,
+    },
     serverCmd: "server_list_documents",
     localCmd: "list_documents",
     args,
@@ -231,7 +297,12 @@ export async function listDocumentsExt(
   return dispatchDbCall<MongoExtDocumentsResult>(connId, {
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/documents/ext`,
-    httpBody: { collection, filter: args.filter, skip: args.skip, limit: args.limit },
+    httpBody: {
+      collection,
+      filter: args.filter,
+      skip: args.skip,
+      limit: args.limit,
+    },
     serverCmd: "server_list_documents_ext",
     localCmd: "list_documents_ext",
     args,
@@ -264,7 +335,8 @@ export async function insertDocument(
 ): Promise<void> {
   return dispatchDbCall<void>(connId, {
     httpMethod: "POST",
-    httpPath: (cid) => `/v1/c/${encodeURIComponent(cid)}/mongo/documents/insert`,
+    httpPath: (cid) =>
+      `/v1/c/${encodeURIComponent(cid)}/mongo/documents/insert`,
     httpBody: { collection, document_text: documentText },
     serverCmd: "server_insert_document",
     localCmd: "insert_document",
@@ -320,6 +392,23 @@ export async function setActiveSchema(
   });
 }
 
+/** Close ONE sibling database's own connection right now (Postgres) — the
+ *  sidebar's per-database "Disconnect", distinct from disconnecting the
+ *  whole connection. */
+export async function disconnectDatabase(
+  connId: string,
+  database: string,
+): Promise<void> {
+  return dispatchDbCall<void>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/disconnect-database`,
+    httpBody: { database },
+    serverCmd: "server_disconnect_database",
+    localCmd: "disconnect_database",
+    args: { connId, database },
+  });
+}
+
 /** Create a database on the same server (Postgres). */
 export async function createPgDatabase(
   connId: string,
@@ -348,17 +437,21 @@ export async function createPgSchema(
 }
 
 /** Create a collection in the active database (MongoDB). */
+/** `database`: omitted = this connection's own primary database — set to
+ *  target a sibling database's catalog tree row (see the sidebar's
+ *  multi-database browsing). */
 export async function createMongoCollection(
   connId: string,
   name: string,
+  database?: string,
 ): Promise<void> {
   return dispatchDbCall<void>(connId, {
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/mongo/collections`,
-    httpBody: { name },
+    httpBody: { name, database: database ?? null },
     serverCmd: "server_create_collection",
     localCmd: "create_mongo_collection",
-    args: { connId, name },
+    args: { connId, database: database ?? null, name },
   });
 }
 
@@ -372,13 +465,16 @@ export async function dropPgSchema(
   return invoke("drop_pg_schema", { connId, name, cascade });
 }
 
-/** Refresh a materialized view (Postgres). */
+/** Refresh a materialized view (Postgres). `database`/`schema`: omitted =
+ *  this connection's own primary database/active schema. */
 export async function refreshMatview(
   connId: string,
   name: string,
+  database?: string,
+  schema?: string,
 ): Promise<void> {
   serverUnsupported(connId);
-  return invoke("refresh_matview", { connId, name });
+  return invoke("refresh_matview", { connId, database, schema, name });
 }
 
 /** The schema unqualified operations currently target (Postgres). */
@@ -393,22 +489,40 @@ export async function getActiveSchema(connId: string): Promise<string> {
 }
 
 /** Fetch the schema (columns, FKs, indexes) for a table. Concurrent calls
- *  for the same table share one round trip (StrictMode / multi-tab effects).
- *  Never the SQL/Mongo editor, so the backend always logs this as an
- *  app-initiated activity entry — see `crate::db::table_schema`. */
+ *  for the same (database, schema, table) share one round trip (StrictMode
+ *  / multi-tab effects). Never the SQL/Mongo editor, so the backend always
+ *  logs this as an app-initiated activity entry — see
+ *  `crate::db::table_schema`. `database`/`schema` (both omitted = this
+ *  connection's own primary database/active schema) target a table opened
+ *  from a database/schema other than the connection's own — see
+ *  `open_object` in the sidebar catalog tree. */
 export function tableSchema(
   connId: string,
   table: string,
+  database?: string,
+  schema?: string,
 ): Promise<TableSchema> {
-  return dedupe(`schema:${connId} ${table}`, () =>
-    dispatchDbCall<TableSchema>(connId, {
-      httpMethod: "GET",
-      httpPath: (id) =>
-        `/v1/c/${encodeURIComponent(id)}/schema/${encodeURIComponent(table)}`,
-      serverCmd: "server_table_schema",
-      localCmd: "table_schema",
-      args: { connId, table },
-    }),
+  return dedupe(
+    `schema:${connId} ${database ?? ""} ${schema ?? ""} ${table}`,
+    () =>
+      dispatchDbCall<TableSchema>(connId, {
+        httpMethod: "GET",
+        httpPath: (id) => {
+          const query = new URLSearchParams();
+          if (database) query.set("database", database);
+          if (schema) query.set("schema", schema);
+          const qs = query.toString();
+          return `/v1/c/${encodeURIComponent(id)}/schema/${encodeURIComponent(table)}${qs ? `?${qs}` : ""}`;
+        },
+        serverCmd: "server_table_schema",
+        localCmd: "table_schema",
+        args: {
+          connId,
+          database: database ?? null,
+          schema: schema ?? null,
+          table,
+        },
+      }),
   );
 }
 
@@ -431,18 +545,21 @@ export async function clearActivity(
 }
 
 /** Apply staged schema (DDL) ops in order; returns every statement that ran
- * (for display/copy). Throws on the first failing op. */
+ * (for display/copy). Throws on the first failing op. `database`/`schema`:
+ * omitted = this connection's own primary database/active schema. */
 export async function applySchemaOps(
   connId: string,
   ops: SchemaOp[],
+  database?: string,
+  schema?: string,
 ): Promise<string[]> {
   return dispatchDbCall<string[]>(connId, {
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schema-ops`,
-    httpBody: { ops },
+    httpBody: { ops, database: database ?? null, schema: schema ?? null },
     serverCmd: "server_apply_schema_ops_batch",
     localCmd: "apply_schema_ops",
-    args: { connId, ops },
+    args: { connId, database: database ?? null, schema: schema ?? null, ops },
   });
 }
 
@@ -457,20 +574,36 @@ export async function saveDatabase(connId: string): Promise<number[]> {
  *  indexes. `copyData` controls whether the data comes along too — honored
  *  by MongoDB (the sidebar's "Duplicate collection" checkbox); SQL adapters
  *  always copy everything regardless, for now. Returns the statements that
- *  ran. */
+ *  ran. `database`/`schema`: omitted = this connection's own primary
+ *  database/active schema. */
 export async function duplicateTable(
   connId: string,
   source: string,
   target: string,
   copyData = true,
+  database?: string,
+  schema?: string,
 ): Promise<string[]> {
   return dispatchDbCall<string[]>(connId, {
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/duplicate`,
-    httpBody: { source, target, copy_data: copyData },
+    httpBody: {
+      source,
+      target,
+      copy_data: copyData,
+      database: database ?? null,
+      schema: schema ?? null,
+    },
     serverCmd: "server_duplicate_table",
     localCmd: "duplicate_table",
-    args: { connId, source, target, copyData },
+    args: {
+      connId,
+      database: database ?? null,
+      schema: schema ?? null,
+      source,
+      target,
+      copyData,
+    },
   });
 }
 

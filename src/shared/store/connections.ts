@@ -44,7 +44,9 @@ export function connectionActions(set: SetState) {
     openConn(conn: ConnectionInfo) {
       set((state) => {
         const dup = state.open.find(
-          (c) => c.id !== conn.id && sameConnectionTarget(c, conn, state.recentParams),
+          (c) =>
+            c.id !== conn.id &&
+            sameConnectionTarget(c, conn, state.recentParams),
         );
         if (dup) {
           // Same connection is already open under a different session id —

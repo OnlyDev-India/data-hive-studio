@@ -18,7 +18,7 @@ use crate::api::{
     FilterOp, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
     ColumnInfo, IndexInfo, TriggerInfo,
 };
-use super::{BatchSink, DbAdapter, DbError, DbResult};
+use super::{BatchSink, DbAdapter, DbError, DbResult, RoleDetail, SchemaObject, SchemaObjectKind};
 
 /// Parameters for connecting to a PostgreSQL server.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -95,6 +95,25 @@ fn q(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
+/// Schema-qualified reference: `"schema"."name"`. Free function (not an
+/// inherent `PgAdapter` method) — `schema` is always an already-resolved
+/// per-call target now (see each trait method's own resolution), never read
+/// off `self.cur_schema()` implicitly, so a sibling-database/schema caller
+/// can't accidentally qualify against the primary connection's active one.
+fn tq(schema: &str, name: &str) -> String {
+    format!("{}.{}", q(schema), q(name))
+}
+
+/// Qualified object reference for `$n::regclass` parameters: `"schema"."name"`.
+/// NO surrounding single quotes — this value is always BOUND as a parameter
+/// (the server applies its own quoting); embedding quotes would make
+/// regclass input fail with "invalid name syntax". Named `qualify_regclass`
+/// (not `regclass`) so it doesn't collide with the many local variables
+/// named `regclass` that hold ITS result.
+fn qualify_regclass(schema: &str, name: &str) -> String {
+    format!("{}.{}", q(schema), q(name))
+}
+
 /// Convert SQLite-style `?` placeholders to Postgres `$1..$n`. Occurrences
 /// inside single-quoted literals are left alone.
 fn dollar_placeholders(sql: &str) -> String {
@@ -118,6 +137,65 @@ fn dollar_placeholders(sql: &str) -> String {
     out
 }
 
+/// The part of `PgAdapter::connect` that builds the actual pool, factored out
+/// so a secondary pool to a SIBLING database on the same server (see
+/// `PgAdapter::pool_for`) can share it instead of duplicating the
+/// options/pool-settings wiring.
+async fn build_pool(
+    connect_host: &str,
+    connect_port: u16,
+    params: &PgParams,
+    database: &str,
+) -> DbResult<PgPool> {
+    let mut options = PgConnectOptions::new()
+        // PgBouncer (transaction mode) compatibility: sqlx caches named
+        // prepared statements per connection; pooled proxies break that.
+        .statement_cache_capacity(0)
+        .host(connect_host)
+        .port(connect_port)
+        .username(&params.user)
+        .password(&params.password)
+        .database(database)
+        .ssl_mode(ssl_mode(params.ssl_mode.as_deref()));
+    if let Some(ca) = &params.ssl_ca_file {
+        options = options.ssl_root_cert(ca);
+    }
+    if let Some(cert) = &params.ssl_client_cert_file {
+        options = options.ssl_client_cert(cert);
+    }
+    if let Some(key) = &params.ssl_client_key_file {
+        options = options.ssl_client_key(key);
+    }
+
+    // ONE pool, ONE awaited connection: `connect_with` returns as soon as
+    // the database answers — same as every other SQL client. Extra
+    // connections are opened lazily by sqlx when queries need them (each
+    // one gets its own forwarded SSH channel automatically, since the
+    // tunnel's local listener accepts however many connections the pool
+    // opens over its lifetime).
+    let mut pool_opts = PgPoolOptions::new()
+        .max_connections(params.pool_max.unwrap_or(12))
+        .min_connections(params.pool_min.unwrap_or(1))
+        .acquire_timeout(std::time::Duration::from_secs(
+            params.connect_timeout_secs.unwrap_or(30) as u64,
+        ))
+        .idle_timeout(std::time::Duration::from_secs(
+            params.idle_timeout_secs.unwrap_or(15 * 60) as u64,
+        ));
+    if let Some(secs) = params.max_lifetime_secs {
+        pool_opts = pool_opts.max_lifetime(std::time::Duration::from_secs(secs as u64));
+    }
+    pool_opts
+        .connect_with(options)
+        .await
+        .map_err(DbError::SqlEngine)
+}
+
+/// How long an unused secondary pool (see `PgAdapter::pool_for`) stays warm
+/// before being closed — matches the team-server gateway's own per-connection
+/// idle-eviction convention (`server::gateway::IDLE_TIMEOUT`).
+const SECONDARY_POOL_IDLE_SECS: u64 = 15 * 60;
+
 pub struct PgAdapter {
     /// One shared pool for everything (queries + catalog reads). sqlx pools
     /// are internally concurrent and Send+Sync, so queries never serialize.
@@ -127,16 +205,40 @@ pub struct PgAdapter {
     /// where session `search_path` is not preserved); the DDL batch uses a
     /// transaction-local search_path instead.
     schema: std::sync::RwLock<String>,
-    /// Cached column name -> type maps per (schema, table). Writes used to
-    /// pay an information_schema round trip on EVERY insert/update/delete;
-    /// now only the first write to a table (or after DDL) does. Cleared by
-    /// apply_schema_ops_batch so column changes are never stale.
+    /// Cached column name -> type maps per (database, schema, table). Writes
+    /// used to pay an information_schema round trip on EVERY insert/update/
+    /// delete; now only the first write to a table (or after DDL) does.
+    /// Cleared by apply_schema_ops_batch so column changes are never stale.
+    /// Keyed by database too — a sibling database queried via `pool_for`
+    /// can have a same-named table/schema with unrelated column types.
     type_cache: std::sync::Mutex<
-        std::collections::HashMap<(String, String), std::collections::HashMap<String, String>>,
+        std::collections::HashMap<
+            (String, String, String),
+            std::collections::HashMap<String, String>,
+        >,
     >,
     /// Database name this connection attached to — used to refuse dropping
     /// it from underneath itself.
     database: String,
+    /// The params this adapter was originally opened with — kept so a
+    /// secondary pool for a sibling database (see `pool_for`) can be built
+    /// later with the same user/password/ssl/pool settings. Already resident
+    /// in memory for the duration of the original `connect` call; this just
+    /// extends that to the adapter's lifetime, same exposure `ssl_client_key_file`
+    /// etc. already have.
+    params: PgParams,
+    /// One extra pool per sibling database the sidebar's catalog tree has
+    /// expanded, opened lazily on first expand and kept warm — this is what
+    /// lets a Postgres connection browse another database inline (a single
+    /// Postgres wire connection can't otherwise reach a database other than
+    /// the one it dialed). Keyed by database name.
+    secondary_pools: std::sync::Mutex<std::collections::HashMap<String, (PgPool, Instant)>>,
+    /// Serializes concurrent first-opens of the SAME secondary database (two
+    /// callers expanding the same sibling database at once should share one
+    /// new pool, not race to open two) — coarse-grained on purpose, same
+    /// shape as `server::gateway::Gateway`'s own `opening` lock; it's only
+    /// ever held for the duration of opening one pool, never a real query.
+    opening: tokio::sync::Mutex<()>,
     /// Kept alive for as long as this adapter is — dropping it tears the
     /// tunnel down out from under the pool, so it must outlive `pool`.
     /// `None` when this connection doesn't go through SSH.
@@ -161,72 +263,119 @@ impl PgAdapter {
             None => (params.host.as_str(), params.port),
         };
 
-        let mut options = PgConnectOptions::new()
-            // PgBouncer (transaction mode) compatibility: sqlx caches named
-            // prepared statements per connection; pooled proxies break that.
-            .statement_cache_capacity(0)
-            .host(connect_host)
-            .port(connect_port)
-            .username(&params.user)
-            .password(&params.password)
-            .database(&params.database)
-            .ssl_mode(ssl_mode(params.ssl_mode.as_deref()));
-        if let Some(ca) = &params.ssl_ca_file {
-            options = options.ssl_root_cert(ca);
-        }
-        if let Some(cert) = &params.ssl_client_cert_file {
-            options = options.ssl_client_cert(cert);
-        }
-        if let Some(key) = &params.ssl_client_key_file {
-            options = options.ssl_client_key(key);
-        }
-
-        // ONE pool, ONE awaited connection: `connect_with` returns as soon as
-        // the database answers — same as every other SQL client. Extra
-        // connections are opened lazily by sqlx when queries need them (each
-        // one gets its own forwarded SSH channel automatically, since the
-        // tunnel's local listener accepts however many connections the pool
-        // opens over its lifetime).
-        let mut pool_opts = PgPoolOptions::new()
-            .max_connections(params.pool_max.unwrap_or(12))
-            .min_connections(params.pool_min.unwrap_or(1))
-            .acquire_timeout(std::time::Duration::from_secs(
-                params.connect_timeout_secs.unwrap_or(30) as u64,
-            ))
-            .idle_timeout(std::time::Duration::from_secs(
-                params.idle_timeout_secs.unwrap_or(15 * 60) as u64,
-            ));
-        if let Some(secs) = params.max_lifetime_secs {
-            pool_opts = pool_opts.max_lifetime(std::time::Duration::from_secs(secs as u64));
-        }
-        let pool = pool_opts
-            .connect_with(options)
+        let pool = build_pool(connect_host, connect_port, params, &params.database).await?;
+        // The session's real starting schema (search_path-dependent) — NOT
+        // always "public". `list_tables`/`active_schema` read this ambient
+        // value, so seeding it wrong here silently shows the wrong schema's
+        // tables everywhere that calls them (command palette, quick-open,
+        // new-table's default schema, …) until `set_active_schema` is
+        // called, which today never happens from the UI.
+        let initial_schema: String = sqlx::query_scalar("SELECT current_schema()::text")
+            .fetch_one(&pool)
             .await
-            .map_err(DbError::SqlEngine)?;
+            .unwrap_or_else(|_| "public".to_string());
 
         Ok(Self {
             pool,
-            schema: std::sync::RwLock::new("public".to_string()),
+            schema: std::sync::RwLock::new(initial_schema),
             type_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             database: params.database.clone(),
+            params: params.clone(),
+            secondary_pools: std::sync::Mutex::new(std::collections::HashMap::new()),
+            opening: tokio::sync::Mutex::new(()),
             _ssh_tunnel: tunnel,
         })
     }
 
-    /// Column name -> type map for a table in the active schema, served from
-    /// the cache when possible. The map feeds write ops (INSERT casts, UPDATE
-    /// /DELETE NULL matching) and would otherwise cost one information_schema
-    /// round trip per operation.
+    /// The pool to run a schema/catalog query against — `database: None` (or
+    /// this connection's own database) is the primary `self.pool`; any other
+    /// name is a SIBLING database on the same server, served from a lazily
+    /// opened, cached secondary pool (opened once per database, reused after
+    /// that, evicted after `SECONDARY_POOL_IDLE_SECS` of disuse). SSH-tunneled
+    /// connections reuse the SAME already-open tunnel/local port instead of
+    /// opening a second SSH session per sibling database.
+    async fn pool_for(&self, database: Option<&str>) -> DbResult<PgPool> {
+        let target = database.unwrap_or(self.database.as_str());
+        if target == self.database {
+            return Ok(self.pool.clone());
+        }
+
+        self.evict_idle_secondary_pools().await;
+
+        // Fast path: already cached.
+        {
+            let mut pools = self.secondary_pools.lock().unwrap();
+            if let Some(entry) = pools.get_mut(target) {
+                entry.1 = Instant::now();
+                return Ok(entry.0.clone());
+            }
+        }
+
+        // Slow path: serialize concurrent first-opens of the same target so
+        // two callers expanding the same sibling database at once share one
+        // pool instead of racing to open two.
+        let _guard = self.opening.lock().await;
+        {
+            let mut pools = self.secondary_pools.lock().unwrap();
+            if let Some(entry) = pools.get_mut(target) {
+                entry.1 = Instant::now();
+                return Ok(entry.0.clone());
+            }
+        }
+
+        let (connect_host, connect_port) = match &self._ssh_tunnel {
+            Some(t) => ("127.0.0.1".to_string(), t.local_port),
+            None => (self.params.host.clone(), self.params.port),
+        };
+        let pool = build_pool(&connect_host, connect_port, &self.params, target).await?;
+        self.secondary_pools
+            .lock()
+            .unwrap()
+            .insert(target.to_string(), (pool.clone(), Instant::now()));
+        Ok(pool)
+    }
+
+    async fn evict_idle_secondary_pools(&self) {
+        let expired: Vec<PgPool> = {
+            let mut pools = self.secondary_pools.lock().unwrap();
+            let now = Instant::now();
+            let expired_keys: Vec<String> = pools
+                .iter()
+                .filter(|(_, (_, last))| {
+                    now.duration_since(*last).as_secs() > SECONDARY_POOL_IDLE_SECS
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+            expired_keys
+                .into_iter()
+                .filter_map(|k| pools.remove(&k).map(|(p, _)| p))
+                .collect()
+        };
+        for pool in expired {
+            pool.close().await;
+        }
+    }
+
+    /// Column name -> type map for a table in `database`/`schema`, served
+    /// from the cache when possible. The map feeds write ops (INSERT casts,
+    /// UPDATE/DELETE NULL matching) and would otherwise cost one
+    /// information_schema round trip per operation. `pool`/`schema` are the
+    /// already-resolved target (see each trait method's own resolution at
+    /// its top) — this never reads `self.pool`/`self.cur_schema()` itself,
+    /// so a sibling-database caller can't accidentally hit the primary.
     async fn column_types_for(
         &self,
+        pool: &PgPool,
+        database: &str,
+        schema: &str,
         table: &str,
     ) -> DbResult<std::collections::HashMap<String, String>> {
-        let key = (self.cur_schema(), table.to_string());
+        let key = (database.to_string(), schema.to_string(), table.to_string());
         if let Some(hit) = self.type_cache.lock().unwrap().get(&key) {
             return Ok(hit.clone());
         }
-        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
-        let types = column_types(&mut conn, &key.0, table).await?;
+        let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
+        let types = column_types(&mut conn, schema, table).await?;
         drop(conn);
         self.type_cache
             .lock()
@@ -240,18 +389,13 @@ impl PgAdapter {
         self.schema.read().unwrap().clone()
     }
 
-    /// Schema-qualified reference: `"schema"."name"`.
-    fn tq(&self, name: &str) -> String {
-        format!("{}.{}", q(&self.cur_schema()), q(name))
-    }
-
-    /// Qualified object reference for `$n::regclass` parameters:
-    /// `"schema"."name"`. NO surrounding single quotes — this value is
-    /// always BOUND as a parameter (the server applies its own quoting);
-    /// embedding quotes would make regclass input fail with
-    /// "invalid name syntax".
-    fn regclass(&self, name: &str) -> String {
-        format!("{}.{}", q(&self.cur_schema()), q(name))
+    /// Resolves a per-call `database: Option<&str>` to the exact string used
+    /// as the `type_cache`/pool-selection key — `pool_for`'s own resolution
+    /// (this connection's own database when `None`), exposed so callers that
+    /// also need the resolved name (not just the pool) don't duplicate the
+    /// `unwrap_or` themselves.
+    fn resolve_database<'a>(&'a self, database: Option<&'a str>) -> &'a str {
+        database.unwrap_or(self.database.as_str())
     }
 
     /// WHERE fragment + params for one filter condition ($n placeholders are
@@ -598,9 +742,15 @@ impl DbAdapter for PgAdapter {
             .collect())
     }
 
-    async fn table_schema(&self, table: &str) -> DbResult<(TableSchema, Vec<String>)> {
-        let schema = self.cur_schema();
-        let regclass = self.regclass(table);
+    async fn table_schema(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        table: &str,
+    ) -> DbResult<(TableSchema, Vec<String>)> {
+        let pool = self.pool_for(database).await?;
+        let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
+        let regclass = qualify_regclass(&schema, table);
         // Every introspection statement rides back WITH the schema — per-call
         // ownership, so concurrent describes never interleave captures.
         let mut statements: Vec<String> = Vec::new();
@@ -669,28 +819,28 @@ impl DbAdapter for PgAdapter {
         let f_kind = sqlx::query_scalar::<_, Option<String>>(sql_kind)
             .bind(&schema)
             .bind(table)
-            .fetch_optional(&self.pool);
+            .fetch_optional(&pool);
         let f_cols = sqlx::query_as::<_, (String, String, String, String)>(sql_cols)
             .bind(&schema)
             .bind(table)
-            .fetch_all(&self.pool);
+            .fetch_all(&pool);
         let f_pk = sqlx::query_as::<_, (String,)>(sql_pk)
             .bind(&regclass)
-            .fetch_all(&self.pool);
+            .fetch_all(&pool);
         let f_enums = sqlx::query_as::<_, (String, String, bool, String)>(sql_enums)
             .bind(&regclass)
-            .fetch_all(&self.pool);
+            .fetch_all(&pool);
         let f_fks = sqlx::query_as::<_, (String, String, String, String, String, String)>(sql_fks)
             .bind(table)
             .bind(&schema)
-            .fetch_all(&self.pool);
+            .fetch_all(&pool);
         let f_idx = sqlx::query_as::<_, (String, String)>(sql_idx)
             .bind(&schema)
             .bind(table)
-            .fetch_all(&self.pool);
+            .fetch_all(&pool);
         let f_trig = sqlx::query_as::<_, (String, Option<String>)>(sql_trig)
             .bind(&regclass)
-            .fetch_all(&self.pool);
+            .fetch_all(&pool);
 
         // Balanced binary join tree — every branch is polled concurrently.
         let (((r_kind, r_cols), (r_pk, r_enums)), ((r_fks, r_idx), r_trig)) =
@@ -843,6 +993,258 @@ impl DbAdapter for PgAdapter {
         Ok(rows.into_iter().map(|(n,)| n).collect())
     }
 
+    async fn list_schemas_in(&self, database: Option<&str>) -> DbResult<Vec<String>> {
+        let pool = self.pool_for(database).await?;
+        // Same query as `list_schemas`, just against a possibly-secondary pool.
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT nspname FROM pg_namespace \
+             WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' \
+             ORDER BY (nspname = 'public') DESC, nspname",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(DbError::SqlEngine)?;
+        Ok(rows.into_iter().map(|(n,)| n).collect())
+    }
+
+    async fn list_roles(&self) -> DbResult<Vec<SchemaObject>> {
+        // Cluster-wide — roles aren't owned by any one database, so this
+        // always runs on the primary pool regardless of which database's
+        // tree node it's rendered under in the sidebar.
+        let rows: Vec<(String, bool, bool)> = sqlx::query_as(
+            "SELECT rolname, rolsuper, rolcanlogin FROM pg_roles ORDER BY rolname",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::SqlEngine)?;
+        Ok(rows
+            .into_iter()
+            .map(|(name, superuser, can_login)| {
+                let bits: Vec<&str> = [
+                    superuser.then_some("superuser"),
+                    can_login.then_some("login"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                let extra = (!bits.is_empty()).then(|| bits.join(", "));
+                SchemaObject { name, extra }
+            })
+            .collect())
+    }
+
+    async fn list_role_details(&self) -> DbResult<Vec<RoleDetail>> {
+        #[allow(clippy::type_complexity)]
+        let rows: Vec<(
+            String,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            i32,
+            Option<String>,
+            Option<String>,
+            Option<Vec<String>>,
+        )> = sqlx::query_as(
+            "SELECT r.rolname, r.rolsuper, r.rolcreatedb, r.rolcreaterole, \
+                    r.rolcanlogin, r.rolreplication, r.rolbypassrls, r.rolconnlimit, \
+                    r.rolvaliduntil::text, \
+                    pg_catalog.shobj_description(r.oid, 'pg_authid'), \
+                    (SELECT array_agg(m.rolname ORDER BY m.rolname) \
+                     FROM pg_auth_members am JOIN pg_roles m ON m.oid = am.roleid \
+                     WHERE am.member = r.oid) \
+             FROM pg_roles r ORDER BY r.rolname",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DbError::SqlEngine)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    name,
+                    superuser,
+                    createdb,
+                    createrole,
+                    can_login,
+                    replication,
+                    bypassrls,
+                    conn_limit,
+                    valid_until,
+                    comment,
+                    member_of,
+                )| {
+                    let attributes: Vec<String> = [
+                        superuser.then_some("Superuser"),
+                        createdb.then_some("Create DB"),
+                        createrole.then_some("Create Role"),
+                        can_login.then_some("Login"),
+                        replication.then_some("Replication"),
+                        bypassrls.then_some("Bypass RLS"),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .map(String::from)
+                    .collect();
+                    RoleDetail {
+                        name,
+                        attributes,
+                        can_login,
+                        superuser,
+                        conn_limit,
+                        valid_until,
+                        comment,
+                        member_of: member_of.unwrap_or_default(),
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn disconnect_database(&self, database: &str) -> DbResult<()> {
+        if database == self.database {
+            return Err(DbError::InvalidOperation(
+                "cannot disconnect this connection's own primary database this way — \
+                 disconnect the whole connection instead"
+                    .into(),
+            ));
+        }
+        // A no-op (Ok, not an error) if nothing was ever opened for it —
+        // browsing it just never got that far, nothing to close.
+        let pool = self.secondary_pools.lock().unwrap().remove(database).map(|(p, _)| p);
+        if let Some(pool) = pool {
+            pool.close().await;
+        }
+        Ok(())
+    }
+
+    /// Tables/Views/Materialized Views/Procedures/Functions/Sequences/Types
+    /// in one schema — the sidebar catalog tree's per-schema category rows.
+    /// `database` targets a sibling database via `pool_for` when set.
+    async fn list_schema_objects(
+        &self,
+        database: Option<&str>,
+        schema: &str,
+        kind: SchemaObjectKind,
+    ) -> DbResult<Vec<SchemaObject>> {
+        let pool = self.pool_for(database).await?;
+        match kind {
+            SchemaObjectKind::Table | SchemaObjectKind::View | SchemaObjectKind::MaterializedView => {
+                let relkind = match kind {
+                    SchemaObjectKind::Table => "r",
+                    SchemaObjectKind::View => "v",
+                    SchemaObjectKind::MaterializedView => "m",
+                    _ => unreachable!(),
+                };
+                let rows: Vec<(String,)> = sqlx::query_as(
+                    "SELECT c.relname FROM pg_class c \
+                     JOIN pg_namespace n ON n.oid = c.relnamespace \
+                     WHERE c.relkind = $1 AND n.nspname = $2 \
+                     ORDER BY c.relname",
+                )
+                .bind(relkind)
+                .bind(schema)
+                .fetch_all(&pool)
+                .await
+                .map_err(DbError::SqlEngine)?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(name,)| SchemaObject { name, extra: None })
+                    .collect())
+            }
+            SchemaObjectKind::Procedure | SchemaObjectKind::Function => {
+                // `prokind`: 'f' = function, 'p' = procedure. Excludes 'c'/
+                // 'internal' language routines (built-ins, not user-defined).
+                let prokind = if kind == SchemaObjectKind::Procedure {
+                    "p"
+                } else {
+                    "f"
+                };
+                let rows: Vec<(String, String)> = sqlx::query_as(
+                    "SELECT p.proname, \
+                            p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' \
+                     FROM pg_proc p \
+                     JOIN pg_namespace n ON n.oid = p.pronamespace \
+                     JOIN pg_language l ON l.oid = p.prolang \
+                     WHERE p.prokind = $1 AND n.nspname = $2 \
+                       AND l.lanname NOT IN ('c', 'internal') \
+                     ORDER BY p.proname LIMIT 500",
+                )
+                .bind(prokind)
+                .bind(schema)
+                .fetch_all(&pool)
+                .await
+                .map_err(DbError::SqlEngine)?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(name, signature)| SchemaObject {
+                        name,
+                        extra: Some(signature),
+                    })
+                    .collect())
+            }
+            SchemaObjectKind::Sequence => {
+                let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+                    "SELECT sequencename, COALESCE(last_value::text, '-') \
+                     FROM pg_sequences WHERE schemaname = $1 ORDER BY sequencename",
+                )
+                .bind(schema)
+                .fetch_all(&pool)
+                .await
+                .map_err(DbError::SqlEngine)?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(name, last)| SchemaObject { name, extra: last })
+                    .collect())
+            }
+            SchemaObjectKind::Type => {
+                // Same shape psql's own `\dT` uses: base/enum/composite/range/
+                // domain types actually defined in this schema — excludes
+                // array types (typcategory 'A', auto-created alongside every
+                // other type) and table row types (typrelid pointing at an
+                // ordinary table rather than a standalone composite type).
+                // `extra` is what's actually INSIDE the type — an enum's
+                // labels, a composite's field list, or a domain's base type
+                // — so the sidebar shows more than just a bare name.
+                let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+                    "SELECT t.typname, \
+                            CASE t.typtype \
+                                WHEN 'e' THEN ( \
+                                    SELECT string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder) \
+                                    FROM pg_enum e WHERE e.enumtypid = t.oid \
+                                ) \
+                                WHEN 'c' THEN ( \
+                                    SELECT string_agg( \
+                                        a.attname || ' ' || format_type(a.atttypid, a.atttypmod), \
+                                        ', ' ORDER BY a.attnum \
+                                    ) \
+                                    FROM pg_attribute a \
+                                    WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped \
+                                ) \
+                                WHEN 'd' THEN format_type(t.typbasetype, t.typtypmod) \
+                                ELSE NULL \
+                            END \
+                     FROM pg_type t \
+                     JOIN pg_namespace n ON n.oid = t.typnamespace \
+                     WHERE n.nspname = $1 AND t.typcategory <> 'A' \
+                       AND (t.typrelid = 0 \
+                            OR (SELECT c.relkind FROM pg_class c WHERE c.oid = t.typrelid) = 'c') \
+                     ORDER BY t.typname",
+                )
+                .bind(schema)
+                .fetch_all(&pool)
+                .await
+                .map_err(DbError::SqlEngine)?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(name, extra)| SchemaObject { name, extra })
+                    .collect())
+            }
+        }
+    }
+
     /// Schemas + databases + active schema, ONE round trip. The three lists
     /// used to be separate queries; on remote servers (Neon) they serialized
     /// behind the pool and delayed every query that followed.
@@ -980,7 +1382,8 @@ impl DbAdapter for PgAdapter {
         Ok(())
     }
 
-    async fn run_sql(&self, sql: &str) -> DbResult<QueryResult> {
+    async fn run_sql(&self, database: Option<&str>, schema: Option<&str>, sql: &str) -> DbResult<QueryResult> {
+        let pool = self.pool_for(database).await?;
         let start = Instant::now();
         let converted = dollar_placeholders(sql);
         let trimmed = converted.trim();
@@ -990,9 +1393,49 @@ impl DbAdapter for PgAdapter {
             .unwrap_or("")
             .to_ascii_lowercase();
         let is_select = first_word == "select" || first_word == "with";
+
+        // A target schema (the SQL editor's own picker) resolves every
+        // unqualified name in `sql` through a TRANSACTION-LOCAL search_path
+        // — same mechanism/reasoning as `apply_schema_ops_batch`: SET LOCAL
+        // dies with the transaction, so pooled connections stay clean
+        // (PgBouncer-safe) whether this commits or errors out.
+        if let Some(schema) = schema {
+            let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
+            let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
+            sqlx::query(&format!("SET LOCAL search_path = {}", q(schema)))
+                .execute(&mut *tx)
+                .await
+                .map_err(DbError::SqlEngine)?;
+            let result = if is_select {
+                let columns = describe_columns_conn(&mut tx, trimmed).await?;
+                let rows = sqlx::query(trimmed).fetch_all(&mut *tx).await.map_err(DbError::SqlEngine)?;
+                let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
+                QueryResult {
+                    columns,
+                    rows: out,
+                    rows_affected: 0,
+                    is_select: true,
+                    error: null_error(),
+                    elapsed_ms: start.elapsed().as_millis(),
+                }
+            } else {
+                let res = sqlx::query(trimmed).execute(&mut *tx).await.map_err(DbError::SqlEngine)?;
+                QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: res.rows_affected(),
+                    is_select: false,
+                    error: null_error(),
+                    elapsed_ms: start.elapsed().as_millis(),
+                }
+            };
+            tx.commit().await.map_err(DbError::SqlEngine)?;
+            return Ok(result);
+        }
+
         if is_select {
-            let columns = describe_columns(&self.pool, trimmed).await?;
-            let rows = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
+            let columns = describe_columns(&pool, trimmed).await?;
+            let rows = sqlx::query(trimmed).fetch_all(&pool).await.map_err(DbError::SqlEngine)?;
             // Reuse row_to_vec so every type (dates, timestamps, arrays,
             // booleans, numerics, …) renders as human-readable text.
             let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
@@ -1005,7 +1448,7 @@ impl DbAdapter for PgAdapter {
                 elapsed_ms: start.elapsed().as_millis(),
             });
         }
-        let res = sqlx::query(trimmed).execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+        let res = sqlx::query(trimmed).execute(&pool).await.map_err(DbError::SqlEngine)?;
         Ok(QueryResult {
             columns: vec![],
             rows: vec![],
@@ -1016,7 +1459,13 @@ impl DbAdapter for PgAdapter {
         })
     }
 
-    async fn execute_params(&self, sql: &str, params: &[Option<String>]) -> DbResult<u64> {
+    async fn execute_params(
+        &self,
+        database: Option<&str>,
+        sql: &str,
+        params: &[Option<String>],
+    ) -> DbResult<u64> {
+        let pool = self.pool_for(database).await?;
         let converted = dollar_placeholders(sql);
         // Bind the parameters — frontend-built statements use $1..$n and are
         // useless (and unsafe) if executed with them unresolved.
@@ -1024,15 +1473,17 @@ impl DbAdapter for PgAdapter {
         for p in params {
             q = bind_str(q, p);
         }
-        let res = q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+        let res = q.execute(&pool).await.map_err(DbError::SqlEngine)?;
         Ok(res.rows_affected())
     }
 
     async fn run_sql_params(
         &self,
+        database: Option<&str>,
         sql: &str,
         params: &[Option<String>],
     ) -> DbResult<QueryResult> {
+        let pool = self.pool_for(database).await?;
         let start = Instant::now();
         // Frontend-built statements use `?`; renumber to $n and bind.
         let converted = dollar_placeholders(sql);
@@ -1040,8 +1491,8 @@ impl DbAdapter for PgAdapter {
         for p in params {
             q = bind_str(q, p);
         }
-        let columns = describe_columns(&self.pool, &converted).await?;
-        let rows = q.fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
+        let columns = describe_columns(&pool, &converted).await?;
+        let rows = q.fetch_all(&pool).await.map_err(DbError::SqlEngine)?;
         let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
         Ok(QueryResult {
             columns,
@@ -1053,7 +1504,15 @@ impl DbAdapter for PgAdapter {
         })
     }
 
-    async fn execute_op(&self, op: &QueryOp) -> DbResult<super::OpOutcome> {
+    async fn execute_op(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        op: &QueryOp,
+    ) -> DbResult<super::OpOutcome> {
+        let pool = self.pool_for(database).await?;
+        let database_key = self.resolve_database(database).to_string();
+        let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
         let start = std::time::Instant::now();
         let mk = |columns: Vec<String>,
                   rows: Vec<Vec<Option<String>>>,
@@ -1073,7 +1532,7 @@ impl DbAdapter for PgAdapter {
             QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } => {
                 let mut params = Vec::new();
                 let sql = build_select(
-                    &self.cur_schema(),
+                    &schema,
                     table,
                     filters,
                     custom_where.as_ref(),
@@ -1086,7 +1545,7 @@ impl DbAdapter for PgAdapter {
                 let converted = dollar_placeholders(&sql);
                 let display = super::inline_placeholders(&converted, &params, true) + ";";
                 Ok(super::OpOutcome {
-                    result: run_sql_prebound(&self.pool, &sql, params).await?,
+                    result: run_sql_prebound(&pool, &sql, params).await?,
                     sql: Some(display),
                 })
             }
@@ -1095,7 +1554,7 @@ impl DbAdapter for PgAdapter {
                 let where_sql =
                     Self::where_clause(filters, custom_where.as_ref(), &mut params);
                 let sql =
-                    format!("SELECT COUNT(*) FROM {}{}", self.tq(table), where_sql);
+                    format!("SELECT COUNT(*) FROM {}{}", tq(&schema, table), where_sql);
                 let converted = dollar_placeholders(&sql);
                 let mut cq = sqlx::query_scalar::<_, i64>(&converted);
                 for p in &params {
@@ -1105,7 +1564,7 @@ impl DbAdapter for PgAdapter {
                     };
                 }
                 // One scalar round trip — no row shaping, no column metadata.
-                let count = cq.fetch_one(&self.pool).await.map_err(DbError::SqlEngine)? as u64;
+                let count = cq.fetch_one(&pool).await.map_err(DbError::SqlEngine)? as u64;
                 Ok(super::OpOutcome {
                     result: mk(vec!["count".into()], vec![vec![Some(count.to_string())]], count, true),
                     sql: Some(super::inline_placeholders(&converted, &params, true) + ";"),
@@ -1113,15 +1572,15 @@ impl DbAdapter for PgAdapter {
             }
             QueryOp::SelectDistinct { table, column, limit } => {
                 let mut sql =
-                    format!("SELECT DISTINCT {} FROM {}", q(column), self.tq(table));
+                    format!("SELECT DISTINCT {} FROM {}", q(column), tq(&schema, table));
                 if let Some(l) = limit {
                     sql.push_str(&format!(" LIMIT {l}"));
                 }
-                let result = self.run_sql(&sql).await?;
+                let result = self.run_sql(database, None, &sql).await?;
                 Ok(super::OpOutcome { result, sql: Some(format!("{};", sql)) })
             }
             QueryOp::Insert { table, values, skip_empty } => {
-                let types = self.column_types_for(table).await?;
+                let types = self.column_types_for(&pool, &database_key, &schema, table).await?;
                 let mut names = Vec::new();
                 let mut phs = Vec::new();
                 // Values whose placeholders land in the SQL, in order — the
@@ -1141,7 +1600,7 @@ impl DbAdapter for PgAdapter {
                 }
                 let sql = format!(
                     "INSERT INTO {} ({}) VALUES ({})",
-                    self.tq(table),
+                    tq(&schema, table),
                     names.join(", "),
                     phs.join(", ")
                 );
@@ -1150,12 +1609,12 @@ impl DbAdapter for PgAdapter {
                 for val in &bound {
                     ins = bind_str(ins, val);
                 }
-                let res = ins.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+                let res = ins.execute(&pool).await.map_err(DbError::SqlEngine)?;
                 // Display copy: bound values inlined so the log is readable.
                 let display = format!(
                     // (trailing semicolon appended below)
                     "INSERT INTO {} ({}) VALUES ({})",
-                    self.tq(table),
+                    tq(&schema, table),
                     names.join(", "),
                     bound
                         .iter()
@@ -1173,7 +1632,7 @@ impl DbAdapter for PgAdapter {
                 if set.is_empty() {
                     return Ok(super::OpOutcome { result: mk(vec![], vec![], 0, false), sql: None });
                 }
-                let types = self.column_types_for(table).await?;
+                let types = self.column_types_for(&pool, &database_key, &schema, table).await?;
                 let mut sets = Vec::new();
                 let mut wheres = Vec::new();
                 let mut n = 0;
@@ -1193,7 +1652,7 @@ impl DbAdapter for PgAdapter {
                 }
                 let sql = format!(
                     "UPDATE {} SET {} WHERE {}",
-                    self.tq(table),
+                    tq(&schema, table),
                     sets.join(", "),
                     wheres.join(" AND ")
                 );
@@ -1210,12 +1669,12 @@ impl DbAdapter for PgAdapter {
                     }
                 }
                 log::debug!("pg update: {sql}");
-                let res = final_q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+                let res = final_q.execute(&pool).await.map_err(DbError::SqlEngine)?;
                 // Display copy with values inlined (log only).
                 let display = format!(
                     // (trailing semicolon appended below)
                     "UPDATE {} SET {} WHERE {}",
-                    self.tq(table),
+                    tq(&schema, table),
                     set.iter()
                         .map(|(c, v)| format!("{} = {}", q(c), super::sql_literal(v.as_deref())))
                         .collect::<Vec<_>>()
@@ -1238,7 +1697,7 @@ impl DbAdapter for PgAdapter {
                 })
             }
             QueryOp::Delete { table, match_row } => {
-                let types = self.column_types_for(table).await?;
+                let types = self.column_types_for(&pool, &database_key, &schema, table).await?;
                 let mut wheres = Vec::new();
                 let mut final_q = sqlx::query("");
                 let mut n = 0;
@@ -1254,7 +1713,7 @@ impl DbAdapter for PgAdapter {
                 }
                 let sql = format!(
                     "DELETE FROM {}{}",
-                    self.tq(table),
+                    tq(&schema, table),
                     if wheres.is_empty() { String::new() } else { format!(" WHERE {}", wheres.join(" AND ")) }
                 );
                 log::debug!("pg delete: {sql}");
@@ -1262,11 +1721,11 @@ impl DbAdapter for PgAdapter {
                 for (_, val) in match_row.iter() {
                     if !val.is_none() { real_q = bind_str(real_q, val); }
                 }
-                let res = real_q.execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+                let res = real_q.execute(&pool).await.map_err(DbError::SqlEngine)?;
                 let display = format!(
                     // (trailing semicolon appended below)
                     "DELETE FROM {}{}",
-                    self.tq(table),
+                    tq(&schema, table),
                     if match_row.is_empty() {
                         String::new()
                     } else {
@@ -1294,12 +1753,12 @@ impl DbAdapter for PgAdapter {
                 })
             }
             QueryOp::DropTable { table } => {
-                let sql = format!("DROP TABLE IF EXISTS {}", self.tq(table));
-                let res = sqlx::query(&sql).execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+                let sql = format!("DROP TABLE IF EXISTS {}", tq(&schema, table));
+                let res = sqlx::query(&sql).execute(&pool).await.map_err(DbError::SqlEngine)?;
                 self.type_cache
                     .lock()
                     .unwrap()
-                    .remove(&(self.cur_schema(), table.to_string()));
+                    .remove(&(database_key.clone(), schema.clone(), table.to_string()));
                 Ok(super::OpOutcome {
                     result: mk(vec![], vec![], res.rows_affected(), false),
                     sql: Some(format!("{sql};")),
@@ -1310,18 +1769,22 @@ impl DbAdapter for PgAdapter {
 
     async fn execute_op_stream(
         &self,
+        database: Option<&str>,
+        schema: Option<&str>,
         op: &QueryOp,
         on_batch: BatchSink<'_>,
     ) -> DbResult<super::OpOutcome> {
         // Only SELECT streams; everything else runs normally.
         let QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } = op
         else {
-            return self.execute_op(op).await
+            return self.execute_op(database, schema, op).await
         };
+        let pool = self.pool_for(database).await?;
+        let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
         let start = Instant::now();
         let mut params = Vec::new();
         let sql = dollar_placeholders(&build_select(
-            &self.cur_schema(),
+            &schema,
             table,
             filters,
             custom_where.as_ref(),
@@ -1338,10 +1801,10 @@ impl DbAdapter for PgAdapter {
         // STREAMED row instead (the previous approach here) left `columns`
         // empty whenever the query matched zero rows, since the loop body
         // below never ran.
-        let columns = describe_columns(&self.pool, &sql).await?;
+        let columns = describe_columns(&pool, &sql).await?;
         on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
 
-        let mut stream = bind_all(&sql, &params).fetch(&self.pool);
+        let mut stream = bind_all(&sql, &params).fetch(&pool);
         let mut batch: Vec<Vec<Option<String>>> = Vec::new();
 
         while let Some(row) = stream.try_next().await.map_err(DbError::SqlEngine)? {
@@ -1367,8 +1830,14 @@ impl DbAdapter for PgAdapter {
         })
     }
 
-    async fn run_sql_stream(&self, sql: &str, on_batch: BatchSink<'_>) -> DbResult<QueryResult> {
-        let result = self.run_sql(sql).await?;
+    async fn run_sql_stream(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        sql: &str,
+        on_batch: BatchSink<'_>,
+    ) -> DbResult<QueryResult> {
+        let result = self.run_sql(database, schema, sql).await?;
         if result.is_select && !result.rows.is_empty() {
             let chunk = QueryChunk {
                 columns: Some(result.columns.clone()),
@@ -1379,13 +1848,19 @@ impl DbAdapter for PgAdapter {
         Ok(QueryResult { rows: vec![], ..result })
     }
 
-    async fn apply_schema_ops_batch(&self, ops: &[SchemaOp]) -> DbResult<Vec<String>> {
-        let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
+    async fn apply_schema_ops_batch(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        ops: &[SchemaOp],
+    ) -> DbResult<Vec<String>> {
+        let pool = self.pool_for(database).await?;
+        let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
         let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
         // Transaction-local search_path: every unqualified name in the DDL
         // batch resolves inside the active schema. SET LOCAL dies with the
         // transaction, so pooled connections stay clean (PgBouncer-safe).
-        let schema = self.cur_schema();
+        let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
         sqlx::query(&format!("SET LOCAL search_path = {}", q(&schema)))
             .execute(&mut *tx)
             .await
@@ -1572,6 +2047,8 @@ impl DbAdapter for PgAdapter {
     /// documented limitation, same as pg_dump's --no-owner style copies.
     async fn duplicate_table(
         &self,
+        database: Option<&str>,
+        schema: Option<&str>,
         source: &str,
         target: &str,
         _copy_data: bool,
@@ -1580,7 +2057,8 @@ impl DbAdapter for PgAdapter {
         // same copy-data checkbox as Mongo's "Duplicate collection" — for now
         // this always copies structure + indexes + data, matching prior
         // behavior before the flag existed.
-        let schema = self.cur_schema();
+        let pool = self.pool_for(database).await?;
+        let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
         let kind: Option<String> = sqlx::query_scalar(
             "SELECT CASE c.relkind WHEN 'r' THEN 'table' ELSE NULL END \
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
@@ -1588,7 +2066,7 @@ impl DbAdapter for PgAdapter {
         )
         .bind(&schema)
         .bind(source)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&pool)
         .await
         .map_err(DbError::SqlEngine)?;
         if kind.is_none() {
@@ -1598,29 +2076,36 @@ impl DbAdapter for PgAdapter {
         }
         let create = format!(
             "CREATE TABLE {} (LIKE {} INCLUDING ALL)",
-            self.tq(target),
-            self.tq(source)
+            tq(&schema, target),
+            tq(&schema, source)
         );
         let copy = format!(
             "INSERT INTO {} SELECT * FROM {}",
-            self.tq(target),
-            self.tq(source)
+            tq(&schema, target),
+            tq(&schema, source)
         );
         sqlx::query(&create)
-            .execute(&self.pool)
+            .execute(&pool)
             .await
             .map_err(DbError::SqlEngine)?;
         sqlx::query(&copy)
-            .execute(&self.pool)
+            .execute(&pool)
             .await
             .map_err(DbError::SqlEngine)?;
         Ok(vec![format!("{create};"), format!("{copy};")])
     }
 
-    async fn refresh_matview(&self, name: &str) -> DbResult<()> {
-        let sql = format!("REFRESH MATERIALIZED VIEW {}", self.tq(name));
+    async fn refresh_matview(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        name: &str,
+    ) -> DbResult<()> {
+        let pool = self.pool_for(database).await?;
+        let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
+        let sql = format!("REFRESH MATERIALIZED VIEW {}", tq(&schema, name));
         sqlx::query(&sql)
-            .execute(&self.pool)
+            .execute(&pool)
             .await
             .map_err(DbError::SqlEngine)?;
         Ok(())
@@ -1628,6 +2113,19 @@ impl DbAdapter for PgAdapter {
 
     async fn close(self: Arc<Self>) {
         self.pool.close().await;
+        // Secondary pools (see `pool_for`) aren't referenced by anything
+        // else once this adapter is closing — drain and close every one so
+        // they don't leak connections until process exit.
+        let secondary: Vec<PgPool> = self
+            .secondary_pools
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, (pool, _))| pool)
+            .collect();
+        for pool in secondary {
+            pool.close().await;
+        }
     }
 }
 
@@ -1639,6 +2137,19 @@ impl DbAdapter for PgAdapter {
 /// Mirrors sqlite.rs's identical `conn.prepare(sql).await?.columns()` trick.
 async fn describe_columns(pool: &PgPool, sql: &str) -> DbResult<Vec<String>> {
     let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
+    let prepared = conn.prepare(sql).await.map_err(DbError::SqlEngine)?;
+    Ok(prepared.columns().iter().map(|c| c.name().to_string()).collect())
+}
+
+/// Same as `describe_columns`, but on an already-open connection (a
+/// transaction) instead of acquiring a fresh one from the pool — needed so
+/// the PREPARE step itself resolves unqualified names through the SAME
+/// transaction-local search_path `run_sql`'s schema-targeted path just set,
+/// not whatever a freshly acquired pool connection happens to have.
+async fn describe_columns_conn(
+    conn: &mut sqlx::PgConnection,
+    sql: &str,
+) -> DbResult<Vec<String>> {
     let prepared = conn.prepare(sql).await.map_err(DbError::SqlEngine)?;
     Ok(prepared.columns().iter().map(|c| c.name().to_string()).collect())
 }

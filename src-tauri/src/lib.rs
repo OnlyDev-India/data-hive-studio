@@ -13,6 +13,7 @@ pub mod app_menu;
 pub mod commands;
 pub mod file_open;
 pub mod local_connections;
+mod secret_file;
 pub mod servers;
 pub mod workspace_state;
 
@@ -20,6 +21,9 @@ pub mod workspace_state;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_os::init())
     // `Builder::default()`'s `StateFlags` include DECORATIONS, which
     // restores a saved `decorated` value on top of the window AFTER it's
     // created — silently overriding `decorations: false` from
@@ -118,6 +122,10 @@ pub fn run() {
       commands::list_tables,
       commands::list_schemas,
       commands::list_databases,
+      commands::list_schemas_in,
+      commands::list_schema_objects,
+      commands::list_roles,
+      commands::list_role_details,
       commands::list_documents,
       commands::list_documents_ext,
       commands::save_document,
@@ -131,6 +139,7 @@ pub fn run() {
       commands::create_mongo_collection,
       commands::refresh_matview,
       commands::set_active_schema,
+      commands::disconnect_database,
       commands::active_schema,
       commands::table_schema,
       commands::run_sql,
@@ -175,8 +184,13 @@ pub fn run() {
       servers::server_execute_op,
       servers::server_list_databases,
       servers::server_catalog_overview,
+      servers::server_list_schemas_in,
+      servers::server_list_schema_objects,
+      servers::server_list_roles,
+      servers::server_list_role_details,
       servers::server_active_schema,
       servers::server_set_active_schema,
+      servers::server_disconnect_database,
       servers::server_apply_schema_ops_batch,
       servers::server_duplicate_table,
       servers::server_list_documents,

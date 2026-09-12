@@ -63,7 +63,7 @@ export function NotificationDetailDialog({
             </div>
           )}
           {notification.description && (
-            <div className="text-sm warp-break-words whitespace-pre-wrap">
+            <div className="warp-break-words text-sm whitespace-pre-wrap">
               {notification.description}
             </div>
           )}

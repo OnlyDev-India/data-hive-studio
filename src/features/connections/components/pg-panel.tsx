@@ -1,4 +1,12 @@
-import { Check, Cloud, Copy, Eraser, HardDrive, Link2, Save } from "lucide-react";
+import {
+  Check,
+  Cloud,
+  Copy,
+  Eraser,
+  HardDrive,
+  Link2,
+  Save,
+} from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -124,7 +132,7 @@ export function PgPanel({
   onCancelEdit,
   onClear,
 }: PgPanelProps) {
-  const disabled = connecting || testing || form.database.trim().length === 0;
+  const disabled = connecting || testing;
 
   return (
     <>
@@ -195,7 +203,7 @@ export function PgPanel({
             />
           </div>
           <Input
-            placeholder="database"
+            placeholder="database (optional, defaults to postgres)"
             value={form.database}
             onChange={(e) => setField("database", e.target.value)}
           />
@@ -266,9 +274,10 @@ export function PgPanel({
             form.ssl_mode === "verify-ca" ||
             form.ssl_mode === "verify-full") && (
             <div className="grid gap-2">
-              {(form.ssl_mode === "verify-ca" || form.ssl_mode === "verify-full") && (
+              {(form.ssl_mode === "verify-ca" ||
+                form.ssl_mode === "verify-full") && (
                 <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-[11px] font-normal">
+                  <Label className="text-muted-foreground text-2xs font-normal">
                     CA certificate file (optional — only needed for a
                     self-signed or private-CA server)
                   </Label>
@@ -281,7 +290,7 @@ export function PgPanel({
               )}
               <div className="grid grid-cols-2 gap-2">
                 <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-[11px] font-normal">
+                  <Label className="text-muted-foreground text-2xs font-normal">
                     Client certificate (optional, for mTLS)
                   </Label>
                   <FilePathInput
@@ -291,7 +300,7 @@ export function PgPanel({
                   />
                 </div>
                 <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-[11px] font-normal">
+                  <Label className="text-muted-foreground text-2xs font-normal">
                     Client private key (optional, for mTLS)
                   </Label>
                   <FilePathInput
@@ -310,7 +319,7 @@ export function PgPanel({
         <div className="flex flex-col gap-3 pt-1">
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Max pool connections (default 12)
               </Label>
               <Input
@@ -321,7 +330,7 @@ export function PgPanel({
               />
             </div>
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Min pool connections (default 1)
               </Label>
               <Input
@@ -334,18 +343,20 @@ export function PgPanel({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Connection acquire timeout, seconds (default 30)
               </Label>
               <Input
                 type="number"
                 placeholder="30"
                 value={form.connect_timeout_secs}
-                onChange={(e) => setField("connect_timeout_secs", e.target.value)}
+                onChange={(e) =>
+                  setField("connect_timeout_secs", e.target.value)
+                }
               />
             </div>
             <div className="grid gap-1">
-              <Label className="text-muted-foreground text-[11px] font-normal">
+              <Label className="text-muted-foreground text-2xs font-normal">
                 Idle timeout, seconds (default 900 = 15 min)
               </Label>
               <Input
@@ -357,7 +368,7 @@ export function PgPanel({
             </div>
           </div>
           <div className="grid gap-1">
-            <Label className="text-muted-foreground text-[11px] font-normal">
+            <Label className="text-muted-foreground text-2xs font-normal">
               Max connection lifetime, seconds (default 1800 = 30 min) —
               connections are recycled after this long regardless of activity
             </Label>
@@ -376,7 +387,7 @@ export function PgPanel({
         <Button
           variant="outline"
           onClick={onTest}
-          disabled={testing || connecting || !form.database.trim()}
+          disabled={testing || connecting}
         >
           {testing ? "Testing…" : "Test connection"}
         </Button>
@@ -387,7 +398,7 @@ export function PgPanel({
           <>
             <Button
               variant="secondary"
-              disabled={saving_to !== null || !form.database.trim()}
+              disabled={saving_to !== null}
               onClick={onUpdate}
             >
               {saving_to ? "Updating…" : "Update"}
@@ -400,7 +411,6 @@ export function PgPanel({
           <Button
             variant="secondary"
             onClick={onSaveLocal}
-            disabled={!form.database.trim()}
             title="Save to this device"
           >
             <Save className="size-4" /> Save
@@ -409,10 +419,7 @@ export function PgPanel({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button
-                  variant="secondary"
-                  disabled={!form.database.trim() || saving_to !== null}
-                >
+                <Button variant="secondary" disabled={saving_to !== null}>
                   <Save className="size-4" />
                   {saving_to ? "Saving…" : "Save"}
                 </Button>
@@ -429,7 +436,7 @@ export function PgPanel({
                 >
                   <Cloud className="size-3.5" />
                   {s.profile.name}
-                  <span className="text-muted-foreground ml-auto text-[10px]">
+                  <span className="text-muted-foreground text-3xs ml-auto">
                     shared
                   </span>
                 </DropdownMenuItem>
