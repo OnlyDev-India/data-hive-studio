@@ -35,5 +35,23 @@ export default defineConfig(({ mode }) => ({
     // never clobbers the desktop bundle in dist/.
     outDir: mode === "web" ? "dist-web" : "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Without this, Rolldown's automatic chunking has split React's
+        // CJS-interop wrapper into an app chunk (observed: "store") that
+        // another chunk (observed: "utils") also needs — but loads BEFORE,
+        // since nothing pins load order between two app chunks. That chunk
+        // then calls the not-yet-initialized export as a function
+        // ("TypeError: n is not a function") on first paint, blanking the
+        // whole app. Pinning React into its own vendor chunk (no app-code
+        // back-reference) guarantees it's independent of any app chunk's
+        // internal load order.
+        manualChunks(id) {
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) {
+            return "react-vendor";
+          }
+        },
+      },
+    },
   },
 }));
