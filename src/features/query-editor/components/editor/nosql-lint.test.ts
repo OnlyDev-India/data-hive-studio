@@ -24,7 +24,10 @@ async function lint(doc: string, collections: string[] = []) {
   return diagnostics;
 }
 
-async function lintCount(doc: string, collections: string[] = []): Promise<number> {
+async function lintCount(
+  doc: string,
+  collections: string[] = [],
+): Promise<number> {
   return (await lint(doc, collections)).length;
 }
 
@@ -67,7 +70,9 @@ describe("nosqlSyntaxLinter", () => {
   });
 
   it("flags two queries with no ; between them as invalid — they'd run as one combined chunk", async () => {
-    expect(await lintCount("db.users.find({})\ndb.orders.find({})")).toBeGreaterThan(0);
+    expect(
+      await lintCount("db.users.find({})\ndb.orders.find({})"),
+    ).toBeGreaterThan(0);
   });
 
   it("places the missing-; diagnostic at the end of the first query's line, not inside the next query", async () => {
@@ -93,14 +98,19 @@ describe("nosqlSyntaxLinter", () => {
     // The exact case reported: `find` used as a collection name (easy to
     // mistype/mix up with the `.find()` method right after it) when the
     // real collections are `users`/`orders`.
-    const diagnostics = await lintCount("db.find.find({});", ["users", "orders"]);
+    const diagnostics = await lintCount("db.find.find({});", [
+      "users",
+      "orders",
+    ]);
     expect(diagnostics).toBeGreaterThan(0);
   });
 
   it("points the unknown-collection diagnostic at just the collection name", async () => {
     const doc = "db.find.find({});";
     const diagnostics = await lint(doc, ["users", "orders"]);
-    const unknown = diagnostics.find((d) => d.message.includes("Unknown collection"));
+    const unknown = diagnostics.find((d) =>
+      d.message.includes("Unknown collection"),
+    );
     expect(unknown).toBeDefined();
     expect(doc.slice(unknown!.from, unknown!.to)).toBe("find");
   });

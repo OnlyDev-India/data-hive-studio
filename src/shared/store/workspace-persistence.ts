@@ -28,7 +28,9 @@ interface WorkspaceSnapshotV1 {
 /** Build the full snapshot to persist — every currently-open connection
  *  that actually has tabs, re-keyed from its ephemeral `conn_id` to a
  *  stable identity so it can be matched up again after a restart. */
-export function buildWorkspaceSnapshot(state: StudioStore): WorkspaceSnapshotV1 {
+export function buildWorkspaceSnapshot(
+  state: StudioStore,
+): WorkspaceSnapshotV1 {
   const byConn: Record<string, SavedWorkspace> = {};
   for (const conn of state.open) {
     const ws = state.workspaces[conn.id];

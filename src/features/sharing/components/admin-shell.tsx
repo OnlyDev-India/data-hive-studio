@@ -42,7 +42,10 @@ export function AdminShell({
         </span>
       </header>
       <main className="w-full flex-1">
-        <AdminDashboard profileId={active.profile.id} orgId={active.profile.org_id} />
+        <AdminDashboard
+          profileId={active.profile.id}
+          orgId={active.profile.org_id}
+        />
       </main>
     </div>
   );

@@ -36,7 +36,7 @@ const PanelLeftIcon = ({
         x="3"
         y="3"
         rx="2"
-        className={cn("fill-transparent stroke-2 stroke-muted-foreground", {
+        className={cn("stroke-muted-foreground fill-transparent stroke-2", {
           "fill-primary/60": active,
         })}
       />

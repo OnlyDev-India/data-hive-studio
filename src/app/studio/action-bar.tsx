@@ -1,30 +1,9 @@
 import { useState } from "react";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  FileCode2,
-  Loader2,
-  Play,
-  Plus,
-  RefreshCw,
-  TextCursorInput,
-  TextSelect,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { prettyKind } from "@/shared/api";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/components/ui/dropdown-menu";
-import { TabTypeIcon } from "@/shared/components/tab-type-icon";
 import {
   useActiveConnection,
   usePaneMode,
@@ -42,17 +21,10 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { ExportMenu } from "@/features/data-export";
 import { NotificationBell } from "@/features/notifications";
-import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
-import {
-  pending_changes_to_diff,
-  type PendingChange,
-} from "@/shared/components/data-grid/grid-context";
-import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
+import { formatQueryPreview } from "./query-preview";
+import { IconTypeMap } from "@/shared/components/icons/types";
 
 export function ActionBar() {
-  const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
-    null,
-  );
   const conn = useActiveConnection();
   const ws = useWorkspace(conn?.id ?? "");
   const active = ws.active;
@@ -60,26 +32,14 @@ export function ActionBar() {
   const bridge = useStudioStore((s) =>
     active_key ? s.gridBridges[active_key] : null,
   );
-  const schemaEdit = useStudioStore((s) =>
-    active_key ? (s.schemaEdits[active_key] ?? null) : null,
-  );
-  // Refresh / Drop-table(-collection) for the active table/Mongo pane while
-  // its Schema editor is open (registered by SchemaTab/MongoIndexesEditor
-  // via the store).
   const is_schema_pane_kind =
     active?.kind === "table" || active?.kind === "mongo";
   const paneMode = usePaneMode(
     conn?.id ?? "",
     is_schema_pane_kind && active_key ? active_key : "",
   );
-  const schemaPane = useStudioStore((s) =>
-    is_schema_pane_kind && active_key
-      ? (s.schemaPanes[active_key] ?? null)
-      : null,
-  );
   const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
-  const openSql = useStudioStore((s) => s.openSql);
   // New-table tab registers its create action under its tab key — the button
   // shows only while a NEW-TABLE tab is active, enabled only when valid.
   const newTable = useStudioStore((s) =>
@@ -94,17 +54,26 @@ export function ActionBar() {
       ? (s.sqlTabs[active_key] ?? null)
       : null,
   );
+  // Status-bar-only text — what the grid is effectively running, built from
+  // the SAME structured op it already exposes for exports, so it can never
+  // disagree with the actual filters/sort in effect.
+  const is_mongo_like = conn?.kind === "mongodb" || conn?.kind === "documentdb";
+  const query_preview =
+    bridge && paneMode === "data"
+      ? formatQueryPreview(
+          bridge.get_filtered_op(),
+          bridge.page_size,
+          is_mongo_like,
+        )
+      : null;
 
   return (
     <TooltipProvider delay={500}>
       <footer className="bg-muted/60 text-muted-foreground flex h-9 shrink-0 items-stretch overflow-hidden border-t text-xs select-none">
-        {/* Section 1 — disconnect */}
-        <div
-          className="bg-background flex w-14 shrink-0 items-center justify-center border-r"
-          title={conn ? conn.name : "No connection"}
-        >
-          <DisconnectDbBtn conn={conn} />
-        </div>
+        {/* Section 1 — empty spacer, kept for layout: this used to hold the
+            disconnect button, now moved to the sidebar's database row
+            context menu (see `TablesBrowser` in tables-view.tsx). */}
+        <div className="w-14 shrink-0 border-r" />
         {/* Section 2 — connection details (flows with the sidebar width) */}
         <div
           className={cn(
@@ -118,7 +87,7 @@ export function ActionBar() {
             {conn ? conn.name : "No connection"}
           </span>
           {conn && (
-            <span className="shrink-0 text-[10px] tracking-wide uppercase">
+            <span className="text-3xs shrink-0 tracking-wide uppercase">
               {prettyKind(conn.kind)}
             </span>
           )}
@@ -131,7 +100,7 @@ export function ActionBar() {
         <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-2 overflow-x-auto px-3">
           {active ? (
             <>
-              <TabTypeIcon tab={active} />
+              {IconTypeMap[active.kind]}
               <span className="text-foreground/80 max-w-40 truncate font-medium">
                 {tabLabel(active)}
               </span>
@@ -145,6 +114,14 @@ export function ActionBar() {
                   <span className="text-muted-foreground/80 shrink-0">
                     {bridge.rows} of {bridge.total} rows
                   </span>
+                  {query_preview && (
+                    <code
+                      className="text-muted-foreground/70 text-2xs min-w-0 truncate font-mono"
+                      title={query_preview}
+                    >
+                      {query_preview}
+                    </code>
+                  )}
                 </>
               )}
               {!bridge && sqlConsole?.result && (
@@ -162,6 +139,12 @@ export function ActionBar() {
           ) : (
             <span className="truncate">No tab open</span>
           )}
+          {/* Divider between the status text above and the grid controls
+              below — the reference direction called for reading these as
+              two distinct clusters instead of one dense row. */}
+          {active && (
+            <span className="bg-border mx-1 h-4 w-px shrink-0" aria-hidden />
+          )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {bridge && paneMode === "data" && (
               <>
@@ -170,214 +153,8 @@ export function ActionBar() {
                   onChange={bridge.set_page_size}
                 />
                 <Pagination bridge={bridge} />
-                {bridge.has_full_row && (
-                  <ActionBarTooltip label="Delete Row(s)">
-                    <Button
-                      variant="ghost"
-                      size="iconXs"
-                      disabled={!bridge.editable}
-                      title={`Delete selected rows (${bridge.selected_count})`}
-                      onClick={() => bridge.delete_rows()}
-                      className={
-                        "text-destructive/70 bg-destructive/10 hover:text-destructive hover:bg-destructive/20"
-                      }
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </ActionBarTooltip>
-                )}
-                {bridge.pending_exists && (
-                  <>
-                    <Button
-                      size="sm"
-                      className="h-6 rounded-r-none px-2 text-xs"
-                      disabled={bridge.loading}
-                      title="Review and apply the pending changes"
-                      onClick={() =>
-                        setApplyChanges(bridge.get_pending_changes())
-                      }
-                    >
-                      {bridge.loading ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Check className="size-3.5" />
-                      )}
-                      Review &amp; Apply
-                      {bridge.pending_count > 1
-                        ? ` (${bridge.pending_count})`
-                        : ""}
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            size="iconXs"
-                            disabled={bridge.loading}
-                            aria-label="Pending edits options"
-                            title="Pending edits options"
-                            className={"-ml-0.5 rounded-l-none"}
-                          />
-                        }
-                      >
-                        <ChevronUp className="size-3.5" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => bridge.apply_pending()}
-                          disabled={bridge.loading}
-                        >
-                          <Check className="size-3.5" />
-                          Apply
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            const sql = bridge.get_pending_sql();
-                            if (sql && conn) openSql(conn.id, sql);
-                          }}
-                        >
-                          <FileCode2 className="size-3.5" />
-                          Copy to SQL
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <ActionBarTooltip label="Reset Changes">
-                      <Button
-                        variant="ghost"
-                        size="iconXs"
-                        disabled={bridge.loading}
-                        title="Discard the new row"
-                        onClick={() => bridge.cancel_pending()}
-                      >
-                        <X className="size-3.5" />
-                      </Button>
-                    </ActionBarTooltip>
-                  </>
-                )}
                 <ActionBarTooltip label="Download">
                   <ExportMenu bridge={bridge} conn_id={conn?.id ?? ""} />
-                </ActionBarTooltip>
-                <ActionBarTooltip label="Add Row">
-                  <Button
-                    variant="ghost"
-                    size="iconXs"
-                    disabled={!bridge.editable}
-                    aria-label="Add a new row"
-                    onClick={() => bridge.start_pending()}
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
-                </ActionBarTooltip>
-                <ActionBarTooltip label="Refresh">
-                  <Button
-                    variant="ghost"
-                    size="iconXs"
-                    title="Refresh"
-                    disabled={bridge.loading}
-                    onClick={() => bridge.refresh()}
-                  >
-                    <RefreshCw
-                      className={cn("size-3.5", {
-                        "animate-spin": bridge.loading,
-                      })}
-                    />
-                  </Button>
-                </ActionBarTooltip>
-              </>
-            )}
-            {/* Schema editor tools — moved here from the tab header. */}
-            {schemaEdit && paneMode == "schema" && (
-              <>
-                <span className="text-muted-foreground/80 shrink-0">
-                  {schemaEdit.busy
-                    ? "Applying…"
-                    : `${schemaEdit.count} schema change${schemaEdit.count === 1 ? "" : "s"}`}
-                </span>
-                <Button
-                  size="sm"
-                  className="h-6 rounded-r-none px-2 text-xs"
-                  disabled={schemaEdit.busy || schemaEdit.count === 0}
-                  title="Review and apply the pending schema changes"
-                  onClick={() => schemaEdit.review()}
-                >
-                  {schemaEdit.busy ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Check className="size-3.5" />
-                  )}
-                  {schemaEdit.busy
-                    ? "Applying…"
-                    : `Review & Apply${schemaEdit.count > 1 ? ` (${schemaEdit.count})` : ""}`}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        size="iconXs"
-                        disabled={schemaEdit.busy || schemaEdit.count === 0}
-                        aria-label="Pending schema changes options"
-                        title="Pending schema changes options"
-                        className="-ml-0.5 rounded-l-none"
-                      />
-                    }
-                  >
-                    <ChevronUp className="size-3.5" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => schemaEdit.apply()}
-                      disabled={schemaEdit.busy}
-                    >
-                      <Check className="size-3.5" />
-                      Apply
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button
-                  variant="ghost"
-                  size="iconXs"
-                  title="Discard schema changes"
-                  disabled={schemaEdit.busy}
-                  onClick={() => schemaEdit.discard()}
-                >
-                  <X className="size-3.5" />
-                </Button>
-              </>
-            )}
-
-            {is_schema_pane_kind && paneMode === "schema" && schemaPane && (
-              <>
-                <ActionBarTooltip
-                  label={
-                    active?.kind === "mongo" ? "Drop collection" : "Drop table"
-                  }
-                >
-                  <Button
-                    variant="ghost"
-                    size="iconXs"
-                    aria-label={
-                      active?.kind === "mongo"
-                        ? "Drop collection"
-                        : "Drop table"
-                    }
-                    disabled={schemaPane.busy}
-                    onClick={() => schemaPane.drop()}
-                    className={
-                      "text-destructive/70 bg-destructive/10 hover:text-destructive hover:bg-destructive/20"
-                    }
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </ActionBarTooltip>
-                <ActionBarTooltip label="Refresh schema">
-                  <Button
-                    variant="ghost"
-                    size="iconXs"
-                    aria-label="Refresh schema"
-                    disabled={schemaPane.busy}
-                    onClick={() => schemaPane.refresh()}
-                  >
-                    <RefreshCw className="size-3.5" />
-                  </Button>
                 </ActionBarTooltip>
               </>
             )}
@@ -404,61 +181,12 @@ export function ActionBar() {
                 </Button>
               </ActionBarTooltip>
             )}
-            {sqlConsole && (
-              <ActionBarTooltip
-                label={
-                  sqlConsole.has_selection
-                    ? "Run the selected statement(s)"
-                    : "Run the query at the cursor"
-                }
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 bg-transparent px-2 text-xs"
-                  disabled={
-                    !sqlConsole.can_run_target || !sqlConsole.run_target
-                  }
-                  onClick={() => sqlConsole.run_target?.()}
-                >
-                  {sqlConsole.has_selection ? (
-                    <TextSelect className="size-3.5" />
-                  ) : (
-                    <TextCursorInput className="size-3.5" />
-                  )}
-                  {sqlConsole.has_selection ? "Run selection" : "Run query"}
-                </Button>
-              </ActionBarTooltip>
-            )}
-            {sqlConsole && (
-              <ActionBarTooltip label="Run all statements">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 bg-transparent px-2 text-xs"
-                  disabled={!sqlConsole.has_text || !sqlConsole.run_all}
-                  title="Run all statements"
-                  onClick={() => sqlConsole.run_all?.()}
-                >
-                  <Play className="size-3.5" />
-                  Run all
-                </Button>
-              </ActionBarTooltip>
-            )}
             <ActionBarTooltip label="Notifications">
               <NotificationBell />
             </ActionBarTooltip>
           </div>
         </div>
       </footer>
-      {apply_changes && bridge && (
-        <ApplyChangesDialog
-          changes={pending_changes_to_diff(apply_changes)}
-          selectable
-          on_apply={(keepIds) => bridge.apply_pending(keepIds)}
-          on_close={() => setApplyChanges(null)}
-        />
-      )}
     </TooltipProvider>
   );
 }
@@ -480,7 +208,7 @@ function Pagination({
       >
         <ChevronLeft className="size-3.5" />
       </Button>
-      <span className="flex h-6 shrink-0 items-center border-x px-1.5 text-[11px]">
+      <span className="text-2xs flex h-6 shrink-0 items-center border-x px-1.5">
         {bridge.page + 1} / {bridge.total_pages}
       </span>
       <Button
@@ -512,7 +240,7 @@ function LimitInput({
   };
   return (
     <div className="flex h-6 items-center gap-1 rounded-md border px-1.5">
-      <span className="text-[10px] tracking-wide uppercase">Limit</span>
+      <span className="text-3xs tracking-wide uppercase">Limit</span>
       <Input
         type="number"
         min={1}
@@ -525,7 +253,7 @@ function LimitInput({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        className="h-6 w-10 rounded-none border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
+        className="w-10 rounded-none border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
       />
     </div>
   );

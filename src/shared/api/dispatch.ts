@@ -81,7 +81,12 @@ export function dispatchDbCall<T>(
       token || undefined,
     );
   }
-  if (WEB) return wcall<T>(opts.httpMethod, opts.httpPath(remoteOf(connId)), opts.httpBody);
+  if (WEB)
+    return wcall<T>(
+      opts.httpMethod,
+      opts.httpPath(remoteOf(connId)),
+      opts.httpBody,
+    );
   if (isServerConn(connId)) return invoke<T>(opts.serverCmd, opts.args);
   return invoke<T>(opts.localCmd, opts.args);
 }

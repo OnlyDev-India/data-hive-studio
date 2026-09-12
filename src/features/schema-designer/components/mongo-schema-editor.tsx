@@ -32,6 +32,7 @@ import {
  *  uses, so the action bar's controls work identically for both. */
 export function MongoSchemaEditor({
   conn_id,
+  database,
   collection,
   schema,
   store_key,
@@ -39,6 +40,9 @@ export function MongoSchemaEditor({
   on_dropped,
 }: {
   conn_id: string;
+  /** The collection's database — Mongo tabs always carry one explicitly
+   *  (no "ambient/primary" concept the way Postgres tabs have). */
+  database: string;
   collection: string;
   schema: TableSchema;
   /** The pane's tab key — matches the key `usePaneMode`/`gridBridges` use,
@@ -99,9 +103,7 @@ export function MongoSchemaEditor({
     setEditingName(false);
   };
 
-  const [confirm_apply, setConfirmApply] = useState<DiffChange[] | null>(
-    null,
-  );
+  const [confirm_apply, setConfirmApply] = useState<DiffChange[] | null>(null);
 
   /** Direct apply, no review dialog — close-guards and the dropdown's
    *  "Apply" option (mirrors the grid's Review & Apply / Apply split). */
@@ -120,7 +122,7 @@ export function MongoSchemaEditor({
   const run_apply = async () => {
     setApplying(true);
     try {
-      const ran = await applySchemaOps(conn_id, ops);
+      const ran = await applySchemaOps(conn_id, ops, database);
       push_notification({
         kind: "success",
         title: `Collection updated — ${ran.length} statement${ran.length === 1 ? "" : "s"} applied`,
@@ -215,6 +217,7 @@ export function MongoSchemaEditor({
         open={confirm_drop}
         on_open_change={setConfirmDrop}
         on_dropped={on_dropped}
+        database={database}
       />
 
       {confirm_apply && (

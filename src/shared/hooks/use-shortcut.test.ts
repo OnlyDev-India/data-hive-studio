@@ -4,9 +4,16 @@ import { useShortcuts } from "./use-shortcut";
 
 function press(
   key: string,
-  opts: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }> = {},
+  opts: Partial<{
+    metaKey: boolean;
+    ctrlKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+  }> = {},
 ) {
-  window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...opts }));
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", { key, bubbles: true, ...opts }),
+  );
 }
 
 describe("useShortcuts", () => {

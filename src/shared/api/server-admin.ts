@@ -119,7 +119,12 @@ export interface ServerSession {
  *  sign-in form show only the buttons that will actually work. */
 export function serversOAuthProviders(url: string): Promise<string[]> {
   if (WEB) {
-    return wcall<string[]>("GET", "/auth/providers", undefined, url || apiUrl());
+    return wcall<string[]>(
+      "GET",
+      "/auth/providers",
+      undefined,
+      url || apiUrl(),
+    );
   }
   return invoke("servers_oauth_providers", { url });
 }
@@ -147,7 +152,13 @@ export async function serversReuseSession(
     for (const cfg of webListServers()) {
       if (cfg.url !== target) continue;
       try {
-        const me = await wcall<MeResult>("GET", "/v1/me", undefined, cfg.url, cfg.token);
+        const me = await wcall<MeResult>(
+          "GET",
+          "/v1/me",
+          undefined,
+          cfg.url,
+          cfg.token,
+        );
         return { token: cfg.token, me };
       } catch {
         // stale/expired session — try the next matching profile, if any

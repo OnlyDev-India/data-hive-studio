@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
+import { cn } from "@/shared/lib/utils";
 
 /** The single left-edge panel slot shared by the database sidebar and the
- *  Activity feed. The SLOT owns the open/close animation; its children swap
- *  instantly — so switching database <-> activity while open never replays
- *  a slide-in (the panel just changes content in place). */
+ *  Activity feed. Children stay mounted even while closed (width 0) rather
+ *  than unmounting via AnimatePresence — TablesBrowser's whole catalog tree
+ *  (fetched schemas/objects, expanded nodes) used to get thrown away and
+ *  refetched from scratch every time the panel closed and reopened. */
 export function LeftPanelSlot({
   open,
   width,
@@ -17,19 +19,17 @@ export function LeftPanelSlot({
   children: ReactNode;
 }) {
   return (
-    <AnimatePresence initial={false}>
-      {open && (
-        <motion.div
-          key="left-panel"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: "easeOut" }}
-          className="bg-background relative flex shrink-0 overflow-hidden border-r"
-        >
-          {children}
-        </motion.div>
+    <motion.div
+      animate={{ width: open ? width : 0, opacity: open ? 1 : 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={cn(
+        "bg-background relative flex shrink-0 overflow-hidden",
+        open && "border-r",
       )}
-    </AnimatePresence>
+      style={{ pointerEvents: open ? "auto" : "none" }}
+      aria-hidden={!open}
+    >
+      {children}
+    </motion.div>
   );
 }

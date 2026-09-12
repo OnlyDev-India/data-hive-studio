@@ -236,31 +236,31 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 #[cfg(debug_assertions)]
-fn password_file(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
+fn password_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let dir = dir.join("connection-passwords");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join(sanitize_filename(name)))
+    Ok(dir)
+}
+
+#[cfg(debug_assertions)]
+fn password_file(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
+    Ok(password_dir(app)?.join(sanitize_filename(name)))
 }
 
 // ---- Password persistence ----------------------------------------------
 //
 // Release builds use the OS keychain. Debug builds store the password in an
-// app-data file with 0600 permissions instead — same rationale as
-// `servers.rs`'s token storage (see that file's comment).
+// app-data file instead, ENCRYPTED (see `secret_file.rs`) rather than
+// plain text — same rationale as `servers.rs`'s token storage (see that
+// file's comment) for why the OS keychain is skipped in debug builds at all.
 
 fn save_password(app: &tauri::AppHandle, name: &str, password: &str) -> Result<(), String> {
     #[cfg(debug_assertions)]
     {
-        let path = password_file(app, name)?;
-        std::fs::write(&path, password).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        let dir = password_dir(app)?;
+        let key = crate::secret_file::master_key(&dir)?;
+        crate::secret_file::save(&password_file(app, name)?, &key, password)
     }
     #[cfg(not(debug_assertions))]
     {
@@ -274,9 +274,10 @@ fn save_password(app: &tauri::AppHandle, name: &str, password: &str) -> Result<(
 fn load_password(app: &tauri::AppHandle, name: &str) -> Result<String, String> {
     #[cfg(debug_assertions)]
     {
-        let path = password_file(app, name)?;
-        if path.exists() {
-            return std::fs::read_to_string(path).map_err(|e| e.to_string());
+        let dir = password_dir(app)?;
+        let key = crate::secret_file::master_key(&dir)?;
+        if let Some(pw) = crate::secret_file::load(&password_file(app, name)?, &key)? {
+            return Ok(pw);
         }
         // One-time migration from a previously used keychain entry (e.g. a
         // release build's data reused in dev). May prompt once; the file

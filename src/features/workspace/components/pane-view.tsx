@@ -1,14 +1,12 @@
 import { Fragment, useLayoutEffect, useRef } from "react";
+import { Code, Database, SquarePlus, Terminal } from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
-import {
-  useStudioStore,
-  type PaneNode,
-  type StudioTab,
-} from "@/shared/store";
+import { Button } from "@/shared/components/ui/button";
+import { useStudioStore, type PaneNode, type StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
 import { TabBar } from "./tab-bar";
 import { PaneDropOverlay } from "./pane-drop-overlay";
@@ -79,7 +77,9 @@ function SplitPaneView({
     <ResizablePanelGroup
       orientation={node.direction}
       onLayoutChanged={(layout) => {
-        const sizes = node.children.map((c, i) => layout[c.id] ?? node.sizes[i]);
+        const sizes = node.children.map(
+          (c, i) => layout[c.id] ?? node.sizes[i],
+        );
         resizeSplit(shared.connId, node.id, sizes);
       }}
     >
@@ -90,7 +90,7 @@ function SplitPaneView({
               title="Drag to resize"
               // Matches the sidebar's resize divider: invisible until
               // hovered/dragged, no permanent grip icon.
-              className="bg-transparent hover:bg-accent active:bg-primary/60"
+              className="hover:bg-accent active:bg-primary/60 bg-transparent"
             />
           )}
           <ResizablePanel
@@ -184,10 +184,35 @@ function LeafPaneView({
       <div className="relative min-h-0 flex-1" data-pane-content-id={node.id}>
         <PaneDropOverlay paneId={node.id} />
         {tabs.length === 0 ? (
-          <div className="flex h-full items-center justify-center p-6 text-center">
-            <h2 className="text-muted-foreground text-lg font-semibold">
-              Open a table from the sidebar, or press + to open a SQL editor.
-            </h2>
+          <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+            <Database className="text-muted-foreground/30 size-10" />
+            <div className="flex flex-col gap-1">
+              <h2 className="text-foreground text-sm font-medium">
+                No tab open
+              </h2>
+              <p className="text-muted-foreground max-w-xs text-sm">
+                Open a table from the sidebar, or start something new here.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button variant="outline" onClick={() => on_new_sql(node.id)}>
+                <Code className="size-3.5" />
+                SQL editor
+              </Button>
+              {is_mongo && (
+                <Button
+                  variant="outline"
+                  onClick={() => on_new_mongo_console(node.id)}
+                >
+                  <Terminal className="size-3.5" />
+                  NoSQL console
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => on_new_table(node.id)}>
+                <SquarePlus className="size-3.5" />
+                Create table
+              </Button>
+            </div>
           </div>
         ) : (
           <div ref={wrapper_ref} className="h-full" />

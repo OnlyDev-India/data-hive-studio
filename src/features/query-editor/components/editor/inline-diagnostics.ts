@@ -18,7 +18,10 @@ class InlineDiagnosticWidget extends WidgetType {
   message: string;
   severity: "error" | "warning" | "info" | "hint";
 
-  constructor(message: string, severity: "error" | "warning" | "info" | "hint") {
+  constructor(
+    message: string,
+    severity: "error" | "warning" | "info" | "hint",
+  ) {
     super();
     this.message = message;
     this.severity = severity;
@@ -61,9 +64,7 @@ function buildDecorations(state: EditorState): DecorationSet {
     });
   });
   widgets.sort((a, b) => a.pos - b.pos);
-  return Decoration.set(
-    widgets.map(({ pos, deco }) => deco.range(pos)),
-  );
+  return Decoration.set(widgets.map(({ pos, deco }) => deco.range(pos)));
 }
 
 const inlineDiagnosticsPlugin = ViewPlugin.fromClass(

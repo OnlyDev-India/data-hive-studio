@@ -44,13 +44,16 @@ export function InvitesPanel({
             key={inv.code}
             className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
           >
-            <Badge variant={dead ? "secondary" : "default"} className="shrink-0">
+            <Badge
+              variant={dead ? "secondary" : "default"}
+              className="shrink-0"
+            >
               {inv.role}
             </Badge>
             <code className="min-w-0 flex-1 truncate font-mono text-xs">
               {inv.code}
             </code>
-            <span className="text-muted-foreground shrink-0 text-[11px]">
+            <span className="text-muted-foreground text-2xs shrink-0">
               {inv.uses_count}
               {inv.max_uses != null ? `/${inv.max_uses}` : ""} used
               {expired && " · expired"}
@@ -62,7 +65,10 @@ export function InvitesPanel({
               title="Copy invite code"
               onClick={() => {
                 void navigator.clipboard.writeText(inv.code);
-                pushNotification({ kind: "success", title: "Copied invite code" });
+                pushNotification({
+                  kind: "success",
+                  title: "Copied invite code",
+                });
               }}
             >
               <Copy className="size-3" />
@@ -71,7 +77,11 @@ export function InvitesPanel({
               size={revoking === inv.code ? "icon" : "default"}
               variant={revoking === inv.code ? "destructive" : "ghost"}
               className="h-6 w-auto shrink-0 px-2"
-              title={revoking === inv.code ? "Click again to confirm" : "Revoke invite"}
+              title={
+                revoking === inv.code
+                  ? "Click again to confirm"
+                  : "Revoke invite"
+              }
               onClick={() => {
                 if (revoking !== inv.code) {
                   setRevoking(inv.code);
@@ -83,7 +93,10 @@ export function InvitesPanel({
                 }
                 void serversOrgInviteRevoke(profileId, orgId, inv.code)
                   .then(() => {
-                    pushNotification({ kind: "success", title: "Invite revoked" });
+                    pushNotification({
+                      kind: "success",
+                      title: "Invite revoked",
+                    });
                     onRefresh();
                   })
                   .catch((e: unknown) => {
@@ -98,7 +111,7 @@ export function InvitesPanel({
             >
               <Trash2 className="size-3" />
               {revoking === inv.code && (
-                <span className="ml-0.5 text-[10px]">confirm</span>
+                <span className="text-3xs ml-0.5">confirm</span>
               )}
             </Button>
           </div>

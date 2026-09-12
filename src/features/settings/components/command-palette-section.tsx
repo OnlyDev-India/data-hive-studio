@@ -46,7 +46,9 @@ function wordOf(fullKeyword: string): string {
   return fullKeyword.endsWith(":") ? fullKeyword.slice(0, -1) : fullKeyword;
 }
 
-function wordsOf(keywords: PaletteKeywords): Record<keyof PaletteKeywords, string> {
+function wordsOf(
+  keywords: PaletteKeywords,
+): Record<keyof PaletteKeywords, string> {
   const entries = Object.entries(keywords) as [keyof PaletteKeywords, string][];
   return Object.fromEntries(entries.map(([k, v]) => [k, wordOf(v)])) as Record<
     keyof PaletteKeywords,
@@ -62,7 +64,10 @@ function validateWord(
   if (!word) return "Can't be empty.";
   if (word.startsWith(">")) return `">" is reserved for commands.`;
   for (const other of Object.keys(drafts) as (keyof PaletteKeywords)[]) {
-    if (other !== key && drafts[other].trim().toLowerCase() === word.toLowerCase()) {
+    if (
+      other !== key &&
+      drafts[other].trim().toLowerCase() === word.toLowerCase()
+    ) {
       return "Already used by another prefix.";
     }
   }
@@ -111,8 +116,7 @@ export function CommandPaletteSection() {
         <p className="text-muted-foreground mt-0.5 text-sm">
           Customize the search prefixes used in the command palette
           (Cmd/Ctrl+P). The command-mode prefix (
-          <code className="bg-muted rounded px-1 py-0.5">&gt;</code>) is
-          fixed.
+          <code className="bg-muted rounded px-1 py-0.5">&gt;</code>) is fixed.
         </p>
       </header>
 
@@ -151,7 +155,7 @@ export function CommandPaletteSection() {
                 />
                 <span
                   aria-hidden
-                  className="text-muted-foreground select-none font-mono text-xs"
+                  className="text-muted-foreground font-mono text-xs select-none"
                 >
                   :
                 </span>

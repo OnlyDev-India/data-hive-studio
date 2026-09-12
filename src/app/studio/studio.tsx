@@ -11,7 +11,7 @@ import { LeftPanelSlot } from "./left-panel";
 import {
   getActivity,
   serversReleaseConnection,
-  type ActivityEntry
+  type ActivityEntry,
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
 import { canManageOrg } from "@/shared/api/client";
@@ -26,6 +26,7 @@ import { Sidebar } from "@/features/workspace";
 import { CommandPalette } from "./command-palette";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
+import { UpdateDialog } from "@/features/updater";
 
 /** Per-connection workspaces are code-split away from the shell. */
 const Workspace = lazy(() => import("./workspace"));
@@ -35,7 +36,6 @@ export function Studio() {
   const activeId = useStudioStore((s) => s.activeId);
   const view = useStudioStore((s) => s.view);
   const setView = useStudioStore((s) => s.setView);
-  const setActive = useStudioStore((s) => s.setActive);
   const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
   const leftPanelMode = useStudioStore((s) => s.leftPanelMode);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
@@ -48,7 +48,12 @@ export function Studio() {
   const connected = useStudioStore((s) => s.open.length > 0);
   useShortcuts(
     [
-      { key: "r", mod: true, stopPropagation: true, handler: () => set_leave_open(true) },
+      {
+        key: "r",
+        mod: true,
+        stopPropagation: true,
+        handler: () => set_leave_open(true),
+      },
       { key: "F5", stopPropagation: true, handler: () => set_leave_open(true) },
     ],
     { enabled: WEB && connected, capture: true },
@@ -157,9 +162,15 @@ export function Studio() {
   }, []);
   useEffect(() => {
     if (WEB) return;
-    const active = open.length === 0 ? null : (open.find((c) => c.id === activeId) ?? open[0]);
+    const active =
+      open.length === 0
+        ? null
+        : (open.find((c) => c.id === activeId) ?? open[0]);
     void import("./native-menu").then(({ syncMenuContext }) =>
-      syncMenuContext(view === "workspace" && open.length > 0, active?.kind === "mongodb"),
+      syncMenuContext(
+        view === "workspace" && open.length > 0,
+        active?.kind === "mongodb",
+      ),
     );
   }, [view, open, activeId]);
 
@@ -265,7 +276,9 @@ export function Studio() {
           <>
             <ActivityBar
               home_active={landing}
-              tables_active={!landing && leftPanelOpen && leftPanelMode === "tables"}
+              tables_active={
+                !landing && leftPanelOpen && leftPanelMode === "tables"
+              }
               activity_active={leftPanelOpen && leftPanelMode === "activity"}
               actions_disabled
               on_home={on_home}
@@ -317,9 +330,6 @@ export function Studio() {
                 <Suspense fallback={<WorkspaceFallback />}>
                   <Workspace
                     conn={conn}
-                    conns={open}
-                    active_conn_id={active_conn!.id}
-                    on_switch_conn={setActive}
                     landing={landing}
                     on_home={on_home}
                     on_tables={show_tables}
@@ -334,6 +344,7 @@ export function Studio() {
       <ActionBar />
       <CommandPalette />
       <DisconnectDialog />
+      <UpdateDialog />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
     </div>
