@@ -56,13 +56,11 @@ describe("ActivityFeed app-activity toggle", () => {
       .getState()
       .pushActivity({ ...entry(2, "app"), conn_key: "sqlite:/x.db" });
     // Different connection — must never show regardless of toggle state.
-    useStudioStore
-      .getState()
-      .pushActivity({
-        ...entry(3, "app"),
-        conn_id: "c2",
-        conn_key: "sqlite:/y.db",
-      });
+    useStudioStore.getState().pushActivity({
+      ...entry(3, "app"),
+      conn_id: "c2",
+      conn_key: "sqlite:/y.db",
+    });
 
     render(<ActivityFeed conn_id="c1" conn_key="sqlite:/x.db" />);
 

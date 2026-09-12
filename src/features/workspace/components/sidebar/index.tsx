@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/shared/lib/utils";
-import type { ActivityEntry, TableInfo } from "@/shared/api";
+import type { ActivityEntry, SchemaObjectKind, TableInfo } from "@/shared/api";
 import { useStudioStore } from "@/shared/store";
 import { ActivityView } from "./activity-view";
 import { HomeView } from "./home-view";
@@ -24,6 +24,12 @@ interface SidebarProps {
   mode?: "tables" | "activity";
   /** Activity mode: clicking an entry opens/updates the details tab. */
   on_activity_select?: (entry: ActivityEntry) => void;
+  /** Forwarded straight to TablesBrowser — see its own doc comment. */
+  object_created?: {
+    database: string;
+    schema: string;
+    kind: SchemaObjectKind;
+  } | null;
 }
 
 /** Left panel frame: width + resize handle, then one of three views —
@@ -39,6 +45,7 @@ export function Sidebar({
   reloading = false,
   mode = "tables",
   on_activity_select,
+  object_created,
 }: SidebarProps) {
   const [search, setSearch] = useState("");
 
@@ -70,7 +77,7 @@ export function Sidebar({
 
   return (
     <aside
-      className="bg-background relative flex h-full shrink-0 flex-col gap-3 overflow-hidden border-r"
+      className="bg-chrome relative flex h-full shrink-0 flex-col gap-3 overflow-hidden border-r"
       style={{ width: sidebarWidth }}
     >
       {/* All three views stay mounted the whole time — only their visibility
@@ -108,6 +115,7 @@ export function Sidebar({
           reloading={reloading}
           search_value={search}
           on_search_change={setSearch}
+          object_created={object_created}
         />
       </div>
       <div

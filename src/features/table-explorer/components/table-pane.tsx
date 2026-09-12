@@ -11,6 +11,9 @@ import { usePaneMode, useStudioStore } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
 import { FilterBar } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
+import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
+import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
+import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
   DISTINCT_LIMIT,
   type DistinctMap,
@@ -73,6 +76,14 @@ export function TablePane({
   // as props_busy: the grid publishes this flag itself, so round-tripping it
   // would create a feedback loop stuck at true.
   const grid_loading = useStudioStore((s) => !!s.gridBridges[tab_key]?.loading);
+  const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
+  const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
+  const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
+  const [stopped_waiting, setStoppedWaiting] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the soft-stop flag when a new load starts
+    if (grid_loading) setStoppedWaiting(false);
+  }, [grid_loading]);
   const setMode = useCallback(
     (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
@@ -220,22 +231,36 @@ export function TablePane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex min-h-8 shrink-0 items-center gap-1 border-b px-3">
+      <div className="bg-background flex min-h-8 shrink-0 scrollbar-none items-center justify-between gap-1 overflow-auto border-b px-3">
         {/* Views/matviews have no editable schema — hide the Schema tab. */}
-        {is_table ? (
-          <ModeTabs
-            mode={mode}
-            warn_no_pk={!!schema && schema.columns.every((c) => !c.primary_key)}
-            on_change={setMode}
-          />
-        ) : (
-          <span className="text-muted-foreground px-1 py-1 text-xs font-medium">
-            {schema?.kind === "matview" ? "Materialized view" : "View"} ·
-            read-only data
-          </span>
-        )}
-        {mode === "data" && schema && (
-          <div className="ml-auto flex items-center">
+        <div className="flex items-center gap-1">
+          {is_table ? (
+            <ModeTabs
+              mode={mode}
+              warn_no_pk={
+                !!schema && schema.columns.every((c) => !c.primary_key)
+              }
+              on_change={setMode}
+            />
+          ) : (
+            <span className="text-muted-foreground px-1 py-1 text-xs font-medium">
+              {schema?.kind === "matview" ? "Materialized view" : "View"} ·
+              read-only data
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {mode === "data" && gridBridge && (
+            <GridActionBar bridge={gridBridge} conn_id={conn_id} />
+          )}
+          {mode === "schema" && (schemaEdit || schemaPane) && (
+            <SchemaActionBar
+              schemaEdit={schemaEdit}
+              schemaPane={schemaPane}
+              drop_label="Drop table"
+            />
+          )}
+          {mode === "data" && schema && (
             <FilterBar
               columns={schema.columns.map((c) => ({
                 name: c.name,
@@ -250,8 +275,8 @@ export function TablePane({
               on_clear={clear_filters}
               on_custom_where={setCustomWhere}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
         {failed ? (
@@ -314,10 +339,14 @@ export function TablePane({
             </>
           )
         )}
-        {(!schema || schema_busy || grid_loading) && (
-          <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
-            <Loader2 className="text-muted-foreground size-5 animate-spin" />
-          </div>
+        {grid_loading && !stopped_waiting ? (
+          <QueryLoadingOverlay onStop={() => setStoppedWaiting(true)} />
+        ) : (
+          (!schema || schema_busy) && (
+            <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
+              <Loader2 className="text-muted-foreground size-5 animate-spin" />
+            </div>
+          )
         )}
       </div>
     </div>

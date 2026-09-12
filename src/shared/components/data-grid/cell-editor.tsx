@@ -162,11 +162,9 @@ export function CellEditor() {
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  // eslint-disable-next-line react-hooks/refs -- event handler
                   cancel();
                 } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
-                  // eslint-disable-next-line react-hooks/refs -- event handler
                   commit();
                 }
               }}
@@ -206,9 +204,11 @@ export function CellEditor() {
         setVal(e.target.value);
         push_live(e.target.value);
       }}
+      // eslint-disable-next-line react-hooks/refs -- event handler, not render
       onBlur={() => commit()}
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
+        // eslint-disable-next-line react-hooks/refs -- event handler, not render
         else if (e.key === "Escape") cancel();
       }}
       className="h-full! rounded-none! border-none outline-none"

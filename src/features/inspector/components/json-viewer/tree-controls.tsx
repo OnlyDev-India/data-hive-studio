@@ -1,14 +1,4 @@
-import {
-  ChevronDown,
-  ChevronUp,
-  Copy,
-  Maximize,
-  Search,
-  Pencil,
-  WrapText,
-  X,
-} from "lucide-react";
-import { cn } from "@/shared/lib/utils";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 
@@ -21,24 +11,15 @@ export interface TreeControlsProps {
   onPrev: () => void;
   onNext: () => void;
   onClear: () => void;
-  wrap: boolean;
-  onToggleWrap: () => void;
-  onCopy: () => void;
   onClose: () => void;
-  onExpand?: () => void;
-  /** True when the viewer is in edit mode (the pencil is active). */
-  editable: boolean;
-  /** Row can't be edited (no write-back hook) — disable the pencil. */
-  editDisabled?: boolean;
-  onToggleEdit: () => void;
   /** No row selected — every control except Close is disabled (nothing for
-   *  search/wrap/edit/expand/copy to act on). */
+   *  search to act on). */
   disabled?: boolean;
 }
 
 /** Toolbar shared by the sidebar viewer and the expanded dialog: search (the
- *  magnifier lives inside the search box), word-wrap toggle, edit toggle,
- *  copy, expand and close. */
+ *  magnifier lives inside the search box), match navigation, and close. The
+ *  edit/wrap/expand/copy actions live in their own bar, JsonViewerToolbar. */
 export function TreeControls({
   query,
   onQueryChange,
@@ -48,14 +29,7 @@ export function TreeControls({
   onPrev,
   onNext,
   onClear,
-  wrap,
-  onToggleWrap,
-  onCopy,
   onClose,
-  onExpand,
-  editable,
-  editDisabled,
-  onToggleEdit,
   disabled = false,
 }: TreeControlsProps) {
   return (
@@ -119,61 +93,6 @@ export function TreeControls({
           </Button>
         </>
       )}
-      <Button
-        variant="ghost"
-        size="iconXs"
-        disabled={disabled}
-        className={cn("size-5", wrap && "bg-primary/60 text-foreground")}
-        aria-label="Toggle word wrap"
-        title={wrap ? "Word wrap on" : "Word wrap off"}
-        onClick={onToggleWrap}
-      >
-        <WrapText className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="iconXs"
-        disabled={disabled || editDisabled}
-        className={cn(
-          "size-5",
-          editable && !editDisabled && "bg-primary/60 text-foreground",
-        )}
-        aria-label={editable ? "Stop editing" : "Edit row JSON"}
-        title={
-          editDisabled
-            ? "This row is read-only"
-            : editable
-              ? "Editing (click again to stop)"
-              : "Edit row JSON"
-        }
-        onClick={onToggleEdit}
-      >
-        <Pencil className="size-3.5" />
-      </Button>
-      {onExpand && (
-        <Button
-          variant="ghost"
-          size="iconXs"
-          disabled={disabled}
-          className="size-5"
-          aria-label="Open in dialog"
-          title="Open in dialog"
-          onClick={onExpand}
-        >
-          <Maximize className="size-3.5" />
-        </Button>
-      )}
-      <Button
-        variant="ghost"
-        size="iconXs"
-        disabled={disabled}
-        className="size-5"
-        aria-label="Copy row as JSON"
-        title="Copy as JSON"
-        onClick={onCopy}
-      >
-        <Copy className="size-3.5" />
-      </Button>
       <Button
         variant="ghost"
         size="iconXs"

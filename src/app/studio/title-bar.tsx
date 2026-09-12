@@ -376,7 +376,9 @@ function WindowsLinuxTitleBar() {
                   >
                     {item.label}
                     {item.accel && (
-                      <DropdownMenuShortcut>{item.accel}</DropdownMenuShortcut>
+                      <DropdownMenuShortcut className="text-2xs">
+                        {item.accel}
+                      </DropdownMenuShortcut>
                     )}
                   </DropdownMenuItem>
                 );

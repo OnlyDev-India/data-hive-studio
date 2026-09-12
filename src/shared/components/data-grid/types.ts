@@ -5,10 +5,13 @@ export const COL_W_PX = 144;
 /** Width of the row-number gutter at the far-left of the grid. */
 export const GUTTER_W_PX = 48;
 /**
- * Estimated row height for virtualization (text-sm line + py-1.5 + border).
- * Rows are measured after mount, so this only shapes the first paint.
+ * Exact row height for the fixed-height row windower (use-row-window.ts):
+ * text-sm line + py-1 + border. Must track Cell's own vertical padding —
+ * there is no per-row measurement to fall back on, so drifting out of sync
+ * with Cell's actual CSS shows up as a gap (too large) or clipped/overlapping
+ * rows (too small).
  */
-export const ROW_ESTIMATE_PX = 33;
+export const ROW_HEIGHT_PX = 29;
 /** Page-size choices offered in the toolbar selector. */
 export const PAGE_SIZES = [50, 100, 200];
 /** Number of distinct values fetched per column (fetch 51 to detect "many"). */

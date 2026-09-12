@@ -109,8 +109,6 @@ export const appEditorTheme = EditorView.theme({
     height: "100%",
     padding: 0,
     border: "none",
-    background: "transparent",
-    color: "var(--muted-foreground)",
     cursor: "pointer",
     position: "relative",
     opacity: 0.55,

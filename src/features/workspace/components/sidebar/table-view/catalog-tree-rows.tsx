@@ -1,17 +1,11 @@
 import { useState } from "react";
-import { ChevronRight, CopyPlus, Loader2, Trash2 } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/shared/components/ui/context-menu";
 import { IconTypeMap, type IconType } from "@/shared/components/icons/types";
 import type { SchemaObject } from "@/shared/api";
 import { depthPadding } from "./catalog-tree-utils";
+import { TableListItem } from "./table-list-item";
 
 /** A collapsible tree row — database/schema/category/roles headers all
  *  share this same chevron-disclosure shape (see `tree_expanded`/
@@ -221,32 +215,47 @@ export function LazyObjectRows({
 }
 
 /** Content of a lazily-fetched Table/View/Materialized View category for a
- *  database/schema OTHER than the connection's active one — click still
- *  opens it (via `on_open`, which switches to it first — see `open_object`
- *  in `TablesBrowser`). `on_duplicate`/`on_drop`, when given, add the same
- *  two destructive/copy actions the active schema's own Tables category
- *  gets via `TableListItem` — everything else there (view structure/grants,
- *  copy name, refresh matview) still isn't wired for a non-active target. */
+ *  database/schema OTHER than the connection's active one — same
+ *  `TableListItem` row the active one uses, just with whichever handlers
+ *  the caller can actually target for it. */
 export function LazyTableRows({
   state,
   empty_label,
   depth,
   on_open,
+  on_view_structure,
+  on_view_grants,
+  on_copy,
   on_duplicate,
   on_drop,
+  on_refresh_matview,
+  is_mongo,
   kind = "table",
+  selected_name,
+  on_select,
+  disabled,
 }: {
-  state: "loading" | SchemaObject[] | null | undefined;
+  state:
+    | "loading"
+    | (SchemaObject | { name: string; kind?: string })[]
+    | null
+    | undefined;
   empty_label: string;
   depth: number;
   on_open: (name: string) => void;
+  on_view_structure?: (name: string) => void;
+  on_view_grants?: (name: string) => void;
+  on_copy?: (name: string) => void;
   on_duplicate?: (name: string) => void;
   on_drop?: (name: string) => void;
-  kind: IconType;
+  on_refresh_matview?: (name: string) => void;
+  is_mongo?: boolean;
+  kind?: IconType;
+  selected_name?: string | null;
+  on_select?: (name: string) => void;
+  disabled?: boolean;
 }) {
   const pad = depthPadding(depth);
-  const icon = IconTypeMap[kind];
-  const noun = kind === "materialized_view" ? "materialized view" : kind;
   // The owning TreeToggleRow's chevron is the loading indicator now.
   if (state === "loading" || state === undefined) return null;
   if (state === null || state.length === 0) {
@@ -258,52 +267,29 @@ export function LazyTableRows({
   }
   return (
     <>
-      {state.map((obj) => {
-        const row = (
-          <Button
-            variant={"ghost"}
-            // Double-click, not single — matches the connection's own
-            // default schema/database's table list (`TableListItem`),
-            // which has always needed a double-click (or Enter after
-            // arrow-key selection) to open, not a single click.
-            onDoubleClick={() => on_open(obj.name)}
-            onContextMenu={(e) => e.stopPropagation()}
-            style={pad}
-            className="text-muted-foreground hover:bg-muted/50 hover:text-foreground ml-2 w-full justify-start gap-1.5 truncate py-1 text-left text-sm"
-          >
-            {icon}
-            <span className="truncate">{obj.name}</span>
-          </Button>
-        );
-        if (!on_duplicate && !on_drop) {
-          return <div key={obj.name}>{row}</div>;
-        }
-        return (
-          <ContextMenu key={obj.name}>
-            <ContextMenuTrigger className="contents">{row}</ContextMenuTrigger>
-            <ContextMenuContent className="w-48">
-              {on_duplicate && (
-                <ContextMenuItem onSelect={() => on_duplicate(obj.name)}>
-                  <CopyPlus className="text-muted-foreground size-4" />
-                  Duplicate {noun}
-                </ContextMenuItem>
-              )}
-              {on_drop && (
-                <>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem
-                    variant="destructive"
-                    onSelect={() => on_drop(obj.name)}
-                  >
-                    <Trash2 className="size-4" />
-                    Drop {noun}…
-                  </ContextMenuItem>
-                </>
-              )}
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      })}
+      {state.map((obj) => (
+        <div key={obj.name} style={pad}>
+          <TableListItem
+            name={obj.name}
+            kind={"kind" in obj && obj.kind ? obj.kind : kind}
+            is_mongo={is_mongo}
+            is_selected={selected_name === obj.name}
+            disabled={disabled}
+            on_select={on_select && (() => on_select(obj.name))}
+            on_open={() => on_open(obj.name)}
+            on_view_structure={
+              on_view_structure && (() => on_view_structure(obj.name))
+            }
+            on_view_grants={on_view_grants && (() => on_view_grants(obj.name))}
+            on_copy={on_copy && (() => on_copy(obj.name))}
+            on_duplicate={on_duplicate && (() => on_duplicate(obj.name))}
+            on_drop={on_drop && (() => on_drop(obj.name))}
+            on_refresh_matview={
+              on_refresh_matview && (() => on_refresh_matview(obj.name))
+            }
+          />
+        </div>
+      ))}
     </>
   );
 }

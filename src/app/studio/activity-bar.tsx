@@ -100,7 +100,7 @@ export function ActivityBar({
 
   return (
     <TooltipProvider delay={0}>
-      <nav className="bg-background flex w-14 shrink-0 flex-col items-center gap-1 border-r py-3">
+      <nav className="bg-muted/60 flex w-14 shrink-0 flex-col items-center gap-1 border-r py-3">
         <BarButton active={home_active} label="Home" onClick={on_home}>
           <HouseIcon className="size-5" active={home_active} />
         </BarButton>

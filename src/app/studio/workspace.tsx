@@ -24,6 +24,7 @@ import {
   listTables,
   type ActivityEntry,
   type ConnectionInfo,
+  type SchemaObjectKind,
 } from "@/shared/api";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { pickSqlFile } from "@/shared/lib/platform";
@@ -94,18 +95,34 @@ export default function Workspace({
   const [tablesRev, setTablesRev] = useState(0);
   const bumpTables = useCallback(() => setTablesRev((r) => r + 1), []);
 
-  // The sidebar's explicit "Reload all tables" button refreshes everything:
-  // the table list AND the schema/columns/data of open table tabs.
   /** Identifies the inputs the CURRENT tables snapshot was loaded for. When
    *  it lags behind the live inputs, a (re)load is in flight — the sidebar
    *  shows its spinner + skeletons without any state flips in the effect. */
   const load_key = `${conn_id}|${revision}|${tablesRev}`;
   const [loaded_key, setLoadedKey] = useState<string | null>(null);
   const tables_reloading = loaded_key !== load_key;
-  const reloadAll = useCallback(() => {
-    setRevision((r) => r + 1);
-    setTablesRev((r) => r + 1);
-  }, []);
+  // The sidebar's explicit "Reload all tables" button — catalog only
+  // (bumpTables alone is enough to retrigger the `tables` effect below,
+  // since its `load_key` already depends on `tablesRev`). Used to also bump
+  // `revision`, reloading every open table tab's actual row data along with
+  // it — surprising for what reads as a "did anything change on the server"
+  // catalog check, and not something any OTHER `bump()` call site needs to
+  // match: those already bump `revision` directly when they specifically
+  // mean "and reload open tabs too" (schema-changing DDL, a tab's own edit).
+  const reloadAll = bumpTables;
+
+  // A table/collection was created (New Table / Mongo's New Collection tab)
+  // — handed to the sidebar so it can refresh the SPECIFIC catalog-tree
+  // node it landed in, including a SIBLING database/schema `bump`/
+  // `bumpTables` has no way to target (see TablesBrowser's `object_created`
+  // prop doc comment). A fresh object every call, not a toggled boolean, so
+  // the sidebar's effect re-fires even for back-to-back creations with the
+  // same database/schema.
+  const [objectCreated, setObjectCreated] = useState<{
+    database: string;
+    schema: string;
+    kind: SchemaObjectKind;
+  } | null>(null);
 
   const [tables, setTables] = useState<Awaited<
     ReturnType<typeof listTables>
@@ -419,7 +436,7 @@ export default function Workspace({
   }, [landing, openNewSql, openLeftPanel]);
 
   return (
-    <div className="bg-muted/20 flex h-full w-full overflow-hidden">
+    <div className="bg-background flex h-full w-full overflow-hidden">
       <ActivityBar
         home_active={landing}
         tables_active={!landing && leftPanelOpen && leftPanelMode === "tables"}
@@ -444,6 +461,7 @@ export default function Workspace({
               reloading={tables_reloading || tables === null}
               mode={leftPanelMode}
               on_activity_select={on_activity_select}
+              object_created={objectCreated}
             />
           </LeftPanelSlot>
           <div className="relative min-w-0 flex-1">
@@ -474,6 +492,9 @@ export default function Workspace({
                   tables={tables}
                   bump={bump}
                   bumpTables={bumpTables}
+                  on_object_created={(database, schema, kind) =>
+                    setObjectCreated({ database, schema, kind })
+                  }
                   openReference={openReference}
                   openTable={openTable}
                   on_close={(tab) => requestClose([tab])}
@@ -625,6 +646,7 @@ function WorkspaceContent({
   tables,
   bump,
   bumpTables,
+  on_object_created,
   openReference,
   openTable,
   on_close,
@@ -647,6 +669,11 @@ function WorkspaceContent({
   tables: Awaited<ReturnType<typeof listTables>> | null;
   bump: () => void;
   bumpTables: () => void;
+  on_object_created: (
+    database: string,
+    schema: string,
+    kind: SchemaObjectKind,
+  ) => void;
   openReference: (
     refTable: string,
     refColumn: string,
@@ -842,6 +869,9 @@ function WorkspaceContent({
                 tab_key={key}
                 active={is_active}
                 on_modified={bump}
+                on_created={(database) =>
+                  on_object_created(database, "", "table")
+                }
               />
             ) : (
               <Suspense fallback={<TabFallback />}>
@@ -850,9 +880,10 @@ function WorkspaceContent({
                   tab_key={key}
                   active={is_active}
                   on_modified={bump}
-                  on_created={(name, database, schema) =>
-                    openTable(name, undefined, database, schema)
-                  }
+                  on_created={(name, database, schema) => {
+                    openTable(name, undefined, database, schema);
+                    on_object_created(database ?? "", schema ?? "", "table");
+                  }}
                 />
               </Suspense>
             )}
