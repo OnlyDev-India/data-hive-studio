@@ -80,4 +80,8 @@ export const TITLE_BAR_MENUS: MenuDef[] = [
       { id: "connection.home", label: "Go to Home" },
     ],
   },
+  {
+    label: "Help",
+    items: [{ id: "help.check_updates", label: "Check for Updates…" }],
+  },
 ];
