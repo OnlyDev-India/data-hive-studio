@@ -278,6 +278,25 @@ export interface GridContextValue {
   /** Row windowing state; the root div doubles as the virtualizer's scroll element. */
   row_virtualizer: RowWindow;
   on_root_mouse_down: (e: ReactMouseEvent<HTMLDivElement>) => void;
+  // ---- In-grid find (Ctrl/Cmd+F) ----
+  search_open: boolean;
+  search_query: string;
+  /** Every matching cell, in row-major order — `search_active_index` points
+   *  into this; used for the "N of M" count and next/prev wraparound. */
+  search_matches: CellId[];
+  search_active_index: number;
+  /** Same cells as `search_matches`, as `cellKey`s — O(1) membership check
+   *  for `Cell`'s own per-render highlight instead of scanning the array. */
+  search_match_set: Set<string>;
+  /** `cellKey` of the current match (`search_matches[search_active_index]`),
+   *  or `null` when there are no matches — the one rendered with the
+   *  stronger "active match" highlight. */
+  search_active_key: string | null;
+  on_search_open: () => void;
+  on_search_close: () => void;
+  on_search_query: (q: string) => void;
+  on_search_next: () => void;
+  on_search_prev: () => void;
 }
 
 export const GridContext = createContext<GridContextValue | null>(null);

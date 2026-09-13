@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
@@ -43,7 +44,7 @@ import { ActivityDetailsTab } from "@/features/activity";
 import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
 import { MongoNewCollectionTab, RolesTab } from "@/features/schema-designer";
 import { ActivityBar } from "./activity-bar";
-import { LeftPanelSlot } from "./left-panel";
+import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
 import { Landing } from "@/features/connections";
 
 // Heavy tab contents are code-split: the query console (SQL + Mongo shell,
@@ -175,6 +176,16 @@ export default function Workspace({
   const openLeftPanel = useStudioStore((s) => s.openLeftPanel);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
   const rightSidebarOpen = useStudioStore((s) => s.rightSidebarOpen);
+  const rightSidebarWidth = useStudioStore((s) => s.rightSidebarWidth);
+  // The JSON viewer's own drag-resize handle lives inside its `motion.aside`
+  // (layoutId-based, for the "Open in dialog" morph) and mutates this node's
+  // width directly in lockstep during a live drag — same reason its aside
+  // does — so this slot's reserved space doesn't lag a beat behind the
+  // aside actually growing/shrinking. `jsonPanelInstant` mirrors its
+  // `instantSettle` so the one-render correction right after a drag ends
+  // applies here too, instead of animating from a stale width.
+  const jsonPanelRef = useRef<HTMLDivElement | null>(null);
+  const [jsonPanelInstant, setJsonPanelInstant] = useState(false);
   // Mounted lazily on first open, then kept mounted for the rest of this
   // workspace's lifetime — JsonViewer reads `rightSidebarOpen` itself and
   // toggles its own internal AnimatePresence/motion.aside, rather than this
@@ -449,7 +460,7 @@ export default function Workspace({
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1">
-          <LeftPanelSlot open={leftPanelOpen} width={sidebarWidth}>
+          <EdgePanelSlot open={leftPanelOpen} width={sidebarWidth} side="left">
             <Sidebar
               conn_id={conn_id}
               conn_key={conn_key}
@@ -463,7 +474,7 @@ export default function Workspace({
               on_activity_select={on_activity_select}
               object_created={objectCreated}
             />
-          </LeftPanelSlot>
+          </EdgePanelSlot>
           <div className="relative min-w-0 flex-1">
             {landing && (
               <div className="bg-muted/20 absolute inset-0 z-10 overflow-y-auto">
@@ -514,13 +525,23 @@ export default function Workspace({
             </div>
           </div>
           {jsonPanelMounted && (
-            <Suspense fallback={null}>
-              <JsonViewer
-                conn_id={conn_id}
-                tab_key={active ? tabKey(active) : null}
-                landing={landing}
-              />
-            </Suspense>
+            <EdgePanelSlot
+              open={rightSidebarOpen && !landing}
+              width={rightSidebarWidth}
+              side="right"
+              panelRef={jsonPanelRef}
+              transition={jsonPanelInstant ? { duration: 0 } : undefined}
+            >
+              <Suspense fallback={null}>
+                <JsonViewer
+                  conn_id={conn_id}
+                  tab_key={active ? tabKey(active) : null}
+                  landing={landing}
+                  panelRef={jsonPanelRef}
+                  onInstantChange={setJsonPanelInstant}
+                />
+              </Suspense>
+            </EdgePanelSlot>
           )}
         </div>
       </div>
@@ -828,12 +849,6 @@ function WorkspaceContent({
                   tab_key={key}
                   tables={tables?.map((t) => t.name)}
                   on_modified={bumpTables}
-                  // DDL (ALTER/CREATE/DROP TABLE, indexes, views, triggers)
-                  // also refreshes any already-open table tab for the
-                  // affected table — bumpTables alone only refreshes the
-                  // sidebar's table list, which left e.g. a newly
-                  // console-added column invisible in an open grid until a
-                  // manual reload.
                   on_schema_modified={bump}
                 />
               </Suspense>
@@ -852,10 +867,6 @@ function WorkspaceContent({
                   conn_id={conn_id}
                   tab_key={key}
                   database={tab.database}
-                  // Any successful write (insertOne/updateMany/deleteOne/…)
-                  // refreshes open tabs too — Mongo has no DDL/DML split
-                  // like SQL does, so unlike the SQL console this always
-                  // uses the full bump, not the sidebar-only bumpTables.
                   on_modified={bump}
                 />
               </Suspense>

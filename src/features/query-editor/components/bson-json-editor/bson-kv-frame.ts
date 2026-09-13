@@ -4,11 +4,7 @@ import { statementRect } from "../editor/statement-runner";
 
 interface KVRange {
   start: number;
-  keyEnd: number;
   end: number;
-  valueStart: number;
-  valueEnd: number;
-  valueIsString: boolean;
 }
 
 function skipString(doc: string, from: number): number {
@@ -48,34 +44,21 @@ function skipBracketed(
   return doc.length;
 }
 
-function skipValue(doc: string, from: number) {
+function skipValue(doc: string, from: number): number {
   let valueStart = from;
   while (valueStart < doc.length && /\s/.test(doc[valueStart])) valueStart += 1;
-  if (valueStart >= doc.length)
-    return {
-      end: valueStart,
-      valueStart,
-      valueEnd: valueStart,
-      isString: false,
-    };
+  if (valueStart >= doc.length) return valueStart;
   const ch = doc[valueStart];
-  if (ch === '"') {
-    const end = skipString(doc, valueStart);
-    return { end, valueStart, valueEnd: end, isString: true };
-  }
+  if (ch === '"') return skipString(doc, valueStart);
   if (ch === "{" || ch === "[") {
     const close = ch === "{" ? "}" : "]";
-    const end = skipBracketed(doc, valueStart, ch, close);
-    return { end, valueStart, valueEnd: end, isString: false };
+    return skipBracketed(doc, valueStart, ch, close);
   }
   // number / bool / null / a BSON constructor call, e.g. ObjectId("...")
   let j = valueStart;
   while (j < doc.length && /[A-Za-z0-9_$.+-]/.test(doc[j])) j += 1;
-  if (doc[j] === "(") {
-    const end = skipBracketed(doc, j, "(", ")");
-    return { end, valueStart, valueEnd: end, isString: false };
-  }
-  return { end: j, valueStart, valueEnd: j, isString: false };
+  if (doc[j] === "(") return skipBracketed(doc, j, "(", ")");
+  return j;
 }
 
 /** Every `"key": value` pair in the document, nested ones included — a plain
@@ -93,18 +76,7 @@ function scanKeyValuePairs(doc: string): KVRange[] {
       let after = keyEnd;
       while (after < doc.length && /\s/.test(doc[after])) after += 1;
       if (doc[after] === ":") {
-        const { end, valueStart, valueEnd, isString } = skipValue(
-          doc,
-          after + 1,
-        );
-        pairs.push({
-          start,
-          keyEnd,
-          end,
-          valueStart,
-          valueEnd,
-          valueIsString: isString,
-        });
+        pairs.push({ start, end: skipValue(doc, after + 1) });
       }
       i = keyEnd;
       continue;
@@ -114,9 +86,9 @@ function scanKeyValuePairs(doc: string): KVRange[] {
   return pairs;
 }
 
-/** The key-value pair the cursor sits inside, narrowed to just the quoted
- *  span (key or string value) when the cursor is directly inside one of
- *  those — the innermost pair wins when nested. */
+/** The whole `"key": value` pair the cursor sits inside — the innermost
+ *  pair wins when nested, regardless of whether the cursor is over the key
+ *  or the value. */
 export function currentKvFrame(
   doc: string,
   cursor: number,
@@ -129,10 +101,6 @@ export function currentKvFrame(
     }
   }
   if (!best) return null;
-  if (cursor > best.start && cursor < best.keyEnd)
-    return { start: best.start, end: best.keyEnd };
-  if (best.valueIsString && cursor > best.valueStart && cursor < best.valueEnd)
-    return { start: best.valueStart, end: best.valueEnd };
   return { start: best.start, end: best.end };
 }
 

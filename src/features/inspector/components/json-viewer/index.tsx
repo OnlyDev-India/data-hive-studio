@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
 import { Braces } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
@@ -95,6 +102,8 @@ export function JsonViewer({
   conn_id,
   tab_key,
   landing = false,
+  panelRef,
+  onInstantChange,
 }: {
   conn_id: string;
   tab_key: string | null;
@@ -103,6 +112,13 @@ export function JsonViewer({
    *  unmounting, for the same "keep the shared-layout animation" reason
    *  noted below) and reappears if the panel was open when Home was left. */
   landing?: boolean;
+  /** The host's `EdgePanelSlot` node (workspace.tsx owns that wrapper, for
+   *  the same reasons the left sidebar's does) — mutated directly in sync
+   *  with the aside during a live drag-resize, see the drag effect below. */
+  panelRef: RefObject<HTMLDivElement | null>;
+  /** Mirrors `instantSettle` (below) up to the host, so its `EdgePanelSlot`
+   *  can apply the same one-render instant correction after a drag ends. */
+  onInstantChange: (v: boolean) => void;
 }) {
   // The visible row is scoped to the ACTIVE tab: switching tabs/connections
   // shows that tab's selection (or nothing), never a stale row from another.
@@ -153,6 +169,9 @@ export function JsonViewer({
   // next frame so open/close and the dialog-morph animate as before.
   const [instantSettle, setInstantSettle] = useState(false);
   useEffect(() => {
+    onInstantChange(instantSettle);
+  }, [instantSettle, onInstantChange]);
+  useEffect(() => {
     if (!instantSettle) return;
     const id = requestAnimationFrame(() => setInstantSettle(false));
     return () => cancelAnimationFrame(id);
@@ -168,6 +187,7 @@ export function JsonViewer({
       );
       liveWidthRef.current = w;
       if (asideRef.current) asideRef.current.style.width = `${w}px`;
+      if (panelRef.current) panelRef.current.style.width = `${w}px`;
     };
     const on_up = () => {
       setDragging(false);
@@ -181,7 +201,7 @@ export function JsonViewer({
       window.removeEventListener("pointermove", on_move);
       window.removeEventListener("pointerup", on_up);
     };
-  }, [dragging, setWidth]);
+  }, [dragging, setWidth, panelRef]);
 
   const [wrap, setWrap] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -491,22 +511,19 @@ export function JsonViewer({
 
   return (
     <AnimatePresence>
-      {open && !dialogOpen && (
+      {!dialogOpen && (
         <motion.aside
           key="json-sidebar"
           ref={asideRef}
           layoutId="json-panel"
-          // `layoutId` auto-animates ANY width change with `transition`
-          // below (300ms easeInOut) — great for the open/close slide, but
-          // during a manual drag-resize `width` updates on every
-          // pointermove, so each tick would re-trigger that same 300ms
-          // animation instead of tracking the cursor 1:1, making the resize
-          // feel like it's dragging through syrup. Disabling layout
-          // animation for the duration of the drag makes width changes
-          // apply immediately instead.
+          // `layoutId` alone only animates a transition BETWEEN two
+          // elements sharing this id — this aside <-> the "Open in dialog"
+          // morph below. Open/close itself is owned by the host's
+          // `EdgePanelSlot` wrapper (width + opacity), so this only ever
+          // needs to handle the dialog-morph transition.
           layout={!dragging}
           transition={instantSettle ? instantTransition : layoutTransition}
-          className="bg-background relative flex min-h-0 shrink-0 flex-col border-l"
+          className="bg-background relative flex min-h-0 shrink-0 flex-col"
           style={{ width }}
         >
           <div
@@ -571,10 +588,7 @@ export function JsonViewer({
             className="bg-background pointer-events-auto flex h-[80vh] w-[min(760px,92vw)] min-w-0 flex-col overflow-hidden rounded-xl border shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <TreeControls
-              {...headerProps}
-              onClose={() => setDialogOpen(false)}
-            />
+            <TreeControls {...headerProps} onClose={() => setDialogOpen(false)} />
             <JsonViewerToolbar {...toolbarProps} />
             <div className="flex min-h-0 flex-1 flex-col">
               <BsonEditor

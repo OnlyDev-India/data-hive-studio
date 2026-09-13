@@ -1,4 +1,4 @@
-import { Check, Copy, History } from "lucide-react";
+import { Check, Copy, History, SquareArrowOutUpRight } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/shared/components/ui/button";
 import { useStudioStore } from "@/shared/store";
@@ -50,6 +50,8 @@ export function ActivityDetailsTab({
   tab_key: string;
 }) {
   const detail = useStudioStore((s) => s.activityDetail);
+  const openSql = useStudioStore((s) => s.openSql);
+  const openMongoConsole = useStudioStore((s) => s.openMongoConsole);
   const [copied, setCopied] = useState(false);
 
   // The slot is global; only render it for the connection it came from.
@@ -76,6 +78,19 @@ export function ActivityDetailsTab({
     });
   };
 
+  // Re-run/edit this historical statement: opens a fresh, editable tab
+  // seeded with the captured text instead of leaving it stuck in this
+  // read-only preview. Mongo runs are logged as a `mongo` kind carrying the
+  // raw shell script; everything else that captured real SQL text
+  // (sql/select/insert/update/delete/ddl/duplicate/schema) reopens as a SQL
+  // tab — connection commands (connect/disconnect) never have `entry.sql`
+  // at all, so the button just doesn't render for those.
+  const restore_to_editor = () => {
+    if (!entry.sql) return;
+    if (entry.kind === "mongo") openMongoConsole(conn_id, "", entry.sql);
+    else openSql(conn_id, entry.sql);
+  };
+
   return (
     <div className="h-full overflow-y-auto" key={tab_key}>
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
@@ -84,12 +99,24 @@ export function ActivityDetailsTab({
           <h2 className="min-w-0 truncate font-mono text-sm font-semibold">
             {entry.target}
           </h2>
+          {entry.sql && (
+            <Button
+              variant="ghost"
+              size="iconXs"
+              aria-label="Restore to editor"
+              title="Open in a new, editable tab"
+              onClick={restore_to_editor}
+              className="ml-auto shrink-0"
+            >
+              <SquareArrowOutUpRight />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="iconXs"
             aria-label={copied ? "Copied" : "Copy"}
             onClick={copy}
-            className="ml-auto shrink-0"
+            className={cn("shrink-0", !entry.sql && "ml-auto")}
           >
             {copied ? <Check /> : <Copy />}
           </Button>

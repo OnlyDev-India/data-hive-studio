@@ -4,15 +4,17 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { usePaneMode, useStudioStore } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
-import { FilterBar } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
-import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
+import {
+  GridActionBar
+} from "@/shared/components/data-grid/grid-action-bar";
 import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
   DISTINCT_LIMIT,
@@ -21,7 +23,6 @@ import {
 } from "@/shared/components/data-grid/types";
 import { cn } from "@/shared/lib/utils";
 import { ModeTabs } from "./mode-tabs";
-import { Loader2 } from "lucide-react";
 
 // The schema editor is a large surface; load it only when its tab first
 // renders (it stays mounted afterwards so drafts survive mode switches).
@@ -79,11 +80,6 @@ export function TablePane({
   const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
   const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
   const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
-  const [stopped_waiting, setStoppedWaiting] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the soft-stop flag when a new load starts
-    if (grid_loading) setStoppedWaiting(false);
-  }, [grid_loading]);
   const setMode = useCallback(
     (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
@@ -229,9 +225,40 @@ export function TablePane({
     setCustomWhere("");
   };
 
+  // Measured from this pane's own root — not GridActionBar's own rendered
+  // width, which shrinks the instant it collapses (see that file's doc
+  // comment for why that would permanently lock in "too narrow").
+  const pane_ref = useRef<HTMLDivElement>(null);
+  // const compact_toolbar = usePaneCompactWidth(pane_ref);
+
+  // One continuous elapsed-time origin for the whole loading span (schema
+  // fetch through the grid's own query), and the overlay stays mounted
+  // continuously across it. Schema resolving and the grid publishing its
+  // own loading state to the store happen one render apart (the grid
+  // mounts and reads its initial `loading: true`, but only an *effect*
+  // pushes that into `gridBridges` — a moment after commit) — without the
+  // grace delay below, `is_loading` would visit `false` for that one
+  // render, unmounting/remounting the overlay and resetting its timer.
+  // Scoped to whichever mode is actually showing: the Data tab cares about
+  // the grid's own fetch, not a schema-apply running on the Schema tab
+  // (and vice versa) — both still need the initial schema fetch (`!schema`)
+  // first, since neither Grid nor SchemaTab can render without it.
+  const is_loading =
+    mode === "data" ? !schema || grid_loading : !schema || schema_busy;
+  const [loading_start, setLoadingStart] = useState<number | null>(null);
+  useEffect(() => {
+    if (is_loading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing a performance.now() timestamp (an external clock, not derivable from props/state) to the moment loading actually starts; can't be computed during render
+      setLoadingStart((cur) => cur ?? performance.now());
+      return;
+    }
+    const id = setTimeout(() => setLoadingStart(null), 50);
+    return () => clearTimeout(id);
+  }, [is_loading]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex min-h-8 shrink-0 scrollbar-none items-center justify-between gap-1 overflow-auto border-b px-3">
+    <div ref={pane_ref} className="flex h-full min-h-0 flex-col">
+      <div className="bg-background flex min-h-8 w-full items-center gap-1 border-b px-3">
         {/* Views/matviews have no editable schema — hide the Schema tab. */}
         <div className="flex items-center gap-1">
           {is_table ? (
@@ -249,31 +276,38 @@ export function TablePane({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-1 items-center gap-1 min-w-0">
           {mode === "data" && gridBridge && (
-            <GridActionBar bridge={gridBridge} conn_id={conn_id} />
+            <GridActionBar
+              bridge={gridBridge}
+              conn_id={conn_id}
+              pane_ref={pane_ref}
+              filter_bar={
+                schema
+                  ? {
+                      columns: schema.columns.map((c) => ({
+                        name: c.name,
+                        data_type: c.data_type,
+                      })),
+                      distinct,
+                      filters,
+                      custom_where,
+                      on_add: add_filter,
+                      on_remove: remove_filter,
+                      on_set_conjunction: set_filter_conjunction,
+                      on_clear: clear_filters,
+                      on_custom_where: setCustomWhere,
+                    }
+                  : undefined
+              }
+            />
           )}
           {mode === "schema" && (schemaEdit || schemaPane) && (
             <SchemaActionBar
               schemaEdit={schemaEdit}
               schemaPane={schemaPane}
               drop_label="Drop table"
-            />
-          )}
-          {mode === "data" && schema && (
-            <FilterBar
-              columns={schema.columns.map((c) => ({
-                name: c.name,
-                data_type: c.data_type,
-              }))}
-              distinct={distinct}
-              filters={filters}
-              custom_where={custom_where}
-              on_add={add_filter}
-              on_remove={remove_filter}
-              on_set_conjunction={set_filter_conjunction}
-              on_clear={clear_filters}
-              on_custom_where={setCustomWhere}
+              pane_ref={pane_ref}
             />
           )}
         </div>
@@ -339,14 +373,13 @@ export function TablePane({
             </>
           )
         )}
-        {grid_loading && !stopped_waiting ? (
-          <QueryLoadingOverlay onStop={() => setStoppedWaiting(true)} />
-        ) : (
-          (!schema || schema_busy) && (
-            <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
-              <Loader2 className="text-muted-foreground size-5 animate-spin" />
-            </div>
-          )
+        {/* Covers the whole loading span, not just the grid's own fetch —
+            without `!schema`/`schema_busy` here, opening a tab showed
+            nothing at all during the initial schema fetch (before Grid
+            even mounts and publishes its own bridge), then the overlay
+            would suddenly pop in once the grid's own query started. */}
+        {loading_start !== null && (
+          <QueryLoadingOverlay startedAt={loading_start} />
         )}
       </div>
     </div>

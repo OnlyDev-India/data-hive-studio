@@ -10,6 +10,7 @@ import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
 import type { PendingChange } from "../components/data-grid/grid-context";
 import type { PaneNode } from "./pane-layout";
+import type { ShortcutBinding } from "../hooks/shortcut-registry";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace" | "admin";
@@ -554,6 +555,16 @@ export interface StudioStore {
    *  the caller (the settings UI), not here — this just persists a valid one. */
   setPaletteKeyword: (key: keyof PaletteKeywords, value: string) => void;
   resetPaletteKeywords: () => void;
+
+  /** User-customizable keyboard shortcuts (Settings → Shortcuts), keyed by
+   *  `ShortcutAction.id` from `shortcut-registry.ts`. Sparse: a missing key
+   *  falls back to that action's registry default at lookup time
+   *  (`useAppShortcut`) — unlike `paletteKeywords`, no special rehydrate
+   *  merge is needed since there's no fixed shape to fall out of sync with. */
+  shortcutOverrides: Partial<Record<string, ShortcutBinding>>;
+  setShortcutOverride: (id: string, binding: ShortcutBinding) => void;
+  resetShortcut: (id: string) => void;
+  resetAllShortcuts: () => void;
 
   // ---- Split-view drag-to-split (ephemeral, session/UI-only — never
   // persisted; see partialize in store.ts) --------------------------------

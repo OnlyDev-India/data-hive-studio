@@ -123,11 +123,19 @@ export function Cell({ row, col, dci }: CellProps) {
     if ((sel_edges & EDGE_LEFT) !== 0)
       net_shadows.push("inset 2px 0 0 0 var(--selection-border)");
   }
-  const boxShadow = is_editing
-    ? "inset 0 0 0 2px var(--color-primary)"
-    : net_shadows.length > 0
-      ? net_shadows.join(", ")
-      : undefined;
+  // Find-in-grid (Ctrl/Cmd+F, search-bar.tsx) highlight — a ring, not a
+  // background fill, so it composes with the selection/dirty backgrounds
+  // below instead of fighting them for the same CSS property. Same
+  // `--warning`/active-vs-plain-match color language as the editor's own
+  // search highlighting (see `codemirror`'s `searchMatchTheme`).
+  const search_match = ctx.search_match_set.has(key);
+  const search_active = ctx.search_active_key === key;
+  const shadows = is_editing
+    ? ["inset 0 0 0 2px var(--color-primary)"]
+    : [...net_shadows];
+  if (search_active) shadows.push("inset 0 0 0 2px var(--warning)");
+  else if (search_match) shadows.push("inset 0 0 0 1px var(--warning)");
+  const boxShadow = shadows.length > 0 ? shadows.join(", ") : undefined;
 
   const cellClass = cn(
     "group/cell relative flex min-w-0 items-center overflow-visible border-r border-border/40 px-2 py-1 text-sm w-36 shrink-0 cursor-cell select-none",

@@ -1,9 +1,8 @@
 import { Fragment, useState } from "react";
-import { Brain, Filter, PencilLine, X } from "lucide-react";
+import { ChevronDown, Filter, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -17,8 +16,6 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Separator } from "@/shared/components/ui/separator";
-import { Switch } from "@/shared/components/ui/switch";
-import { Textarea } from "@/shared/components/ui/textarea";
 import { cn } from "@/shared/lib/utils";
 import { DatePicker } from "./date-picker";
 import {
@@ -28,13 +25,14 @@ import {
   type FilterOp,
   type GridFilter,
 } from "./types";
+import { QueryEditor } from "@/features/query-editor";
 
 export interface FilterColumn {
   name: string;
   data_type: string;
 }
 
-interface FilterBarProps {
+export interface FilterBarProps {
   columns: FilterColumn[];
   distinct: DistinctMap;
   filters: GridFilter[];
@@ -78,10 +76,8 @@ export function FilterBar({
   on_clear,
   on_custom_where,
 }: FilterBarProps) {
-  const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"ui" | "sql">(() =>
-    custom_where.trim() ? "sql" : "ui",
-  );
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [textFilterOpen, setTextFilterOpen] = useState(false);
   const [column, setColumn] = useState(columns[0]?.name ?? "");
   const [op, setOp] = useState<FilterOp>("eq");
   const [value, setValue] = useState("");
@@ -112,103 +108,89 @@ export function FilterBar({
 
   const apply_sql = () => {
     on_custom_where(sqlDraft.trim());
-    setOpen(false);
+    setFilterOpen(false);
+  };
+
+  const handleKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      apply_sql();
+      setTextFilterOpen(false);
+    }
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <Button
-            size="sm"
-            variant="outline"
-            className={cn("bg-secondary relative h-6", {
-              "border-primary text-primary bg-primary/20": active_count > 0,
-            })}
-          >
-            <Filter className="size-3" />
-            Filter
-            {active_count > 0 && (
-              <span className="bg-primary text-primary-foreground absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full text-[10px] font-semibold">
-                {active_count}
-              </span>
-            )}
-          </Button>
-        }
-      />
-      <PopoverContent
-        className="flex w-136 max-w-[min(90vw,34rem)] flex-col gap-2 p-3"
-        align="start"
-      >
-        {/* Mode toggle */}
-        <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-          <div className="flex items-center gap-2">
-            <Brain className="text-muted-foreground size-4" />
-            <span className="text-xs font-medium">UI mode</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              id="filter-mode"
-              checked={mode === "sql"}
-              onCheckedChange={(checked) => {
-                setMode(checked ? "sql" : "ui");
-                if (!checked && custom_where.trim() !== "") on_clear();
-              }}
-            />
-            <PencilLine className="text-muted-foreground size-4" />
-          </div>
-        </div>
-
-        {/* Active filter badges */}
-        {filters.length > 0 && (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {filters.map((f, i) => (
-                <Fragment key={f.id}>
-                  {i > 0 && (
-                    <ConjunctionToggle
-                      value={f.conjunction ?? "AND"}
-                      onChange={(c) => on_set_conjunction(f.id, c)}
-                    />
-                  )}
-                  <Badge variant="secondary" className="max-w-full">
-                    <span className="truncate">{f.column}</span>
-                    <span className="text-muted-foreground mx-1">
-                      {OP_LABEL[f.op]}
-                    </span>
-                    {NEEDS_VALUE.includes(f.op) && (
-                      <span className="text-foreground/80 truncate font-normal">
-                        {f.value || "NULL"}
-                      </span>
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              size="iconXs"
+              variant="secondary"
+              className={cn(
+                "h-6 gap-1 font-mono text-xs",
+                active_count > 0
+                  ? "text-info hover:bg-info/15"
+                  : "text-muted-foreground",
+              )}
+            >
+              <Filter className="size-3" />
+            </Button>
+          }
+        />
+        <PopoverContent
+          className="flex w-136 max-w-[min(90vw,34rem)] flex-col gap-2 p-3"
+          align="start"
+        >
+          {/* Active filter badges */}
+          {filters.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {filters.map((f, i) => (
+                  <Fragment key={f.id}>
+                    {i > 0 && (
+                      <ConjunctionToggle
+                        value={f.conjunction ?? "AND"}
+                        onChange={(c) => on_set_conjunction(f.id, c)}
+                      />
                     )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="iconXs"
-                      onClick={() => on_remove(f.id)}
-                      aria-label="Remove filter"
-                      className="text-muted-foreground hover:text-foreground ml-1 size-4 shrink-0 p-0 opacity-60 hover:opacity-100"
-                    >
-                      <X className="size-3" />
-                    </Button>
-                  </Badge>
-                </Fragment>
-              ))}
-            </div>
-            <Separator />
-          </>
-        )}
-        {custom_where.trim() !== "" && mode === "sql" && (
-          <>
-            <div className="bg-info/10 text-info flex items-center gap-1.5 rounded-md px-2 py-1 text-xs">
-              <PencilLine className="size-3.5 shrink-0" />
-              <code className="truncate">{custom_where}</code>
-            </div>
-            <Separator />
-          </>
-        )}
+                    <Badge variant="secondary" className="max-w-full">
+                      <span className="truncate">{f.column}</span>
+                      <span className="text-muted-foreground mx-1">
+                        {OP_LABEL[f.op]}
+                      </span>
+                      {NEEDS_VALUE.includes(f.op) && (
+                        <span className="text-foreground/80 truncate font-normal">
+                          {f.value || "NULL"}
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="iconXs"
+                        onClick={() => on_remove(f.id)}
+                        aria-label="Remove filter"
+                        className="text-muted-foreground hover:text-foreground ml-1 size-4 shrink-0 p-0 opacity-60 hover:opacity-100"
+                      >
+                        <X className="size-3" />
+                      </Button>
+                    </Badge>
+                  </Fragment>
+                ))}
+              </div>
+              <Separator />
+            </>
+          )}
+          {/* {custom_where.trim() !== "" && mode === "sql" && (
+            <>
+              <div className="bg-info/10 text-info flex items-center gap-1.5 rounded-md px-2 py-1 text-xs">
+                <PencilLine className="size-3.5 shrink-0" />
+                <code className="truncate">{custom_where}</code>
+              </div>
+              <Separator />
+            </>
+          )} */}
 
-        {mode === "ui" ? (
           <>
             <div className="flex items-center gap-2">
               {filters.length > 0 && (
@@ -276,53 +258,73 @@ export function FilterBar({
               </Button>
             </div>
           </>
-        ) : (
+        </PopoverContent>
+      </Popover>
+      <span className="shrink-0 font-mono text-xs text-orange-400">Where</span>
+      <Popover open={textFilterOpen} onOpenChange={setTextFilterOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cn(
+                "group h-6 w-full min-w-0 flex-1 justify-between gap-1 truncate px-2 font-mono text-xs hover:bg-transparent cursor-text!",
+                active_count > 0 ? "text-info" : "text-muted-foreground",
+              )}
+            >
+              <span className="flex min-w-0 flex-1 gap-1.5">
+                <span
+                  className={cn("min-w-0 flex-1 truncate text-start hover:text-primary", {
+                    "group-hover:text-muted-foreground": !sqlDraft,
+                  })}
+                >
+                  {sqlDraft || "e.g. age >= 18"}
+                </span>
+                {active_count > 0 && (
+                  <span className="bg-info/15 text-info shrink-0 rounded px-1 text-[10px] font-semibold">
+                    {active_count}
+                  </span>
+                )}
+              </span>
+
+              <ChevronDown className="size-3 shrink-0" />
+            </Button>
+          }
+        />
+        <PopoverContent
+          className="bg-background flex w-(--anchor-width) -translate-y-6 flex-col gap-2 p-0.5"
+          align="start"
+        >
           <>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-muted-foreground text-xs">
-                WHERE clause (without the WHERE keyword)
-              </Label>
-              <Textarea
-                className="font-mono text-xs"
-                rows={3}
+              <QueryEditor
+              value={sqlDraft}
+              onChange={setSqlDraft}
+              onRun={()=>{}}
+              onRunTarget={()=>{}}
+              lintEnabled={false}
+              showLineNumber={false}
+              enableWrapping={true}
+              onKeyDown={handleKeyDown}
+              className="rounded-md"
+              frameLayer={false}
+              autoCompletion={false}
+              placeholder="e.g. age >= 18 AND name LIKE 'a%'"
+              disableEnter
+              />
+              {/* <Textarea
+                className="border-none font-mono text-xs focus-visible:ring-0"
+                rows={1}
                 placeholder="e.g. age >= 18 AND name LIKE 'a%'"
                 value={sqlDraft}
                 onChange={(e) => setSqlDraft(e.target.value)}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="mr-auto"
-                disabled={custom_where.trim() === ""}
-                onClick={() => {
-                  on_custom_where("");
-                  setSqlDraft("");
-                }}
-              >
-                Clear
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={sqlDraft.trim() === ""}
-                onClick={apply_sql}
-              >
-                Apply
-              </Button>
+                onKeyDown={handleKeyDown}
+              /> */}
             </div>
           </>
-        )}
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
