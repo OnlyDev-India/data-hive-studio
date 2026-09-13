@@ -9,8 +9,11 @@ import {
 } from "@/shared/components/ui";
 import {
   FolderOpen,
+  Maximize2,
+  Minimize2,
   PlayIcon,
   Save,
+  Shrink,
   SpellCheck2,
   TextAlignStart,
   TextSelect,
@@ -47,11 +50,14 @@ export function EditorRunToolbar({
   databases,
   on_database_change,
   on_format,
+  on_compress,
   lint_enabled,
   on_toggle_lint,
   is_dirty,
   on_save,
   on_open,
+  zen_enabled,
+  on_toggle_zen,
 }: {
   has_selection: boolean;
   can_run_target: boolean;
@@ -69,11 +75,21 @@ export function EditorRunToolbar({
    *  JS shell commands with prettier's standalone (babel) parser instead —
    *  see each body's own `format_sql`/`format_script`. */
   on_format?: () => void;
+  /** Collapses the query toward a single compact line — the inverse of
+   *  Format. SQL editor only (see `compress-sql.ts`); the Mongo console has
+   *  no equivalent. */
+  on_compress?: () => void;
   lint_enabled?: boolean;
   on_toggle_lint?: () => void;
   is_dirty?: boolean;
   on_save?: () => void;
   on_open?: () => void;
+  /** Distraction-free view: hides the results panel so the editor takes the
+   *  full pane height. A view toggle, not a document action — grouped with
+   *  the database picker on the right rather than the left-hand action
+   *  buttons. */
+  zen_enabled?: boolean;
+  on_toggle_zen?: () => void;
 }) {
   const DbIcon = db_kind ? DBIcons[db_kind] : null;
   return (
@@ -110,6 +126,15 @@ export function EditorRunToolbar({
               color="info"
               disabled={!has_text}
               onClick={on_format}
+            />
+          )}
+          {on_compress && (
+            <ToolbarIconButton
+              icon={Shrink}
+              label="Compress query"
+              color="info"
+              disabled={!has_text}
+              onClick={on_compress}
             />
           )}
           {on_toggle_lint && (
@@ -164,6 +189,15 @@ export function EditorRunToolbar({
               </SelectContent>
             </Select>
           )}
+          {on_toggle_zen && (
+            <ToolbarIconButton
+              icon={zen_enabled ? Minimize2 : Maximize2}
+              label={zen_enabled ? "Exit zen mode" : "Zen mode"}
+              color="primary"
+              active={zen_enabled ?? false}
+              onClick={on_toggle_zen}
+            />
+          )}
         </div>
       </div>
     </TooltipProvider>
@@ -210,7 +244,7 @@ function ToolbarIconButton({
               "h-6 bg-transparent px-2 text-xs",
               active === false
                 ? "text-muted-foreground hover:bg-accent"
-                : TOOLBAR_ICON_COLORS[color],
+                : `${TOOLBAR_ICON_COLORS[color]} hover:${TOOLBAR_ICON_COLORS[color]}`,
             )}
             disabled={disabled}
             title={label}

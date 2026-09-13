@@ -15,6 +15,11 @@ import {
 import type { JsonRow } from "@/shared/store";
 import { rowToObject, sortRows, toJsonValue, toSqlLiteral } from "./grid-utils";
 
+/** `cellKey`'s own separator, derived rather than duplicated as a literal —
+ *  `cellKey(0, "")` is `"0" + SEP`, so stripping the leading "0" leaves just
+ *  the separator. Used below to parse a selection key back into (row, col). */
+const CELL_KEY_SEP = cellKey(0, "").slice(1);
+
 /** Host-provided config for a grid instance. */
 export interface GridControllerConfig {
   rows: (string | null)[][];
@@ -130,6 +135,11 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const [editing, setEditing] = useState<CellId | null>(null);
   const [editAsText, setEditAsText] = useState<boolean>(false);
   const [col_widths, setColWidths] = useState<Record<string, number>>({});
+
+  // ---- In-grid find (Ctrl/Cmd+F) ----
+  const [search_open, setSearchOpen] = useState(false);
+  const [search_query, setSearchQuery] = useState("");
+  const [search_active_index, setSearchActiveIndex] = useState(0);
 
   const pending = pending_rows ?? [];
   const pending_count = pending_rows?.length ?? 0;
@@ -423,6 +433,88 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     void navigator.clipboard.writeText(text);
   }, [selected, rows_to_render, column_order, col_index_of]);
 
+  // ---- Paste ----
+  // Writes go straight to the raw props (not the guarded `on_pending_edit`/
+  // `on_edit_cell` below, which just re-derive the same pending/real split
+  // from a row index) — this already knows which one each write needs.
+  const write_cell = useCallback(
+    (row: number, col: string, value: string) => {
+      if (row < pending_count) on_pending_edit_prop?.(row, col, value);
+      else on_edit_cell_prop?.(row, col, value);
+    },
+    [pending_count, on_pending_edit_prop, on_edit_cell_prop],
+  );
+
+  const paste_text = useCallback(async () => {
+    if (!editable) return;
+    let raw: string;
+    try {
+      raw = await navigator.clipboard.readText();
+    } catch {
+      return; // permission denied/unavailable — same silent no-op as copy's own lack of error surfacing
+    }
+    if (!raw) return;
+    const lines = raw.replace(/\r/g, "").split("\n");
+    // A copied block's clipboard text ends with a trailing newline; that's
+    // not a real extra (empty) row to paste.
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    const grid = lines.map((line) => line.split("\t"));
+
+    // A single copied value pasted over an active multi-cell selection
+    // fills every selected cell with it (Excel/Sheets convention) instead
+    // of only overwriting the anchor.
+    if (grid.length === 1 && grid[0].length === 1 && selected.size > 1) {
+      const value = grid[0][0];
+      for (const key of selected) {
+        const sep = key.indexOf(CELL_KEY_SEP);
+        const row = Number(key.slice(0, sep));
+        const col = key.slice(sep + 1);
+        if (row < rows_to_render.length) write_cell(row, col, value);
+      }
+      return;
+    }
+
+    const start = active_cell ?? sel_anchor;
+    if (!start) return;
+    const [start_row, start_col] = start;
+    const start_ci = col_index_of[start_col];
+    if (start_ci === undefined) return;
+    for (let i = 0; i < grid.length; i++) {
+      const row = start_row + i;
+      // Fills into already-loaded rows/columns only — a paste block that
+      // overflows the page's current row/column count is silently clamped
+      // rather than growing the grid (see DATAGRID_PARITY_PLAN.md's Phase 1
+      // note on this).
+      if (row >= rows_to_render.length) break;
+      const line = grid[i];
+      for (let j = 0; j < line.length; j++) {
+        const col = column_order[start_ci + j];
+        if (col === undefined) break;
+        write_cell(row, col, line[j]);
+      }
+    }
+  }, [
+    editable,
+    selected,
+    rows_to_render.length,
+    active_cell,
+    sel_anchor,
+    col_index_of,
+    column_order,
+    write_cell,
+  ]);
+
+  // ---- Clear selection (Delete/Backspace) ----
+  const clear_selection = useCallback(() => {
+    if (!editable || selected.size === 0) return;
+    for (const key of selected) {
+      const sep = key.indexOf(CELL_KEY_SEP);
+      const row = Number(key.slice(0, sep));
+      const col = key.slice(sep + 1);
+      if (row < rows_to_render.length) write_cell(row, col, "");
+    }
+  }, [editable, selected, rows_to_render.length, write_cell]);
+
   // Scroll the active cell fully into view after keyboard navigation. The
   // root div is itself the scroll container (and the virtualizer's element).
   const scroll_to_cell = useCallback(
@@ -450,6 +542,69 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     [row_virtualizer],
   );
 
+  // Every matching cell across the currently-loaded rows, row-major order —
+  // cheap enough to recompute on every keystroke at this grid's typical
+  // page sizes (hundreds, not millions, of loaded cells); no debouncing.
+  const search_matches = useMemo<CellId[]>(() => {
+    const q = search_query.trim().toLowerCase();
+    if (!q) return [];
+    const matches: CellId[] = [];
+    for (let r = 0; r < rows_to_render.length; r++) {
+      for (const col of column_order) {
+        const ci = col_index_of[col];
+        if (ci === undefined) continue;
+        const v = rows_to_render[r][ci];
+        if (v != null && v.toLowerCase().includes(q)) matches.push([r, col]);
+      }
+    }
+    return matches;
+  }, [search_query, rows_to_render, column_order, col_index_of]);
+
+  const search_active_index_clamped =
+    search_matches.length === 0
+      ? -1
+      : Math.min(search_active_index, search_matches.length - 1);
+  const search_match_set = useMemo(
+    () => new Set(search_matches.map(([r, c]) => cellKey(r, c))),
+    [search_matches],
+  );
+  const search_active_key =
+    search_active_index_clamped >= 0
+      ? cellKey(...search_matches[search_active_index_clamped])
+      : null;
+
+  // Keep the current match scrolled into view as it changes (new query,
+  // next/prev) — mirrors keyboard navigation's own scroll-into-view.
+  useEffect(() => {
+    if (search_active_index_clamped < 0) return;
+    const [r, col] = search_matches[search_active_index_clamped];
+    const dci = column_order.indexOf(col);
+    if (dci >= 0) scroll_to_cell(r, dci);
+  }, [search_active_index_clamped, search_matches, column_order, scroll_to_cell]);
+
+  const on_search_open = useCallback(() => setSearchOpen(true), []);
+  const on_search_close = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    root_ref.current?.focus({ preventScroll: true });
+  }, []);
+  const on_search_query = useCallback((q: string) => {
+    setSearchQuery(q);
+    setSearchActiveIndex(0);
+  }, []);
+  const on_search_next = useCallback(() => {
+    setSearchActiveIndex((i) =>
+      search_matches.length === 0 ? 0 : (i + 1) % search_matches.length,
+    );
+  }, [search_matches.length]);
+  const on_search_prev = useCallback(() => {
+    setSearchActiveIndex((i) =>
+      search_matches.length === 0
+        ? 0
+        : (i - 1 + search_matches.length) % search_matches.length,
+    );
+  }, [search_matches.length]);
+
   const handle_keydown = useGridKeyboard({
     rows: rows_to_render.length,
     col_meta,
@@ -462,7 +617,13 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     on_active_cell: setActiveCell,
     on_editing: setEditing,
     on_copy: copy_text,
+    on_paste: editable ? paste_text : undefined,
+    on_clear_selection: editable ? clear_selection : undefined,
+    on_search_open,
+    search_open,
+    on_search_close,
     on_navigate: scroll_to_cell,
+    page_size: Math.max(1, row_virtualizer.getVirtualItems().length),
   });
 
   // While editing, the editor input owns the keys; ignore bubbling events so
@@ -801,5 +962,16 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     on_root_ready,
     row_virtualizer,
     on_root_mouse_down,
+    search_open,
+    search_query,
+    search_matches,
+    search_active_index: search_active_index_clamped,
+    search_match_set,
+    search_active_key,
+    on_search_open,
+    on_search_close,
+    on_search_query,
+    on_search_next,
+    on_search_prev,
   };
 }

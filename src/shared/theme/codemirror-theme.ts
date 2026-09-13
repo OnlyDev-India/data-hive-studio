@@ -27,7 +27,6 @@ export const appEditorTheme = EditorView.theme({
     lineHeight: "1.5",
   },
   ".cm-lineNumbers .cm-gutterElement": {
-    minWidth: "2.5em",
     padding: "0 0.4em 0 0.5em",
   },
   ".cm-tooltip": {
@@ -99,19 +98,20 @@ export const appEditorTheme = EditorView.theme({
   // chrome, not syntax, so they use the app's light/dark-flipping success
   // token instead of a One Dark-specific color.
   ".cm-statement-gutter": {
-    width: "1.4em",
+    width: "1.8em",
   },
   ".cm-statement-run": {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: "100%",
-    height: "100%",
+    width: "20px",
+    height: "20px",
     padding: 0,
     border: "none",
     cursor: "pointer",
     position: "relative",
     opacity: 0.55,
+    marginLeft: "2px",
   },
   ".cm-statement-run:hover": {
     opacity: 1,
@@ -134,10 +134,30 @@ export const appEditorTheme = EditorView.theme({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Fold gutter (statement-runner.ts's `lucideFoldGutter`) — same chevron
+  // rotated 90° open/closed as the sidebar's tree-toggle rows, not two
+  // different glyphs.
+  ".cm-foldGutter": {
+    width: "1.2em",
+  },
+  ".cm-fold-marker": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: "100%",
+    opacity: 0.55,
+    cursor: "pointer",
+  },
+  ".cm-fold-marker:hover": {
+    opacity: 1,
+  },
+  ".cm-fold-marker--open svg": {
+    transform: "rotate(90deg)",
+  },
   ".cm-statement-frame-layer .cm-statement-frame": {
     border: "1.5px solid var(--success)",
     borderRadius: "var(--radius-md)",
-    background: "color-mix(in srgb, var(--success) 6%, transparent)",
     pointerEvents: "none",
   },
 });

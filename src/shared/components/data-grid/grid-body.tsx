@@ -4,6 +4,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Cell } from "./cell";
 import { HeaderCell } from "./header-cell";
 import { useGrid } from "./grid-context";
+import { GridSearchBar } from "./search-bar";
 
 /**
  * Presentational shell of the grid: renders the header row and the data rows.
@@ -40,15 +41,17 @@ export function GridBody() {
   );
 
   return (
-    <div
-      ref={(el) => on_root_ready(el)}
-      tabIndex={0}
-      className="h-full overflow-auto outline-none"
-      onMouseDown={(e) => root_mouse_down(e)}
-      onMouseUp={() => root_mouse_up()}
-      onMouseLeave={() => root_mouse_up()}
-      onKeyDown={(e) => root_keydown(e)}
-    >
+    <div className="relative h-full">
+      <GridSearchBar />
+      <div
+        ref={(el) => on_root_ready(el)}
+        tabIndex={0}
+        className="h-full overflow-auto outline-none"
+        onMouseDown={(e) => root_mouse_down(e)}
+        onMouseUp={() => root_mouse_up()}
+        onMouseLeave={() => root_mouse_up()}
+        onKeyDown={(e) => root_keydown(e)}
+      >
       {/* Header: corner cell (row-number gutter header) then column headers.
           Sticks to the top of the scroller while rows window underneath. */}
       <div className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium select-none">
@@ -158,6 +161,7 @@ export function GridBody() {
           No rows.
         </p>
       )}
+      </div>
     </div>
   );
 }

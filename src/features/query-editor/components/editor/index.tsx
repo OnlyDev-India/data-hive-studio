@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -29,11 +30,16 @@ import {
 import type { Completion } from "@codemirror/autocomplete";
 import { appEditorExtensions } from "@/shared/theme/codemirror-theme";
 import { cn, statementRanges } from "@/shared/lib/utils";
-import { useShortcuts, type Shortcut } from "@/shared/hooks/use-shortcut";
+import {
+  useAppShortcut,
+  useShortcuts,
+  type Shortcut,
+} from "@/shared/hooks/use-shortcut";
 import { schemaCompletions } from "./sql-completions";
 import { sqlLinter } from "./sql-lint";
 import { nosqlSyntaxLinter } from "./nosql-lint";
 import {
+  lucideFoldGutter,
   markRunResult,
   statementFrameLayer,
   statementGutter,
@@ -102,13 +108,15 @@ const errorLinter = linter(null);
 // overflow/transform entirely.
 const editorTooltips = tooltips({ parent: document.body });
 
-// `lineNumbers` is always off here — an explicit `lineNumbers()` extension is
-// added instead (after the statement-run gutter, in `extensions` below) so
-// it renders to the right of the run buttons rather than always being
-// leftmost. Module-level: a fresh object every render would make
-// @uiw/react-codemirror reconfigure (and tear down/rebuild, killing any open
-// completion popup) the whole basicSetup extension set on every keystroke —
-// same concern as `completionDismissKeymap` above.
+// `lineNumbers`/`foldGutter` are always off here — explicit `lineNumbers()`/
+// `lucideFoldGutter()` extensions are added instead (after the statement-run
+// gutter, in `extensions` below) so gutters render in a fixed left-to-right
+// order — run buttons, line numbers, fold markers — instead of basicSetup's
+// own fold gutter always landing leftmost. Module-level: a fresh object
+// every render would make @uiw/react-codemirror reconfigure (and tear
+// down/rebuild, killing any open completion popup) the whole basicSetup
+// extension set on every keystroke — same concern as
+// `completionDismissKeymap` above.
 const basicSetupConfig = {
   lineNumbers: false,
   highlightActiveLineGutter: true,
@@ -163,10 +171,15 @@ interface QueryEditorProps {
   readOnly?: boolean;
   enableWrapping?: boolean;
   className?: string;
+  placeholder?: string;
   /** Toolbar-driven toggle for the live syntax/unknown-table (or
    *  unknown-collection) linter — off doesn't touch manually-pushed run
    *  errors (`setErrors`), a separate mechanism. Default on. */
   lintEnabled?: boolean;
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+  frameLayer?: boolean;
+  autoCompletion?: boolean;
+  disableEnter?: boolean;
 }
 
 /**
@@ -186,18 +199,23 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       onRunTarget,
       onSelectionChange,
       onSave,
+      onKeyDown,
       tables,
       schema,
       schemaTables,
       jsCompletions,
       connId,
       className,
+      placeholder,
       language = "sql",
       height = "160px",
       showLineNumber = true,
       readOnly = false,
       enableWrapping = false,
       lintEnabled = true,
+      frameLayer = true,
+      autoCompletion = true,
+      disableEnter = false,
     },
     ref,
   ) {
@@ -259,6 +277,13 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         ]),
       [],
     );
+
+    const disableEnterKeymap = keymap.of([
+      {
+        key: "Enter",
+        run: () => true,
+      },
+    ]);
 
     // Memoized for the same reconfigure-on-identity-change reason as
     // `completionDismissKeymap`/`basicSetupConfig` — @uiw/react-codemirror's
@@ -347,11 +372,14 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       },
     }));
 
+    const runBinding = useAppShortcut("editor.run");
+    const runTargetBinding = useAppShortcut("editor.runTarget");
+    const saveBinding = useAppShortcut("editor.save");
     const shortcuts: Shortcut[] = [
-      { key: "Enter", mod: true, handler: onRun },
-      { key: "Enter", mod: true, shift: true, handler: onRunTarget },
+      { ...runBinding, handler: onRun },
+      { ...runTargetBinding, handler: onRunTarget },
     ];
-    if (onSave) shortcuts.push({ key: "s", mod: true, handler: onSave });
+    if (onSave) shortcuts.push({ ...saveBinding, handler: onSave });
     useShortcuts(shortcuts);
 
     // Hover-over-a-keyword/method documentation (SQL keywords/functions,
@@ -364,15 +392,20 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       setDocDetail(entry);
     }, []);
 
-    // Kept fresh every render via plain assignment (not an effect — nothing
-    // reads it during render) rather than putting `onRunTarget` itself in
-    // `extensions`' deps below: that prop is a fresh closure every render in
-    // both callers, and rebuilding `extensions` on every keystroke would
-    // tear down/recreate the whole CodeMirror extension set (autocompletion
-    // included), killing any open completion popup — see the identical
-    // concern on `completionDismissKeymap` above.
+    // Kept fresh via a bare effect (not a plain render-body assignment —
+    // React Compiler's memoization can skip re-running a render body on a
+    // commit it decides produced no visible output change, silently
+    // stranding the ref on a stale `onRunTarget` closure; an effect always
+    // runs on every commit regardless) rather than putting `onRunTarget`
+    // itself in `extensions`' deps below: that prop is a fresh closure every
+    // render in both callers, and rebuilding `extensions` on every keystroke
+    // would tear down/recreate the whole CodeMirror extension set
+    // (autocompletion included), killing any open completion popup — see the
+    // identical concern on `completionDismissKeymap` above.
     const onRunTargetRef = useRef(onRunTarget);
-    onRunTargetRef.current = onRunTarget;
+    useEffect(() => {
+      onRunTargetRef.current = onRunTarget;
+    });
     const runAtCursor = useCallback(() => onRunTargetRef.current(), []);
 
     const extensions = useMemo(() => {
@@ -431,10 +464,14 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           // own `lineNumbers` is disabled below — this is the only one) so
           // it renders to the LEFT of the numbers, not the right: gutters
           // render in extension order, leftmost first.
-          ...(readOnly ? [] : [statementGutter(runAtCursor)]),
+          ...(readOnly || !showLineNumber
+            ? []
+            : [statementGutter(runAtCursor)]),
           ...(showLineNumber ? [lineNumbers()] : []),
-          ...(readOnly ? [] : [statementFrameLayer()]),
+          ...(readOnly || !showLineNumber ? [] : [lucideFoldGutter()]),
+          ...(readOnly || !frameLayer ? [] : [statementFrameLayer()]),
           ...(enableWrapping ? [EditorView.lineWrapping] : []),
+          ...(disableEnter ? [disableEnterKeymap] : []),
         ];
       }
       const completions: Completion[] = (tables ?? []).map((t) => ({
@@ -469,10 +506,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         // Run-button gutter before the line-number gutter (basicSetup's own
         // `lineNumbers` is disabled below) so it renders to the LEFT of the
         // numbers — see the identical comment in the "js" branch above.
-        ...(readOnly ? [] : [statementGutter(runAtCursor)]),
+        ...(readOnly || !showLineNumber ? [] : [statementGutter(runAtCursor)]),
         ...(showLineNumber ? [lineNumbers()] : []),
-        ...(readOnly ? [] : [statementFrameLayer()]),
+        ...(readOnly || !showLineNumber ? [] : [lucideFoldGutter()]),
+        ...(readOnly || !frameLayer ? [] : [statementFrameLayer()]),
         ...(enableWrapping ? [EditorView.lineWrapping] : []),
+        ...(disableEnter ? [disableEnterKeymap] : []),
       ];
     }, [
       tables,
@@ -505,12 +544,15 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
             theme="none"
             style={{ height: "100%" }}
             readOnly={readOnly}
-            basicSetup={basicSetupConfig}
+            basicSetup={{ ...basicSetupConfig, autocompletion: autoCompletion }}
             placeholder={
-              language === "js"
-                ? 'db.users.find({ "status": "active" }).limit(10)'
-                : "SELECT * FROM sqlite_master;"
+              placeholder
+                ? placeholder
+                : language === "js"
+                  ? 'db.users.find({ "status": "active" }).limit(10)'
+                  : "SELECT * FROM sqlite_master;"
             }
+            {...(onKeyDown ? { onKeyDown } : {})}
           />
         </div>
         <Dialog

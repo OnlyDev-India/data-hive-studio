@@ -18,20 +18,20 @@ describe("currentKvFrame", () => {
     expect(doc.slice(frame!.start, frame!.end)).toBe('"age": 30');
   });
 
-  it("narrows to just the key's quotes when the cursor is inside the key", () => {
+  it("frames the whole pair when the cursor is inside the key", () => {
     const nameIdx = doc.indexOf('"name"');
     const cursor = nameIdx + 2; // inside "name"
     const frame = currentKvFrame(doc, cursor);
     expect(frame).not.toBeNull();
-    expect(doc.slice(frame!.start, frame!.end)).toBe('"name"');
+    expect(doc.slice(frame!.start, frame!.end)).toBe('"name": "Alice"');
   });
 
-  it("narrows to just the string value's quotes when the cursor is inside it", () => {
+  it("frames the whole pair when the cursor is inside a string value", () => {
     const aliceIdx = doc.indexOf('"Alice"');
     const cursor = aliceIdx + 3; // inside "Alice"
     const frame = currentKvFrame(doc, cursor);
     expect(frame).not.toBeNull();
-    expect(doc.slice(frame!.start, frame!.end)).toBe('"Alice"');
+    expect(doc.slice(frame!.start, frame!.end)).toBe('"name": "Alice"');
   });
 
   it("frames the innermost nested pair, not the whole object", () => {
@@ -39,7 +39,7 @@ describe("currentKvFrame", () => {
     const cursor = cityIdx + 2;
     const frame = currentKvFrame(doc, cursor);
     expect(frame).not.toBeNull();
-    expect(doc.slice(frame!.start, frame!.end)).toBe('"city"');
+    expect(doc.slice(frame!.start, frame!.end)).toBe('"city": "NYC"');
   });
 
   it("frames a constructor-call value as a whole", () => {

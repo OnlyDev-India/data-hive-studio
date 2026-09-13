@@ -117,6 +117,23 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ paletteKeywords: DEFAULT_PALETTE_KEYWORDS });
         },
 
+        shortcutOverrides: {},
+        setShortcutOverride(id, binding) {
+          set((s) => ({
+            shortcutOverrides: { ...s.shortcutOverrides, [id]: binding },
+          }));
+        },
+        resetShortcut(id) {
+          set((s) => {
+            const next = { ...s.shortcutOverrides };
+            delete next[id];
+            return { shortcutOverrides: next };
+          });
+        },
+        resetAllShortcuts() {
+          set({ shortcutOverrides: {} });
+        },
+
         dragTab: null,
         setDragTab(v) {
           set({ dragTab: v });
@@ -470,6 +487,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           sidebarWidth: s.sidebarWidth,
           rightSidebarWidth: s.rightSidebarWidth,
           paletteKeywords: s.paletteKeywords,
+          shortcutOverrides: s.shortcutOverrides,
           showAppActivity: s.showAppActivity,
           skippedUpdateVersion: s.skippedUpdateVersion,
         }),

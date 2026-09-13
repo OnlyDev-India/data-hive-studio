@@ -7,9 +7,17 @@ import {
   type LayerMarker,
 } from "@codemirror/view";
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
+import {
+  codeFolding,
+  foldEffect,
+  foldState,
+  foldable,
+  foldedRanges,
+  unfoldEffect,
+} from "@codemirror/language";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Check, PlayIcon } from "lucide-react";
+import { Check, ChevronRight, PlayIcon } from "lucide-react";
 import { statementRanges } from "@/shared/lib/utils";
 
 /** The non-blank statement the cursor currently sits inside, or null between
@@ -69,6 +77,99 @@ const PLAY_ICON = renderToStaticMarkup(
 const CHECK_ICON = renderToStaticMarkup(
   createElement(Check, { size: 7, strokeWidth: 3.5 }),
 );
+const FOLD_ICON = renderToStaticMarkup(
+  createElement(ChevronRight, { size: 12, strokeWidth: 2.5 }),
+);
+
+/** The currently-folded range overlapping `[from, to)`, or null. Not
+ *  exported by `@codemirror/language` itself (only `foldedRanges`, the
+ *  whole-document decoration set, is) — this is the same lookup
+ *  `foldGutter()`'s own internals do, just without its private helper. */
+function findFoldedRange(
+  view: EditorView,
+  from: number,
+  to: number,
+): { from: number; to: number } | null {
+  let found: { from: number; to: number } | null = null;
+  foldedRanges(view.state).between(from, to, (rFrom, rTo) => {
+    found = { from: rFrom, to: rTo };
+    return false;
+  });
+  return found;
+}
+
+class FoldMarker extends GutterMarker {
+  readonly open: boolean;
+  // The LINE's own span (`foldable()`'s `lineStart`/`lineEnd` params — not
+  // the fold range itself, which starts/ends mid-line, e.g. right after an
+  // opening brace) — needed to recompute the same fold range on click that
+  // `lineMarker` used to decide this marker's `open` state in the first
+  // place.
+  readonly lineFrom: number;
+  readonly lineTo: number;
+  constructor(open: boolean, lineFrom: number, lineTo: number) {
+    super();
+    this.open = open;
+    this.lineFrom = lineFrom;
+    this.lineTo = lineTo;
+  }
+  eq(other: FoldMarker) {
+    return (
+      other.open === this.open &&
+      other.lineFrom === this.lineFrom &&
+      other.lineTo === this.lineTo
+    );
+  }
+  toDOM(view: EditorView) {
+    const span = document.createElement("span");
+    span.className = this.open
+      ? "cm-fold-marker cm-fold-marker--open"
+      : "cm-fold-marker";
+    span.innerHTML = FOLD_ICON;
+    span.title = this.open ? "Fold line" : "Unfold line";
+    // `mousedown`, not `click` — see the identical note on the statement
+    // run button above. `foldGutter()`'s own built-in toggle is hardcoded
+    // to `click` internally with no way to override it, which is why this
+    // is a from-scratch gutter (reusing its lower-level fold/unfold
+    // primitives) instead of that helper with a custom `markerDOM`.
+    span.onmousedown = (e) => {
+      e.stopPropagation();
+      if (this.open) {
+        const range = foldable(view.state, this.lineFrom, this.lineTo);
+        if (range) view.dispatch({ effects: foldEffect.of(range) });
+      } else {
+        const folded = findFoldedRange(view, this.lineFrom, this.lineTo);
+        if (folded) view.dispatch({ effects: unfoldEffect.of(folded) });
+      }
+    };
+    return span;
+  }
+}
+
+/** Same fold gutter as `basicSetup`'s own (`@codemirror/language`'s
+ *  `foldGutter()`), just with the app's actual chevron icon instead of the
+ *  library's plain "▾"/"▸" text markers — same one icon rotated 90° when
+ *  open, matching the sidebar's tree-toggle chevrons (`TreeToggleRow`)
+ *  rather than two different icon shapes for open/closed. */
+export function lucideFoldGutter(): Extension {
+  return [
+    codeFolding(),
+    gutter({
+      class: "cm-foldGutter",
+      lineMarker(view, line) {
+        const folded = findFoldedRange(view, line.from, line.to);
+        if (folded) return new FoldMarker(false, line.from, line.to);
+        const range = foldable(view.state, line.from, line.to);
+        return range ? new FoldMarker(true, line.from, line.to) : null;
+      },
+      lineMarkerChange: (update) =>
+        update.docChanged ||
+        update.viewportChanged ||
+        update.startState.field(foldState, false) !==
+          update.state.field(foldState, false),
+    }),
+  ];
+}
 
 /** The range of the statement that most recently finished running
  *  successfully — drives the gutter's checkmark badge. Cleared on any doc
@@ -123,12 +224,15 @@ class RunButtonMarker extends GutterMarker {
     btn.innerHTML = this.succeeded
       ? `${PLAY_ICON}<span class="cm-statement-run-badge">${CHECK_ICON}</span>`
       : PLAY_ICON;
-    // Keep focus/selection in the editor instead of letting the button steal it.
-    btn.onmousedown = (e) => e.preventDefault();
-    btn.onclick = (e) => {
+    // Triggered on `mousedown`, not `click` — `click` is unreliable here on
+    // Tauri's macOS webview (WebKit): a `preventDefault()` anywhere in the
+    // event's bubble path (ours or CodeMirror's own handler) can suppress
+    // the "activation" `click` depends on. `mousedown` sidesteps that.
+    btn.onmousedown = (e) => {
       e.stopPropagation();
       view.dispatch({ selection: { anchor: this.from, head: this.from } });
       this.runAtCursor();
+      view.focus();
     };
     return btn;
   }
@@ -193,14 +297,33 @@ export function statementRect(
   let left = Infinity;
   let right = -Infinity;
   const doc = view.state.doc;
+  // Sampled at a stride, not just each logical line's two endpoints — a long
+  // value can soft-wrap onto several VISUAL rows within one logical line,
+  // each with its own left/right extent (e.g. a wrapped row that starts
+  // further left, or reaches further right, than either endpoint). A short
+  // row can be as narrow as a handful of characters, so the stride needs to
+  // be small enough to always land at least one sample on it — a coarser
+  // stride reliably SKIPS PAST short rows' actual start/end entirely,
+  // undershooting the box on exactly the wrapped-text cases this exists
+  // for. Every-character is still cheap: this only ever walks one
+  // statement's/pair's own span, not the whole document.
+  const SAMPLE_STRIDE = 1;
   for (let ln = doc.lineAt(from).number; ln <= doc.lineAt(to).number; ln++) {
     const line = doc.line(ln);
     const lineFrom = Math.max(line.from, from);
     const lineTo = Math.min(line.to, to);
-    const lc = view.coordsAtPos(lineFrom, 1);
-    if (lc) left = Math.min(left, lc.left);
-    const rc = view.coordsAtPos(Math.max(lineFrom, lineTo), -1);
-    if (rc) right = Math.max(right, rc.right);
+    for (let pos = lineFrom; pos < lineTo; pos += SAMPLE_STRIDE) {
+      const c = view.coordsAtPos(pos, 1);
+      if (c) {
+        left = Math.min(left, c.left);
+        right = Math.max(right, c.right);
+      }
+    }
+    const rc = view.coordsAtPos(lineTo, -1);
+    if (rc) {
+      left = Math.min(left, rc.left);
+      right = Math.max(right, rc.right);
+    }
   }
   if (!isFinite(left) || !isFinite(right)) return null;
 
