@@ -65,6 +65,7 @@ fn op_action(op: &QueryOp) -> &'static str {
         QueryOp::SelectDistinct { .. } => "op.distinct",
         QueryOp::Insert { .. } => "op.insert",
         QueryOp::Update { .. } => "op.update",
+        QueryOp::BulkUpdate { .. } => "op.bulk_update",
         QueryOp::Delete { .. } => "op.delete",
         QueryOp::DropTable { .. } => "op.drop_table",
     }

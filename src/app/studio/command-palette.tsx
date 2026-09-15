@@ -13,7 +13,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Badge } from "@/shared/components/ui/badge";
 import { cn } from "@/shared/lib/utils";
 import { useActiveConnection, useStudioStore } from "@/shared/store";
-import { useShortcuts } from "@/shared/hooks/use-shortcut";
+import { useAppShortcut, useShortcuts } from "@/shared/hooks/use-shortcut";
 import { useTheme } from "@/shared/theme/theme";
 import {
   buildCommandItems,
@@ -112,19 +112,18 @@ export function CommandPalette() {
 
   const paletteKeywords = useStudioStore((s) => s.paletteKeywords);
 
+  const quickOpenBinding = useAppShortcut("palette.quickOpen");
+  const commandsBinding = useAppShortcut("palette.commands");
   useShortcuts([
     {
-      key: "p",
-      mod: true,
-      shift: true,
+      ...commandsBinding,
       handler: () => {
         setInitialChip("commands");
         setOpen(!useStudioStore.getState().commandPaletteOpen);
       },
     },
     {
-      key: "p",
-      mod: true,
+      ...quickOpenBinding,
       handler: () => {
         setInitialChip(null);
         setOpen(!useStudioStore.getState().commandPaletteOpen);

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { AlertTriangle } from "lucide-react";
-import { LeftPanelSlot } from "./left-panel";
+import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
 import {
   getActivity,
   serversReleaseConnection,
@@ -287,7 +287,11 @@ export function Studio() {
               on_sql={noop}
               on_activity={show_activity}
             />
-            <LeftPanelSlot open={leftPanelOpen} width={sidebarWidth}>
+            <EdgePanelSlot
+              open={leftPanelOpen}
+              width={sidebarWidth}
+              side="left"
+            >
               {/* No connection open → the feed shows EVERYTHING (including
                   failed connect attempts, whose ids match no connection). */}
               <Sidebar
@@ -299,7 +303,7 @@ export function Studio() {
                 on_refresh={noop}
                 mode={leftPanelMode}
               />
-            </LeftPanelSlot>
+            </EdgePanelSlot>
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <Landing />
             </div>

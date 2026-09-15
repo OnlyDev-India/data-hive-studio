@@ -13,6 +13,7 @@ export {
   type LandingEditTarget,
   type PaletteKeywords,
 } from "./types";
+export type { ShortcutBinding } from "../hooks/shortcut-registry";
 export {
   useActiveConnection,
   useActiveConnectionId,

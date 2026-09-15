@@ -437,21 +437,34 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     [pending.length, global_row],
   );
 
-  // Duplicate the clicked row as a draft (context menu). Rather than inserting
-  // immediately, the row's values are copied into a new pending row pinned to
-  // the top of the grid awaiting Apply. Columns with a UNIQUE/PK constraint are
-  // left empty so the DB can assign a fresh value.
+  // Duplicate every row touched by the current selection as drafts (context
+  // menu) — a single row when nothing wider is selected. Rather than
+  // inserting immediately, each row's values are copied into a new pending
+  // row pinned to the top of the grid awaiting Apply. Columns with a
+  // UNIQUE/PK constraint are left empty so the DB can assign a fresh value.
+  // All of `ris` are resolved against the SAME starting `cur.length` (read
+  // once, before any of this batch's own inserts) — resolving each one
+  // against the (by-then-already-grown) array inside a loop of separate
+  // calls would have every clone after the first target the wrong source
+  // row, since each pending insert shifts every real row's index down by
+  // one.
   const clone_into_pending = useCallback(
-    (ri: number) => {
+    (ris: number[]) => {
       setOpError(null);
       setPending((cur) => {
         if (!result) return cur;
-        const src = result.rows[ri - cur.length];
-        if (!src) return cur;
-        const values = result.columns.map((c, ci) =>
-          unique_columns.has(c) ? null : (src[ci] ?? null),
-        );
-        return [{ id: ++pending_id_ref.current, values, dirty: false }, ...cur];
+        const base_len = cur.length;
+        const drafts = ris
+          .map((ri) => result.rows[ri - base_len])
+          .filter((src): src is (string | null)[] => !!src)
+          .map((src) => ({
+            id: ++pending_id_ref.current,
+            values: result.columns.map((c, ci) =>
+              unique_columns.has(c) ? null : (src[ci] ?? null),
+            ),
+            dirty: false,
+          }));
+        return drafts.length > 0 ? [...drafts, ...cur] : cur;
       });
     },
     [result, unique_columns],
@@ -917,48 +930,41 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
 
   const total_pages = total === 0 ? 1 : Math.ceil(total / page_size);
 
-  // Count rows that are FULLY selected (every column of the row is selected).
-  const { selected_row_count, has_full_row } = useMemo(() => {
-    if (!result) return { selected_row_count: 0, has_full_row: false };
-    const total_cols = result.columns.length;
-    const by_row = new Map<number, number>();
-    for (const key of ctl.selected) {
-      const sep = key.indexOf("\u0000");
-      const r = Number(key.slice(0, sep));
-      by_row.set(r, (by_row.get(r) ?? 0) + 1);
-    }
-    let count = 0;
-    for (const n of by_row.values()) if (n === total_cols) count++;
-    return { selected_row_count: count, has_full_row: count > 0 };
-  }, [result, ctl.selected]);
-
-  // Mark all fully-selected rows for deletion, awaiting Apply.
+  // Delete every row touched by the current selection (any one of its
+  // cells, not the whole row) — pending (not-yet-inserted) rows are dropped
+  // outright, real rows are marked for deletion awaiting Apply.
   const selected_set = ctl.selected;
   const do_delete = useCallback(() => {
     if (!result) return;
-    const total_cols = result.columns.length;
-    const by_row = new Map<number, number>();
+    const rows = new Set<number>();
     for (const key of selected_set) {
       const sep = key.indexOf("\u0000");
-      const r = Number(key.slice(0, sep));
-      by_row.set(r, (by_row.get(r) ?? 0) + 1);
+      rows.add(Number(key.slice(0, sep)));
     }
-    const row_idxs = [...by_row.entries()]
-      .filter(([, n]) => n === total_cols)
-      .map(([r]) => r);
-    if (row_idxs.length === 0) return;
-    setDeletedRows((cur) => {
-      const next = new Set(cur);
-      let changed = false;
-      for (const r of row_idxs) {
-        const real = r - pending.length;
-        if (real >= 0 && !next.has(real)) {
-          next.add(real);
-          changed = true;
+    if (rows.size === 0) return;
+    const pending_rows = new Set<number>();
+    const real_rows: number[] = [];
+    for (const r of rows) {
+      const real = r - pending.length;
+      if (real < 0) pending_rows.add(r);
+      else real_rows.push(real);
+    }
+    if (pending_rows.size > 0) {
+      setPending((cur) => cur.filter((_, i) => !pending_rows.has(i)));
+    }
+    if (real_rows.length > 0) {
+      setDeletedRows((cur) => {
+        const next = new Set(cur);
+        let changed = false;
+        for (const real of real_rows) {
+          if (!next.has(real)) {
+            next.add(real);
+            changed = true;
+          }
         }
-      }
-      return changed ? next : cur;
-    });
+        return changed ? next : cur;
+      });
+    }
   }, [result, selected_set, pending.length]);
 
   // Expose this grid to the status bar (limit, pagination, delete, refresh,
@@ -975,8 +981,9 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         setPageSize(n);
         setPage(0);
       },
-      has_full_row,
-      selected_count: selected_row_count,
+      selected_cell_count: ctl.selected.size,
+      table,
+      bulk_edit_selection: ctl.bulk_edit_selection,
       editable: editable && !show_loading,
       loading: show_loading,
       elapsed_ms: result?.elapsed_ms ?? null,
@@ -1021,8 +1028,6 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       total_pages,
       page,
       page_size,
-      has_full_row,
-      selected_row_count,
       editable,
       show_loading,
       do_delete,
@@ -1044,6 +1049,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       user_where,
       ctl.sort_col,
       ctl.sort_asc,
+      ctl.selected.size,
+      ctl.bulk_edit_selection,
     ],
   );
 

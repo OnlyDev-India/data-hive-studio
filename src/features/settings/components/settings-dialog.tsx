@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Info, Palette, Search } from "lucide-react";
+import { Info, Keyboard, Palette, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,11 +13,12 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { AppearanceSection } from "./appearance";
 import { CommandPaletteSection } from "./command-palette-section";
+import { ShortcutsSection } from "./shortcuts-section";
 import { AboutSection } from "./about";
 import { Button } from "@/shared/components/ui";
 import { useTheme } from "@/shared/theme/theme";
 
-type SectionId = "appearance" | "command-palette" | "about";
+type SectionId = "appearance" | "command-palette" | "shortcuts" | "about";
 
 interface SectionMeta {
   id: SectionId;
@@ -28,6 +29,7 @@ interface SectionMeta {
 const SECTIONS: SectionMeta[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "command-palette", label: "Command Palette", icon: Search },
+  { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -81,6 +83,7 @@ export function SettingsDialog({
               <div className="h-full w-full overflow-y-auto p-6">
                 {section === "appearance" && <AppearanceSection />}
                 {section === "command-palette" && <CommandPaletteSection />}
+                {section === "shortcuts" && <ShortcutsSection />}
                 {section === "about" && <AboutSection />}
               </div>
             </ResizablePanel>

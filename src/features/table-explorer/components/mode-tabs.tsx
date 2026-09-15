@@ -1,4 +1,4 @@
-import { TriangleAlert } from "lucide-react";
+import { ChevronDown, Form, Sheet, TriangleAlert } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
   Tooltip,
@@ -6,6 +6,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/shared/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui";
 import { cn } from "@/shared/lib/utils";
 
 /** Shown on hover over the Data tab's warning icon. */
@@ -25,46 +31,7 @@ export function ModeTabs({
 }) {
   return (
     <TooltipProvider delay={300}>
-      <ModeButton
-        active={mode === "data"}
-        label="Data"
-        warning={warn_no_pk}
-        onClick={() => on_change("data")}
-      />
-      <ModeButton
-        active={mode === "schema"}
-        label="Schema"
-        onClick={() => on_change("schema")}
-      />
-    </TooltipProvider>
-  );
-}
-
-function ModeButton({
-  active,
-  label,
-  warning = false,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  warning?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={onClick}
-      className={cn(
-        "h-auto rounded-none border-b-2 px-2 py-1.5 font-medium",
-        active
-          ? "border-primary text-primary"
-          : "text-muted-foreground hover:text-foreground border-transparent",
-      )}
-    >
-      {label}
-      {warning && (
+      {warn_no_pk && (
         // Base UI merges its listeners and positioning ref into `render`, so
         // the trigger needs a real element (a Fragment would swallow both).
         <Tooltip>
@@ -78,11 +45,44 @@ function ModeButton({
             side="top"
             align="start"
             className="bg-warning/10 text-warning border-warning max-w-xs border text-left backdrop-blur-lg"
+            showArrow={false}
           >
             {NO_PK_WARNING}
           </TooltipContent>
         </Tooltip>
       )}
-    </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant={"secondary"}
+              size="sm"
+              aria-label="Pending edits options"
+              title="Pending edits options"
+              className=""
+            />
+          }
+        >
+          {mode}
+          <ChevronDown className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem
+            onClick={() => on_change("data")}
+            className={cn({ "bg-muted/70": mode === "data" })}
+          >
+            <Sheet />
+            Data
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => on_change("schema")}
+            className={cn({ "bg-muted/70": mode === "schema" })}
+          >
+            <Form />
+            Schema
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </TooltipProvider>
   );
 }

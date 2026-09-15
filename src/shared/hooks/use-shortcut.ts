@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useStudioStore } from "@/shared/store";
+import { shortcutAction, type ShortcutBinding } from "./shortcut-registry";
 
 export interface Shortcut {
   /** `KeyboardEvent.key`, case-insensitive (e.g. "s", "Enter", "p", "F5"). */
@@ -73,4 +75,13 @@ export function useShortcuts(
     window.addEventListener("keydown", onKeyDown, capture);
     return () => window.removeEventListener("keydown", onKeyDown, capture);
   }, [capture]);
+}
+
+/** The effective binding for a registered shortcut action — the user's
+ *  override if they've remapped it (Settings → Shortcuts), else its
+ *  registry default. Spread the result into a `Shortcut` at the call site:
+ *  `{ ...useAppShortcut("editor.save"), handler: onSave }`. */
+export function useAppShortcut(id: string): ShortcutBinding {
+  const override = useStudioStore((s) => s.shortcutOverrides[id]);
+  return override ?? shortcutAction(id).default;
 }

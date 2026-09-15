@@ -26,8 +26,17 @@ import {
 } from "@/shared/api";
 import { pickSqlFile, pickSqlSavePath } from "@/shared/lib/platform";
 import { useStudioStore } from "@/shared/store";
-import { QueryEditor, type QueryEditorHandle } from "./editor";
+import {
+  QueryEditor,
+  type QueryEditorHandle,
+} from "@/shared/components/query-editor";
 import { EditorRunToolbar } from "./editor-run-toolbar";
+import {
+  DangerConfirmDialog,
+  type DangerousStatement,
+} from "./danger-confirm-dialog";
+import { dangerousSqlReason } from "../lib/dangerous-sql";
+import { compressSql } from "../lib/compress-sql";
 
 /** A single failed-statement marker pushed to the editor via `setErrors`. */
 type ErrorRange = { from: number; to: number; message: string };
@@ -238,6 +247,30 @@ function SqlEditorBody({
   // everything as "unknown".
   const [lint_enabled, setLintEnabled] = useState(true);
 
+  // Gates a run behind an explicit confirm when one of its statements is
+  // unconditionally destructive (UPDATE/DELETE with no WHERE, TRUNCATE,
+  // DROP — see `dangerous-sql.ts`). The Promise this resolves lets
+  // `run_all`/`run_target` simply `await` the gate instead of threading a
+  // callback through the whole statement-collection logic below.
+  const [danger_pending, setDangerPending] = useState<{
+    statements: DangerousStatement[];
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+  const confirm_if_dangerous = useCallback(
+    (texts: string[]): Promise<boolean> => {
+      const statements: DangerousStatement[] = [];
+      for (const text of texts) {
+        const reason = dangerousSqlReason(text);
+        if (reason) statements.push({ text, reason });
+      }
+      if (statements.length === 0) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        setDangerPending({ statements, resolve });
+      });
+    },
+    [],
+  );
+
   // ---- Target database. Every kind but SQLite (single-file, no such
   // concept within one connection) supports switching it — including a
   // MongoDB connection's SQL tab (Phase-4 SQL-on-Mongo translates the
@@ -435,6 +468,13 @@ function SqlEditorBody({
       // nothing beats replacing a query the user was actively writing.
     }
   }, [sql_text, is_pg, conn, setSql]);
+  const compress_sql = useCallback(() => {
+    setSql(compressSql(sql_text));
+  }, [sql_text, setSql]);
+  // View toggle (not persisted): hides the results panel so the editor
+  // takes the whole pane — reuses the same "no results yet" full-height
+  // layout below rather than a separate rendering path.
+  const [zen, setZen] = useState(false);
   const [tabs, setTabs] = useState<SqlResultTab[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const next_id = useRef(0);
@@ -618,7 +658,7 @@ function SqlEditorBody({
     ],
   );
 
-  const run_all = useCallback(() => {
+  const run_all = useCallback(async () => {
     const stmts = statementRanges(sql_text)
       .map((r) => ({
         from: r.start,
@@ -627,6 +667,8 @@ function SqlEditorBody({
       }))
       .filter((s) => s.text);
     if (stmts.length === 0) return;
+    const ok = await confirm_if_dangerous(stmts.map((s) => s.text));
+    if (!ok) return;
     // Fresh batch — previous run's error markers no longer apply.
     error_ranges.current.clear();
     sync_errors();
@@ -635,11 +677,21 @@ function SqlEditorBody({
       void run_query(id, s.text, { from: s.from, to: s.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
-  }, [sql_text, add_tab, run_query, sync_errors, error_ranges.current]);
+  }, [
+    sql_text,
+    add_tab,
+    run_query,
+    sync_errors,
+    error_ranges.current,
+    confirm_if_dangerous,
+  ]);
 
-  const run_target = useCallback(() => {
+  const run_target = useCallback(async () => {
     const targets = editorRef.current?.getTargets() ?? [];
     if (targets.length === 0) return;
+    const texts = targets.map((t) => t.text.trim()).filter(Boolean);
+    const ok = await confirm_if_dangerous(texts);
+    if (!ok) return;
     error_ranges.current.clear();
     sync_errors();
     for (const t of targets) {
@@ -649,7 +701,13 @@ function SqlEditorBody({
       void run_query(id, text, { from: t.from, to: t.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
-  }, [add_tab, run_query, sync_errors, error_ranges.current]);
+  }, [
+    add_tab,
+    run_query,
+    sync_errors,
+    error_ranges.current,
+    confirm_if_dangerous,
+  ]);
 
   const active = tabs.find((t) => t.id === active_id) ?? null;
   // Rows/time for the action bar (no GridBridge for SQL results — they're
@@ -723,6 +781,17 @@ function SqlEditorBody({
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
+      <DangerConfirmDialog
+        statements={danger_pending?.statements ?? null}
+        onConfirm={() => {
+          danger_pending?.resolve(true);
+          setDangerPending(null);
+        }}
+        onCancel={() => {
+          danger_pending?.resolve(false);
+          setDangerPending(null);
+        }}
+      />
       <EditorRunToolbar
         has_selection={has_selection}
         can_run_target={sql_text.trim().length > 0}
@@ -734,11 +803,14 @@ function SqlEditorBody({
         databases={supports_multi_db ? databases : undefined}
         on_database_change={supports_multi_db ? setDatabase : undefined}
         on_format={format_sql}
+        on_compress={compress_sql}
         lint_enabled={lint_enabled}
         on_toggle_lint={() => setLintEnabled((v) => !v)}
         is_dirty={is_dirty}
         on_save={() => void save_sql()}
         on_open={() => void open_sql_file()}
+        zen_enabled={zen}
+        on_toggle_zen={() => setZen((v) => !v)}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <QueryEditor
@@ -759,9 +831,9 @@ function SqlEditorBody({
     </div>
   );
 
-  // No result tabs yet: give the editor the full pane instead of splitting
-  // 40/60 with an empty results section underneath it.
-  if (tabs.length === 0) {
+  // No result tabs yet, or zen mode is on: give the editor the full pane
+  // instead of splitting 40/60 with a results section underneath it.
+  if (tabs.length === 0 || zen) {
     return <div className="flex h-full min-h-0 flex-col">{editor_pane}</div>;
   }
 
@@ -919,6 +991,7 @@ function MongoEditorBody({
   // used to only ever fetch the connection's OWN database once on mount,
   // silently offering the wrong database's collection names after a switch.
   const [collections, setCollections] = useState<string[]>([]);
+  const [zen, setZen] = useState(false);
   // Seed text handed over by other features (e.g. opening a picked .js file):
   // openMongoConsole(connId, database, text) stashes it under this tab's key;
   // read it once here. The store entry itself is removed when the tab closes
@@ -1164,6 +1237,53 @@ function MongoEditorBody({
     has_error: !!e.result?.error,
   }));
 
+  const editor_pane = (
+    <div className="flex h-full min-h-0 flex-col">
+      <EditorRunToolbar
+        has_selection={has_selection}
+        can_run_target={script_text.trim().length > 0}
+        has_text={script_text.trim().length > 0}
+        on_run_target={run_target}
+        on_run_all={run_all}
+        db_kind="mongodb"
+        database={db}
+        databases={databases}
+        on_database_change={setDb}
+        on_format={() => void format_script()}
+        lint_enabled={lint_enabled}
+        on_toggle_lint={() => setLintEnabled((v) => !v)}
+        is_dirty={is_dirty}
+        on_save={() => void save_script()}
+        on_open={() => void open_script_file()}
+        zen_enabled={zen}
+        on_toggle_zen={() => setZen((v) => !v)}
+      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <QueryEditor
+          ref={editorRef}
+          value={script_text}
+          onChange={setScript}
+          onRun={() => void run_all()}
+          onRunTarget={run_target}
+          onSelectionChange={setHasSelection}
+          onSave={() => void save_script()}
+          language="js"
+          jsCompletions={collections}
+          connId={conn_id}
+          lintEnabled={lint_enabled}
+          height="100%"
+        />
+      </div>
+    </div>
+  );
+
+  // Zen mode: give the editor the full pane instead of splitting with the
+  // results section underneath it — same reasoning as SqlEditorBody's own
+  // "no tabs yet" full-height branch.
+  if (zen) {
+    return <div className="flex h-full min-h-0 flex-col">{editor_pane}</div>;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ResizablePanelGroup orientation="vertical">
@@ -1172,41 +1292,7 @@ function MongoEditorBody({
           minSize="15%"
           className="flex-col border-b"
         >
-          <div className="flex h-full min-h-0 flex-col">
-            <EditorRunToolbar
-              has_selection={has_selection}
-              can_run_target={script_text.trim().length > 0}
-              has_text={script_text.trim().length > 0}
-              on_run_target={run_target}
-              on_run_all={run_all}
-              db_kind="mongodb"
-              database={db}
-              databases={databases}
-              on_database_change={setDb}
-              on_format={() => void format_script()}
-              lint_enabled={lint_enabled}
-              on_toggle_lint={() => setLintEnabled((v) => !v)}
-              is_dirty={is_dirty}
-              on_save={() => void save_script()}
-              on_open={() => void open_script_file()}
-            />
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
-              <QueryEditor
-                ref={editorRef}
-                value={script_text}
-                onChange={setScript}
-                onRun={() => void run_all()}
-                onRunTarget={run_target}
-                onSelectionChange={setHasSelection}
-                onSave={() => void save_script()}
-                language="js"
-                jsCompletions={collections}
-                connId={conn_id}
-                lintEnabled={lint_enabled}
-                height="100%"
-              />
-            </div>
-          </div>
+          {editor_pane}
         </ResizablePanel>
 
         <ResizableHandle className="bg-background hover:bg-accent h-1!" />
