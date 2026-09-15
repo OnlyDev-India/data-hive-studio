@@ -246,6 +246,18 @@ export type QueryOp =
       filters?: WireFilter[];
       custom_where?: string;
     }
+  /** Set one column to the same value on every row matching the predicate
+   * (same `filters`/`custom_where` shape as `select`) — a real, immediate
+   * write, unlike the grid's buffered per-cell edits which only ever touch
+   * already-loaded rows. */
+  | {
+      kind: "bulk_update";
+      table: string;
+      column: string;
+      value: string | null;
+      filters?: WireFilter[];
+      custom_where?: string;
+    }
   | { kind: "select_distinct"; table: string; column: string; limit?: number }
   /** With `skip_empty`, columns whose value is null/'' are left out so the
    * database applies defaults/autoincrement; if none remain, a DEFAULT

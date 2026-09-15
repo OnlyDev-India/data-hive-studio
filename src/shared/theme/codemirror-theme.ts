@@ -156,7 +156,7 @@ export const appEditorTheme = EditorView.theme({
     transform: "rotate(90deg)",
   },
   ".cm-statement-frame-layer .cm-statement-frame": {
-    border: "1.5px solid var(--success)",
+    border: "0.5px solid var(--success)",
     borderRadius: "var(--radius-md)",
     pointerEvents: "none",
   },

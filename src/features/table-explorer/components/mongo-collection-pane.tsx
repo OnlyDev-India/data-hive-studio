@@ -160,7 +160,9 @@ export function MongoCollectionPane({
                 on_set_conjunction: set_filter_conjunction,
                 on_clear: clear_filters,
                 on_custom_where: setCustomWhere,
+                kind: "mongo",
               }}
+              bulk_edit={{ columns, distinct: {} }}
             />
           )}
           {mode === "schema" && (schemaEdit || schemaPane) && (

@@ -5,23 +5,36 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
 import {
+  Ban,
   Braces,
   Clipboard,
+  Clock,
   CopyPlus,
   Database,
   ExternalLink,
   FileJson,
   FileText,
+  Fingerprint,
+  ListOrdered,
   Pencil,
+  Sparkles,
   TextCursorInput,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
-import { useGrid, cellKey } from "./grid-context";
+import {
+  useGrid,
+  cellKey,
+  computeFillBox,
+  isNewFillCell,
+} from "./grid-context";
 import {
   EDGE_BOTTOM,
   EDGE_LEFT,
@@ -88,6 +101,19 @@ export function Cell({ row, col, dci }: CellProps) {
     sel_bounds !== null &&
     row === sel_bounds.max_r &&
     col_ci === sel_bounds.max_ci;
+  const fill_box =
+    ctx.fill_source && ctx.fill_target
+      ? computeFillBox(ctx.fill_source, ctx.fill_target)
+      : null;
+  const in_fill_preview =
+    fill_box !== null &&
+    col_ci !== undefined &&
+    ctx.fill_source !== null &&
+    row >= fill_box.min_r &&
+    row <= fill_box.max_r &&
+    col_ci >= fill_box.min_ci &&
+    col_ci <= fill_box.max_ci &&
+    isNewFillCell(ctx.fill_source, row, col_ci);
 
   // Boolean columns render an inline checkbox instead of text; clicking it
   // toggles the value in place (buffered like any other edit).
@@ -135,6 +161,7 @@ export function Cell({ row, col, dci }: CellProps) {
     : [...net_shadows];
   if (search_active) shadows.push("inset 0 0 0 2px var(--warning)");
   else if (search_match) shadows.push("inset 0 0 0 1px var(--warning)");
+  if (in_fill_preview) shadows.push("inset 0 0 0 1px var(--selection-border)");
   const boxShadow = shadows.length > 0 ? shadows.join(", ") : undefined;
 
   const cellClass = cn(
@@ -144,6 +171,7 @@ export function Cell({ row, col, dci }: CellProps) {
     deleted && "line-through",
     pinned && "sticky z-3 bg-background",
     is_editing && "p-0",
+    in_fill_preview && "bg-primary/8",
   );
 
   return (
@@ -182,6 +210,10 @@ export function Cell({ row, col, dci }: CellProps) {
           }}
           onMouseEnter={() => {
             if (is_editing) return;
+            if (ctx.fill_source) {
+              ctx.fill_drag_to(row, col_ci ?? 0);
+              return;
+            }
             ctx.drag_to({ row, col, add: false, range: false, gutter: false });
           }}
           onDoubleClick={() => {
@@ -250,9 +282,17 @@ export function Cell({ row, col, dci }: CellProps) {
               <ExternalLink className="size-3" />
             </Button>
           )}
-          {/* Excel-style fill handle (visual anchor) on the last cell of the net. */}
+          {/* Excel-style fill handle: drag down from the net's last cell to
+              copy each column's bottom-row value into the rows below. */}
           {is_handle && !is_editing && (
-            <div className="border-background bg-primary absolute -right-1 -bottom-1 size-2 cursor-crosshair rounded-full border" />
+            <div
+              className="border-background bg-primary absolute -right-1 -bottom-1 z-2 size-2 cursor-crosshair rounded-full border"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                if (e.button !== 0) return;
+                ctx.start_fill_drag();
+              }}
+            />
           )}
         </div>
       </ContextMenuTrigger>
@@ -269,10 +309,40 @@ export function Cell({ row, col, dci }: CellProps) {
             Edit cell as Text
           </ContextMenuItem>
         )}
+        {editable && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Sparkles className="mr-2 size-3.5" />
+              Fill with…
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent side="right">
+              <ContextMenuItem onSelect={() => ctx.generate_values("null")}>
+                <Ban className="size-3.5" />
+                NULL
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => ctx.generate_values("now")}>
+                <Clock className="size-3.5" />
+                Current timestamp
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => ctx.generate_values("uuid")}>
+                <Fingerprint className="size-3.5" />
+                UUID
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => ctx.generate_values("increment")}
+              >
+                <ListOrdered className="size-3.5" />
+                Increment
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
         {ctx.menu_clone_row && !is_pending && (
           <ContextMenuItem onSelect={() => ctx.menu_clone_row?.(row)}>
             <CopyPlus className="size-3.5" />
-            Clone row
+            {ctx.touched_row_count > 1
+              ? `Clone ${ctx.touched_row_count} rows`
+              : "Clone row"}
           </ContextMenuItem>
         )}
         {ctx.menu_show_json && !is_pending && (
@@ -306,7 +376,7 @@ export function Cell({ row, col, dci }: CellProps) {
             )}
           </>
         )}
-        {editable && !is_pending && (
+        {editable && (
           <>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -314,7 +384,9 @@ export function Cell({ row, col, dci }: CellProps) {
               onSelect={() => ctx.menu_delete(row)}
             >
               <Trash2 className="size-3.5" />
-              Delete row
+              {ctx.touched_row_count > 1
+                ? `Delete ${ctx.touched_row_count} rows`
+                : "Delete row"}
             </ContextMenuItem>
           </>
         )}

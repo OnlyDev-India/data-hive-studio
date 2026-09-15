@@ -11,6 +11,7 @@ import type { StudioTab } from "./tab-utils";
 import type { PendingChange } from "../components/data-grid/grid-context";
 import type { PaneNode } from "./pane-layout";
 import type { ShortcutBinding } from "../hooks/shortcut-registry";
+import type { DelimitedListSettings } from "@/shared/components/query-editor/delimited-list";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace" | "admin";
@@ -55,9 +56,16 @@ export interface GridBridge {
   set_page: (p: number) => void;
   page_size: number;
   set_page_size: (n: number) => void;
-  has_full_row: boolean;
-  selected_count: number;
+  /** Count of currently-selected CELLS — labels/gates the bulk-edit
+   *  dialog's "Selection" mode, and gates "Delete Row(s)" (deleting acts on
+   *  every row touched by the selection, not just a fully-selected one). */
+  selected_cell_count: number;
   editable: boolean;
+  /** The table/collection name this grid is showing. */
+  table: string;
+  /** Buffer `value` (or NULL) into every currently-selected cell — the
+   *  bulk-edit dialog's "Selection" mode. */
+  bulk_edit_selection: (value: string | null) => void;
   elapsed_ms: number | null;
   delete_rows: () => void;
   /** True while not-yet-inserted "pending" rows are being drafted. */
@@ -565,6 +573,18 @@ export interface StudioStore {
   setShortcutOverride: (id: string, binding: ShortcutBinding) => void;
   resetShortcut: (id: string) => void;
   resetAllShortcuts: () => void;
+
+  /** Query-editor font size in px (Cmd/Ctrl +/-/0) — independent of the
+   *  app-wide UI scale (Settings → Appearance's `setScale`), matching dbx's
+   *  own editor-only zoom rather than tying it to the overall chrome size. */
+  editorFontSize: number;
+  setEditorFontSize: (px: number) => void;
+
+  /** Delimited-list builder dialog's last-used settings (Settings aren't
+   *  exposed separately — the dialog itself is the only editor, same as
+   *  `paletteKeywords`/`shortcutOverrides` above). */
+  delimitedListSettings: DelimitedListSettings;
+  setDelimitedListSettings: (s: DelimitedListSettings) => void;
 
   // ---- Split-view drag-to-split (ephemeral, session/UI-only — never
   // persisted; see partialize in store.ts) --------------------------------

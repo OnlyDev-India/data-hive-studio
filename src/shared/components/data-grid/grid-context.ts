@@ -183,6 +183,68 @@ export function computeGridView(
   };
 }
 
+/** The full region a fill drag covers once the net is extended out to the
+ *  drag target — a superset of the original net's own bounds. */
+export type FillBox = SelBounds;
+
+/** Extends the net's bounds out to the drag target in whichever directions
+ *  the target lies past the net (down/up/right/left, or both axes at once
+ *  for a diagonal drag) — `null` means the target is still inside the net:
+ *  nothing to fill yet. Every NEW cell (inside the returned box but outside
+ *  `source`) fills from the source cell nearest to it — its own row/column
+ *  CLAMPED back into the net's bounds — so a pure vertical/horizontal drag
+ *  copies the bordering row/column, and a diagonal drag's corner block
+ *  copies the net's corner cell, the same clamp-to-nearest-edge rule in
+ *  both cases (see `fill_source_cell`). */
+export function computeFillBox(
+  source: SelBounds,
+  target: { row: number; ci: number },
+): FillBox | null {
+  const min_r = Math.min(source.min_r, target.row);
+  const max_r = Math.max(source.max_r, target.row);
+  const min_ci = Math.min(source.min_ci, target.ci);
+  const max_ci = Math.max(source.max_ci, target.ci);
+  if (
+    min_r === source.min_r &&
+    max_r === source.max_r &&
+    min_ci === source.min_ci &&
+    max_ci === source.max_ci
+  ) {
+    return null;
+  }
+  return { min_r, max_r, min_ci, max_ci };
+}
+
+/** True for a cell inside `box` but outside `source` — the cells a fill
+ *  drag actually writes to / highlights as a preview. */
+export function isNewFillCell(
+  source: SelBounds,
+  row: number,
+  ci: number,
+): boolean {
+  return (
+    row < source.min_r ||
+    row > source.max_r ||
+    ci < source.min_ci ||
+    ci > source.max_ci
+  );
+}
+
+/** The source cell a new fill cell copies from: its own row/column, clamped
+ *  back into the net's bounds — the net's bordering row for a vertical
+ *  drag, bordering column for a horizontal one, or corner cell for a
+ *  diagonal one. */
+export function fillSourceCell(
+  source: SelBounds,
+  row: number,
+  ci: number,
+): { row: number; ci: number } {
+  return {
+    row: Math.min(Math.max(row, source.min_r), source.max_r),
+    ci: Math.min(Math.max(ci, source.min_ci), source.max_ci),
+  };
+}
+
 /** Everything a data grid needs to render and interact, shared via context. */
 export interface GridContextValue {
   // Data + schema-derived config.
@@ -229,6 +291,18 @@ export interface GridContextValue {
   start_drag: (ev: CellClick) => void;
   drag_to: (ev: CellClick) => void;
   stop_drag: () => void;
+  // Fill handle (Excel-style, vertical-only) drag — separate from the
+  // selection drag above so the two gestures never fight over what a
+  // mouseenter/mouseup means mid-drag.
+  /** Snapshot of the selection net's bounds when the fill drag started;
+   *  `null` when no fill drag is in progress. */
+  fill_source: SelBounds | null;
+  /** Cell the fill drag currently covers to; `null` when no fill drag is in
+   *  progress. */
+  fill_target: { row: number; ci: number } | null;
+  start_fill_drag: () => void;
+  fill_drag_to: (row: number, ci: number) => void;
+  stop_fill_drag: () => void;
   open_editor: (ev: CellClick) => void;
   close_editor: () => void;
   handle_keydown: (e: KeyboardEvent<HTMLDivElement>) => void;
@@ -248,6 +322,11 @@ export interface GridContextValue {
   menu_copy_as?: (row: number, format: CopyFormat) => void;
   /** Present only when the host table supports it; duplicates the clicked row. */
   menu_clone_row?: (row: number) => void;
+  /** Number of distinct rows touched by the current selection (any one of
+   *  its cells, not necessarily the whole row) — labels the context menu's
+   *  "Delete row(s)"/"Clone row(s)" entries, and is always >= 1 for a right-
+   *  clicked cell (`menu_select` guarantees at least that cell is selected). */
+  touched_row_count: number;
   /** Present only when the host supports it; opens the referenced table in a
    * new tab filtered to this cell's value. */
   on_open_reference?: (
@@ -264,6 +343,13 @@ export interface GridContextValue {
   on_pending_edit: (row: number, col: string, value: string | null) => void;
   /** Discard the pending row at the given grid row without applying it. */
   on_remove_pending: (row: number) => void;
+  /** Buffer `value` (or NULL) into every currently-selected cell — the bulk-
+   *  edit dialog's "Selection" mode. */
+  bulk_edit_selection: (value: string | null) => void;
+  /** Generate a value into every currently-selected cell — the right-click
+   *  "Fill with…" menu. `increment` continues from the first (row-major)
+   *  selected cell's own current value. */
+  generate_values: (kind: "null" | "now" | "increment" | "uuid") => void;
   // Buffered edits/deletes awaiting Apply.
   /** True when the cell has a buffered edit (already reflected in `rows`). */
   cell_dirty: (row: number, col: string) => boolean;

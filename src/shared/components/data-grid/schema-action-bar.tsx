@@ -42,7 +42,7 @@ export function SchemaActionBar({
   drop_label: string;
   pane_ref: RefObject<HTMLDivElement | null>;
 }) {
-  const compact = usePaneCompactWidth(pane_ref,3);
+  const compact = usePaneCompactWidth(pane_ref, 3);
 
   return (
     <TooltipProvider delay={500}>
