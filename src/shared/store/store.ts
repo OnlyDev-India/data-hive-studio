@@ -15,6 +15,7 @@ import {
 import { WEB } from "@/shared/api/web";
 import { connectionActions } from "./connections";
 import { DEFAULT_PALETTE_KEYWORDS } from "./types";
+import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-editor/delimited-list";
 import type { SavedConnParams, StudioStore } from "./types";
 import { workspaceActions } from "./workspace";
 import {
@@ -115,6 +116,33 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         },
         resetPaletteKeywords() {
           set({ paletteKeywords: DEFAULT_PALETTE_KEYWORDS });
+        },
+
+        shortcutOverrides: {},
+        setShortcutOverride(id, binding) {
+          set((s) => ({
+            shortcutOverrides: { ...s.shortcutOverrides, [id]: binding },
+          }));
+        },
+        resetShortcut(id) {
+          set((s) => {
+            const next = { ...s.shortcutOverrides };
+            delete next[id];
+            return { shortcutOverrides: next };
+          });
+        },
+        resetAllShortcuts() {
+          set({ shortcutOverrides: {} });
+        },
+
+        editorFontSize: 14,
+        setEditorFontSize(px) {
+          set({ editorFontSize: Math.max(10, Math.min(24, Math.round(px))) });
+        },
+
+        delimitedListSettings: DEFAULT_DELIMITED_LIST_SETTINGS,
+        setDelimitedListSettings(s) {
+          set({ delimitedListSettings: s });
         },
 
         dragTab: null,
@@ -470,6 +498,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           sidebarWidth: s.sidebarWidth,
           rightSidebarWidth: s.rightSidebarWidth,
           paletteKeywords: s.paletteKeywords,
+          shortcutOverrides: s.shortcutOverrides,
+          editorFontSize: s.editorFontSize,
+          delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
           skippedUpdateVersion: s.skippedUpdateVersion,
         }),

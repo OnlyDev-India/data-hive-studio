@@ -438,6 +438,12 @@ impl SqliteAdapter {
                 let params = apply_where(&mut sql, filters, custom_where.as_deref());
                 Ok(BuiltQuery { sql, params })
             }
+            QueryOp::BulkUpdate { table, column, value, filters, custom_where } => {
+                let mut sql = format!("UPDATE {} SET {} = ?", quote_ident(table), quote_ident(column));
+                let mut params = vec![value.clone()];
+                params.extend(apply_where(&mut sql, filters, custom_where.as_deref()));
+                Ok(BuiltQuery { sql, params })
+            }
             QueryOp::SelectDistinct { table, column, limit } => {
                 let mut sql = format!(
                     "SELECT DISTINCT {c} FROM {t} WHERE {c} IS NOT NULL ORDER BY 1",
@@ -1626,6 +1632,45 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(row.0, 1, "FK enforcement must be restored after the batch");
+    }
+
+    #[tokio::test]
+    async fn bulk_update_writes_every_matching_row() {
+        let adapter = test_adapter().await;
+        sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY, status TEXT)")
+            .execute(&adapter.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO t (status) VALUES ('pending'), ('pending'), ('done')")
+            .execute(&adapter.pool)
+            .await
+            .unwrap();
+
+        let outcome = adapter
+            .execute_op(&QueryOp::BulkUpdate {
+                table: "t".into(),
+                column: "status".into(),
+                value: Some("archived".into()),
+                filters: vec![crate::api::GridFilterCond {
+                    column: "status".into(),
+                    op: crate::api::FilterOp::Eq,
+                    value: "pending".into(),
+                    conjunction: None,
+                }],
+                custom_where: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(outcome.result.rows_affected, 2);
+
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT status FROM t ORDER BY id")
+            .fetch_all(&adapter.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.into_iter().map(|(s,)| s).collect::<Vec<_>>(),
+            vec!["archived", "archived", "done"]
+        );
     }
 }
 

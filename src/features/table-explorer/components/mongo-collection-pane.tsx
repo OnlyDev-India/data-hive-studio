@@ -1,9 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { tableSchema, type TableSchema } from "@/shared/api";
-import {
-  FilterBar,
-  type FilterColumn,
-} from "@/shared/components/data-grid/filter-bar";
+import { type FilterColumn } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
 import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
@@ -12,7 +9,7 @@ import { ModeTabs } from "./mode-tabs";
 import { MongoSchemaEditor } from "@/features/schema-designer";
 import { useStudioStore, usePaneMode } from "@/shared/store";
 import type { GridFilter } from "@/shared/components/data-grid/types";
-import { AlertCircle, Loader2, KeyRound } from "lucide-react";
+import { AlertCircle, KeyRound } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
 export function MongoCollectionPane({
@@ -33,11 +30,6 @@ export function MongoCollectionPane({
   const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
   const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
   const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
-  const [stopped_waiting, setStoppedWaiting] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the soft-stop flag when a new load starts
-    if (gridBridge?.loading) setStoppedWaiting(false);
-  }, [gridBridge?.loading]);
   const mode = usePaneMode(conn_id, tab_key);
   const setPaneMode = useStudioStore((s) => s.setPaneMode);
   const setMode = useCallback(
@@ -108,9 +100,43 @@ export function MongoCollectionPane({
     data_type: c.data_type,
   }));
 
+  // Measured from this pane's own root — not GridActionBar's own rendered
+  // width, which shrinks the instant it collapses (see that file's doc
+  // comment for why that would permanently lock in "too narrow").
+  const pane_ref = useRef<HTMLDivElement>(null);
+  // const compact_toolbar = usePaneCompactWidth(pane_ref);
+
+  // One continuous elapsed-time origin for the whole loading span (schema
+  // fetch through the grid's own query), and the overlay stays mounted
+  // continuously across it. Schema resolving and the grid publishing its
+  // own loading state to the store happen one render apart (the grid
+  // mounts and reads its initial `loading: true`, but only an *effect*
+  // pushes that into `gridBridges` — a moment after commit) — without the
+  // grace delay below, `is_loading` would visit `false` for that one
+  // render, unmounting/remounting the overlay and resetting its timer.
+  // Scoped to whichever mode is actually showing: the Data tab cares about
+  // the grid's own fetch, not a schema-apply running on the Schema tab
+  // (and vice versa) — both still need the initial schema fetch (`!schema`)
+  // first, since neither Grid nor SchemaTab can render without it.
+  const is_loading =
+    !failed &&
+    (mode === "data"
+      ? !schema || !!gridBridge?.loading
+      : !schema || !!schemaEdit?.busy);
+  const [loading_start, setLoadingStart] = useState<number | null>(null);
+  useEffect(() => {
+    if (is_loading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing a performance.now() timestamp (an external clock, not derivable from props/state) to the moment loading actually starts; can't be computed during render
+      setLoadingStart((cur) => cur ?? performance.now());
+      return;
+    }
+    const id = setTimeout(() => setLoadingStart(null), 50);
+    return () => clearTimeout(id);
+  }, [is_loading]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="bg-background flex shrink-0 scrollbar-none items-center justify-between gap-1 overflow-auto border-b px-3">
+    <div ref={pane_ref} className="flex h-full min-h-0 flex-col">
+      <div className="bg-background flex min-h-8 w-full items-center gap-1 border-b px-3">
         <div className="flex items-center gap-1">
           <ModeTabs
             mode={mode}
@@ -118,28 +144,33 @@ export function MongoCollectionPane({
             on_change={setMode}
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           {mode === "data" && gridBridge && (
-            <GridActionBar bridge={gridBridge} conn_id={conn_id} />
+            <GridActionBar
+              bridge={gridBridge}
+              conn_id={conn_id}
+              pane_ref={pane_ref}
+              filter_bar={{
+                columns,
+                distinct: {},
+                filters,
+                custom_where,
+                on_add: add_filter,
+                on_remove: remove_filter,
+                on_set_conjunction: set_filter_conjunction,
+                on_clear: clear_filters,
+                on_custom_where: setCustomWhere,
+                kind: "mongo",
+              }}
+              bulk_edit={{ columns, distinct: {} }}
+            />
           )}
           {mode === "schema" && (schemaEdit || schemaPane) && (
             <SchemaActionBar
               schemaEdit={schemaEdit}
               schemaPane={schemaPane}
               drop_label="Drop collection"
-            />
-          )}
-          {mode === "data" && (
-            <FilterBar
-              columns={columns}
-              distinct={{}}
-              filters={filters}
-              custom_where={custom_where}
-              on_add={add_filter}
-              on_remove={remove_filter}
-              on_set_conjunction={set_filter_conjunction}
-              on_clear={clear_filters}
-              on_custom_where={setCustomWhere}
+              pane_ref={pane_ref}
             />
           )}
         </div>
@@ -206,19 +237,13 @@ export function MongoCollectionPane({
             </>
           )
         )}
-        {mode === "data" &&
-        !failed &&
-        gridBridge?.loading &&
-        !stopped_waiting ? (
-          <QueryLoadingOverlay onStop={() => setStoppedWaiting(true)} />
-        ) : (
-          mode === "data" &&
-          !failed &&
-          !schema && (
-            <div className="bg-background/60 absolute inset-0 z-80 flex items-center justify-center">
-              <Loader2 className="text-muted-foreground size-5 animate-spin" />
-            </div>
-          )
+        {/* Covers the whole loading span, not just the grid's own fetch —
+            `!schema` alone used to show a plain spinner during the initial
+            schema fetch, then swap to the fancier QueryLoadingOverlay once
+            the grid mounted and started its own query; one overlay for the
+            whole span avoids that visible style-swap flicker. */}
+        {loading_start !== null && (
+          <QueryLoadingOverlay startedAt={loading_start} />
         )}
       </div>
     </div>
