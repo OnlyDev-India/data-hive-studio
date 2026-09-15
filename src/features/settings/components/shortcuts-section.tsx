@@ -75,8 +75,8 @@ export function ShortcutsSection() {
       <header>
         <h2 className="text-lg font-semibold">Shortcuts</h2>
         <p className="text-muted-foreground mt-0.5 text-sm">
-          Remap the app's keyboard shortcuts. Click Change, then press a new
-          key combo — Escape cancels.
+          Remap the app's keyboard shortcuts. Click Change, then press a new key
+          combo — Escape cancels.
         </p>
       </header>
 

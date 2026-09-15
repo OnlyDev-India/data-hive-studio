@@ -1628,6 +1628,34 @@ impl DbAdapter for PgAdapter {
                     sql: Some(display),
                 })
             }
+            QueryOp::BulkUpdate { table, column, value, filters, custom_where } => {
+                let types = self.column_types_for(&pool, &database_key, &schema, table).await?;
+                let cast = types.get(column.as_str()).map(|t| format!("::{t}")).unwrap_or_default();
+                let mut params: Vec<Option<String>> = vec![value.clone()];
+                let where_sql = Self::where_clause(filters, custom_where.as_ref(), &mut params);
+                let sql = format!(
+                    "UPDATE {} SET {} = ?{cast}{where_sql}",
+                    tq(&schema, table),
+                    q(column),
+                );
+                let converted = dollar_placeholders(&sql);
+                let mut final_q = sqlx::query(&converted);
+                for p in &params {
+                    final_q = bind_str(final_q, p);
+                }
+                log::debug!("pg bulk update: {sql}");
+                let res = final_q.execute(&pool).await.map_err(DbError::SqlEngine)?;
+                let display = format!(
+                    "UPDATE {} SET {} = {}{where_sql};",
+                    tq(&schema, table),
+                    q(column),
+                    super::sql_literal(value.as_deref()),
+                );
+                Ok(super::OpOutcome {
+                    result: mk(vec![], vec![], res.rows_affected(), false),
+                    sql: Some(display),
+                })
+            }
             QueryOp::Update { table, set, match_row } => {
                 if set.is_empty() {
                     return Ok(super::OpOutcome { result: mk(vec![], vec![], 0, false), sql: None });

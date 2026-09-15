@@ -287,7 +287,11 @@ export function Studio() {
               on_sql={noop}
               on_activity={show_activity}
             />
-            <EdgePanelSlot open={leftPanelOpen} width={sidebarWidth} side="left">
+            <EdgePanelSlot
+              open={leftPanelOpen}
+              width={sidebarWidth}
+              side="left"
+            >
               {/* No connection open → the feed shows EVERYTHING (including
                   failed connect attempts, whose ids match no connection). */}
               <Sidebar

@@ -233,6 +233,19 @@ pub enum QueryOp {
         #[serde(default)]
         custom_where: Option<String>,
     },
+    /// Set one column to the same value on every row matching the predicate
+    /// (same `filters`/`custom_where` shape as [`QueryOp::Select`]) — a real,
+    /// immediate write (UPDATE / Mongo `updateMany`), unlike the grid's
+    /// buffered per-cell edits which only ever touch already-loaded rows.
+    BulkUpdate {
+        table: String,
+        column: String,
+        value: Option<String>,
+        #[serde(default)]
+        filters: Vec<GridFilterCond>,
+        #[serde(default)]
+        custom_where: Option<String>,
+    },
     /// Bounded distinct values of one column (dropdown editors/filters).
     SelectDistinct {
         table: String,

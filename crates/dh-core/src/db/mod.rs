@@ -1068,6 +1068,10 @@ fn op_label(op: &QueryOp) -> (&'static str, String) {
                 set.keys().cloned().collect::<Vec<_>>().join(", ")
             ),
         ),
+        QueryOp::BulkUpdate { table, column, .. } => (
+            "bulk_update",
+            format!("UPDATE {table} SET {column} (bulk)"),
+        ),
         QueryOp::Delete { table, .. } => ("delete", format!("DELETE {table}")),
         QueryOp::DropTable { table } => ("drop_table", format!("DROP TABLE {table}")),
     }

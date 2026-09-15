@@ -26,7 +26,10 @@ import {
 } from "@/shared/api";
 import { pickSqlFile, pickSqlSavePath } from "@/shared/lib/platform";
 import { useStudioStore } from "@/shared/store";
-import { QueryEditor, type QueryEditorHandle } from "./editor";
+import {
+  QueryEditor,
+  type QueryEditorHandle,
+} from "@/shared/components/query-editor";
 import { EditorRunToolbar } from "./editor-run-toolbar";
 import {
   DangerConfirmDialog,
@@ -698,7 +701,13 @@ function SqlEditorBody({
       void run_query(id, text, { from: t.from, to: t.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
-  }, [add_tab, run_query, sync_errors, error_ranges.current, confirm_if_dangerous]);
+  }, [
+    add_tab,
+    run_query,
+    sync_errors,
+    error_ranges.current,
+    confirm_if_dangerous,
+  ]);
 
   const active = tabs.find((t) => t.id === active_id) ?? null;
   // Rows/time for the action bar (no GridBridge for SQL results — they're

@@ -445,10 +445,6 @@ export function JsonViewer({
       ),
     [],
   );
-  const wrapExt = useMemo(
-    () => (wrap ? [EditorView.lineWrapping] : []),
-    [wrap],
-  );
   // Memoized: a fresh array here would change `extraExtensions`' identity on
   // every render (this component re-renders often — search, doc updates,
   // …), and BsonEditor's own `extensions` memo (and CodeMirror's reconfigure
@@ -456,8 +452,8 @@ export function JsonViewer({
   // and rebuilds every extension, including autocompletion(), which kills
   // any in-progress/open completion before it can show.
   const extraExtensions = useMemo(
-    () => [saveKeymap, searchMatchField, searchMatchTheme, ...wrapExt],
-    [saveKeymap, wrapExt],
+    () => [saveKeymap, searchMatchField, searchMatchTheme],
+    [saveKeymap],
   );
 
   const editorProps = {
@@ -509,6 +505,8 @@ export function JsonViewer({
     disabled: !jsonRow,
   };
 
+  console.log(wrap);
+
   return (
     <AnimatePresence>
       {!dialogOpen && (
@@ -541,6 +539,7 @@ export function JsonViewer({
                 {...editorProps}
                 className="min-w-0 flex-1 rounded-none border-0"
                 minHeight="calc(100%-34px)"
+                disableWrapping={!wrap}
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
@@ -588,7 +587,10 @@ export function JsonViewer({
             className="bg-background pointer-events-auto flex h-[80vh] w-[min(760px,92vw)] min-w-0 flex-col overflow-hidden rounded-xl border shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <TreeControls {...headerProps} onClose={() => setDialogOpen(false)} />
+            <TreeControls
+              {...headerProps}
+              onClose={() => setDialogOpen(false)}
+            />
             <JsonViewerToolbar {...toolbarProps} />
             <div className="flex min-h-0 flex-1 flex-col">
               <BsonEditor

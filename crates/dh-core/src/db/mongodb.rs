@@ -257,13 +257,17 @@ fn build_filter(
     custom_where: Option<&str>,
 ) -> DbResult<Option<bson::Document>> {
     if let Some(cw) = custom_where.map(str::trim).filter(|s| !s.is_empty()) {
-        let parsed: serde_json::Value =
-            serde_json::from_str(&super::mongo_json::quote_bare_keys(cw)).map_err(|e| {
+        // The same extended-JSON parser the row editor uses (`mongo_json::parse`),
+        // not plain `serde_json` — a filter needs BSON constructors too
+        // (`{"_id": ObjectId("...")}`), which aren't valid strict JSON.
+        let doc = super::mongo_json::parse(&super::mongo_json::quote_bare_keys(cw)).map_err(
+            |e| {
                 DbError::InvalidOperation(format!(
                     "custom_where must be a Mongo query JSON object: {e}"
                 ))
-            })?;
-        return Ok(bson::to_document(&parsed).ok());
+            },
+        )?;
+        return Ok(Some(doc));
     }
     if filters.is_empty() {
         return Ok(None);
@@ -2150,6 +2154,43 @@ impl DbAdapter for MongoAdapter {
                     sql: Some(format!("db.{table}.distinct(\"{column}\")")),
                 })
             }
+            QueryOp::BulkUpdate {
+                table,
+                column,
+                value,
+                filters,
+                custom_where,
+            } => {
+                let filter = build_filter(filters, custom_where.as_deref())?.unwrap_or_default();
+                let desc = filter_desc(&Some(filter.clone()));
+                let cols = self.column_types(&db, table).await?;
+                let mut set_doc = bson::Document::new();
+                set_doc.insert(
+                    column,
+                    field_bson(value.as_deref(), cols.get(column).map(String::as_str)),
+                );
+                let col = self
+                    .client
+                    .database(&db)
+                    .collection::<bson::Document>(table);
+                let res = col
+                    .update_many(filter, doc! { "$set": set_doc })
+                    .await
+                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                Ok(OpOutcome {
+                    result: QueryResult {
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        rows_affected: res.modified_count,
+                        is_select: false,
+                        error: None,
+                        elapsed_ms: start.elapsed().as_millis(),
+                    },
+                    sql: Some(format!(
+                        "db.{table}.updateMany({desc}, {{$set: {{{column}: ...}}}})"
+                    )),
+                })
+            }
             QueryOp::Update {
                 table,
                 set,
@@ -2614,6 +2655,20 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(d.get_str("name"), Ok("test"));
+    }
+
+    #[test]
+    fn build_filter_accepts_bson_constructors() {
+        let d = build_filter(
+            &[],
+            Some(r#"{"_id": ObjectId("507f1f77bcf86cd799439011")}"#),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            d.get_object_id("_id").unwrap().to_hex(),
+            "507f1f77bcf86cd799439011"
+        );
     }
 
     #[test]

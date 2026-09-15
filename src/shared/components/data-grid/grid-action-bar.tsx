@@ -4,6 +4,7 @@ import {
   ChevronDown,
   FileCode2,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -28,6 +29,9 @@ import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
 import { useStudioStore, type GridBridge } from "@/shared/store";
 import { pending_changes_to_diff, type PendingChange } from "./grid-context";
 import { FilterBar, type FilterBarProps } from "./filter-bar";
+import { BulkEditDialog } from "./bulk-edit-dialog";
+import type { FilterColumn } from "./filter-condition-builder";
+import type { DistinctMap } from "./types";
 
 // ponytail: one fixed pixel threshold for the whole PANE (not just this bar)
 // rather than a per-button collapse order (dbx's
@@ -87,17 +91,23 @@ export function GridActionBar({
   conn_id,
   pane_ref,
   filter_bar,
+  bulk_edit,
 }: {
   bridge: GridBridge;
   conn_id: string;
   pane_ref: RefObject<HTMLDivElement | null>;
   filter_bar?: FilterBarProps;
+  /** Absent hides the Bulk Edit button (e.g. schema still loading) —
+   *  `columns`/`distinct` mirror `filter_bar`'s own (the pane already has
+   *  them for the WHERE filter, no separate fetch needed). */
+  bulk_edit?: { columns: FilterColumn[]; distinct: DistinctMap };
 }) {
   const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
     null,
   );
+  const [bulk_edit_open, setBulkEditOpen] = useState(false);
   const openSql = useStudioStore((s) => s.openSql);
-  const compact = usePaneCompactWidth(pane_ref,5);
+  const compact = usePaneCompactWidth(pane_ref, 6);
 
   return (
     <TooltipProvider delay={500}>
@@ -129,11 +139,20 @@ export function GridActionBar({
         <GridToolbarButton
           icon={Trash2}
           label="Delete Row(s)"
-          disabled={!bridge.has_full_row || !bridge.editable}
+          disabled={bridge.selected_cell_count === 0 || !bridge.editable}
           onClick={() => bridge.delete_rows()}
           className=""
           compact={compact[2]}
         />
+        {bulk_edit && (
+          <GridToolbarButton
+            icon={Pencil}
+            label="Bulk Edit"
+            disabled={!bridge.editable}
+            onClick={() => setBulkEditOpen(true)}
+            compact={compact[5]}
+          />
+        )}
         <div className="bg-border mx-1 h-4 w-px" />
         <GridToolbarButton
           icon={bridge.loading ? Loader2 : Check}
@@ -228,6 +247,18 @@ export function GridActionBar({
           on_close={() => setApplyChanges(null)}
         />
       )}
+      {bulk_edit && (
+        <BulkEditDialog
+          open={bulk_edit_open}
+          onOpenChange={setBulkEditOpen}
+          conn_id={conn_id}
+          table={bridge.table}
+          columns={bulk_edit.columns}
+          distinct={bulk_edit.distinct}
+          selected_count={bridge.selected_cell_count}
+          on_apply_selection={bridge.bulk_edit_selection}
+        />
+      )}
     </TooltipProvider>
   );
 }
@@ -266,7 +297,10 @@ function GridToolbarButton({
             aria-label={label}
             onClick={onClick}
             className={cn(
-              { "text-2xs h-6 px-1.5 py-1 transition-all duration-100 ease-in-out": !icon_only },
+              {
+                "text-2xs h-6 px-1.5 py-1 transition-all duration-100 ease-in-out":
+                  !icon_only,
+              },
               className,
             )}
           >

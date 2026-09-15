@@ -12,9 +12,7 @@ import { usePaneMode, useStudioStore } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
-import {
-  GridActionBar
-} from "@/shared/components/data-grid/grid-action-bar";
+import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
 import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
   DISTINCT_LIMIT,
@@ -276,7 +274,7 @@ export function TablePane({
             </span>
           )}
         </div>
-        <div className="flex flex-1 items-center gap-1 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           {mode === "data" && gridBridge && (
             <GridActionBar
               bridge={gridBridge}
@@ -297,6 +295,17 @@ export function TablePane({
                       on_set_conjunction: set_filter_conjunction,
                       on_clear: clear_filters,
                       on_custom_where: setCustomWhere,
+                    }
+                  : undefined
+              }
+              bulk_edit={
+                schema
+                  ? {
+                      columns: schema.columns.map((c) => ({
+                        name: c.name,
+                        data_type: c.data_type,
+                      })),
+                      distinct,
                     }
                   : undefined
               }

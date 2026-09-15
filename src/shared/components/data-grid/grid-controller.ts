@@ -8,9 +8,13 @@ import { useGridKeyboard } from "./use-grid-keyboard";
 import {
   cellKey,
   computeGridView,
+  computeFillBox,
+  isNewFillCell,
+  fillSourceCell,
   type CopyFormat,
   type GridContextValue,
   type CellId,
+  type SelBounds,
 } from "./grid-context";
 import type { JsonRow } from "@/shared/store";
 import { rowToObject, sortRows, toJsonValue, toSqlLiteral } from "./grid-utils";
@@ -41,8 +45,11 @@ export interface GridControllerConfig {
   on_modified: () => void;
   on_set_null: (row: number, col: string) => void;
   on_delete_row: (row: number) => void;
-  /** Called when "Clone row" is picked — duplicates the row's values into a new one. */
-  on_clone_row?: (row: number) => void;
+  /** Called when "Clone row" is picked, with every row touched by the
+   *  current selection (or just the clicked row, selecting nothing) —
+   *  duplicates each into a new pending row, all in one batch so cloning N
+   *  rows doesn't need N separate index-shifting inserts. */
+  on_clone_row?: (rows: number[]) => void;
   /** New (not yet inserted) rows pinned to the top of the grid — pending rows.
    * Entry 0 is the newest and occupies grid row 0; real rows follow. */
   pending_rows?: { values: (string | null)[]; dirty: boolean }[];
@@ -135,6 +142,14 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const [editing, setEditing] = useState<CellId | null>(null);
   const [editAsText, setEditAsText] = useState<boolean>(false);
   const [col_widths, setColWidths] = useState<Record<string, number>>({});
+
+  // ---- Fill handle (Excel-style, vertical-only — see start_fill_drag) ----
+  const fill_active = useRef(false);
+  const [fill_source, setFillSource] = useState<SelBounds | null>(null);
+  const [fill_target, setFillTarget] = useState<{
+    row: number;
+    ci: number;
+  } | null>(null);
 
   // ---- In-grid find (Ctrl/Cmd+F) ----
   const [search_open, setSearchOpen] = useState(false);
@@ -515,6 +530,169 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     }
   }, [editable, selected, rows_to_render.length, write_cell]);
 
+  // Routes a generated/bulk value to whichever write path actually produces
+  // it: `write_cell` (used everywhere else in this file) always writes a
+  // literal string, so a real NULL — distinct from an empty string, which
+  // `on_edit_cell`'s own before/after comparison treats as "no edit" when
+  // the original was already empty — has to go through the same dedicated
+  // path the single-cell "Set NULL" context-menu action already uses
+  // (`on_set_null` for real rows, `on_pending_edit` directly with a `null`
+  // for pending ones).
+  const write_selected_cell = useCallback(
+    (row: number, col: string, value: string | null) => {
+      if (value === null) {
+        if (row < pending_count) on_pending_edit_prop?.(row, col, null);
+        else on_set_null(row, col);
+        return;
+      }
+      write_cell(row, col, value);
+    },
+    [pending_count, on_pending_edit_prop, on_set_null, write_cell],
+  );
+
+  // ---- Bulk-edit dialog's "Selection" mode ----
+  const bulk_edit_selection = useCallback(
+    (value: string | null) => {
+      if (!editable || selected.size === 0) return;
+      for (const key of selected) {
+        const sep = key.indexOf(CELL_KEY_SEP);
+        const row = Number(key.slice(0, sep));
+        const col = key.slice(sep + 1);
+        if (row < rows_to_render.length) write_selected_cell(row, col, value);
+      }
+    },
+    [editable, selected, rows_to_render.length, write_selected_cell],
+  );
+
+  // ---- Value-generation (right-click "Fill with…") ----
+  // Cells are processed in row-major order (not `selected`'s own insertion/
+  // click order) so "increment" counts up top-to-bottom, left-to-right —
+  // the order a human reads the selection in, regardless of click order.
+  const generate_values = useCallback(
+    (kind: "null" | "now" | "increment" | "uuid") => {
+      if (!editable || selected.size === 0) return;
+      const targets = Array.from(selected)
+        .map((key) => {
+          const sep = key.indexOf(CELL_KEY_SEP);
+          return { row: Number(key.slice(0, sep)), col: key.slice(sep + 1) };
+        })
+        .filter((t) => t.row < rows_to_render.length)
+        .sort(
+          (a, b) =>
+            a.row - b.row ||
+            (col_index_of[a.col] ?? 0) - (col_index_of[b.col] ?? 0),
+        );
+      if (targets.length === 0) return;
+      if (kind === "null") {
+        for (const { row, col } of targets) write_selected_cell(row, col, null);
+        return;
+      }
+      if (kind === "now") {
+        const now = new Date().toISOString();
+        for (const { row, col } of targets) write_selected_cell(row, col, now);
+        return;
+      }
+      if (kind === "uuid") {
+        for (const { row, col } of targets) {
+          write_selected_cell(row, col, crypto.randomUUID());
+        }
+        return;
+      }
+      // "increment" continues from the first target's own current value (so
+      // a column already at 5 continues 6, 7, 8…) rather than always
+      // restarting at 1.
+      const first = targets[0];
+      const first_ci = col_index_of[first.col];
+      const current =
+        first_ci === undefined
+          ? null
+          : (rows_to_render[first.row]?.[first_ci] ?? null);
+      const parsed = current === null ? NaN : Number(current);
+      let n = Number.isFinite(parsed) ? parsed : 1;
+      for (const { row, col } of targets) {
+        write_selected_cell(row, col, String(n));
+        n += 1;
+      }
+    },
+    [editable, selected, rows_to_render, col_index_of, write_selected_cell],
+  );
+
+  // ---- Fill handle drag ----
+  // Excel-style, all four directions PLUS diagonal: dragging the selection
+  // net's handle extends the net's bounds out to the drag target
+  // (`computeFillBox`); every new cell copies from the source cell nearest
+  // to it — its own row/column clamped back into the net (`fillSourceCell`)
+  // — so a pure vertical/horizontal drag copies the bordering row/column,
+  // and a diagonal drag's corner block copies the net's corner cell.
+  const start_fill_drag = useCallback(() => {
+    const bounds = view.sel_bounds;
+    if (!bounds) return;
+    fill_active.current = true;
+    setFillSource(bounds);
+    setFillTarget({ row: bounds.max_r, ci: bounds.max_ci });
+  }, [view.sel_bounds]);
+
+  const fill_drag_to = useCallback(
+    (row: number, ci: number) => {
+      if (!fill_active.current || !fill_source) return;
+      setFillTarget({
+        row: Math.max(0, Math.min(row, rows_to_render.length - 1)),
+        ci: Math.max(0, Math.min(ci, column_order.length - 1)),
+      });
+    },
+    [fill_source, rows_to_render.length, column_order.length],
+  );
+
+  const stop_fill_drag = useCallback(() => {
+    fill_active.current = false;
+    const source = fill_source;
+    const target = fill_target;
+    setFillSource(null);
+    setFillTarget(null);
+    if (!source || !target || !editable) return;
+    const box = computeFillBox(source, target);
+    if (!box) return;
+    const new_sel = new Set(selected);
+    // Cache each source column's resolved value at every source row so a
+    // diagonal drag's O(rows*cols) cell writes don't each redo a col_meta/
+    // col_index_of lookup — the source region is at most the net's own
+    // (already-on-screen) size, so this cache is cheap to build.
+    const value_at = new Map<string, string | null>();
+    const src_value = (row: number, ci: number): string | null => {
+      const k = `${row}:${ci}`;
+      if (value_at.has(k)) return value_at.get(k) ?? null;
+      const col = col_meta[ci]?.[0];
+      const col_idx = col === undefined ? undefined : col_index_of[col];
+      const v =
+        col === undefined || col_idx === undefined
+          ? null
+          : (rows_to_render[row]?.[col_idx] ?? null);
+      value_at.set(k, v);
+      return v;
+    };
+    for (let r = box.min_r; r <= box.max_r; r++) {
+      for (let ci = box.min_ci; ci <= box.max_ci; ci++) {
+        if (!isNewFillCell(source, r, ci)) continue;
+        const col = col_meta[ci]?.[0];
+        if (col === undefined) continue;
+        const src = fillSourceCell(source, r, ci);
+        const value = src_value(src.row, src.ci);
+        write_cell(r, col, value ?? "");
+        new_sel.add(cellKey(r, col));
+      }
+    }
+    setSelected(new_sel);
+  }, [
+    fill_source,
+    fill_target,
+    editable,
+    rows_to_render,
+    col_meta,
+    col_index_of,
+    selected,
+    write_cell,
+  ]);
+
   // Scroll the active cell fully into view after keyboard navigation. The
   // root div is itself the scroll container (and the virtualizer's element).
   const scroll_to_cell = useCallback(
@@ -580,7 +758,12 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     const [r, col] = search_matches[search_active_index_clamped];
     const dci = column_order.indexOf(col);
     if (dci >= 0) scroll_to_cell(r, dci);
-  }, [search_active_index_clamped, search_matches, column_order, scroll_to_cell]);
+  }, [
+    search_active_index_clamped,
+    search_matches,
+    column_order,
+    scroll_to_cell,
+  ]);
 
   const on_search_open = useCallback(() => setSearchOpen(true), []);
   const on_search_close = useCallback(() => {
@@ -683,12 +866,40 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     [on_set_null],
   );
 
+  // Every distinct row touched by the current selection (any one of its
+  // cells, not necessarily the whole row) — "Delete row"/"Clone row" from
+  // the context menu act on all of these, not just the row that was
+  // right-clicked, mirroring `menu_select`'s own "right-clicking inside an
+  // existing selection keeps it intact" rule.
+  const rows_in_selection = useCallback((): number[] => {
+    const rows = new Set<number>();
+    for (const key of selected) {
+      const sep = key.indexOf(CELL_KEY_SEP);
+      rows.add(Number(key.slice(0, sep)));
+    }
+    return [...rows].sort((a, b) => a - b);
+  }, [selected]);
+
+  // Same count, memoized for the context menu's "Delete N rows"/"Clone N
+  // rows" labels — those render on every cell, so this avoids re-deriving
+  // it (and re-allocating a Set) once per rendered cell.
+  const touched_row_count = useMemo(() => {
+    const rows = new Set<number>();
+    for (const key of selected)
+      rows.add(Number(key.slice(0, key.indexOf(CELL_KEY_SEP))));
+    return rows.size;
+  }, [selected]);
+
   const menu_delete = useCallback(
     (row: number) => {
       setEditing(null);
-      on_delete_row(row);
+      const rows = rows_in_selection();
+      for (const r of rows.length > 0 ? rows : [row]) {
+        if (r < pending_count) on_remove_pending_prop?.(r);
+        else on_delete_row(r);
+      }
     },
-    [on_delete_row],
+    [on_delete_row, on_remove_pending_prop, pending_count, rows_in_selection],
   );
 
   const menu_show_json = useCallback(() => {
@@ -770,9 +981,10 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const menu_clone_row = useCallback(
     (row: number) => {
       setEditing(null);
-      on_clone_row?.(row);
+      const rows = rows_in_selection();
+      on_clone_row?.(rows.length > 0 ? rows : [row]);
     },
-    [on_clone_row],
+    [on_clone_row, rows_in_selection],
   );
 
   // Keep the JSON viewer showing the row where the selection starts (the
@@ -937,6 +1149,11 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     start_drag,
     drag_to,
     stop_drag,
+    fill_source,
+    fill_target,
+    start_fill_drag,
+    fill_drag_to,
+    stop_fill_drag,
     open_editor,
     close_editor,
     handle_keydown,
@@ -949,12 +1166,15 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     menu_show_json: on_open_json ? menu_show_json : undefined,
     menu_copy_as,
     menu_clone_row: on_clone_row ? menu_clone_row : undefined,
+    touched_row_count,
     menu_drill_json: on_drill_json ? menu_drill_json : undefined,
     on_open_reference,
     pending_count,
     pending_dirty: (row: number) => pending[row]?.dirty ?? false,
     on_pending_edit,
     on_remove_pending,
+    bulk_edit_selection,
+    generate_values,
     cell_dirty,
     row_deleted,
     on_edit_cell,
