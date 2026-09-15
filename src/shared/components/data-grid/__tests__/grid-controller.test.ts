@@ -173,7 +173,10 @@ describe("useGridController — row actions act on every row the selection touch
       result.current.on_select(new Set([cellKey(1, "id"), cellKey(0, "name")]));
     });
     act(() => {
-      result.current.menu_clone_row(1);
+      // Non-null: `on_clone_row` was provided above, so the controller
+      // always resolves `menu_clone_row` to a real function (it's only
+      // ever `undefined` in the type because the config prop is optional).
+      result.current.menu_clone_row!(1);
     });
     expect(on_clone_row).toHaveBeenCalledTimes(1);
     expect(on_clone_row).toHaveBeenCalledWith([0, 1]);
