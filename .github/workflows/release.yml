@@ -114,17 +114,13 @@ jobs:
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - In-app updates: DH Studio now checks for new versions in the background and shows an update icon in the title bar — click it (or Help > Check for Updates…) to see what's new and choose Update or Skip
-            - SQL/Mongo console: Run controls moved into a toolbar above the editor with a database picker (Postgres, MongoDB, and MySQL connections' SQL tab) — write `schema.table` directly in the query, and autocomplete/linting now covers every known schema, not just the primary one
-            - Command palette: `table:`/`schema:` search now finds tables in other databases on the same connection, not just the one currently active
-            - Sidebar: duplicate/drop support for tables in sibling databases and non-active schemas; grid export works for sibling-database tables too
-            - Settings: new About section, and a corner-radius style preset under Appearance
-            - Local secrets (debug-build fallback credential storage) are now encrypted at rest
-
-            **Fixed**
-            - Postgres: connections whose default schema wasn't `public` could show the wrong schema's tables in the command palette and a few other places
-            - Sidebar: disconnecting a database no longer leaves a stale "connected" badge behind
-            - Command palette: results now show immediately when it opens, instead of only after typing; keyboard navigation no longer gets hijacked when the list scrolls under a stationary mouse
+            - Command palette: refactored to use `useAppShortcut` for keyboard shortcuts; replaced left panel with edge panel for a cleaner layout
+            - Editor toolbar: added compress query option and zen mode toggle for distraction-free editing
+            - Danger confirm dialog: prompts for confirmation before executing potentially destructive SQL statements
+            - Editor: text-editing commands (join/delete lines, case conversion, naming-style cycling, delimited-list, paste-as-IN), zoom, and right-click context menu
+            - Data grid: multi-directional (incl. diagonal) fill-handle drag, bulk-edit dialog with server-side conditional update, right-click value generation (NULL/timestamp/UUID/increment), row delete/clone on selection
+            - Mongo: filter bar now uses the BSON/JSON editor; backend filter parser accepts BSON constructors (e.g. `ObjectId(...)`)
+            - JSON viewer and BSON key/value frame improvements
 
             Full commit history: ${{ github.sha }}
 
