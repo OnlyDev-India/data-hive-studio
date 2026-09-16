@@ -171,10 +171,10 @@ export function EditorContextMenu({
         <ContextMenuSeparator />
         <ContextMenuSub>
           <ContextMenuSubTrigger>
-            <Copy className="size-3.5" />
+            <Copy className="size-3.5 mr-2" />
             Clipboard
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent>
+          <ContextMenuSubContent side="right">
             <ContextMenuItem onSelect={copy}>
               <Copy className="size-3.5" />
               Copy selection

@@ -446,6 +446,17 @@ impl PgAdapter {
             }
             FilterOp::IsNull => format!("{col} IS NULL"),
             FilterOp::IsNotNull => format!("{col} IS NOT NULL"),
+            FilterOp::In => {
+                if cond.values.is_empty() {
+                    "1 = 0".to_string()
+                } else {
+                    let placeholders = vec!["?"; cond.values.len()].join(", ");
+                    for v in &cond.values {
+                        params.push(Some(v.clone()));
+                    }
+                    format!("{col} IN ({placeholders})")
+                }
+            }
         }
     }
 
@@ -1029,6 +1040,23 @@ impl DbAdapter for PgAdapter {
                 .collect();
                 let extra = (!bits.is_empty()).then(|| bits.join(", "));
                 SchemaObject { name, extra }
+            })
+            .collect())
+    }
+
+    async fn list_extensions(&self, database: Option<&str>) -> DbResult<Vec<SchemaObject>> {
+        let pool = self.pool_for(database).await?;
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT extname, extversion FROM pg_extension ORDER BY extname",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(DbError::SqlEngine)?;
+        Ok(rows
+            .into_iter()
+            .map(|(name, version)| SchemaObject {
+                name,
+                extra: Some(version),
             })
             .collect())
     }

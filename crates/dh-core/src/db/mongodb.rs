@@ -246,6 +246,10 @@ fn condition_doc(cond: &GridFilterCond) -> Option<bson::Document> {
         ),
         FilterOp::IsNull => d.insert(field, bson::Bson::Null),
         FilterOp::IsNotNull => d.insert(field, doc! { "$ne": null }),
+        FilterOp::In => d.insert(
+            field,
+            doc! { "$in": cond.values.iter().map(|v| scalar_bson(v)).collect::<Vec<_>>() },
+        ),
     };
     Some(d)
 }

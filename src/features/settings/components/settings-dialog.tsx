@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Info, Keyboard, Palette, Search } from "lucide-react";
+import { Code2, Info, Keyboard, Palette, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,11 +14,17 @@ import { cn } from "@/shared/lib/utils";
 import { AppearanceSection } from "./appearance";
 import { CommandPaletteSection } from "./command-palette-section";
 import { ShortcutsSection } from "./shortcuts-section";
+import { SqlFormatSection } from "./sql-format-section";
 import { AboutSection } from "./about";
 import { Button } from "@/shared/components/ui";
 import { useTheme } from "@/shared/theme/theme";
 
-type SectionId = "appearance" | "command-palette" | "shortcuts" | "about";
+type SectionId =
+  | "appearance"
+  | "command-palette"
+  | "shortcuts"
+  | "sql-format"
+  | "about";
 
 interface SectionMeta {
   id: SectionId;
@@ -30,6 +36,7 @@ const SECTIONS: SectionMeta[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "command-palette", label: "Command Palette", icon: Search },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { id: "sql-format", label: "SQL Format", icon: Code2 },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -80,10 +87,11 @@ export function SettingsDialog({
             </ResizablePanel>
             <ResizableHandle className="hover:bg-accent active:bg-primary/60 bg-transparent" />
             <ResizablePanel defaultSize="74%" minSize="50%">
-              <div className="h-full w-full overflow-y-auto p-6">
+              <div className="h-full w-full overflow-y-auto p-6 bg-background">
                 {section === "appearance" && <AppearanceSection />}
                 {section === "command-palette" && <CommandPaletteSection />}
                 {section === "shortcuts" && <ShortcutsSection />}
+                {section === "sql-format" && <SqlFormatSection />}
                 {section === "about" && <AboutSection />}
               </div>
             </ResizablePanel>

@@ -14,8 +14,8 @@ use crate::server::grants::Grant;
 use crate::server::orgs::{OrgInvite, OrgMember, OrgRole, Organization};
 use crate::server::router::{
     ActiveSchemaBody, CreateCollectionBody, DisconnectDatabaseBody, DuplicateBody, ExecuteOpBody,
-    GrantBody, InsertDocumentBody, MongoDocumentsBody, RunMongoBody, SaveDocumentBody,
-    SchemaObjectsBody, SchemaOpsBody, SchemasInBody, SqlBody,
+    ExtensionsBody, GrantBody, InsertDocumentBody, MongoDocumentsBody, RunMongoBody,
+    SaveDocumentBody, SchemaObjectsBody, SchemaOpsBody, SchemasInBody, SqlBody,
 };
 use crate::server::store::AuditEntry;
 use crate::server::vault::{ConnInput, ConnMeta};
@@ -393,6 +393,19 @@ impl ServerClient {
 
     pub async fn list_role_details(&self, conn_id: &str) -> Result<Vec<crate::db::RoleDetail>, String> {
         self.get(&format!("/v1/c/{conn_id}/role-details")).await
+    }
+
+    pub async fn list_extensions(
+        &self,
+        conn_id: &str,
+        database: Option<&str>,
+    ) -> Result<Vec<crate::db::SchemaObject>, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/c/{conn_id}/extensions"),
+            ExtensionsBody { database: database.map(str::to_string) },
+        )
+        .await
     }
 
     pub async fn disconnect_database(&self, conn_id: &str, database: &str) -> Result<(), String> {

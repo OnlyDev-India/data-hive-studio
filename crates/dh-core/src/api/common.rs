@@ -190,6 +190,10 @@ pub enum FilterOp {
     Lte,
     IsNull,
     IsNotNull,
+    /// Column value is one of `GridFilterCond::values` — the header's own
+    /// Excel-style distinct-value checkbox quick filter. An empty `values`
+    /// matches nothing (all boxes unchecked), same as Excel.
+    In,
 }
 
 /// One filter condition as sent by the UI filter bar.
@@ -198,6 +202,11 @@ pub struct GridFilterCond {
     pub column: String,
     pub op: FilterOp,
     pub value: String,
+    /// Only populated for `FilterOp::In` — the checked values. NULL is
+    /// deliberately not selectable here (that's what `is_null`/`is_not_null`
+    /// are for), so these are always non-null.
+    #[serde(default)]
+    pub values: Vec<String>,
     /// How this condition combines with the previous one. Defaults to AND.
     #[serde(default)]
     pub conjunction: Option<String>,

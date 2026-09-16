@@ -192,3 +192,35 @@ describe("useGridController — row actions act on every row the selection touch
     expect(result.current.touched_row_count).toBe(2);
   });
 });
+
+describe("useGridController — reorder_column", () => {
+  const fourCols = () =>
+    baseConfig({
+      columns: ["a", "b", "c", "d"],
+      rows: [["1", "2", "3", "4"]],
+    });
+
+  it("dragging onto the very next column still moves it (no insert-before cancellation)", () => {
+    const { result } = renderHook(() => useGridController(fourCols()));
+    act(() => result.current.reorder_column("a", "b"));
+    expect(result.current.view.column_order).toEqual(["b", "a", "c", "d"]);
+  });
+
+  it("dragging rightward past several columns lands right after the target", () => {
+    const { result } = renderHook(() => useGridController(fourCols()));
+    act(() => result.current.reorder_column("a", "d"));
+    expect(result.current.view.column_order).toEqual(["b", "c", "d", "a"]);
+  });
+
+  it("dragging leftward lands right before the target", () => {
+    const { result } = renderHook(() => useGridController(fourCols()));
+    act(() => result.current.reorder_column("d", "a"));
+    expect(result.current.view.column_order).toEqual(["d", "a", "b", "c"]);
+  });
+
+  it("dragging onto the very previous column still moves it", () => {
+    const { result } = renderHook(() => useGridController(fourCols()));
+    act(() => result.current.reorder_column("d", "c"));
+    expect(result.current.view.column_order).toEqual(["a", "b", "d", "c"]);
+  });
+});

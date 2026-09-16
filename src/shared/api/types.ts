@@ -222,8 +222,11 @@ export interface WireFilter {
     | "lt"
     | "lte"
     | "is_null"
-    | "is_not_null";
+    | "is_not_null"
+    | "in";
   value: string;
+  /** Only populated for `op: "in"` — the header quick filter's checked values. */
+  values?: string[];
   conjunction?: string;
 }
 

@@ -35,7 +35,9 @@ import {
   DangerConfirmDialog,
   type DangerousStatement,
 } from "./danger-confirm-dialog";
+import { BindVariablesDialog } from "./bind-variables-dialog";
 import { dangerousSqlReason } from "../lib/dangerous-sql";
+import { findBindVariables, substituteBindVariables } from "../lib/bind-variables";
 import { compressSql } from "../lib/compress-sql";
 
 /** A single failed-statement marker pushed to the editor via `setErrors`. */
@@ -271,6 +273,35 @@ function SqlEditorBody({
     [],
   );
 
+  // Same Promise-gate shape as `confirm_if_dangerous`, one step earlier in
+  // the pipeline: prompts for a value per `:name`/`${name}` bind variable
+  // (`bind-variables.ts`) and substitutes them into the statement texts
+  // before anything else (the danger-confirm gate included) ever sees them —
+  // a "DELETE FROM t WHERE id = :id" with no WHERE-less DELETE should still
+  // be flagged if the user leaves `:id` empty (substitutes to NULL, which
+  // `WHERE id = NULL` never matches — that's a query-correctness surprise
+  // for the user, not a reason to skip the danger check).
+  const [bind_pending, setBindPending] = useState<{
+    names: string[];
+    resolve: (values: Record<string, string> | null) => void;
+  } | null>(null);
+  const resolve_bind_variables = useCallback(
+    (texts: string[]): Promise<string[] | null> => {
+      const names = findBindVariables(texts);
+      if (names.length === 0) return Promise.resolve(texts);
+      return new Promise((resolve) => {
+        setBindPending({
+          names,
+          resolve: (values) =>
+            resolve(
+              values ? texts.map((t) => substituteBindVariables(t, values)) : null,
+            ),
+        });
+      });
+    },
+    [],
+  );
+
   // ---- Target database. Every kind but SQLite (single-file, no such
   // concept within one connection) supports switching it — including a
   // MongoDB connection's SQL tab (Phase-4 SQL-on-Mongo translates the
@@ -451,6 +482,8 @@ function SqlEditorBody({
   // non-string value, whatever the actual source of a bad update turns out
   // to be (e.g. dev-mode HMR preserving a stale/mismatched state shape).
   const sql_text = typeof sql === "string" ? sql : String(sql ?? "");
+  const format_keyword_case = useStudioStore((s) => s.sqlFormatKeywordCase);
+  const format_indent_width = useStudioStore((s) => s.sqlFormatIndentWidth);
   const format_sql = useCallback(() => {
     try {
       setSql(
@@ -460,6 +493,8 @@ function SqlEditorBody({
             : conn?.kind === "sqlite"
               ? "sqlite"
               : "sql",
+          keywordCase: format_keyword_case,
+          tabWidth: format_indent_width,
         }),
       );
     } catch {
@@ -467,7 +502,14 @@ function SqlEditorBody({
       // parse (mid-edit, a dialect quirk it doesn't know); silently doing
       // nothing beats replacing a query the user was actively writing.
     }
-  }, [sql_text, is_pg, conn, setSql]);
+  }, [
+    sql_text,
+    is_pg,
+    conn,
+    setSql,
+    format_keyword_case,
+    format_indent_width,
+  ]);
   const compress_sql = useCallback(() => {
     setSql(compressSql(sql_text));
   }, [sql_text, setSql]);
@@ -667,12 +709,15 @@ function SqlEditorBody({
       }))
       .filter((s) => s.text);
     if (stmts.length === 0) return;
-    const ok = await confirm_if_dangerous(stmts.map((s) => s.text));
+    const bound_texts = await resolve_bind_variables(stmts.map((s) => s.text));
+    if (!bound_texts) return;
+    const bound = stmts.map((s, i) => ({ ...s, text: bound_texts[i] }));
+    const ok = await confirm_if_dangerous(bound.map((s) => s.text));
     if (!ok) return;
     // Fresh batch — previous run's error markers no longer apply.
     error_ranges.current.clear();
     sync_errors();
-    for (const s of stmts) {
+    for (const s of bound) {
       const id = add_tab();
       void run_query(id, s.text, { from: s.from, to: s.to });
     }
@@ -683,22 +728,26 @@ function SqlEditorBody({
     run_query,
     sync_errors,
     error_ranges.current,
+    resolve_bind_variables,
     confirm_if_dangerous,
   ]);
 
   const run_target = useCallback(async () => {
     const targets = editorRef.current?.getTargets() ?? [];
-    if (targets.length === 0) return;
-    const texts = targets.map((t) => t.text.trim()).filter(Boolean);
-    const ok = await confirm_if_dangerous(texts);
+    const stmts = targets
+      .map((t) => ({ from: t.from, to: t.to, text: t.text.trim() }))
+      .filter((s) => s.text);
+    if (stmts.length === 0) return;
+    const bound_texts = await resolve_bind_variables(stmts.map((s) => s.text));
+    if (!bound_texts) return;
+    const bound = stmts.map((s, i) => ({ ...s, text: bound_texts[i] }));
+    const ok = await confirm_if_dangerous(bound.map((s) => s.text));
     if (!ok) return;
     error_ranges.current.clear();
     sync_errors();
-    for (const t of targets) {
-      const text = t.text.trim();
-      if (!text) continue;
+    for (const s of bound) {
       const id = add_tab();
-      void run_query(id, text, { from: t.from, to: t.to });
+      void run_query(id, s.text, { from: s.from, to: s.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
   }, [
@@ -706,6 +755,7 @@ function SqlEditorBody({
     run_query,
     sync_errors,
     error_ranges.current,
+    resolve_bind_variables,
     confirm_if_dangerous,
   ]);
 
@@ -781,6 +831,17 @@ function SqlEditorBody({
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
+      <BindVariablesDialog
+        names={bind_pending?.names ?? null}
+        onConfirm={(values) => {
+          bind_pending?.resolve(values);
+          setBindPending(null);
+        }}
+        onCancel={() => {
+          bind_pending?.resolve(null);
+          setBindPending(null);
+        }}
+      />
       <DangerConfirmDialog
         statements={danger_pending?.statements ?? null}
         onConfirm={() => {

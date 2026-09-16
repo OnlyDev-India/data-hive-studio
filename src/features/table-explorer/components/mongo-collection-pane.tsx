@@ -94,6 +94,19 @@ export function MongoCollectionPane({
     setFilters([]);
     setCustomWhere("");
   };
+  // Header's own per-column quick filter — upserts (or removes) the one
+  // `op: "in"` filter for `col`, leaving every other filter untouched.
+  const set_column_filter = (col: string, values: string[] | null) => {
+    setFilters((cur) => {
+      const without = cur.filter((f) => !(f.column === col && f.op === "in"));
+      if (values === null) return without;
+      const id = without.reduce((m, f) => Math.max(m, f.id), 0) + 1;
+      return [
+        ...without,
+        { id, column: col, op: "in", value: "", values, conjunction: "AND" },
+      ];
+    });
+  };
 
   const columns: FilterColumn[] = (schema?.columns ?? []).map((c) => ({
     name: c.name,
@@ -213,6 +226,7 @@ export function MongoCollectionPane({
                   on_refresh={refresh_data_only}
                   kind="mongo"
                   database={database}
+                  on_column_filter={set_column_filter}
                 />
               </div>
               <div

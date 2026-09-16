@@ -1330,6 +1330,17 @@ fn apply_where(
             }
             FilterOp::IsNull => format!("{col} IS NULL"),
             FilterOp::IsNotNull => format!("{col} IS NOT NULL"),
+            FilterOp::In => {
+                if f.values.is_empty() {
+                    "1 = 0".to_string()
+                } else {
+                    let placeholders = vec!["?"; f.values.len()].join(", ");
+                    for v in &f.values {
+                        params.push(bind_value(v));
+                    }
+                    format!("{col} IN ({placeholders})")
+                }
+            }
         };
         if parts.is_empty() {
             parts.push(part);

@@ -140,6 +140,15 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ editorFontSize: Math.max(10, Math.min(24, Math.round(px))) });
         },
 
+        sqlFormatKeywordCase: "preserve",
+        setSqlFormatKeywordCase(c) {
+          set({ sqlFormatKeywordCase: c });
+        },
+        sqlFormatIndentWidth: 2,
+        setSqlFormatIndentWidth(n) {
+          set({ sqlFormatIndentWidth: n });
+        },
+
         delimitedListSettings: DEFAULT_DELIMITED_LIST_SETTINGS,
         setDelimitedListSettings(s) {
           set({ delimitedListSettings: s });
@@ -500,6 +509,8 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           paletteKeywords: s.paletteKeywords,
           shortcutOverrides: s.shortcutOverrides,
           editorFontSize: s.editorFontSize,
+          sqlFormatKeywordCase: s.sqlFormatKeywordCase,
+          sqlFormatIndentWidth: s.sqlFormatIndentWidth,
           delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
           skippedUpdateVersion: s.skippedUpdateVersion,

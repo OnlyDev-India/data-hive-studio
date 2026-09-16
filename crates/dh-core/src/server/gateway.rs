@@ -447,6 +447,20 @@ impl Gateway {
         self.adapter(conn_id).await?.list_roles().await.map_err(|e| e.to_string())
     }
 
+    pub async fn list_extensions(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        database: Option<&str>,
+    ) -> Result<Vec<crate::db::SchemaObject>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id)
+            .await?
+            .list_extensions(database)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     pub async fn list_role_details(
         &self,
         ctx: &AuthCtx,

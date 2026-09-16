@@ -7,7 +7,7 @@ import {
 } from "react";
 import type { RowWindow } from "./use-row-window";
 import type { DiffChange } from "@/shared/components/apply-changes-dialog";
-import type { CellClick, CellKind, DistinctMap } from "./types";
+import type { CellClick, CellKind, DistinctMap, GridFilter } from "./types";
 import { COL_W_PX, GUTTER_W_PX } from "./types";
 
 /** Identity of a cell: (row index in the page, column name). */
@@ -107,6 +107,11 @@ export interface SelBounds {
 export interface GridViewData {
   all_columns: string[];
   column_order: string[];
+  /** Same pin-partitioned, drag-reordered sequence as `column_order`, but
+   *  including hidden columns too (in their last-known position) — the
+   *  column-visibility menu's list, so toggling one back on doesn't jump it
+   *  to the end. */
+  full_column_order: string[];
   /** (column name, index into the result row). */
   col_meta: [string, number][];
   /** Column name -> display (column-order) index. */
@@ -124,6 +129,15 @@ export function computeGridView(
   pinned: string[],
   col_widths: Record<string, number>,
   selected: Set<string>,
+  /** User drag-reorder, as a full permutation of column names — `null`/
+   *  columns it doesn't mention (e.g. a query whose result added a column
+   *  since this was saved) fall back to/append in the natural DB order. */
+  column_order_override?: string[] | null,
+  /** Hidden columns — excluded from `column_order`/`col_meta` (so headers,
+   *  cells, and row-copy/export all skip them) but kept in `all_columns` so
+   *  `col_index_of` can still resolve them if something needs to (e.g. a
+   *  drill-down that re-hides then un-hides the same column later). */
+  hidden?: ReadonlySet<string>,
 ): GridViewData {
   const all_columns: string[] = [];
   const seen = new Set<string>();
@@ -134,10 +148,26 @@ export function computeGridView(
     }
   }
 
+  let base_order = all_columns;
+  if (column_order_override && column_order_override.length > 0) {
+    const known = new Set(all_columns);
+    const kept = column_order_override.filter((c) => known.has(c));
+    const keptSet = new Set(kept);
+    base_order = [...kept, ...all_columns.filter((c) => !keptSet.has(c))];
+  }
+
   const pinned_list = pinned.filter((p) => all_columns.includes(p));
+  const pinned_set = new Set(pinned_list);
+  const visible = hidden
+    ? base_order.filter((c) => !hidden.has(c))
+    : base_order;
   const column_order = [
-    ...pinned_list,
-    ...all_columns.filter((c) => !pinned_list.includes(c)),
+    ...visible.filter((c) => pinned_set.has(c)),
+    ...visible.filter((c) => !pinned_set.has(c)),
+  ];
+  const full_column_order = [
+    ...base_order.filter((c) => pinned_set.has(c)),
+    ...base_order.filter((c) => !pinned_set.has(c)),
   ];
   const col_meta: [string, number][] = column_order.map((name) => [
     name,
@@ -175,6 +205,7 @@ export function computeGridView(
   return {
     all_columns,
     column_order,
+    full_column_order,
     col_meta,
     col_index_of,
     pin_px,
@@ -283,6 +314,46 @@ export interface GridContextValue {
   on_toggle_pin: (col: string) => void;
   on_resize_col: (col: string, px: number) => void;
   auto_fit_col: (col: string) => void;
+  /** Drag `dragged` to just before/after `target`'s current position. */
+  reorder_column: (dragged: string, target: string) => void;
+  hidden_columns: ReadonlySet<string>;
+  toggle_column_visibility: (col: string) => void;
+  /** Column currently being pointer-dragged (from anywhere in the header,
+   *  not a dedicated handle), plus the live pointer position for the
+   *  floating ghost badge; `null` when no column drag is in progress. */
+  col_drag: { col: string; x: number; y: number } | null;
+  /** Column the drag is currently hovering over — reordering happens live
+   *  as this changes, not just on drop, so it's also the current position
+   *  of the dragged column. */
+  col_drag_over: string | null;
+  start_column_drag: (col: string, x: number, y: number) => void;
+  column_drag_over: (col: string) => void;
+  /** Selects every cell in `col` (the header's own click) — Ctrl/Cmd toggles
+   *  it within the existing selection, Shift extends from the last anchor
+   *  column across a range. */
+  select_column: (
+    col: string,
+    opts?: { add?: boolean; range?: boolean },
+  ) => void;
+  /** Currently applied WHERE filters (the same list the filter bar shows) —
+   *  header cells read this to know whether their own quick-filter is
+   *  active and pre-check the right boxes. Absent for grids with no filter
+   *  bar at all (e.g. `query-results-grid.tsx`). */
+  filters?: GridFilter[];
+  /** Sets (or clears, when `values` is null) an Excel-style "column IN
+   *  (...)" quick filter — the header's own per-column filter popover.
+   *  Absent for grids with no filter bar. */
+  on_column_filter?: (col: string, values: string[] | null) => void;
+  /** Live `SelectDistinct` query for one column, unbounded — the quick
+   *  filter's escalation path when the loaded page doesn't hold every
+   *  distinct value. Absent for grids with no live backend (e.g. read-only
+   *  query results), which fall back to the loaded page's own values. */
+  fetch_distinct_values?: (col: string) => Promise<(string | null)[]>;
+  /** FK column -> raw value -> looked-up display label from the referenced
+   *  row (`"<value> (<label>)"` in the cell) — only covers values on the
+   *  currently loaded page. Absent/missing entries just render the raw
+   *  value, same as before this existed. */
+  fk_labels?: Record<string, Record<string, string>>;
   on_select: (sel: Set<string>) => void;
   on_sel_anchor: (a: CellId | null) => void;
   on_active_cell: (a: CellId | null) => void;

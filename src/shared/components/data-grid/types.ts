@@ -33,6 +33,10 @@ export interface GridFilter {
   column: string;
   op: FilterOp;
   value: string;
+  /** Only populated for `op: "in"` — the header's per-column, Excel-style
+   *  distinct-value checkbox quick filter (see `column-quick-filter.tsx`).
+   *  NULL is deliberately not selectable there, so these are always non-null. */
+  values?: string[];
   /** How this filter joins the previous one; undefined for the first filter. */
   conjunction?: "AND" | "OR";
 }
@@ -48,7 +52,8 @@ export type FilterOp =
   | "lt"
   | "lte"
   | "is_null"
-  | "is_not_null";
+  | "is_not_null"
+  | "in";
 
 export const FILTER_OPS: { value: FilterOp; label: string }[] = [
   { value: "eq", label: "=" },
@@ -62,6 +67,11 @@ export const FILTER_OPS: { value: FilterOp; label: string }[] = [
   { value: "lte", label: "≤" },
   { value: "is_null", label: "is null" },
   { value: "is_not_null", label: "is not null" },
+  // Not offered in the manual filter-condition-builder's op dropdown (no
+  // `filterConfigFor` result lists it) — only produced by the header's own
+  // quick-filter popover. Still needs a label here for the active-filter
+  // chip (`OP_LABEL[f.op]`) to resolve.
+  { value: "in", label: "in" },
 ];
 
 /** How the filter value input should look, based on the column type. */

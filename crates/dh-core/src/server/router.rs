@@ -71,6 +71,7 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/v1/c/{conn_id}/schemas-in", post(conn_schemas_in))
         .route("/v1/c/{conn_id}/schema-objects", post(conn_schema_objects))
         .route("/v1/c/{conn_id}/roles", get(conn_roles))
+        .route("/v1/c/{conn_id}/extensions", post(conn_extensions))
         .route("/v1/c/{conn_id}/role-details", get(conn_role_details))
         .route("/v1/c/{conn_id}/active-schema", get(conn_get_active_schema).put(conn_set_active_schema))
         .route("/v1/c/{conn_id}/disconnect-database", post(conn_disconnect_database))
@@ -747,6 +748,23 @@ async fn conn_schema_objects(
 async fn conn_roles(State(gw): State<AppState>, auth: Auth, Path(conn_id): Path<String>) -> Response {
     match gw.list_roles(&auth.0, &conn_id).await {
         Ok(r) => Json(r).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ExtensionsBody {
+    pub database: Option<String>,
+}
+
+async fn conn_extensions(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(conn_id): Path<String>,
+    Json(body): Json<ExtensionsBody>,
+) -> Response {
+    match gw.list_extensions(&auth.0, &conn_id, body.database.as_deref()).await {
+        Ok(e) => Json(e).into_response(),
         Err(e) => err_res(e),
     }
 }
