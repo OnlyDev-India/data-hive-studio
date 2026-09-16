@@ -1,4 +1,10 @@
-import { useEffect, useState, type RefObject } from "react";
+import {
+  Fragment,
+  useEffect,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import {
   Check,
   ChevronDown,
@@ -30,6 +36,7 @@ import { useStudioStore, type GridBridge } from "@/shared/store";
 import { pending_changes_to_diff, type PendingChange } from "./grid-context";
 import { FilterBar, type FilterBarProps } from "./filter-bar";
 import { BulkEditDialog } from "./bulk-edit-dialog";
+import { ColumnVisibilityMenu } from "./column-visibility-menu";
 import type { FilterColumn } from "./filter-condition-builder";
 import type { DistinctMap } from "./types";
 
@@ -41,7 +48,7 @@ import type { DistinctMap } from "./types";
 // rendered width (see `usePaneCompactWidth`'s doc comment for why that's
 // the wrong measurement) — this is "how wide is the whole pane," so it
 // needs to be bigger than just the toolbar's own content would.
-const PANE_COMPACT_BELOW_PX = 820;
+const PANE_COMPACT_BELOW_PX = 920;
 const ONE_BUTTON_MIN_SHRINK = 30;
 
 /** Watches `ref`'s element (the owning PANE, not this toolbar itself — see
@@ -107,7 +114,82 @@ export function GridActionBar({
   );
   const [bulk_edit_open, setBulkEditOpen] = useState(false);
   const openSql = useStudioStore((s) => s.openSql);
-  const compact = usePaneCompactWidth(pane_ref, 6);
+  // ColumnVisibilityMenu takes no `compact` prop (it's icon-only already,
+  // nothing to collapse) — its factory just ignores the argument every
+  // other entry spreads onto `GridToolbarButton`. A function expecting
+  // fewer parameters than `ButtonFactory` declares still satisfies it
+  // structurally, so this doesn't need its own separate array type.
+  type ButtonFactory = (props: { compact: boolean }) => ReactNode;
+  const buttons: ButtonFactory[] = [
+    () => (
+      <ColumnVisibilityMenu
+        columns={bridge.all_columns}
+        hidden={bridge.hidden_columns}
+        on_toggle={bridge.toggle_column_visibility}
+        on_reorder={bridge.reorder_column}
+      />
+    ),
+    (props) => (
+      <GridToolbarButton
+        icon={RefreshCw}
+        label="Refresh"
+        disabled={bridge.loading}
+        onClick={() => bridge.refresh()}
+        iconClassName={bridge.loading ? "animate-spin" : undefined}
+        {...props}
+      />
+    ),
+    (props) => (
+      <GridToolbarButton
+        icon={Plus}
+        label="Add Row"
+        disabled={!bridge.editable}
+        onClick={() => bridge.start_pending()}
+        {...props}
+      />
+    ),
+
+    (props) => (
+      <GridToolbarButton
+        icon={Trash2}
+        label="Delete Row(s)"
+        disabled={bridge.selected_cell_count === 0 || !bridge.editable}
+        onClick={() => bridge.delete_rows()}
+        className=""
+        {...props}
+      />
+    ),
+    (props) => (
+      <GridToolbarButton
+        icon={Pencil}
+        label="Bulk Edit"
+        disabled={!bulk_edit || !bridge.editable}
+        onClick={() => setBulkEditOpen(true)}
+        {...props}
+      />
+    ),
+    (props) => (
+      <GridToolbarButton
+        icon={RotateCcw}
+        label="Undo"
+        disabled={!bridge.pending_exists || bridge.loading}
+        onClick={() => bridge.cancel_pending()}
+        {...props}
+      />
+    ),
+    (props) => (
+      <GridToolbarButton
+        icon={bridge.loading ? Loader2 : Check}
+        label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
+        className={cn("bg-primary hover:bg-primary/70 rounded-r-none")}
+        iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
+        disabled={!bridge.pending_exists || bridge.loading}
+        onClick={() => setApplyChanges(bridge.get_pending_changes())}
+        {...props}
+      />
+    ),
+  ];
+  const compact = usePaneCompactWidth(pane_ref, buttons.length);
 
   return (
     <TooltipProvider delay={500}>
@@ -120,84 +202,12 @@ export function GridActionBar({
         {/* Icon cluster first, then add/delete, then the pending-changes
          *  commit group last — same left-to-right rhythm as a typical
          *  DB-client grid toolbar (icons, row actions, commit/rollback). */}
-        <GridToolbarButton
-          icon={RefreshCw}
-          label="Refresh"
-          disabled={bridge.loading}
-          onClick={() => bridge.refresh()}
-          iconClassName={bridge.loading ? "animate-spin" : undefined}
-          compact={compact[0]}
-        />
-        <GridToolbarButton
-          icon={Plus}
-          label="Add Row"
-          disabled={!bridge.editable}
-          onClick={() => bridge.start_pending()}
-          compact={compact[1]}
-        />
-
-        <GridToolbarButton
-          icon={Trash2}
-          label="Delete Row(s)"
-          disabled={bridge.selected_cell_count === 0 || !bridge.editable}
-          onClick={() => bridge.delete_rows()}
-          className=""
-          compact={compact[2]}
-        />
-        {bulk_edit && (
-          <GridToolbarButton
-            icon={Pencil}
-            label="Bulk Edit"
-            disabled={!bridge.editable}
-            onClick={() => setBulkEditOpen(true)}
-            compact={compact[5]}
-          />
-        )}
-        <div className="bg-border mx-1 h-4 w-px" />
-        <GridToolbarButton
-          icon={bridge.loading ? Loader2 : Check}
-          label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
-          className={cn("bg-primary hover:bg-primary/70 rounded-r-none")}
-          iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
-          disabled={!bridge.pending_exists || bridge.loading}
-          compact={compact[3]}
-          onClick={() => setApplyChanges(bridge.get_pending_changes())}
-        />
-        {/* <Tooltip>
-          <TooltipTrigger
-            disabled={!compact}
-            render={
-              <Button
-                size={compact ? "iconXs" : "sm"}
-                className={cn(
-                  "rounded-r-none",
-                  compact ? "" : "h-6 px-2 text-xs",
-                )}
-                disabled={!bridge.pending_exists || bridge.loading}
-                aria-label="Review and apply the pending changes"
-                onClick={() => setApplyChanges(bridge.get_pending_changes())}
-              >
-                {bridge.loading ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Check className="size-3.5" />
-                )}
-                {!compact && (
-                  <>
-                    Review
-                    {bridge.pending_count > 1
-                      ? ` (${bridge.pending_count})`
-                      : ""}
-                  </>
-                )}
-              </Button>
-            }
-          />
-          <TooltipContent side="top" className="z-10!">
-            Review and apply the pending changes
-            {bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}
-          </TooltipContent>
-        </Tooltip> */}
+        {buttons.map((btn, idx) => (
+          <Fragment key={idx}>
+            {btn({ compact: compact[idx] })}
+            {idx === 4 && <div className="bg-border mx-1 h-4 w-px" />}
+          </Fragment>
+        ))}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -231,13 +241,6 @@ export function GridActionBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <GridToolbarButton
-          icon={RotateCcw}
-          label="Undo"
-          disabled={!bridge.pending_exists || bridge.loading}
-          onClick={() => bridge.cancel_pending()}
-          compact={compact[4]}
-        />
       </div>
       {apply_changes && (
         <ApplyChangesDialog

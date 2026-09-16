@@ -276,6 +276,16 @@ pub trait DbAdapter: Send + Sync {
             "role detail listing is not supported by this adapter".into(),
         ))
     }
+    /// Installed extensions (Postgres `pg_extension`) — unlike `list_roles`,
+    /// this IS scoped by database (`None` = this connection's own), since
+    /// each database in a Postgres server has its own independently
+    /// installed set. The sidebar renders this once per database node, not
+    /// once per schema — extensions aren't schema-owned at all.
+    async fn list_extensions(&self, _database: Option<&str>) -> DbResult<Vec<SchemaObject>> {
+        Err(DbError::InvalidOperation(
+            "extension listing is not supported by this adapter".into(),
+        ))
+    }
     /// Close ONE sibling database's own connection right now (Postgres: the
     /// secondary pool `pool_for` opened for it), instead of waiting for its
     /// normal idle eviction — the sidebar's per-database "Disconnect" for
@@ -734,6 +744,20 @@ pub async fn list_roles(conn_id: &str) -> DbResult<Vec<SchemaObject>> {
 /// Full role attribute set — the Users & Privileges tab.
 pub async fn list_role_details(conn_id: &str) -> DbResult<Vec<RoleDetail>> {
     with_connection(conn_id, |a| async move { a.list_role_details().await }).await
+}
+
+/// Installed extensions (Postgres) — the sidebar catalog tree's "Extensions"
+/// row, shown once per database node (`database` = `None` for this
+/// connection's own).
+pub async fn list_extensions(
+    conn_id: &str,
+    database: Option<&str>,
+) -> DbResult<Vec<SchemaObject>> {
+    let database = database.map(str::to_string);
+    with_connection(conn_id, |a| async move {
+        a.list_extensions(database.as_deref()).await
+    })
+    .await
 }
 
 /// Close ONE sibling database's own connection right now — the sidebar's

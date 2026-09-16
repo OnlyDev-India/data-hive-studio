@@ -225,6 +225,26 @@ export async function listRoles(connId: string): Promise<SchemaObject[]> {
   });
 }
 
+/** Installed extensions (Postgres `pg_extension`) within `database` (omitted
+ *  = this connection's own) — the sidebar catalog tree's "Extensions" row,
+ *  shown once per database node. Unlike `listRoles` (cluster-wide, no
+ *  database concept at all) extensions ARE per-database, but they're still
+ *  not owned by any one schema — so this doesn't take a `schema` param the
+ *  way `listSchemaObjects` does. */
+export async function listExtensions(
+  connId: string,
+  database?: string,
+): Promise<SchemaObject[]> {
+  return dispatchDbCall<SchemaObject[]>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/extensions`,
+    httpBody: { database: database ?? null },
+    serverCmd: "server_list_extensions",
+    localCmd: "list_extensions",
+    args: { connId, database: database ?? null },
+  });
+}
+
 /** Full attribute set for every role (Postgres) — the Users & Privileges tab. */
 export async function listRoleDetails(connId: string): Promise<RoleDetail[]> {
   return dispatchDbCall<RoleDetail[]>(connId, {

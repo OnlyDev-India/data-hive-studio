@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Cell } from "./cell";
 import { HeaderCell } from "./header-cell";
+import { ColumnDragGhost } from "./column-drag-ghost";
 import { useGrid } from "./grid-context";
 import { GridSearchBar } from "./search-bar";
 
@@ -48,6 +49,7 @@ export function GridBody() {
   return (
     <div className="relative h-full">
       <GridSearchBar />
+      <ColumnDragGhost />
       <div
         ref={(el) => on_root_ready(el)}
         tabIndex={0}

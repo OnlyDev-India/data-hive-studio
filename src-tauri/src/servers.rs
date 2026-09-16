@@ -425,6 +425,17 @@ pub async fn server_list_roles(conn_id: String) -> Result<Vec<dh_core::db::Schem
 }
 
 #[tauri::command]
+pub async fn server_list_extensions(
+    conn_id: String,
+    database: Option<String>,
+) -> Result<Vec<dh_core::db::SchemaObject>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.list_extensions(&r, database.as_deref()).await })
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn server_list_role_details(
     conn_id: String,
 ) -> Result<Vec<dh_core::db::RoleDetail>, String> {

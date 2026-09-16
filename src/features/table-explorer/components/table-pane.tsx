@@ -218,6 +218,20 @@ export function TablePane({
       cur.map((f) => (f.id === id ? { ...f, conjunction } : f)),
     );
 
+  // Header's own per-column quick filter — upserts (or removes) the one
+  // `op: "in"` filter for `col`, leaving every other filter untouched.
+  const set_column_filter = (col: string, values: string[] | null) => {
+    setFilters((cur) => {
+      const without = cur.filter((f) => !(f.column === col && f.op === "in"));
+      if (values === null) return without;
+      const id = without.reduce((m, f) => Math.max(m, f.id), 0) + 1;
+      return [
+        ...without,
+        { id, column: col, op: "in", value: "", values, conjunction: "AND" },
+      ];
+    });
+  };
+
   const clear_filters = () => {
     setFilters([]);
     setCustomWhere("");
@@ -359,6 +373,7 @@ export function TablePane({
                   on_open_reference={on_open_reference}
                   database={database}
                   schema_name={db_schema}
+                  on_column_filter={set_column_filter}
                 />
               </div>
               <div

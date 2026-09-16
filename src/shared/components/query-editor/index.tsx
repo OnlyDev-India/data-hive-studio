@@ -63,6 +63,7 @@ import {
 } from "./nosql-completions";
 import { docHoverTheme, docHoverTooltip, type DocEntry } from "./doc-hover";
 import { resolveSqlDoc } from "./sql-docs";
+import { sqlSignatureHelp } from "./signature-help";
 import { resolveMongoDoc } from "./nosql-docs";
 import { DocDetailBody } from "./doc-markdown";
 import {
@@ -658,6 +659,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         inlineDiagnostics,
         docHoverTooltip(resolveSqlDoc, onOpenDocDetails),
         docHoverTheme,
+        ...(readOnly ? [] : [sqlSignatureHelp()]),
         // Run-button gutter before the line-number gutter (basicSetup's own
         // `lineNumbers` is disabled below) so it renders to the LEFT of the
         // numbers — see the identical comment in the "js" branch above.

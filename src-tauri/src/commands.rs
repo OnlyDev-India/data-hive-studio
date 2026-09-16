@@ -114,6 +114,19 @@ forward_cmd! {
     list_role_details(conn_id: String) -> Vec<crate::db::RoleDetail> => list_role_details
 }
 
+/// Installed extensions (Postgres) within `database` (`None` = this
+/// connection's own) — the sidebar catalog tree's per-database "Extensions"
+/// row. Hand-written for the same reason as `list_schemas_in`.
+#[tauri::command]
+pub async fn list_extensions(
+    conn_id: String,
+    database: Option<String>,
+) -> Result<Vec<crate::db::SchemaObject>, String> {
+    crate::db::list_extensions(&conn_id, database.as_deref())
+        .await
+        .map_err(to_err)
+}
+
 /// Schemas within `database` (`None` = this connection's own database) — the
 /// sidebar catalog tree's per-database schema list. Hand-written (not
 /// `forward_cmd!`) since `database` needs an owned-to-borrowed conversion
