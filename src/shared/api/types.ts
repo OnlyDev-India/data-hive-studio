@@ -112,6 +112,49 @@ export interface IndexInfo {
   partial_filter?: string | null;
 }
 
+/** A key-count truncation marker on a wide `FieldShape` object (AC-5):
+ *  `shown` of `total` distinct keys were kept. */
+export interface FieldKeyTruncation {
+  shown: number;
+  total: number;
+}
+
+/** One node of a MongoDB collection's inferred nested field shape (spec
+ *  0001's "Fields" view) — read only, independent of `ColumnInfo`/
+ *  `TableSchema` (which stay flat for the data grid's column headers). */
+export interface FieldShape {
+  /** Last path segment, e.g. "zip" for "address.zip". */
+  name: string;
+  /** Full dot path from the document root, e.g. "address.zip". */
+  path: string;
+  /** The single most common BSON type observed at this path ("object",
+   *  "array", or a scalar name). Never a union, even for a mixed-type
+   *  field — matches the flat schema's existing most-common-type behavior. */
+  type: string;
+  /** True when present in fewer sampled documents than its parent is, not
+   *  the raw sample size — a field always present whenever its parent
+   *  exists is not misleadingly optional just because the parent itself
+   *  sometimes is not. */
+  optional: boolean;
+  /** Nested fields, present when `type` is "object", or "array" whose
+   *  sampled elements include objects. Absent (not `[]`) when there are
+   *  none — the Rust side omits an empty vec from the wire payload. */
+  children?: FieldShape[];
+  /** Present only when `type` is "array": the union of BSON types observed
+   *  among sampled elements. The one place a union appears; `type` itself
+   *  never is one. Absent (not `[]`) when there are none. */
+  element_types?: string[];
+  /** Set when an object's distinct sampled keys exceeded the 50 key cap.
+   *  Absent (not `null`) otherwise. */
+  truncated?: FieldKeyTruncation;
+  /** True when `type` is "object"/"array" but zero keys/elements were
+   *  observed across the whole sample. */
+  empty: boolean;
+  /** True when recursion stopped at the 6 level depth cap, or the global
+   *  node budget, even though the real document nests deeper. */
+  depth_truncated: boolean;
+}
+
 export interface TableSchema {
   /** "table" | "view" | "matview" (Postgres). Absent/empty on older
    *  payloads — treat as "table". */
@@ -230,6 +273,12 @@ export interface WireFilter {
   conjunction?: string;
 }
 
+/** One column of a multi-column sort, in priority order (index 0 = primary). */
+export interface WireOrderBy {
+  column: string;
+  dir: "ASC" | "DESC";
+}
+
 /** A structured statement request, executed by `executeOp`. */
 export type QueryOp =
   | {
@@ -238,8 +287,8 @@ export type QueryOp =
       filters?: WireFilter[];
       /** Raw WHERE text written by the user; wins over `filters`. */
       custom_where?: string;
-      order_by?: string;
-      order_dir?: "ASC" | "DESC";
+      /** Sort keys in priority order; absent/empty = unsorted. */
+      order_by?: WireOrderBy[];
       limit?: number;
       offset?: number;
     }

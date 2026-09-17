@@ -58,7 +58,7 @@ export function handleMenuAction(id: string) {
       s.toggleLeftPanelOpen();
       break;
     case "view.toggle_json":
-      s.toggleRightSidebar();
+      s.toggleBottomPanel();
       break;
     case "view.command_palette":
       s.setCommandPaletteOpen(!s.commandPaletteOpen);

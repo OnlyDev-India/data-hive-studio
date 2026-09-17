@@ -20,8 +20,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 
 use crate::api::{
-    ConnectionInfo, DbKind, MongoRunResult, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo,
-    TableSchema,
+    ConnectionInfo, DbKind, FieldShape, MongoRunResult, QueryChunk, QueryOp, QueryResult,
+    SchemaOp, TableInfo, TableSchema,
 };
 use serde_json;
 
@@ -357,6 +357,20 @@ pub trait DbAdapter: Send + Sync {
     ) -> DbResult<MongoRunResult> {
         Err(DbError::InvalidOperation(
             "Mongo console commands are only available on MongoDB connections".into(),
+        ))
+    }
+    /// Recursively inferred nested field shape for a MongoDB collection (spec
+    /// 0001's "Fields" view) — sampled the same way as `inferred_schema`
+    /// (up to 200 documents) but built as a per-path tree instead of a flat
+    /// list, decoupled from `table_schema`/`ColumnInfo` so the data grid's
+    /// column headers are never affected. Non-Mongo adapters reject it.
+    async fn field_tree(
+        &self,
+        _database: &str,
+        _collection: &str,
+    ) -> DbResult<Vec<FieldShape>> {
+        Err(DbError::InvalidOperation(
+            "the nested field view is only available on MongoDB connections".into(),
         ))
     }
     /// Schemas + databases + active schema in ONE round trip — the sidebar
@@ -859,6 +873,28 @@ pub async fn run_mongo(
 /// Schemas + databases + active schema in ONE catalog round trip.
 pub async fn catalog_overview(conn_id: &str) -> DbResult<CatalogOverview> {
     with_connection(conn_id, |a| async move { a.catalog_overview().await }).await
+}
+
+/// The recursively inferred nested field shape for a MongoDB collection
+/// (spec 0001's "Fields" view). Logged like `table_schema` (kind "schema",
+/// origin "app") since it's an app-driven schema read, not something typed
+/// into a console.
+pub async fn field_tree(
+    conn_id: &str,
+    database: &str,
+    collection: &str,
+) -> DbResult<Vec<FieldShape>> {
+    let t = std::time::Instant::now();
+    let target = format!("field tree {collection}");
+    let res = with_connection(conn_id, |a| async move {
+        a.field_tree(database, collection).await
+    })
+    .await;
+    match &res {
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "schema", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "schema", &target, t, e, "app"),
+    }
+    res
 }
 
 /// Runs a single-name, no-result operation through `with_connection` and logs

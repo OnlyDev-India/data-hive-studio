@@ -42,13 +42,31 @@ describe("formatQueryPreview (SQL)", () => {
         {
           kind: "select",
           table: "users",
-          order_by: "created_at",
-          order_dir: "DESC",
+          order_by: [{ column: "created_at", dir: "DESC" }],
         },
         20,
         false,
       ),
     ).toBe('SELECT * FROM "users" ORDER BY created_at DESC LIMIT 20');
+  });
+
+  it("joins multiple ORDER BY keys in priority order", () => {
+    expect(
+      formatQueryPreview(
+        {
+          kind: "select",
+          table: "users",
+          order_by: [
+            { column: "status", dir: "ASC" },
+            { column: "created_at", dir: "DESC" },
+          ],
+        },
+        20,
+        false,
+      ),
+    ).toBe(
+      'SELECT * FROM "users" ORDER BY status ASC, created_at DESC LIMIT 20',
+    );
   });
 });
 
@@ -93,12 +111,30 @@ describe("formatQueryPreview (Mongo)", () => {
         {
           kind: "select",
           table: "users",
-          order_by: "createdAt",
-          order_dir: "DESC",
+          order_by: [{ column: "createdAt", dir: "DESC" }],
         },
         20,
         true,
       ),
     ).toBe("db.users.find({}).sort({ createdAt: -1 }).limit(20)");
+  });
+
+  it("joins multiple sort keys in priority order", () => {
+    expect(
+      formatQueryPreview(
+        {
+          kind: "select",
+          table: "users",
+          order_by: [
+            { column: "status", dir: "ASC" },
+            { column: "createdAt", dir: "DESC" },
+          ],
+        },
+        20,
+        true,
+      ),
+    ).toBe(
+      "db.users.find({}).sort({ status: 1, createdAt: -1 }).limit(20)",
+    );
   });
 });

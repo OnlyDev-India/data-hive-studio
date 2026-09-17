@@ -60,7 +60,7 @@ export const TITLE_BAR_MENUS: MenuDef[] = [
     label: "View",
     items: [
       { id: "view.toggle_left_panel", label: "Toggle Sidebar" },
-      { id: "view.toggle_json", label: "Toggle JSON Panel" },
+      { id: "view.toggle_json", label: "Toggle Bottom Panel" },
       { separator: true },
       {
         id: "view.command_palette",

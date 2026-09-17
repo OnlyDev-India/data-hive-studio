@@ -14,9 +14,10 @@ use std::sync::Arc;
 
 use super::{BatchSink, DbAdapter, DbError, DbResult, OpOutcome, QueryChunk};
 use crate::api::{
-    ColumnInfo, FilterOp, GridFilterCond, IndexInfo, QueryOp, QueryResult, SchemaOp, TableInfo,
-    TableSchema,
+    ColumnInfo, FieldKeyTruncation, FieldShape, FilterOp, GridFilterCond, IndexInfo, QueryOp,
+    QueryResult, SchemaOp, TableInfo, TableSchema,
 };
+use std::collections::{BTreeSet, HashMap};
 
 /// Parameters for connecting to a MongoDB server.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -735,6 +736,235 @@ fn bson_type_name(ty: &bson::Bson) -> &'static str {
     }
 }
 
+// ---- Nested field tree (spec 0001, "Fields" view) --------------------------
+//
+// Two passes over the up to 200 sampled documents: `accumulate_field_tree`
+// walks each document, recording per dot-path stats into `FieldTreeAccum`;
+// `build_field_children`/`build_field_node` then turn those stats into the
+// `FieldShape` tree returned to the frontend. Kept as free functions (not
+// adapter methods) since they operate purely on the accumulated stats, not
+// the connection.
+
+/// 6 levels of nesting are shown; accumulation walks one level further (see
+/// the `depth > FIELD_TREE_MAX_DEPTH` guard below) purely to detect whether
+/// a depth-6 node has real children to report as `depth_truncated`, without
+/// ever rendering that extra level.
+const FIELD_TREE_MAX_DEPTH: usize = 6;
+/// Elements sampled per array, per document (spec 0001).
+const FIELD_TREE_MAX_ARRAY_ELEMENTS: usize = 20;
+/// Distinct keys shown per nested object before a `truncated` marker takes
+/// over (spec 0001, AC-5). Not applied to the collection's own top-level
+/// field list — see `sample_field_tree`.
+const FIELD_TREE_MAX_KEYS_PER_OBJECT: usize = 50;
+/// Total `FieldShape` nodes a single `field_tree` call may build, across
+/// every level, so a pathological document (where the depth, key, and array
+/// caps combine multiplicatively) can't produce an unbounded payload.
+const FIELD_TREE_NODE_BUDGET: usize = 2000;
+
+type FieldTypeCounts = HashMap<&'static str, usize>;
+
+#[derive(Default)]
+struct FieldTreeStat {
+    /// Histogram of BSON types observed at this path — the most common one
+    /// is reported as `FieldShape::bson_type`; never rendered as a union.
+    type_counts: FieldTypeCounts,
+    /// Times this path had a value, out of its parent's `container_count`
+    /// (or the sample size, for a top-level path) — the numerator/denominator
+    /// pair `FieldShape::optional` compares.
+    present_count: usize,
+    /// Times this path was itself walked as a container (an object, or an
+    /// array whose element was an object) — the denominator for ITS OWN
+    /// children's `optional` calculation.
+    container_count: usize,
+    /// Histogram of BSON types observed among this path's sampled array
+    /// elements (only meaningful when `type_counts` says "array").
+    element_type_counts: FieldTypeCounts,
+}
+
+#[derive(Default)]
+struct FieldTreeAccum {
+    /// Full dot path → its stats.
+    stats: HashMap<String, FieldTreeStat>,
+    /// Parent dot path (`""` for the document root) → its immediate
+    /// children's full dot paths.
+    children: HashMap<String, BTreeSet<String>>,
+}
+
+/// Walk one container instance (a sampled document when `prefix` is `""`, or
+/// a nested object/array-object-element otherwise), recording its fields
+/// into `accum`. `depth` is `prefix`'s own nesting depth (0 for the document
+/// root); an object's dot path doubles as an array's element path, matching
+/// MongoDB's own dot-notation query semantics, so object and array-of-object
+/// children share one path scheme.
+fn accumulate_field_tree(obj: &bson::Document, prefix: &str, depth: usize, accum: &mut FieldTreeAccum) {
+    if !prefix.is_empty() {
+        accum.stats.entry(prefix.to_string()).or_default().container_count += 1;
+    }
+    // See FIELD_TREE_MAX_DEPTH's doc comment: `>` (not `>=`) lets a depth-6
+    // container's OWN fields be recorded, one level of lookahead past what
+    // gets rendered, so the depth-6 `FieldShape` can still report
+    // `depth_truncated` accurately instead of always reading "no children".
+    if depth > FIELD_TREE_MAX_DEPTH {
+        return;
+    }
+    for (k, v) in obj.iter() {
+        let path = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+        accum.children.entry(prefix.to_string()).or_default().insert(path.clone());
+        {
+            let stat = accum.stats.entry(path.clone()).or_default();
+            stat.present_count += 1;
+            *stat.type_counts.entry(bson_type_name(v)).or_insert(0) += 1;
+        }
+        match v {
+            bson::Bson::Document(child) => {
+                accumulate_field_tree(child, &path, depth + 1, accum);
+            }
+            bson::Bson::Array(arr) => {
+                for el in arr.iter().take(FIELD_TREE_MAX_ARRAY_ELEMENTS) {
+                    {
+                        let stat = accum.stats.entry(path.clone()).or_default();
+                        *stat.element_type_counts.entry(bson_type_name(el)).or_insert(0) += 1;
+                    }
+                    if let bson::Bson::Document(el_obj) = el {
+                        accumulate_field_tree(el_obj, &path, depth + 1, accum);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The single most common BSON type at a path — ties broken alphabetically
+/// for determinism (`FieldShape::bson_type` is never a union; see AC-4).
+fn most_common_field_type(counts: &FieldTypeCounts) -> String {
+    let mut ranked: Vec<(&&'static str, &usize)> = counts.iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    ranked.first().map(|(t, _)| t.to_string()).unwrap_or_else(|| "bson".into())
+}
+
+/// The union of BSON types observed among a path's sampled array elements,
+/// most common first, ties broken alphabetically (AC-3).
+fn ranked_element_types(counts: &FieldTypeCounts) -> Vec<String> {
+    let mut ranked: Vec<(&&'static str, &usize)> = counts.iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    ranked.into_iter().map(|(t, _)| t.to_string()).collect()
+}
+
+/// Builds one path's `FieldShape`, recursing into its children unless it
+/// sits at the depth-6 boundary or the node budget has run out.
+fn build_field_node(
+    path: &str,
+    depth: usize,
+    denom: usize,
+    accum: &FieldTreeAccum,
+    budget: &mut usize,
+) -> FieldShape {
+    let stat = &accum.stats[path];
+    let name = path.rsplit('.').next().unwrap_or(path).to_string();
+    let bson_type = most_common_field_type(&stat.type_counts);
+    let optional = stat.present_count < denom;
+    let has_children_data = accum.children.get(path).is_some_and(|s| !s.is_empty());
+    let element_total: usize = stat.element_type_counts.values().sum();
+
+    if depth >= FIELD_TREE_MAX_DEPTH {
+        // Boundary node: report its own name/type/optional, but omit
+        // children/element_types outright rather than partially populate
+        // them — `depth_truncated` is only true when there was real content
+        // being hidden (see the doc comment on `FIELD_TREE_MAX_DEPTH`'s
+        // one-level accumulation lookahead, which makes `has_children_data`
+        // and `element_total` reliable here, not just "we never looked").
+        let depth_truncated = has_children_data || element_total > 0;
+        let empty = (bson_type == "object" && !has_children_data)
+            || (bson_type == "array" && element_total == 0);
+        return FieldShape {
+            name,
+            path: path.to_string(),
+            bson_type,
+            optional,
+            children: Vec::new(),
+            element_types: Vec::new(),
+            truncated: None,
+            empty,
+            depth_truncated,
+        };
+    }
+
+    let (children, truncated, budget_hit) = if bson_type == "object" || bson_type == "array" {
+        build_field_children(
+            path,
+            depth + 1,
+            stat.container_count,
+            Some(FIELD_TREE_MAX_KEYS_PER_OBJECT),
+            accum,
+            budget,
+        )
+    } else {
+        (Vec::new(), None, false)
+    };
+    let element_types = if bson_type == "array" {
+        ranked_element_types(&stat.element_type_counts)
+    } else {
+        Vec::new()
+    };
+    let empty = (bson_type == "object" && !has_children_data)
+        || (bson_type == "array" && element_total == 0);
+
+    FieldShape {
+        name,
+        path: path.to_string(),
+        bson_type,
+        optional,
+        children,
+        element_types,
+        truncated,
+        empty,
+        depth_truncated: budget_hit,
+    }
+}
+
+/// Builds every immediate child of `parent_path` (`""` for the document
+/// root), ranked most-present-first (the ranking AC-5's "50 most common
+/// keys" cap uses), applying `cap` (`None` for the root's own field list,
+/// which is never truncated — see `sample_field_tree`) and the shared node
+/// `budget`. Returns the built children, the key-count truncation marker (if
+/// `cap` was exceeded), and whether the node budget cut this list short.
+fn build_field_children(
+    parent_path: &str,
+    depth: usize,
+    denom: usize,
+    cap: Option<usize>,
+    accum: &FieldTreeAccum,
+    budget: &mut usize,
+) -> (Vec<FieldShape>, Option<FieldKeyTruncation>, bool) {
+    let Some(set) = accum.children.get(parent_path) else {
+        return (Vec::new(), None, false);
+    };
+    let mut ranked: Vec<&String> = set.iter().collect();
+    ranked.sort_by(|a, b| {
+        let pa = accum.stats[a.as_str()].present_count;
+        let pb = accum.stats[b.as_str()].present_count;
+        pb.cmp(&pa).then_with(|| a.cmp(b))
+    });
+    let total = ranked.len();
+    let take_n = cap.unwrap_or(total);
+    let mut out = Vec::with_capacity(take_n.min(total));
+    let mut budget_hit = false;
+    for path in ranked.into_iter().take(take_n) {
+        if *budget == 0 {
+            budget_hit = true;
+            break;
+        }
+        *budget -= 1;
+        out.push(build_field_node(path, depth, denom, accum, budget));
+    }
+    let truncated = cap.filter(|c| total > *c).map(|c| FieldKeyTruncation {
+        shown: out.len().min(c) as u32,
+        total: total as u32,
+    });
+    (out, truncated, budget_hit)
+}
+
 impl MongoAdapter {
     pub async fn connect(params: &MongoParams) -> DbResult<Self> {
         let tunnel = match &params.ssh {
@@ -863,6 +1093,64 @@ impl MongoAdapter {
                 }
             })
             .collect())
+    }
+
+    /// The recursively inferred nested field shape for the "Fields" view
+    /// (spec 0001) — a per-path tree instead of `inferred_schema`'s flat
+    /// list, sampled independently so `table_schema`/`ColumnInfo`/the data
+    /// grid's column headers are never affected by this. Samples the same
+    /// up to 200 documents, then walks each recursively (up to 6 levels,
+    /// up to 20 elements per array) accumulating per-path stats, then builds
+    /// the `FieldShape` tree from those stats.
+    async fn sample_field_tree(
+        &self,
+        database: &str,
+        collection: &str,
+    ) -> DbResult<Vec<FieldShape>> {
+        let col = self
+            .client
+            .database(database)
+            .collection::<bson::Document>(collection);
+        let mut cursor = col
+            .find(bson::doc! {})
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        let mut accum = FieldTreeAccum::default();
+        let mut sample_count = 0usize;
+        while let Some(doc) = cursor
+            .try_next()
+            .await
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+        {
+            accumulate_field_tree(&doc, "", 0, &mut accum);
+            sample_count += 1;
+            if sample_count >= 200 {
+                break;
+            }
+        }
+        if sample_count == 0 {
+            // Empty collection — nothing to infer; default to a single _id,
+            // matching `inferred_schema`'s own empty-collection fallback.
+            return Ok(vec![FieldShape {
+                name: "_id".into(),
+                path: "_id".into(),
+                bson_type: "objectid".into(),
+                optional: false,
+                children: Vec::new(),
+                element_types: Vec::new(),
+                truncated: None,
+                empty: false,
+                depth_truncated: false,
+            }]);
+        }
+        let mut budget = FIELD_TREE_NODE_BUDGET;
+        // Root fields are never key-capped (matches `inferred_schema`, which
+        // never truncates the top-level field list either) — the 50 key cap
+        // targets the realistic "wide object" case (a dynamic map nested
+        // inside a field), not a collection's own top-level field count.
+        let (fields, _truncated, _budget_hit) =
+            build_field_children("", 1, sample_count, None, &accum, &mut budget);
+        Ok(fields)
     }
 
     /// List a collection's indexes (Phase 5: index manager). `_id_` is
@@ -1101,8 +1389,7 @@ impl MongoAdapter {
         database: &str,
         collection: &str,
         filter: Option<bson::Document>,
-        order_by: Option<&str>,
-        order_dir: Option<&str>,
+        order_by: &[crate::api::OrderByCond],
         limit: i64,
         offset: i64,
     ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>, u64)> {
@@ -1111,9 +1398,20 @@ impl MongoAdapter {
             .database(database)
             .collection::<bson::Document>(collection);
         let mut opts = mongodb::options::FindOptions::builder().build();
-        if let Some(field) = order_by {
-            let dir = if order_dir == Some("DESC") { -1 } else { 1 };
-            opts.sort = Some(doc! { "_id": 1, field: dir });
+        if !order_by.is_empty() {
+            // Mongo sort documents apply keys in insertion order, so the
+            // requested columns must come first (in priority order) — `_id`
+            // is only a trailing tiebreaker for deterministic pagination
+            // when every requested key ties, not the primary key.
+            let mut sort = bson::Document::new();
+            for o in order_by {
+                let dir = if o.dir == "DESC" { -1 } else { 1 };
+                sort.insert(o.column.clone(), dir);
+            }
+            if !sort.contains_key("_id") {
+                sort.insert("_id", 1);
+            }
+            opts.sort = Some(sort);
         }
         let skip_u = offset.max(0) as u64;
         opts.skip = Some(skip_u);
@@ -1763,6 +2061,13 @@ impl DbAdapter for MongoAdapter {
         ))
     }
 
+    /// Spec 0001's "Fields" view — deliberately independent of
+    /// `table_schema` above: this never touches `ColumnInfo`/`TableSchema`,
+    /// so the data grid's column headers can't be affected by it.
+    async fn field_tree(&self, database: &str, collection: &str) -> DbResult<Vec<FieldShape>> {
+        self.sample_field_tree(database, collection).await
+    }
+
     async fn list_schemas(&self) -> DbResult<Vec<String>> {
         Ok(vec![])
     }
@@ -2082,7 +2387,6 @@ impl DbAdapter for MongoAdapter {
                 filters,
                 custom_where,
                 order_by,
-                order_dir,
                 limit,
                 offset,
             } => {
@@ -2093,8 +2397,7 @@ impl DbAdapter for MongoAdapter {
                         &db,
                         table,
                         filter,
-                        order_by.as_deref(),
-                        order_dir.as_deref(),
+                        order_by,
                         limit.unwrap_or(50),
                         offset.unwrap_or(0),
                     )
@@ -2339,7 +2642,6 @@ impl DbAdapter for MongoAdapter {
                 filters,
                 custom_where,
                 order_by,
-                order_dir,
                 limit,
                 offset,
             } => {
@@ -2349,8 +2651,7 @@ impl DbAdapter for MongoAdapter {
                         &db,
                         table,
                         filter.clone(),
-                        order_by.as_deref(),
-                        order_dir.as_deref(),
+                        order_by,
                         limit.unwrap_or(50),
                         offset.unwrap_or(0),
                     )
@@ -2580,6 +2881,112 @@ impl DbAdapter for MongoAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs `accumulate_field_tree` over every doc, then builds the
+    /// top-level field list the way `sample_field_tree` does (uncapped,
+    /// since the root's own field list is never key-capped).
+    fn build_tree(docs: &[bson::Document]) -> Vec<FieldShape> {
+        let mut accum = FieldTreeAccum::default();
+        for d in docs {
+            accumulate_field_tree(d, "", 0, &mut accum);
+        }
+        let mut budget = FIELD_TREE_NODE_BUDGET;
+        build_field_children("", 1, docs.len(), None, &accum, &mut budget).0
+    }
+
+    fn find_field<'a>(fields: &'a [FieldShape], name: &str) -> &'a FieldShape {
+        fields.iter().find(|f| f.name == name).unwrap_or_else(|| {
+            panic!("field {name:?} not found among {:?}", fields.iter().map(|f| &f.name).collect::<Vec<_>>())
+        })
+    }
+
+    #[test]
+    fn nested_object_recurses_with_correct_types_and_paths() {
+        let docs = vec![doc! { "address": { "city": "NYC", "zip": 10001 } }];
+        let tree = build_tree(&docs);
+        let address = find_field(&tree, "address");
+        assert_eq!(address.bson_type, "object");
+        assert!(!address.optional);
+        let city = find_field(&address.children, "city");
+        assert_eq!(city.bson_type, "string");
+        assert_eq!(city.path, "address.city");
+        assert!(!city.optional);
+    }
+
+    #[test]
+    fn optional_is_scoped_to_parent_not_raw_sample_size() {
+        // `zip` is present in every doc where `address` itself is present,
+        // even though `address` is absent from half the sample — `zip`
+        // must NOT be marked optional just because `address` sometimes is.
+        let docs = vec![
+            doc! { "address": { "zip": 1 } },
+            doc! { "address": { "zip": 2 } },
+            doc! { "other": true },
+        ];
+        let tree = build_tree(&docs);
+        let address = find_field(&tree, "address");
+        assert!(address.optional, "address is present in only 2/3 docs");
+        let zip = find_field(&address.children, "zip");
+        assert!(
+            !zip.optional,
+            "zip is present in every doc where address exists, so it must not read as optional"
+        );
+    }
+
+    #[test]
+    fn array_of_objects_merges_element_shape_and_reports_type_union() {
+        let docs = vec![doc! {
+            "tags": [ { "label": "a" }, { "label": "b" }, "scalar" ],
+        }];
+        let tree = build_tree(&docs);
+        let tags = find_field(&tree, "tags");
+        assert_eq!(tags.bson_type, "array");
+        let mut element_types = tags.element_types.clone();
+        element_types.sort();
+        assert_eq!(element_types, vec!["object".to_string(), "string".to_string()]);
+        let label = find_field(&tags.children, "label");
+        assert_eq!(label.bson_type, "string");
+    }
+
+    #[test]
+    fn empty_array_and_object_are_flagged_empty_with_no_children() {
+        let docs = vec![doc! { "tags": [], "meta": {} }];
+        let tree = build_tree(&docs);
+        let tags = find_field(&tree, "tags");
+        assert!(tags.empty);
+        assert!(tags.children.is_empty());
+        let meta = find_field(&tree, "meta");
+        assert!(meta.empty);
+        assert!(meta.children.is_empty());
+    }
+
+    #[test]
+    fn mixed_top_level_type_reports_only_the_most_common_one() {
+        let docs = vec![
+            doc! { "v": "a" },
+            doc! { "v": "b" },
+            doc! { "v": 1 },
+        ];
+        let tree = build_tree(&docs);
+        let v = find_field(&tree, "v");
+        assert_eq!(v.bson_type, "string");
+        assert!(v.element_types.is_empty(), "type must never be a union");
+    }
+
+    #[test]
+    fn wide_nested_object_is_capped_at_50_keys_with_a_truncation_marker() {
+        let mut inner = bson::Document::new();
+        for i in 0..75 {
+            inner.insert(format!("k{i:02}"), i);
+        }
+        let docs = vec![doc! { "dynamic": inner }];
+        let tree = build_tree(&docs);
+        let dynamic = find_field(&tree, "dynamic");
+        assert_eq!(dynamic.children.len(), 50);
+        let truncated = dynamic.truncated.as_ref().expect("expected a truncation marker");
+        assert_eq!(truncated.shown, 50);
+        assert_eq!(truncated.total, 75);
+    }
 
     #[test]
     fn flatten_documents_falls_back_to_id_when_empty() {

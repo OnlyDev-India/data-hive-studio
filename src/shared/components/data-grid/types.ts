@@ -27,6 +27,13 @@ export type DistinctMap = Record<string, (string | null)[]>;
 export type CellKind =
   "text" | "bool" | "date" | "datetime" | "dropdown" | "array";
 
+/** One column of a multi-column sort, in priority order — index 0 in the
+ *  owning `sort_keys` array is the primary sort. */
+export interface SortKey {
+  column: string;
+  asc: boolean;
+}
+
 /** A filter row built from the UI: column + operator + optional value. */
 export interface GridFilter {
   id: number;

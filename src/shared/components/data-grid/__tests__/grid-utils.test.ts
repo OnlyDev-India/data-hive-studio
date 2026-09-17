@@ -113,17 +113,19 @@ describe("rowToObject", () => {
 describe("sortRows", () => {
   const columns = ["id", "name"];
 
-  it("returns rows unchanged when no sort column is set", () => {
+  it("returns rows unchanged when no sort keys are set", () => {
     const rows = [
       ["2", "b"],
       ["1", "a"],
     ];
-    expect(sortRows(rows, columns, null, true)).toBe(rows);
+    expect(sortRows(rows, columns, [])).toBe(rows);
   });
 
   it("returns rows unchanged when the sort column doesn't exist", () => {
     const rows = [["2", "b"]];
-    expect(sortRows(rows, columns, "missing", true)).toBe(rows);
+    expect(sortRows(rows, columns, [{ column: "missing", asc: true }])).toBe(
+      rows,
+    );
   });
 
   it("sorts numerically when both values are clean numbers", () => {
@@ -132,16 +134,16 @@ describe("sortRows", () => {
       ["2", "b"],
       ["1", "c"],
     ];
-    expect(sortRows(rows, columns, "id", true).map((r) => r[0])).toEqual([
-      "1",
-      "2",
-      "10",
-    ]);
-    expect(sortRows(rows, columns, "id", false).map((r) => r[0])).toEqual([
-      "10",
-      "2",
-      "1",
-    ]);
+    expect(
+      sortRows(rows, columns, [{ column: "id", asc: true }]).map(
+        (r) => r[0],
+      ),
+    ).toEqual(["1", "2", "10"]);
+    expect(
+      sortRows(rows, columns, [{ column: "id", asc: false }]).map(
+        (r) => r[0],
+      ),
+    ).toEqual(["10", "2", "1"]);
   });
 
   it("sorts lexicographically when values aren't clean numbers", () => {
@@ -150,11 +152,11 @@ describe("sortRows", () => {
       ["x", "alice"],
       ["x", "bob"],
     ];
-    expect(sortRows(rows, columns, "name", true).map((r) => r[1])).toEqual([
-      "alice",
-      "bob",
-      "charlie",
-    ]);
+    expect(
+      sortRows(rows, columns, [{ column: "name", asc: true }]).map(
+        (r) => r[1],
+      ),
+    ).toEqual(["alice", "bob", "charlie"]);
   });
 
   it("puts NULLs last regardless of direction", () => {
@@ -163,16 +165,16 @@ describe("sortRows", () => {
       [null, "b"],
       ["3", "c"],
     ];
-    expect(sortRows(rows, columns, "id", true).map((r) => r[0])).toEqual([
-      "1",
-      "3",
-      null,
-    ]);
-    expect(sortRows(rows, columns, "id", false).map((r) => r[0])).toEqual([
-      "3",
-      "1",
-      null,
-    ]);
+    expect(
+      sortRows(rows, columns, [{ column: "id", asc: true }]).map(
+        (r) => r[0],
+      ),
+    ).toEqual(["1", "3", null]);
+    expect(
+      sortRows(rows, columns, [{ column: "id", asc: false }]).map(
+        (r) => r[0],
+      ),
+    ).toEqual(["3", "1", null]);
   });
 
   it("does not mutate the input array", () => {
@@ -181,7 +183,55 @@ describe("sortRows", () => {
       ["1", "a"],
     ];
     const copy = rows.map((r) => [...r]);
-    sortRows(rows, columns, "id", true);
+    sortRows(rows, columns, [{ column: "id", asc: true }]);
     expect(rows).toEqual(copy);
+  });
+
+  it("breaks ties on the primary key using the secondary key", () => {
+    const rows = [
+      ["1", "charlie"],
+      ["1", "alice"],
+      ["1", "bob"],
+    ];
+    expect(
+      sortRows(rows, columns, [
+        { column: "id", asc: true },
+        { column: "name", asc: true },
+      ]).map((r) => r[1]),
+    ).toEqual(["alice", "bob", "charlie"]);
+  });
+
+  it("applies an independent direction per key", () => {
+    const rows = [
+      ["1", "a"],
+      ["2", "c"],
+      ["1", "b"],
+      ["2", "d"],
+    ];
+    // id ASC, name DESC — ties on id break by name descending.
+    expect(
+      sortRows(rows, columns, [
+        { column: "id", asc: true },
+        { column: "name", asc: false },
+      ]),
+    ).toEqual([
+      ["1", "b"],
+      ["1", "a"],
+      ["2", "d"],
+      ["2", "c"],
+    ]);
+  });
+
+  it("skips an unknown key and falls through to the next", () => {
+    const rows = [
+      ["1", "b"],
+      ["1", "a"],
+    ];
+    expect(
+      sortRows(rows, columns, [
+        { column: "missing", asc: true },
+        { column: "name", asc: true },
+      ]).map((r) => r[1]),
+    ).toEqual(["a", "b"]);
   });
 });

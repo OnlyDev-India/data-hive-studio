@@ -197,6 +197,23 @@ impl Gateway {
             .map_err(|e| e.to_string())
     }
 
+    /// Spec 0001's "Fields" view, team-server passthrough — read only, same
+    /// authorize gate as `table_schema` above.
+    pub async fn field_tree(
+        &self,
+        ctx: &AuthCtx,
+        conn_id: &str,
+        database: &str,
+        collection: &str,
+    ) -> Result<Vec<crate::api::FieldShape>, String> {
+        self.authorize(ctx, conn_id, false).await?;
+        self.adapter(conn_id)
+            .await?
+            .field_tree(database, collection)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     pub async fn run_sql(
         &self,
         ctx: &AuthCtx,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, Plus, Trash2 } from "lucide-react";
+import { KeyRound, Plus, SquareArrowOutUpRight, Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
@@ -20,6 +20,7 @@ import {
   tableSchema,
 } from "@/shared/api";
 import { useStudioStore } from "@/shared/store";
+import { QueryEditor } from "@/features/query-editor";
 
 const COLUMN_TYPES = [
   "INTEGER",
@@ -236,6 +237,7 @@ export function NewTableTab({
   const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const is_pg = conn?.kind === "postgres";
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
+  const openSql = useStudioStore((s) => s.openSql);
   const own_database = recent_params?.database ?? conn?.name ?? "";
   const [database, setDatabase] = useState("");
   const [schema, setSchema] = useState("");
@@ -527,6 +529,11 @@ export function NewTableTab({
     );
   };
 
+  const restore_to_editor = () => {
+    if (!preview.ok) return;
+    openSql(conn_id, preview.sql);
+  };
+
   return (
     // One scroll surface: vertical scrolling belongs to the whole tab;
     // horizontal overflow stays local to the wide columns grid.
@@ -593,7 +600,7 @@ export function NewTableTab({
               its automatic min-height and would otherwise be squashed by
               the flex parent, clipping rows — now it keeps natural height
               and the tab root scrolls. */}
-      <div className="shrink-0 overflow-x-auto rounded-md border">
+      <div className="shrink-0 overflow-x-auto rounded-md border pb-2">
         <div className="bg-muted text-muted-foreground flex min-w-max items-center gap-2 border-b px-3 py-2 text-xs font-medium">
           <span className="w-10 shrink-0 text-center">#</span>
           <span className="w-40 shrink-0">Column</span>
@@ -722,7 +729,7 @@ export function NewTableTab({
       {/* Foreign keys — reference real tables/columns via dropdowns.
               Same flex treatment as the columns grid: shrink-0 keeps the
               natural height, x-overflow scrolls locally. */}
-      <div className="shrink-0 overflow-x-auto rounded-md border">
+      <div className="shrink-0 overflow-x-auto rounded-md border pb-2">
         <div className="bg-muted/50 sticky left-0 flex items-center justify-between border-b px-3 py-2">
           <span className="text-muted-foreground text-xs font-medium">
             Foreign keys
@@ -920,16 +927,39 @@ export function NewTableTab({
       </div>
 
       <div className="bg-background rounded-md border p-3">
-        <div className="text-muted-foreground mb-1 text-xs font-medium">
-          Generated SQL
+        <div className="text-muted-foreground mb-1 flex justify-between text-xs font-medium">
+          <span>Generated SQL</span>
+          <Button
+            variant="ghost"
+            size="iconXs"
+            aria-label="Restore to editor"
+            title="Open in a new, editable tab"
+            onClick={restore_to_editor}
+            className="ml-auto shrink-0"
+            disabled={!preview.ok}
+          >
+            <SquareArrowOutUpRight />
+          </Button>
         </div>
-        <pre className="bg-muted/50 max-h-40 overflow-auto rounded p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-          {preview.ok ? (
-            <code>{preview.sql}</code>
-          ) : (
-            <code className="text-destructive">{preview.error}</code>
-          )}
-        </pre>
+        {preview.ok ? (
+          <QueryEditor
+            value={preview.sql}
+            onChange={() => {}}
+            onRun={() => {}}
+            onRunTarget={() => {}}
+            lintEnabled={false}
+            showLineNumber={false}
+            className="rounded-md"
+            frameLayer={false}
+            autoCompletion={false}
+            placeholder="e.g. age >= 18 AND name LIKE 'a%'"
+            disableWrapping={false}
+            disableEnter
+            disableContextMenu
+          />
+        ) : (
+          <code className="text-destructive">{preview.error}</code>
+        )}
       </div>
     </div>
   );

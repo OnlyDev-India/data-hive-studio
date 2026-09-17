@@ -49,6 +49,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     default: { key: "s", mod: true },
   },
   {
+    id: "editor.search",
+    label: "Find in editor",
+    default: { key: "f", mod: true },
+  },
+  {
     id: "editor.joinLines",
     label: "Join lines",
     default: { key: "j", mod: true },

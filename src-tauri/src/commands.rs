@@ -1,6 +1,6 @@
 use crate::api::{
-    ConnectionInfo, DbKind, MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult,
-    QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
+    ConnectionInfo, DbKind, FieldShape, MongoDocumentsResult, MongoExtDocumentsResult,
+    MongoRunResult, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
 };
 use crate::db::CatalogOverview;
 
@@ -299,6 +299,20 @@ pub async fn table_schema(
     table: String,
 ) -> Result<TableSchema, String> {
     crate::db::table_schema(&conn_id, database.as_deref(), schema.as_deref(), &table)
+        .await
+        .map_err(to_err)
+}
+
+/// The recursively inferred nested field shape for a MongoDB collection
+/// (spec 0001's "Fields" view) — independent of `table_schema`/`ColumnInfo`,
+/// so the data grid's column headers are never affected by this call.
+#[tauri::command]
+pub async fn mongo_field_tree(
+    conn_id: String,
+    database: String,
+    collection: String,
+) -> Result<Vec<FieldShape>, String> {
+    crate::db::field_tree(&conn_id, &database, &collection)
         .await
         .map_err(to_err)
 }

@@ -12,7 +12,7 @@ import { cn } from "@/shared/lib/utils";
 import { useActiveConnection, useStudioStore } from "@/shared/store";
 import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
 import PanelLeftIcon from "@/shared/components/icons/panel-left";
-import PanelRightIcon from "@/shared/components/icons/panel-right";
+import PanelBottomIcon from "@/shared/components/icons/panel-bottom";
 import { Input } from "@/shared/components/ui/input";
 import {
   Tooltip,
@@ -78,29 +78,39 @@ function LeftPanelToggleButton({ className }: { className?: string }) {
   );
 }
 
-function RightPanelToggleButton({ className }: { className?: string }) {
-  const rightSidebarOpen = useStudioStore((s) => s.rightSidebarOpen);
-  const toggleRightSidebar = useStudioStore((s) => s.toggleRightSidebar);
-  // Nothing to view/toggle on the home page — no connection means no JSON
-  // viewer content, so disable rather than leave it clickable and inert.
+function BottomPanelToggleButton({ className }: { className?: string }) {
+  // One shared toggle for every tab kind's own bottom split — grid results
+  // for a SQL/Mongo-console editor tab, the JSON detail panel for a table/
+  // collection tab (see `bottomPanelOpen`'s own doc comment in
+  // `shared/store/types.ts`).
+  const bottomPanelOpen = useStudioStore((s) => s.bottomPanelOpen);
+  const setBottomPanelOpen = useStudioStore((s) => s.setBottomPanelOpen);
+  // const toggleBottomPanel = useStudioStore((s) => s.toggleBottomPanel);
+  // Nothing to view/toggle on the home page — no connection means no open
+  // tab at all, so disable rather than leave it clickable and inert.
   const view = useStudioStore((s) => s.view);
   const openLen = useStudioStore((s) => s.open.length);
   const on_home = view !== "workspace" || openLen === 0;
+  const toggleBottomPanel = () => {
+    setBottomPanelOpen(!bottomPanelOpen);
+  };
   return (
     <button
       type="button"
       disabled={on_home}
       aria-label={
-        rightSidebarOpen ? "Hide the JSON viewer" : "Show the JSON viewer"
+        bottomPanelOpen ? "Hide the bottom panel" : "Show the bottom panel"
       }
-      title={rightSidebarOpen ? "Hide the JSON viewer" : "Show the JSON viewer"}
+      title={
+        bottomPanelOpen ? "Hide the bottom panel" : "Show the bottom panel"
+      }
       className={cn(
         className,
         "disabled:pointer-events-none disabled:opacity-40",
       )}
-      onClick={() => toggleRightSidebar()}
+      onClick={() => toggleBottomPanel()}
     >
-      <PanelRightIcon className="size-4" isOpen={rightSidebarOpen} />
+      <PanelBottomIcon className="size-4" isOpen={bottomPanelOpen} />
     </button>
   );
 }
@@ -110,7 +120,7 @@ const UPDATE_CALLOUT_AUTO_DISMISS_MS = 8000;
 /** Only rendered once a background/on-demand check has actually found a
  *  newer release (`updateInfo`) that the user hasn't already dismissed via
  *  the dialog's "Skip" (`skippedUpdateVersion`) — a quiet affordance, not a
- *  permanent fixture, matching how `RightPanelToggleButton` also only
+ *  permanent fixture, matching how `BottomPanelToggleButton` also only
  *  shows real state rather than always occupying the slot.
  *
  *  Announces itself once per newly-seen version with a tooltip that opens
@@ -290,7 +300,7 @@ function MacTitleBar() {
       <div className="flex w-24 shrink-0 items-center justify-center gap-1">
         <UpdateBadgeButton className="hover:bg-muted flex size-7 items-center justify-center rounded" />
         <LeftPanelToggleButton className="hover:bg-muted flex size-7 items-center justify-center rounded" />
-        <RightPanelToggleButton className="hover:bg-muted flex size-7 items-center justify-center rounded" />
+        <BottomPanelToggleButton className="hover:bg-muted flex size-7 items-center justify-center rounded" />
       </div>
     </div>
   );
@@ -397,7 +407,7 @@ function WindowsLinuxTitleBar() {
       <div className="flex items-stretch">
         <UpdateBadgeButton className="hover:bg-muted flex w-11 items-center justify-center" />
         <LeftPanelToggleButton className="hover:bg-muted flex w-11 items-center justify-center" />
-        <RightPanelToggleButton className="hover:bg-muted flex w-11 items-center justify-center" />
+        <BottomPanelToggleButton className="hover:bg-muted flex w-11 items-center justify-center" />
         <button
           type="button"
           aria-label="Minimize"

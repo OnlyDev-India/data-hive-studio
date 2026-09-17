@@ -15,12 +15,19 @@ import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading
 import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
 import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/shared/components/ui/resizable";
+import { JsonViewer } from "@/features/inspector";
+import {
   DISTINCT_LIMIT,
   type DistinctMap,
   type GridFilter,
 } from "@/shared/components/data-grid/types";
 import { cn } from "@/shared/lib/utils";
 import { ModeTabs } from "./mode-tabs";
+import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 
 // The schema editor is a large surface; load it only when its tab first
 // renders (it stays mounted afterwards so drafts survive mode switches).
@@ -76,6 +83,19 @@ export function TablePane({
   // would create a feedback loop stuck at true.
   const grid_loading = useStudioStore((s) => !!s.gridBridges[tab_key]?.loading);
   const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
+
+  const {
+    panelRef: bottomPanelRef,
+    defaultLayout,
+    onLayoutChanged,
+    onResize,
+    bottomPanelOpen,
+  } = useBottomPanelSize({
+    id: tab_key,
+    panelIds: ["top-panel", "bottom-panel"],
+    storage: localStorage,
+  });
+
   const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
   const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
   const setMode = useCallback(
@@ -241,7 +261,6 @@ export function TablePane({
   // width, which shrinks the instant it collapses (see that file's doc
   // comment for why that would permanently lock in "too narrow").
   const pane_ref = useRef<HTMLDivElement>(null);
-  // const compact_toolbar = usePaneCompactWidth(pane_ref);
 
   // One continuous elapsed-time origin for the whole loading span (schema
   // fetch through the grid's own query), and the overlay stays mounted
@@ -359,22 +378,57 @@ export function TablePane({
                   mode === "data" ? "flex" : "hidden",
                 )}
               >
-                <Grid
-                  conn_id={conn_id}
-                  table={table}
-                  schema={schema}
-                  revision={combined_rev}
-                  tab_key={tab_key}
-                  filters={filters}
-                  custom_where={custom_where}
-                  distinct={distinct}
-                  props_busy={schema_busy}
-                  on_refresh={bump_refresh}
-                  on_open_reference={on_open_reference}
-                  database={database}
-                  schema_name={db_schema}
-                  on_column_filter={set_column_filter}
-                />
+                {/* `Grid` always sits in this same ResizablePanelGroup/
+                    ResizablePanel slot regardless of `bottomPanelOpen` —
+                    only the JSON panel+handle mount/unmount — so toggling it
+                    never remounts the grid (losing scroll position, buffered
+                    edits, etc.). The JSON panel's OWN size, though, is a
+                    plain `defaultSize` literal fed from `useBottomPanelSize`
+                    (not `react-resizable-panels`' own `defaultLayout`
+                    persistence) — see that hook's doc comment for why. */}
+                <ResizablePanelGroup
+                  orientation="vertical"
+                  className="min-h-0 flex-1"
+                  onLayoutChanged={onLayoutChanged}
+                  defaultLayout={defaultLayout}
+                >
+                  <ResizablePanel
+                    id="top-panel"
+                    minSize="30%"
+                    className={cn("flex-col", bottomPanelOpen && "border-b")}
+                  >
+                    <Grid
+                      conn_id={conn_id}
+                      table={table}
+                      schema={schema}
+                      revision={combined_rev}
+                      tab_key={tab_key}
+                      filters={filters}
+                      custom_where={custom_where}
+                      distinct={distinct}
+                      props_busy={schema_busy}
+                      on_refresh={bump_refresh}
+                      on_open_reference={on_open_reference}
+                      database={database}
+                      schema_name={db_schema}
+                      on_column_filter={set_column_filter}
+                    />
+                  </ResizablePanel>
+                  <ResizableHandle className="bg-background hover:bg-accent h-0.5!" />
+
+                  <ResizablePanel
+                    id="bottom-panel"
+                    defaultSize={25}
+                    minSize={0}
+                    collapsible
+                    collapsedSize={0}
+                    className="min-h-0 flex-col"
+                    panelRef={bottomPanelRef}
+                    onResize={onResize}
+                  >
+                    <JsonViewer conn_id={conn_id} tab_key={tab_key} />
+                  </ResizablePanel>
+                </ResizablePanelGroup>
               </div>
               <div
                 className={cn(

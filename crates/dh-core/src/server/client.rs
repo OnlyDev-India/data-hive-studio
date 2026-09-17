@@ -5,8 +5,8 @@
 //! (`/v1/c/{conn_id}/...` — the server resolves its org internally).
 
 use crate::api::{
-    MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult, QueryOp, QueryResult,
-    SchemaOp, TableInfo, TableSchema,
+    FieldShape, MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult, QueryOp,
+    QueryResult, SchemaOp, TableInfo, TableSchema,
 };
 use crate::db::CatalogOverview;
 use crate::server::gateway::ConnWithAccess;
@@ -307,6 +307,21 @@ impl ServerClient {
             query.push_str(&format!("{}schema={}", if query.is_empty() { "?" } else { "&" }, urlencode(s)));
         }
         self.get(&format!("/v1/c/{conn_id}/schema/{table}{query}")).await
+    }
+
+    /// Spec 0001's "Fields" view — `database` is required, unlike
+    /// `table_schema`'s optional "ambient" one.
+    pub async fn field_tree(
+        &self,
+        conn_id: &str,
+        database: &str,
+        collection: &str,
+    ) -> Result<Vec<FieldShape>, String> {
+        self.get(&format!(
+            "/v1/c/{conn_id}/mongo/field-tree/{collection}?database={}",
+            urlencode(database)
+        ))
+        .await
     }
 
     pub async fn run_sql(

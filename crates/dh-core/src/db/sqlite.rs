@@ -418,12 +418,21 @@ impl SqliteAdapter {
 
     fn build_query_inner(&self, op: &QueryOp) -> DbResult<BuiltQuery> {
         match op {
-            QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } => {
+            QueryOp::Select { table, filters, custom_where, order_by, limit, offset } => {
                 let mut sql = format!("SELECT * FROM {}", quote_ident(table));
                 let params = apply_where(&mut sql, filters, custom_where.as_deref());
-                if let Some(col) = order_by {
-                    let dir = order_direction(order_dir.as_deref());
-                    sql.push_str(&format!(" ORDER BY {} {}", quote_ident(col), dir));
+                if !order_by.is_empty() {
+                    let clauses: Vec<String> = order_by
+                        .iter()
+                        .map(|o| {
+                            format!(
+                                "{} {}",
+                                quote_ident(&o.column),
+                                order_direction(Some(o.dir.as_str()))
+                            )
+                        })
+                        .collect();
+                    sql.push_str(&format!(" ORDER BY {}", clauses.join(", ")));
                 }
                 if let Some(l) = limit {
                     sql.push_str(&format!(" LIMIT {l}"));
@@ -1666,6 +1675,7 @@ mod tests {
                     column: "status".into(),
                     op: crate::api::FilterOp::Eq,
                     value: "pending".into(),
+                    values: Vec::new(),
                     conjunction: None,
                 }],
                 custom_where: None,

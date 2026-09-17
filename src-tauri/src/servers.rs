@@ -350,6 +350,19 @@ pub async fn server_table_schema(
     .await
 }
 
+/// Spec 0001's "Fields" view, team-server passthrough.
+#[tauri::command]
+pub async fn server_mongo_field_tree(
+    conn_id: String,
+    database: String,
+    collection: String,
+) -> Result<Vec<dh_core::api::FieldShape>, String> {
+    with_remote(&conn_id, |c, r| {
+        Box::pin(async move { c.field_tree(&r, &database, &collection).await })
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn server_run_sql(
     conn_id: String,
