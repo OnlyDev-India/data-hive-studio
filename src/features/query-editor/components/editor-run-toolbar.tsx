@@ -8,15 +8,13 @@ import {
   Button,
 } from "@/shared/components/ui";
 import {
-  FolderOpen,
-  Maximize2,
-  Minimize2,
-  PlayIcon,
+  FolderOpen, PlayIcon,
   Save,
   Shrink,
   SpellCheck2,
   TextAlignStart,
   TextSelect,
+  WrapText
 } from "lucide-react";
 import { DBIcons, type DbIconKind } from "@/shared/components/icons/types";
 import { cn } from "@/shared/lib/utils";
@@ -56,8 +54,8 @@ export function EditorRunToolbar({
   is_dirty,
   on_save,
   on_open,
-  zen_enabled,
-  on_toggle_zen,
+  wrap,
+  onToggleWrap
 }: {
   has_selection: boolean;
   can_run_target: boolean;
@@ -84,12 +82,8 @@ export function EditorRunToolbar({
   is_dirty?: boolean;
   on_save?: () => void;
   on_open?: () => void;
-  /** Distraction-free view: hides the results panel so the editor takes the
-   *  full pane height. A view toggle, not a document action — grouped with
-   *  the database picker on the right rather than the left-hand action
-   *  buttons. */
-  zen_enabled?: boolean;
-  on_toggle_zen?: () => void;
+  wrap?: boolean;
+  onToggleWrap?: () => void;
 }) {
   const DbIcon = db_kind ? DBIcons[db_kind] : null;
   return (
@@ -119,6 +113,14 @@ export function EditorRunToolbar({
               {has_selection ? "Run selected" : "Run all"}
             </TooltipContent>
           </Tooltip>
+          {onToggleWrap && (
+            <ToolbarIconButton
+              icon={WrapText}
+              label={wrap ? "Word wrap on" : "Word wrap off"}
+              color="info"
+              onClick={onToggleWrap}
+            />
+          )}
           {on_format && (
             <ToolbarIconButton
               icon={TextAlignStart}
@@ -188,15 +190,6 @@ export function EditorRunToolbar({
                 </SelectGroup>
               </SelectContent>
             </Select>
-          )}
-          {on_toggle_zen && (
-            <ToolbarIconButton
-              icon={zen_enabled ? Minimize2 : Maximize2}
-              label={zen_enabled ? "Exit zen mode" : "Zen mode"}
-              color="primary"
-              active={zen_enabled ?? false}
-              onClick={on_toggle_zen}
-            />
           )}
         </div>
       </div>

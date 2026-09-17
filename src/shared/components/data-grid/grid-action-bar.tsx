@@ -8,6 +8,7 @@ import {
 import {
   Check,
   ChevronDown,
+  Columns3,
   FileCode2,
   Loader2,
   Pencil,
@@ -33,7 +34,10 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
 import { useStudioStore, type GridBridge } from "@/shared/store";
-import { pending_changes_to_diff, type PendingChange } from "./grid-context";
+import {
+  pending_changes_to_row_diff,
+  type PendingChange,
+} from "./grid-context";
 import { FilterBar, type FilterBarProps } from "./filter-bar";
 import { BulkEditDialog } from "./bulk-edit-dialog";
 import { ColumnVisibilityMenu } from "./column-visibility-menu";
@@ -65,7 +69,14 @@ export function usePaneCompactWidth(
     const el = ref.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      if (entry)
+      // A background tab's pane is `display:none` while inactive, which
+      // reports a 0 width here — not a real "very narrow" measurement, just
+      // "not visible right now." Recomputing off that would collapse every
+      // button to icon-only while hidden, then immediately expand them back
+      // on the very next real measurement when the tab is switched back to
+      // — exactly the flash this guard avoids, by just keeping whatever was
+      // last computed from an actual visible width.
+      if (entry && entry.contentRect.width > 0)
         setCompact((prev) => {
           // entry.contentRect.width < PANE_COMPACT_BELOW_PX;
           const new_compact = prev.map(
@@ -121,13 +132,18 @@ export function GridActionBar({
   // structurally, so this doesn't need its own separate array type.
   type ButtonFactory = (props: { compact: boolean }) => ReactNode;
   const buttons: ButtonFactory[] = [
-    () => (
+    (props) => (
       <ColumnVisibilityMenu
         columns={bridge.all_columns}
         hidden={bridge.hidden_columns}
         on_toggle={bridge.toggle_column_visibility}
         on_reorder={bridge.reorder_column}
-      />
+      >
+        {/* No `onClick` — `ColumnVisibilityMenu` renders this button as its
+            own popover trigger, so opening/closing is already handled by
+            wrapping it, not by a click handler here. */}
+        <GridToolbarButton icon={Columns3} label="Columns" {...props} />
+      </ColumnVisibilityMenu>
     ),
     (props) => (
       <GridToolbarButton
@@ -196,7 +212,11 @@ export function GridActionBar({
       <div className="flex min-w-0 flex-1 shrink-0 items-center gap-1">
         <div className="bg-border mx-1 h-4 w-px" />
 
-        {filter_bar && <FilterBar {...filter_bar} />}
+        {filter_bar ? (
+          <FilterBar {...filter_bar} />
+        ) : (
+          <div className="flex-1" />
+        )}
 
         <div className="bg-border mx-1 h-4 w-px" />
         {/* Icon cluster first, then add/delete, then the pending-changes
@@ -244,7 +264,7 @@ export function GridActionBar({
       </div>
       {apply_changes && (
         <ApplyChangesDialog
-          changes={pending_changes_to_diff(apply_changes)}
+          rows={pending_changes_to_row_diff(apply_changes)}
           selectable
           on_apply={(keepIds) => bridge.apply_pending(keepIds)}
           on_close={() => setApplyChanges(null)}
@@ -278,7 +298,9 @@ function GridToolbarButton({
 }: {
   icon: LucideIcon;
   label: string;
-  onClick: () => void;
+  /** Omitted when this button is itself a trigger for something else (e.g.
+   *  wrapped in `ColumnVisibilityMenu`), which already handles opening it. */
+  onClick?: () => void;
   disabled?: boolean;
   className?: string;
   iconClassName?: string;

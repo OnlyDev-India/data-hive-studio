@@ -26,6 +26,7 @@ import {
   type CellKind,
   type DistinctMap,
   type GridFilter,
+  type SortKey,
 } from "./types";
 
 /** Mongo document session — the grid's live page + buffered edits, shared with
@@ -91,7 +92,7 @@ interface GridProps {
 // Render one cell value as a SQL literal. Values are always single-quoted —
 // both SQLite and Postgres coerce string literals to the target column type,
 // and escaping is just doubling the quote.
-function sql_literal(v: string | null): string {
+export function sql_literal(v: string | null): string {
   return v === null ? "NULL" : `'${v.replaceAll("'", "''")}'`;
 }
 
@@ -108,8 +109,19 @@ const EMPTY_ROWS: (string | null)[][] = [];
 const EMPTY_COLUMNS: string[] = [];
 
 // Double-quoted identifier (works for SQLite and Postgres alike).
-function sql_ident(name: string): string {
+export function sql_ident(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
+}
+
+// The controller's UI-facing SortKey[] -> the wire shape QueryOp sends;
+// `undefined` (not `[]`) when unsorted, matching the old single-column
+// field's own "omit when absent" convention.
+function wire_order_by(
+  sort_keys: SortKey[],
+): { column: string; dir: "ASC" | "DESC" }[] | undefined {
+  return sort_keys.length === 0
+    ? undefined
+    : sort_keys.map((k) => ({ column: k.column, dir: k.asc ? "ASC" : "DESC" }));
 }
 
 export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
@@ -195,7 +207,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const setGridBridge = useStudioStore((s) => s.setGridBridge);
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
-  const setRightSidebarOpen = useStudioStore((s) => s.setRightSidebarOpen);
+  const setBottomPanelOpen = useStudioStore((s) => s.setBottomPanelOpen);
   // The JSON viewer shows the ACTIVE tab's row; publishing under this scope
   // (connection + tab) keeps one tab's selection from leaking into another.
   const json_scope = `${conn_id}\u0000${tab_key}`;
@@ -267,8 +279,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     ],
   );
   const open_json = useCallback(
-    () => setRightSidebarOpen(true),
-    [setRightSidebarOpen],
+    () => setBottomPanelOpen(true),
+    [setBottomPanelOpen],
   );
 
   const pk_columns = useMemo(
@@ -1012,8 +1024,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
               table,
               filters,
               custom_where: user_where,
-              order_by: ctl.sort_col ?? undefined,
-              order_dir: ctl.sort_asc ? "ASC" : "DESC",
+              order_by: wire_order_by(ctl.sort_keys),
               limit: page_size,
               offset,
             },
@@ -1065,8 +1076,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     table,
     filters,
     user_where,
-    ctl.sort_col,
-    ctl.sort_asc,
+    ctl.sort_keys,
     page_size,
     offset,
     revision,
@@ -1170,8 +1180,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         table,
         filters,
         custom_where: user_where || undefined,
-        order_by: ctl.sort_col ?? undefined,
-        order_dir: ctl.sort_asc ? "ASC" : "DESC",
+        order_by: wire_order_by(ctl.sort_keys),
       }),
       database,
       schema_name,
@@ -1201,8 +1210,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       column_types,
       filters,
       user_where,
-      ctl.sort_col,
-      ctl.sort_asc,
+      ctl.sort_keys,
       ctl.selected.size,
       ctl.bulk_edit_selection,
       ctl.view.full_column_order,

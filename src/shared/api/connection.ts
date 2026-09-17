@@ -5,6 +5,7 @@ import type {
   ActivityEntry,
   CatalogOverview,
   ConnectionInfo,
+  FieldShape,
   RoleDetail,
   SchemaObject,
   SchemaObjectKind,
@@ -542,6 +543,31 @@ export function tableSchema(
           schema: schema ?? null,
           table,
         },
+      }),
+  );
+}
+
+/** The recursively inferred nested field shape for a MongoDB collection
+ *  (spec 0001's "Fields" view) — independent of `tableSchema`/`ColumnInfo`,
+ *  so the data grid's column headers are never affected by this call.
+ *  `database` is required, matching `MongoSchemaEditor`'s own convention
+ *  (Mongo tabs always carry one explicitly). Deduped the same way as
+ *  `tableSchema`, since this is an idempotent introspection read too. */
+export function mongoFieldTree(
+  connId: string,
+  database: string,
+  collection: string,
+): Promise<FieldShape[]> {
+  return dedupe(
+    `field-tree:${connId} ${database} ${collection}`,
+    () =>
+      dispatchDbCall<FieldShape[]>(connId, {
+        httpMethod: "GET",
+        httpPath: (id) =>
+          `/v1/c/${encodeURIComponent(id)}/mongo/field-tree/${encodeURIComponent(collection)}?database=${encodeURIComponent(database)}`,
+        serverCmd: "server_mongo_field_tree",
+        localCmd: "mongo_field_tree",
+        args: { connId, database, collection },
       }),
   );
 }

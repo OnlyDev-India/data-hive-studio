@@ -235,10 +235,13 @@ pub struct PgAdapter {
     secondary_pools: std::sync::Mutex<std::collections::HashMap<String, (PgPool, Instant)>>,
     /// Serializes concurrent first-opens of the SAME secondary database (two
     /// callers expanding the same sibling database at once should share one
-    /// new pool, not race to open two) — coarse-grained on purpose, same
-    /// shape as `server::gateway::Gateway`'s own `opening` lock; it's only
-    /// ever held for the duration of opening one pool, never a real query.
-    opening: tokio::sync::Mutex<()>,
+    /// new pool, not race to open two) — keyed per target so opening several
+    /// DIFFERENT sibling databases at once (the command palette's
+    /// cross-database search fans out one call per schema across every
+    /// sibling database) actually happens in parallel instead of queueing
+    /// behind a single global lock. Each per-target lock is only ever held
+    /// for the duration of opening that one pool, never a real query.
+    opening: std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Kept alive for as long as this adapter is — dropping it tears the
     /// tunnel down out from under the pool, so it must outlive `pool`.
     /// `None` when this connection doesn't go through SSH.
@@ -282,7 +285,7 @@ impl PgAdapter {
             database: params.database.clone(),
             params: params.clone(),
             secondary_pools: std::sync::Mutex::new(std::collections::HashMap::new()),
-            opening: tokio::sync::Mutex::new(()),
+            opening: std::sync::Mutex::new(std::collections::HashMap::new()),
             _ssh_tunnel: tunnel,
         })
     }
@@ -313,8 +316,17 @@ impl PgAdapter {
 
         // Slow path: serialize concurrent first-opens of the same target so
         // two callers expanding the same sibling database at once share one
-        // pool instead of racing to open two.
-        let _guard = self.opening.lock().await;
+        // pool instead of racing to open two — locking only THIS target's
+        // entry, not every target, so opening several different sibling
+        // databases at once still runs in parallel.
+        let target_lock = {
+            let mut locks = self.opening.lock().unwrap();
+            locks
+                .entry(target.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _guard = target_lock.lock().await;
         {
             let mut pools = self.secondary_pools.lock().unwrap();
             if let Some(entry) = pools.get_mut(target) {
@@ -490,17 +502,27 @@ fn build_select(
     table: &str,
     filters: &[crate::api::GridFilterCond],
     custom_where: Option<&String>,
-    order_by: Option<&String>,
-    asc: bool,
+    order_by: &[crate::api::OrderByCond],
     limit: Option<i64>,
     offset: Option<i64>,
     params: &mut Vec<Option<String>>,
 ) -> String {
     let where_sql = PgAdapter::where_clause(filters, custom_where, params);
-    let dir = if asc { "ASC" } else { "DESC" };
-    let order = order_by
-        .map(|o| format!(" ORDER BY {} {}", q(o), dir))
-        .unwrap_or_default();
+    let order = if order_by.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " ORDER BY {}",
+            order_by
+                .iter()
+                .map(|o| {
+                    let dir = if o.dir == "DESC" { "DESC" } else { "ASC" };
+                    format!("{} {}", q(&o.column), dir)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let lim = limit.map(|l| format!(" LIMIT {l}")).unwrap_or_default();
     let off = offset.map(|o| format!(" OFFSET {o}")).unwrap_or_default();
     format!(
@@ -1557,15 +1579,14 @@ impl DbAdapter for PgAdapter {
             }
         };
         match op {
-            QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } => {
+            QueryOp::Select { table, filters, custom_where, order_by, limit, offset } => {
                 let mut params = Vec::new();
                 let sql = build_select(
                     &schema,
                     table,
                     filters,
                     custom_where.as_ref(),
-                    order_by.as_ref(),
-                    order_dir.as_deref() != Some("DESC"),
+                    order_by,
                     *limit,
                     *offset,
                     &mut params,
@@ -1831,8 +1852,7 @@ impl DbAdapter for PgAdapter {
         on_batch: BatchSink<'_>,
     ) -> DbResult<super::OpOutcome> {
         // Only SELECT streams; everything else runs normally.
-        let QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } = op
-        else {
+        let QueryOp::Select { table, filters, custom_where, order_by, limit, offset } = op else {
             return self.execute_op(database, schema, op).await
         };
         let pool = self.pool_for(database).await?;
@@ -1844,8 +1864,7 @@ impl DbAdapter for PgAdapter {
             table,
             filters,
             custom_where.as_ref(),
-            order_by.as_ref(),
-            order_dir.as_deref() != Some("DESC"),
+            order_by,
             *limit,
             *offset,
             &mut params,

@@ -205,16 +205,16 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set((s) => ({ leftPanelOpen: !s.leftPanelOpen }));
         },
 
-        rightSidebarOpen: false,
-        rightSidebarWidth: 320,
-        toggleRightSidebar() {
-          set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen }));
+        // Defaults open — an editor tab's results split was always visible
+        // before this became a shared flag with the table/collection JSON
+        // panel, and "can I see what I just ran" matters more by default
+        // than "hide the empty JSON panel on a table I just opened."
+        bottomPanelOpen: false,
+        setBottomPanelOpen(open) {
+          set({ bottomPanelOpen: open });
         },
-        setRightSidebarOpen(open) {
-          set({ rightSidebarOpen: open });
-        },
-        setRightSidebarWidth(px) {
-          set({ rightSidebarWidth: px });
+        toggleBottomPanel() {
+          set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen }));
         },
         jsonRows: {},
         setJsonRow(scope, row) {
@@ -505,7 +505,6 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           leftPanelOpen: s.leftPanelOpen,
           leftPanelMode: s.leftPanelMode,
           sidebarWidth: s.sidebarWidth,
-          rightSidebarWidth: s.rightSidebarWidth,
           paletteKeywords: s.paletteKeywords,
           shortcutOverrides: s.shortcutOverrides,
           editorFontSize: s.editorFontSize,

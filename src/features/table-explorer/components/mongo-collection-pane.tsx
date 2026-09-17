@@ -1,15 +1,27 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { tableSchema, type TableSchema } from "@/shared/api";
+import {
+  mongoFieldTree,
+  tableSchema,
+  type FieldShape,
+  type TableSchema,
+} from "@/shared/api";
 import { type FilterColumn } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
 import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
 import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/shared/components/ui/resizable";
+import { JsonViewer } from "@/features/inspector";
+import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 import { ModeTabs } from "./mode-tabs";
-import { MongoSchemaEditor } from "@/features/schema-designer";
+import { FieldsTree, MongoSchemaEditor } from "@/features/schema-designer";
 import { useStudioStore, usePaneMode } from "@/shared/store";
 import type { GridFilter } from "@/shared/components/data-grid/types";
-import { AlertCircle, KeyRound } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 
 export function MongoCollectionPane({
@@ -28,6 +40,19 @@ export function MongoCollectionPane({
   // Subscribe to the grid's bridge so the pane re-renders with its live state
   // (rows / buffered edits / loading) — the grid is the only data view now.
   const gridBridge = useStudioStore((s) => s.gridBridges[tab_key]);
+
+  const {
+    panelRef: bottomPanelRef,
+    defaultLayout,
+    onLayoutChanged,
+    onResize,
+    bottomPanelOpen,
+  } = useBottomPanelSize({
+    id: tab_key,
+    panelIds: ["top-panel", "bottom-panel"],
+    storage: localStorage,
+  });
+
   const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
   const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
   const mode = usePaneMode(conn_id, tab_key);
@@ -44,6 +69,20 @@ export function MongoCollectionPane({
   const [custom_where, setCustomWhere] = useState("");
   const [refresh_rev, setRefreshRev] = useState(0);
   const [schema_rev, setSchemaRev] = useState(0);
+
+  // The Fields view's nested shape (spec 0001) — fetched independently of
+  // `schema`/`table_schema` above so its own sampling pass never touches
+  // `ColumnInfo`/the grid's column headers. Lazy: only once the Schema tab
+  // is actually viewed (AC-9), not on every pane mount.
+  const [field_tree, setFieldTree] = useState<FieldShape[] | null>(null);
+  const [field_tree_loading, setFieldTreeLoading] = useState(false);
+  const [field_tree_error, setFieldTreeError] = useState<string | null>(null);
+  // Tracks which (connection, collection, schema_rev) the last fetch/fetch
+  // in flight covers, so switching Schema → Data → Schema doesn't
+  // refetch — only a real target change or the Refresh-driven `schema_rev`
+  // bump does.
+  const field_tree_key = `${conn_id}:${database}:${collection}:${schema_rev}`;
+  const field_tree_fetched_key = useRef<string | null>(null);
 
   // A plain action-bar Refresh re-reads this same collection's data. It must
   // re-bump the grid revision (refetch) but must NOT signal the sidebar
@@ -74,6 +113,28 @@ export function MongoCollectionPane({
       cancelled = true;
     };
   }, [conn_id, collection, schema_rev, database]);
+
+  useEffect(() => {
+    if (mode !== "schema") return;
+    if (field_tree_fetched_key.current === field_tree_key) return;
+    field_tree_fetched_key.current = field_tree_key;
+    let cancelled = false;
+    setFieldTreeLoading(true);
+    setFieldTreeError(null);
+    void (async () => {
+      try {
+        const tree = await mongoFieldTree(conn_id, database, collection);
+        if (!cancelled) setFieldTree(tree);
+      } catch (e) {
+        if (!cancelled) setFieldTreeError(String(e));
+      } finally {
+        if (!cancelled) setFieldTreeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, field_tree_key, conn_id, database, collection]);
 
   const add_filter = (filter: Omit<GridFilter, "id">) => {
     setFilters((cur) => {
@@ -214,20 +275,49 @@ export function MongoCollectionPane({
                   mode === "data" ? "flex" : "hidden",
                 )}
               >
-                <Grid
-                  conn_id={conn_id}
-                  table={collection}
-                  schema={schema}
-                  revision={refresh_rev}
-                  tab_key={tab_key}
-                  filters={filters}
-                  custom_where={custom_where}
-                  distinct={{}}
-                  on_refresh={refresh_data_only}
-                  kind="mongo"
-                  database={database}
-                  on_column_filter={set_column_filter}
-                />
+                {/* `Grid` always sits in this same ResizablePanelGroup/
+                    ResizablePanel slot regardless of `bottomPanelOpen` — see
+                    the identical note in `table-pane.tsx` for why. */}
+                <ResizablePanelGroup
+                  orientation="vertical"
+                  className="min-h-0 flex-1"
+                  defaultLayout={defaultLayout}
+                  onLayoutChanged={onLayoutChanged}
+                >
+                  <ResizablePanel
+                    id="top-panel"
+                    minSize="30%"
+                    className={cn("flex-col", bottomPanelOpen && "border-b")}
+                  >
+                    <Grid
+                      conn_id={conn_id}
+                      table={collection}
+                      schema={schema}
+                      revision={refresh_rev}
+                      tab_key={tab_key}
+                      filters={filters}
+                      custom_where={custom_where}
+                      distinct={{}}
+                      on_refresh={refresh_data_only}
+                      kind="mongo"
+                      database={database}
+                      on_column_filter={set_column_filter}
+                    />
+                  </ResizablePanel>
+                  <ResizableHandle className="bg-background hover:bg-accent h-1!" />
+                  <ResizablePanel
+                    id="bottom-panel"
+                    defaultSize={25}
+                    minSize={10}
+                    collapsible
+                    collapsedSize={0}
+                    className="min-h-0 flex-col"
+                    panelRef={bottomPanelRef}
+                    onResize={onResize}
+                  >
+                    <JsonViewer conn_id={conn_id} tab_key={tab_key} />
+                  </ResizablePanel>
+                </ResizablePanelGroup>
               </div>
               <div
                 className={cn(
@@ -241,6 +331,9 @@ export function MongoCollectionPane({
                   tab_key={tab_key}
                   collection={collection}
                   schema={schema}
+                  field_tree={field_tree}
+                  field_tree_loading={field_tree_loading}
+                  field_tree_error={field_tree_error}
                   on_index_applied={() => {
                     reload_schema();
                     on_modified();
@@ -264,8 +357,8 @@ export function MongoCollectionPane({
   );
 }
 
-/** Schema view for a Mongo collection: a read-only inferred-fields table
- *  (Mongo is schemaless — fields are sampled from the first 200 documents,
+/** Schema view for a Mongo collection: the nested "Fields" view (spec 0001;
+ *  Mongo is schemaless — fields are sampled from the first 200 documents,
  *  there's no column DDL to edit) plus a real, editable index manager
  *  (indexes ARE a per-collection concept in Mongo, unlike columns). */
 function MongoSchemaView({
@@ -274,6 +367,9 @@ function MongoSchemaView({
   tab_key,
   collection,
   schema,
+  field_tree,
+  field_tree_loading,
+  field_tree_error,
   on_index_applied,
   on_dropped,
 }: {
@@ -282,44 +378,20 @@ function MongoSchemaView({
   tab_key: string;
   collection: string;
   schema: TableSchema;
+  field_tree: FieldShape[] | null;
+  field_tree_loading: boolean;
+  field_tree_error: string | null;
   on_index_applied: () => void;
   on_dropped: () => void;
 }) {
-  const grid =
-    "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2";
   return (
     <div className="min-h-0 flex-1 overflow-auto p-3">
       <div className="flex flex-col gap-4">
-        <div className="bg-background rounded-md border">
-          <div className="border-b px-3 py-2">
-            <h3 className="flex items-center gap-2 text-sm font-medium">
-              <KeyRound className="text-muted-foreground h-4 w-4" />
-              <span>Inferred fields</span>
-            </h3>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              Sampled from the first 200 documents (Mongo is schemaless).
-            </p>
-          </div>
-          <div
-            className={cn(
-              grid,
-              "text-muted-foreground text-2xs border-b px-3 py-2 font-medium",
-            )}
-          >
-            <span>Field</span>
-            <span>Type</span>
-            <span />
-          </div>
-          {schema.columns.map((c) => (
-            <div key={c.name} className={cn(grid, "px-3 py-1.5 text-sm")}>
-              <span className="font-mono">{c.name}</span>
-              <span className="text-muted-foreground text-xs">
-                {c.data_type}
-              </span>
-              <span />
-            </div>
-          ))}
-        </div>
+        <FieldsTree
+          fields={field_tree}
+          loading={field_tree_loading}
+          error={field_tree_error}
+        />
         <MongoSchemaEditor
           conn_id={conn_id}
           database={database}

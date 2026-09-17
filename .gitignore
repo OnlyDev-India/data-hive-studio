@@ -29,5 +29,5 @@ graphify-out
 
 # extra ignore files
 data
-docs
+*docs
 .opencode

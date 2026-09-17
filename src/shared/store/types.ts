@@ -365,12 +365,16 @@ export interface StudioStore {
    *  Sidebar". */
   toggleLeftPanelOpen: () => void;
 
-  // Right sidebar (JSON row viewer)
-  rightSidebarOpen: boolean;
-  rightSidebarWidth: number;
-  toggleRightSidebar: () => void;
-  setRightSidebarOpen: (open: boolean) => void;
-  setRightSidebarWidth: (px: number) => void;
+  // One shared open/closed flag for the "bottom split" every tab kind has
+  // below its main content — grid results for a SQL/Mongo-console editor
+  // tab (`editor-tab.tsx`, replacing its old per-tab-instance `zen` local
+  // state), the JSON detail panel for a table/collection tab
+  // (`table-pane.tsx`/`mongo-collection-pane.tsx`). One flag for whichever
+  // tab is active, not one per tab — nobody asked for that, and it'd need
+  // its own persistence-migration story.
+  bottomPanelOpen: boolean;
+  setBottomPanelOpen: (open: boolean) => void;
+  toggleBottomPanel: () => void;
   jsonRows: Record<string, JsonRow | null>;
   setJsonRow: (scope: string, row: JsonRow | null) => void;
 

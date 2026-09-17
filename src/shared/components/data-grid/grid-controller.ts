@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRowWindow } from "./use-row-window";
 import { quoteIdent } from "@/shared/api";
-import type { CellClick, CellKind, DistinctMap } from "./types";
+import type { CellClick, CellKind, DistinctMap, SortKey } from "./types";
 import { GUTTER_W_PX, ROW_HEIGHT_PX } from "./types";
 import { useGridKeyboard } from "./use-grid-keyboard";
 import {
@@ -148,10 +148,9 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   // wouldn't re-hydrate.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally read once, at mount, not on every `layout_key` change (see the comment above)
   const initial_layout = useMemo(() => loadColumnLayout(layout_key), []);
-  const [sort_col, setSortCol] = useState<string | null>(
-    initial_layout?.sort_col ?? null,
+  const [sort_keys, setSortKeys] = useState<SortKey[]>(
+    initial_layout?.sort_keys ?? [],
   );
-  const [sort_asc, setSortAsc] = useState(initial_layout?.sort_asc ?? true);
   const [pinned, setPinned] = useState<string[]>(initial_layout?.pinned ?? []);
   const [column_order_override, setColumnOrderOverride] = useState<
     string[] | null
@@ -218,7 +217,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       }
     }
     const base = client_sort
-      ? sortRows(real, columns, sort_col, sort_asc)
+      ? sortRows(real, columns, sort_keys)
       : real;
     return pending_rows && pending_rows.length > 0
       ? [...pending_rows.map((p) => p.values), ...base]
@@ -227,8 +226,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     client_sort,
     rows,
     columns,
-    sort_col,
-    sort_asc,
+    sort_keys,
     pending_rows,
     dirty_cells,
     row_offset,
@@ -287,11 +285,20 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     return () => cancelAnimationFrame(raf);
   }, [rows, row_offset]);
 
+  // Sorting a column always ADDS it to the sort (upsert: updates its
+  // direction in place if it's already sorted, otherwise appends it as the
+  // next priority key) — never clears whatever else is already sorted.
+  // "Remove sort"/"Clear all sorts" are the only way to shrink the set.
   const on_sort = useCallback(
     (col: string, asc: boolean) => {
       if (loading) return;
-      setSortCol(col);
-      setSortAsc(asc);
+      setSortKeys((cur) => {
+        const i = cur.findIndex((k) => k.column === col);
+        if (i < 0) return [...cur, { column: col, asc }];
+        const next = cur.slice();
+        next[i] = { column: col, asc };
+        return next;
+      });
       on_navigation_change?.();
     },
     [on_navigation_change, loading],
@@ -299,13 +306,18 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
 
   const on_clear_sort = useCallback(
     (col: string) => {
-      if (sort_col === col) {
-        setSortCol(null);
-        on_navigation_change?.();
-      }
+      if (!sort_keys.some((k) => k.column === col)) return;
+      setSortKeys((cur) => cur.filter((k) => k.column !== col));
+      on_navigation_change?.();
     },
-    [sort_col, on_navigation_change],
+    [sort_keys, on_navigation_change],
   );
+
+  const on_clear_all_sort = useCallback(() => {
+    if (sort_keys.length === 0) return;
+    setSortKeys([]);
+    on_navigation_change?.();
+  }, [sort_keys, on_navigation_change]);
 
   const on_toggle_pin = useCallback((col: string) => {
     setPinned((list) =>
@@ -472,8 +484,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       col_widths,
       pinned,
       hidden: [...hidden_columns],
-      sort_col,
-      sort_asc,
+      sort_keys,
     });
   }, [
     layout_key,
@@ -481,8 +492,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     col_widths,
     pinned,
     hidden_columns,
-    sort_col,
-    sort_asc,
+    sort_keys,
   ]);
 
   // ---- Selection / drag ----
@@ -1353,8 +1363,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     distinct,
     view,
     col_index_of,
-    sort_col,
-    sort_asc,
+    sort_keys,
     pinned,
     selected,
     sel_anchor,
@@ -1364,6 +1373,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     col_widths,
     on_sort,
     on_clear_sort,
+    on_clear_all_sort,
     on_toggle_pin,
     on_resize_col,
     auto_fit_col,

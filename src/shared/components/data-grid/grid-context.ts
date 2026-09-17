@@ -6,8 +6,14 @@ import {
   useContext,
 } from "react";
 import type { RowWindow } from "./use-row-window";
-import type { DiffChange } from "@/shared/components/apply-changes-dialog";
-import type { CellClick, CellKind, DistinctMap, GridFilter } from "./types";
+import type { RowDiffChange } from "@/shared/components/apply-changes-dialog";
+import type {
+  CellClick,
+  CellKind,
+  DistinctMap,
+  GridFilter,
+  SortKey,
+} from "./types";
 import { COL_W_PX, GUTTER_W_PX } from "./types";
 
 /** Identity of a cell: (row index in the page, column name). */
@@ -42,57 +48,79 @@ function fmt_cell(v: string | null | undefined): string {
   return v === null || v === undefined ? "NULL" : v;
 }
 
-/** Renders a row's columns as `col: value` lines, one per line, for an
- *  insert/delete diff block. Blank/absent values are dropped for an insert
- *  (skip-empty is the default there — see `QueryOp::Insert`), always kept
- *  for a delete (the row's full stored contents matter for review). */
-function row_lines(
-  columns: string[] | undefined,
-  values: (string | null)[] | undefined,
-  kind: "insert" | "delete",
-): string {
-  return (columns ?? [])
-    .map((col, i) => [col, values?.[i]] as const)
-    .filter(([, v]) => kind === "delete" || (v !== null && v !== ""))
-    .map(([col, v]) => `${col}: ${fmt_cell(v)}`)
-    .join("\n");
-}
-
-/** Maps the grid's own `PendingChange` shape onto the shared `DiffChange`
- *  shape the review dialog renders — kept as a pure function next to
- *  `PendingChange` so the two can never silently drift apart. */
-export function pending_changes_to_diff(
+/** Maps the grid's own `PendingChange` shape onto the shared `RowDiffChange`
+ *  shape the review dialog's grid renderer expects — kept as a pure
+ *  function next to `PendingChange` so the two can never silently drift
+ *  apart. Insert/delete stay one entry per change; every `update` touching
+ *  the SAME row is merged into a single entry (`ids` collects every
+ *  underlying `PendingChange.id` involved, so (de)selecting the merged row
+ *  in the dialog still maps back to each individual change when applying —
+ *  see `ApplyChangesDialog`'s own doc comment on `rows`). Preserves the
+ *  original first-appearance order of rows. */
+export function pending_changes_to_row_diff(
   changes: PendingChange[],
-): DiffChange[] {
-  return changes.map((c): DiffChange => {
+): RowDiffChange[] {
+  const result: RowDiffChange[] = [];
+  const update_index = new Map<number, number>(); // row -> index in result
+
+  for (const c of changes) {
     if (c.kind === "insert") {
-      return {
-        id: c.id,
-        kind: "add",
-        entity: "row",
-        title: "New row",
-        after:
-          row_lines(c.value_columns, c.values, "insert") || "(defaults only)",
-      };
+      const cols = c.value_columns ?? [];
+      const columns = cols.filter((_, i) => {
+        const v = c.values?.[i];
+        return v !== null && v !== "";
+      });
+      const after: Record<string, string> = {};
+      for (const col of columns)
+        after[col] = fmt_cell(c.values?.[cols.indexOf(col)]);
+      result.push({
+        ids: [c.id],
+        kind: "insert",
+        row: c.row,
+        columns,
+        before: {},
+        after,
+      });
+      continue;
     }
     if (c.kind === "delete") {
-      return {
-        id: c.id,
-        kind: "drop",
-        entity: "row",
-        title: `Row ${c.row}`,
-        before: row_lines(c.value_columns, c.values, "delete"),
-      };
+      const columns = c.value_columns ?? [];
+      const before: Record<string, string> = {};
+      columns.forEach((col, i) => {
+        before[col] = fmt_cell(c.values?.[i]);
+      });
+      result.push({
+        ids: [c.id],
+        kind: "delete",
+        row: c.row,
+        columns,
+        before,
+        after: {},
+      });
+      continue;
     }
-    return {
-      id: c.id,
-      kind: "alter",
-      entity: "cell",
-      title: `Row ${c.row} · ${c.column}`,
-      before: fmt_cell(c.before),
-      after: fmt_cell(c.after),
-    };
-  });
+    // update — merge with any earlier change already staged for this row.
+    const col = c.column ?? "";
+    const existing_i = update_index.get(c.row);
+    if (existing_i === undefined) {
+      update_index.set(c.row, result.length);
+      result.push({
+        ids: [c.id],
+        kind: "update",
+        row: c.row,
+        columns: [col],
+        before: { [col]: fmt_cell(c.before) },
+        after: { [col]: fmt_cell(c.after) },
+      });
+    } else {
+      const entry = result[existing_i];
+      entry.ids.push(c.id);
+      entry.columns.push(col);
+      entry.before[col] = fmt_cell(c.before);
+      entry.after[col] = fmt_cell(c.after);
+    }
+  }
+  return result;
 }
 
 /** Bounding box of the selection net, in row index / display-column index. */
@@ -299,8 +327,8 @@ export interface GridContextValue {
   /** Column name -> display (column-order) index. */
   col_index_of: Record<string, number>;
   // Visual state.
-  sort_col: string | null;
-  sort_asc: boolean;
+  /** Sort keys in priority order; index 0 = primary. Empty = unsorted. */
+  sort_keys: SortKey[];
   pinned: string[];
   selected: Set<string>;
   sel_anchor: CellId | null;
@@ -309,8 +337,12 @@ export interface GridContextValue {
   editAsText: boolean;
   col_widths: Record<string, number>;
   // Actions.
+  /** Adds `col` to the sort (or updates its direction in place if it's
+   *  already sorted) without clearing any other active sort key. */
   on_sort: (col: string, asc: boolean) => void;
+  /** Removes just `col` from the sort, leaving any other active keys. */
   on_clear_sort: (col: string) => void;
+  on_clear_all_sort: () => void;
   on_toggle_pin: (col: string) => void;
   on_resize_col: (col: string, px: number) => void;
   auto_fit_col: (col: string) => void;

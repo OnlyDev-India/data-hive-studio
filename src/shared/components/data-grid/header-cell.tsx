@@ -24,6 +24,10 @@ interface HeaderCellProps {
   col: string;
   is_sorted: boolean;
   is_asc: boolean;
+  /** This column's 0-based priority in the active multi-column sort, or
+   *  `null` when it isn't sorted. Only shown as a badge once more than one
+   *  column is sorted — a single sort looks exactly as it always has. */
+  sort_index: number | null;
   is_pinned: boolean;
   /** Sticky left offset when pinned (0 otherwise). */
   px: number;
@@ -62,6 +66,7 @@ export function HeaderCell({
   col,
   is_sorted,
   is_asc,
+  sort_index,
   is_pinned,
   px,
   width,
@@ -73,6 +78,8 @@ export function HeaderCell({
   const auto_fit_col = ctx.auto_fit_col;
   const sort = ctx.on_sort;
   const clear_sort = ctx.on_clear_sort;
+  const clear_all_sort = ctx.on_clear_all_sort;
+  const sort_count = ctx.sort_keys.length;
   const toggle_pin = ctx.on_toggle_pin;
   const toggle_column_visibility = ctx.toggle_column_visibility;
   const start_column_drag = ctx.start_column_drag;
@@ -112,6 +119,10 @@ export function HeaderCell({
   const on_clear_sort = () => {
     if (busy) return;
     clear_sort(col);
+  };
+  const on_clear_all_sort = () => {
+    if (busy) return;
+    clear_all_sort();
   };
   const on_toggle_pin = () => {
     if (busy) return;
@@ -277,6 +288,14 @@ export function HeaderCell({
           ) : (
             <ArrowDown className="size-3 shrink-0" />
           ))}
+        {is_sorted && sort_index !== null && sort_count > 1 && (
+          <span
+            className="text-muted-foreground bg-muted -ml-0.5 shrink-0 rounded-full px-1 text-3xs leading-4 tabular-nums"
+            title={`Sort priority ${sort_index + 1} of ${sort_count}`}
+          >
+            {sort_index + 1}
+          </span>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -332,6 +351,21 @@ export function HeaderCell({
               >
                 <X className="size-3.5 shrink-0" />
                 Remove sort
+              </Button>
+            )}
+            {sort_count > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive flex w-full cursor-pointer items-center justify-start gap-2 px-2 py-1.5"
+                onClick={() => {
+                  on_clear_all_sort();
+                  setOpen(false);
+                }}
+              >
+                <X className="size-3.5 shrink-0" />
+                Clear all sorts
               </Button>
             )}
             <Button

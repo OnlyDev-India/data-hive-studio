@@ -11,6 +11,8 @@
  *  same storage key too, which is a bigger, separate change. Add it if
  *  losing filters on tab-close turns out to matter in practice. */
 
+import type { SortKey } from "./types";
+
 export interface ColumnLayout {
   version: 1;
   /** Full column-name permutation from drag-reorder; `null` = natural
@@ -19,8 +21,16 @@ export interface ColumnLayout {
   col_widths: Record<string, number>;
   pinned: string[];
   hidden: string[];
-  sort_col: string | null;
-  sort_asc: boolean;
+  /** Sort keys in priority order; empty = unsorted. */
+  sort_keys: SortKey[];
+}
+
+/** Pre-multi-sort shape a layout saved before this field existed may still
+ *  have on disk — normalized into `sort_keys` on load so upgrading doesn't
+ *  silently drop a user's existing saved sort. */
+interface LegacySortShape {
+  sort_col?: string | null;
+  sort_asc?: boolean;
 }
 
 const STORAGE_PREFIX = "dh-studio:grid-layout:";
@@ -42,7 +52,13 @@ export function loadColumnLayout(
     ) {
       return null;
     }
-    return parsed as ColumnLayout;
+    const obj = parsed as Partial<ColumnLayout> & LegacySortShape;
+    if (!obj.sort_keys) {
+      obj.sort_keys = obj.sort_col
+        ? [{ column: obj.sort_col, asc: obj.sort_asc ?? true }]
+        : [];
+    }
+    return obj as ColumnLayout;
   } catch {
     return null;
   }

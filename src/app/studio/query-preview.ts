@@ -25,7 +25,9 @@ function format_sql_preview(
   let s = `SELECT * FROM "${op.table}"`;
   const where = sql_where(op.filters, op.custom_where);
   if (where) s += ` WHERE ${where}`;
-  if (op.order_by) s += ` ORDER BY ${op.order_by} ${op.order_dir ?? "ASC"}`;
+  if (op.order_by?.length) {
+    s += ` ORDER BY ${op.order_by.map((o) => `${o.column} ${o.dir}`).join(", ")}`;
+  }
   s += ` LIMIT ${page_size}`;
   return s;
 }
@@ -73,8 +75,12 @@ function format_mongo_preview(
 ): string {
   const filter = op.custom_where?.trim() || mongo_filter(op.filters) || "{}";
   let s = `db.${op.table}.find(${filter})`;
-  if (op.order_by)
-    s += `.sort({ ${op.order_by}: ${op.order_dir === "ASC" ? 1 : -1} })`;
+  if (op.order_by?.length) {
+    const fields = op.order_by
+      .map((o) => `${o.column}: ${o.dir === "ASC" ? 1 : -1}`)
+      .join(", ");
+    s += `.sort({ ${fields} })`;
+  }
   s += `.limit(${page_size})`;
   return s;
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Columns3, GripVertical, Search } from "lucide-react";
-import { Button } from "@/shared/components/ui/button";
+import { GripVertical, Search } from "lucide-react";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import {
@@ -22,6 +21,7 @@ export function ColumnVisibilityMenu({
   hidden,
   on_toggle,
   on_reorder,
+  children,
 }: {
   /** Every column, in current display order (pin-partitioned,
    *  drag-reordered) — includes hidden ones, in their last-known spot. */
@@ -29,6 +29,7 @@ export function ColumnVisibilityMenu({
   hidden: string[];
   on_toggle: (col: string) => void;
   on_reorder: (dragged: string, target: string) => void;
+  children: React.ReactElement;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -36,11 +37,15 @@ export function ColumnVisibilityMenu({
   const [drag_over, setDragOver] = useState<string | null>(null);
   const hidden_set = new Set(hidden);
   const q = query.trim().toLowerCase();
-  const filtered = q ? columns.filter((c) => c.toLowerCase().includes(q)) : columns;
+  const filtered = q
+    ? columns.filter((c) => c.toLowerCase().includes(q))
+    : columns;
   // Applies to the FILTERED set, not every column — checking "select all"
   // while a search narrows the list only touches what's actually visible
   // here, same convention as a filtered list/inbox "select all".
-  const filtered_hidden_count = filtered.filter((c) => hidden_set.has(c)).length;
+  const filtered_hidden_count = filtered.filter((c) =>
+    hidden_set.has(c),
+  ).length;
   const all_shown = filtered_hidden_count === 0;
   const some_hidden =
     filtered_hidden_count > 0 && filtered_hidden_count < filtered.length;
@@ -75,19 +80,7 @@ export function ColumnVisibilityMenu({
         if (!o) setQuery("");
       }}
     >
-      <PopoverTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="iconXs"
-            title="Columns"
-            aria-label="Columns"
-            className="shrink-0"
-          />
-        }
-      >
-        <Columns3 className="size-3.5" />
-      </PopoverTrigger>
+      <PopoverTrigger render={children} />
       <PopoverContent className="flex w-64 flex-col gap-2 p-2" align="start">
         <div className="relative">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
@@ -99,7 +92,7 @@ export function ColumnVisibilityMenu({
             className="h-7 pl-7 text-xs"
           />
         </div>
-        <div className="text-muted-foreground border-border/60 flex items-center gap-2 border-b px-2 pt-1 pb-1.5 text-2xs font-medium">
+        <div className="text-muted-foreground border-border/60 text-2xs flex items-center gap-2 border-b px-2 pt-1 pb-1.5 font-medium">
           <span className="size-3.5 shrink-0" />
           <Checkbox
             checked={all_shown}

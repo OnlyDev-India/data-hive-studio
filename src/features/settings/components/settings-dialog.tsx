@@ -53,7 +53,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="min-h-[85%] min-w-[95%]">
+      <DialogContent className="min-h-[85%] min-w-[95%] max-h-[85%]">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         {/* The default close button is rendered by the dialog; content is
             tall enough that we don't add a title bar here. */}

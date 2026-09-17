@@ -63,6 +63,7 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/v1/c/{conn_id}/tables", get(conn_tables))
         .route("/v1/c/{conn_id}/schemas", get(conn_schemas))
         .route("/v1/c/{conn_id}/schema/{*table}", get(conn_schema))
+        .route("/v1/c/{conn_id}/mongo/field-tree/{*collection}", get(conn_mongo_field_tree))
         .route("/v1/c/{conn_id}/sql", post(conn_sql))
         .route("/v1/c/{conn_id}/op", post(conn_op))
         .route("/v1/c/{conn_id}/close", post(conn_close))
@@ -632,6 +633,25 @@ async fn conn_schema(
     Query(q): Query<TargetQuery>,
 ) -> Response {
     match gw.table_schema(&auth.0, &conn_id, q.database.as_deref(), q.schema.as_deref(), &table).await {
+        Ok(s) => Json(s).into_response(),
+        Err(e) => err_res(e),
+    }
+}
+
+/// Spec 0001's "Fields" view — `database` is required (Mongo tabs always
+/// carry one explicitly, unlike `TargetQuery`'s optional "ambient" database).
+#[derive(serde::Deserialize)]
+pub struct FieldTreeQuery {
+    pub database: String,
+}
+
+async fn conn_mongo_field_tree(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path((conn_id, collection)): Path<(String, String)>,
+    Query(q): Query<FieldTreeQuery>,
+) -> Response {
+    match gw.field_tree(&auth.0, &conn_id, &q.database, &collection).await {
         Ok(s) => Json(s).into_response(),
         Err(e) => err_res(e),
     }

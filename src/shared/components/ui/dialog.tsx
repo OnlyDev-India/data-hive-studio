@@ -28,8 +28,9 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  hideCloseButton = false,
   ...props
-}: DialogPrimitive.Popup.Props) {
+}: DialogPrimitive.Popup.Props & { hideCloseButton?: boolean }) {
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -42,18 +43,20 @@ function DialogContent({
         {...props}
       >
         {children}
-        <DialogPrimitive.Close
-          render={
-            <Button
-              variant="ghost"
-              size="iconSm"
-              className="absolute top-2 right-2"
-            >
-              <XIcon className="size-4" />
-              <span className="sr-only">Close</span>
-            </Button>
-          }
-        />
+        {!hideCloseButton && (
+          <DialogPrimitive.Close
+            render={
+              <Button
+                variant="ghost"
+                size="iconSm"
+                className="absolute top-2 right-2"
+              >
+                <XIcon className="size-4" />
+                <span className="sr-only">Close</span>
+              </Button>
+            }
+          />
+        )}
       </DialogPrimitive.Popup>
     </DialogPortal>
   );
