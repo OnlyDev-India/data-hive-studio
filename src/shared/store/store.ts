@@ -16,7 +16,8 @@ import { WEB } from "@/shared/api/web";
 import { connectionActions } from "./connections";
 import { DEFAULT_PALETTE_KEYWORDS } from "./types";
 import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-editor/delimited-list";
-import type { SavedConnParams, StudioStore } from "./types";
+import type { SavedConnParams, StudioStore, WorkspaceTabs } from "./types";
+import { tabKey } from "./tab-utils";
 import { workspaceActions } from "./workspace";
 import {
   loadPendingWorkspaceRestores,
@@ -71,6 +72,20 @@ function readLegacySavedLocal(): Record<string, SavedConnParams> {
  *  cleared after applying, which would otherwise recycle counter values and
  *  make the landing form's dedupe drop the next click). */
 let prefill_seq = 0;
+
+/** The currently focused tab's own composite `bottomPanelOpen` key, same
+ *  format `jsonRows` already uses. Resolved fresh on every call (never
+ *  cached) so global chrome always acts on whichever tab is active right
+ *  now. `null` when there's no tab to act on — no active connection, or
+ *  that connection's focused pane has no active tab — so callers can no-op
+ *  instead of acting on a guessed key. */
+function activeBottomPanelScope(
+  activeId: string | null,
+  workspaces: Record<string, WorkspaceTabs>,
+): string | null {
+  const active = activeId ? (workspaces[activeId]?.active ?? null) : null;
+  return active ? `${activeId}\u0000${tabKey(active)}` : null;
+}
 
 export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
   create<StudioStore>()(
@@ -205,16 +220,32 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set((s) => ({ leftPanelOpen: !s.leftPanelOpen }));
         },
 
-        // Defaults open — an editor tab's results split was always visible
-        // before this became a shared flag with the table/collection JSON
-        // panel, and "can I see what I just ran" matters more by default
-        // than "hide the empty JSON panel on a table I just opened."
-        bottomPanelOpen: false,
+        bottomPanelOpen: {},
+        setBottomPanelOpenFor(scope, open) {
+          set((s) => ({
+            bottomPanelOpen: { ...s.bottomPanelOpen, [scope]: open },
+          }));
+        },
         setBottomPanelOpen(open) {
-          set({ bottomPanelOpen: open });
+          set((s) => {
+            const scope = activeBottomPanelScope(s.activeId, s.workspaces);
+            if (!scope) return {};
+            return {
+              bottomPanelOpen: { ...s.bottomPanelOpen, [scope]: open },
+            };
+          });
         },
         toggleBottomPanel() {
-          set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen }));
+          set((s) => {
+            const scope = activeBottomPanelScope(s.activeId, s.workspaces);
+            if (!scope) return {};
+            return {
+              bottomPanelOpen: {
+                ...s.bottomPanelOpen,
+                [scope]: !s.bottomPanelOpen[scope],
+              },
+            };
+          });
         },
         jsonRows: {},
         setJsonRow(scope, row) {

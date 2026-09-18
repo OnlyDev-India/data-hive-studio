@@ -15,6 +15,7 @@ export {
 } from "./types";
 export type { ShortcutBinding } from "../hooks/shortcut-registry";
 export {
+  useActiveBottomPanelOpen,
   useActiveConnection,
   useActiveConnectionId,
   usePaneMode,

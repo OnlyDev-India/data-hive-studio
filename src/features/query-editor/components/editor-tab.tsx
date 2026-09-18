@@ -78,14 +78,21 @@ function useErrorRanges(editorRef: React.RefObject<QueryEditorHandle | null>) {
  *  text alone (no schema round trip), so a freshly-created tab shows
  *  something meaningful immediately instead of a generic "Query N". `null`
  *  when nothing recognizable was found, so the caller can fall back. */
-function deriveSqlTabLabel(text: string, database: string | undefined): string | null {
+function deriveSqlTabLabel(
+  text: string,
+  database: string | undefined,
+): string | null {
   const table =
     singleTableSelect(text)?.table ??
     /^\s*(?:insert\s+into|update|delete\s+from)\s+("?[A-Za-z_][\w$]*"?(?:\."?[A-Za-z_][\w$]*"?)?)/i
       .exec(text)?.[1]
       ?.replaceAll('"', "");
   if (!table) return null;
-  return table.includes(".") ? table : database ? `${database}.${table}` : table;
+  return table.includes(".")
+    ? table
+    : database
+      ? `${database}.${table}`
+      : table;
 }
 
 /** Same idea as {@link deriveSqlTabLabel}, for a Mongo console command —
@@ -142,9 +149,7 @@ function ResultTabStrip({
                 variant="ghost"
                 size="iconXs"
                 aria-label={
-                  keep_all_tabs
-                    ? "New tab per run: on"
-                    : "New tab per run: off"
+                  keep_all_tabs ? "New tab per run: on" : "New tab per run: off"
                 }
                 className={cn(
                   "shrink-0",
@@ -334,6 +339,10 @@ function SqlEditorBody({
   // about yet (e.g. right after a bulk DDL run) that would otherwise flag
   // everything as "unknown".
   const [lint_enabled, setLintEnabled] = useState(true);
+  // Toolbar toggle: the column name drawn in front of each INSERT value
+  // (purely visual — see `insert-column-labels.ts`). Per tab, resets to on
+  // when the tab is reopened, same as `lint_enabled`.
+  const [insert_labels_enabled, setInsertLabelsEnabled] = useState(true);
 
   // Gates a run behind an explicit confirm when one of its statements is
   // unconditionally destructive (UPDATE/DELETE with no WHERE, TRUNCATE,
@@ -604,10 +613,11 @@ function SqlEditorBody({
     panelRef: bottomPanelRef,
     defaultLayout,
     onLayoutChanged,
-    onResize,
+    defaultSize: bottomDefaultSize,
     bottomPanelOpen,
   } = useBottomPanelSize({
-    id: tab_key,
+    conn_id,
+    tab_key,
     panelIds: ["top-panel", "bottom-panel"],
     storage: localStorage,
   });
@@ -992,6 +1002,8 @@ function SqlEditorBody({
         on_compress={compress_sql}
         lint_enabled={lint_enabled}
         on_toggle_lint={() => setLintEnabled((v) => !v)}
+        insert_labels_enabled={insert_labels_enabled}
+        on_toggle_insert_labels={() => setInsertLabelsEnabled((v) => !v)}
         is_dirty={is_dirty}
         on_save={() => void save_sql()}
         on_open={() => void open_sql_file()}
@@ -1009,6 +1021,7 @@ function SqlEditorBody({
           schema={schema}
           schemaTables={is_pg ? schema_tables : undefined}
           lintEnabled={lint_enabled}
+          showInsertLabels={insert_labels_enabled}
           height="100%"
         />
       </div>
@@ -1040,13 +1053,12 @@ function SqlEditorBody({
 
         <ResizablePanel
           id="bottom-panel"
-          defaultSize={25}
+          defaultSize={bottomDefaultSize}
           minSize={10}
           collapsible
           collapsedSize={0}
           className="min-h-0 flex-col"
           panelRef={bottomPanelRef}
-          onResize={onResize}
         >
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
@@ -1092,7 +1104,10 @@ function SqlEditorBody({
 /** Splits a possibly schema-qualified table reference (`singleTableSelect`'s
  *  own output shape) into the separate `table`/`schema` args `tableSchema`
  *  expects. */
-function splitSchemaQualified(name: string): { table: string; schema?: string } {
+function splitSchemaQualified(name: string): {
+  table: string;
+  schema?: string;
+} {
   const dot = name.indexOf(".");
   return dot < 0
     ? { table: name }
@@ -1241,10 +1256,11 @@ function MongoEditorBody({
     panelRef: bottomPanelRef,
     defaultLayout,
     onLayoutChanged,
-    onResize,
+    defaultSize: bottomDefaultSize,
     bottomPanelOpen,
   } = useBottomPanelSize({
-    id: tab_key,
+    conn_id,
+    tab_key,
     panelIds: ["top-panel", "bottom-panel"],
     storage: localStorage,
   });
@@ -1587,13 +1603,12 @@ function MongoEditorBody({
 
         <ResizablePanel
           id="bottom-panel"
-          defaultSize={25}
+          defaultSize={bottomDefaultSize}
           minSize={10}
           collapsible
           collapsedSize={0}
           className="min-h-0 flex-col"
           panelRef={bottomPanelRef}
-          onResize={onResize}
         >
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip

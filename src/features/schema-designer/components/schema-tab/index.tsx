@@ -35,7 +35,7 @@ import { TriggersPanel } from "./triggers-panel";
 import { DropTableDialog } from "./drop-table-dialog";
 import {
   ApplyChangesDialog,
-  type DiffChange,
+  type DdlDiffSection,
 } from "@/shared/components/apply-changes-dialog";
 import type { SchemaOp } from "@/shared/api";
 
@@ -222,7 +222,7 @@ function SchemaEditor({
   // actual DDL only runs once the user confirms in `ApplyChangesDialog`.
   const [confirm_apply, setConfirmApply] = useState<{
     ops: SchemaOp[];
-    changes: DiffChange[];
+    ddl: DdlDiffSection[];
   } | null>(null);
 
   /** Validates the drafts and builds the ops batch. Returns `null` (after
@@ -274,7 +274,7 @@ function SchemaEditor({
       discard();
       return;
     }
-    const changes = describe_schema_changes(
+    const ddl = describe_schema_changes(
       table,
       table_name.trim(),
       cols,
@@ -284,7 +284,7 @@ function SchemaEditor({
       fks,
       orig_pk.map(resolve_col),
     );
-    setConfirmApply({ ops, changes });
+    setConfirmApply({ ops, ddl });
   };
 
   const run_apply = async (ops: SchemaOp[]) => {
@@ -462,7 +462,7 @@ function SchemaEditor({
       {confirm_apply && (
         <ApplyChangesDialog
           title="Review schema changes"
-          changes={confirm_apply.changes}
+          ddl={confirm_apply.ddl}
           applying={applying}
           on_apply={() => {
             const { ops } = confirm_apply;

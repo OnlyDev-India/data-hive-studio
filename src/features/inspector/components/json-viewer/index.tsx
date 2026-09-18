@@ -106,8 +106,9 @@ export function JsonViewer({
   const jsonRow = useStudioStore(
     (s) => s.jsonRows[`${conn_id}\u0000${tab_key}`] ?? null,
   );
-  const setBottomPanelOpen = useStudioStore((s) => s.setBottomPanelOpen);
-  const close = () => setBottomPanelOpen(false);
+  const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
+  const close = () =>
+    setBottomPanelOpenFor(`${conn_id}\u0000${tab_key}`, false);
 
   const [wrap, setWrap] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);

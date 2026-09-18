@@ -207,7 +207,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const setGridBridge = useStudioStore((s) => s.setGridBridge);
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
-  const setBottomPanelOpen = useStudioStore((s) => s.setBottomPanelOpen);
+  const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
   // The JSON viewer shows the ACTIVE tab's row; publishing under this scope
   // (connection + tab) keeps one tab's selection from leaking into another.
   const json_scope = `${conn_id}\u0000${tab_key}`;
@@ -279,8 +279,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     ],
   );
   const open_json = useCallback(
-    () => setBottomPanelOpen(true),
-    [setBottomPanelOpen],
+    () => setBottomPanelOpenFor(json_scope, true),
+    [setBottomPanelOpenFor, json_scope],
   );
 
   const pk_columns = useMemo(

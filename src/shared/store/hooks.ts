@@ -1,5 +1,6 @@
 import type { ConnectionInfo } from "../api/types";
 import { useStudioStore } from "./store";
+import { tabKey } from "./tab-utils";
 import type { WorkspaceTabs } from "./types";
 import { DEFAULT_WORKSPACE } from "./workspace";
 
@@ -29,4 +30,20 @@ export function useActiveConnection(): ConnectionInfo | null {
     if (found) return found;
   }
   return open[0] ?? null;
+}
+
+/** Whether the currently ACTIVE tab's bottom panel is open — the title
+ *  bar's toggle button and the native "Toggle Bottom Panel" menu command
+ *  read this so their icon/tooltip reflect that tab's own state, not any
+ *  other open tab's. `false` when there's no active tab (no connection
+ *  open, or its focused pane has none). */
+export function useActiveBottomPanelOpen(): boolean {
+  return useStudioStore((s) => {
+    const active = s.activeId
+      ? (s.workspaces[s.activeId]?.active ?? null)
+      : null;
+    return active
+      ? (s.bottomPanelOpen[`${s.activeId}\u0000${tabKey(active)}`] ?? false)
+      : false;
+  });
 }

@@ -9,7 +9,11 @@ import {
 } from "lucide-react";
 import { WEB } from "@/shared/api/web";
 import { cn } from "@/shared/lib/utils";
-import { useActiveConnection, useStudioStore } from "@/shared/store";
+import {
+  useActiveBottomPanelOpen,
+  useActiveConnection,
+  useStudioStore,
+} from "@/shared/store";
 import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
 import PanelLeftIcon from "@/shared/components/icons/panel-left";
 import PanelBottomIcon from "@/shared/components/icons/panel-bottom";
@@ -79,21 +83,17 @@ function LeftPanelToggleButton({ className }: { className?: string }) {
 }
 
 function BottomPanelToggleButton({ className }: { className?: string }) {
-  // One shared toggle for every tab kind's own bottom split — grid results
-  // for a SQL/Mongo-console editor tab, the JSON detail panel for a table/
+  // Toggles the currently ACTIVE tab's own bottom split — grid results for
+  // a SQL/Mongo-console editor tab, the JSON detail panel for a table/
   // collection tab (see `bottomPanelOpen`'s own doc comment in
-  // `shared/store/types.ts`).
-  const bottomPanelOpen = useStudioStore((s) => s.bottomPanelOpen);
-  const setBottomPanelOpen = useStudioStore((s) => s.setBottomPanelOpen);
-  // const toggleBottomPanel = useStudioStore((s) => s.toggleBottomPanel);
+  // `shared/store/types.ts`). Every other open tab keeps its own state.
+  const bottomPanelOpen = useActiveBottomPanelOpen();
+  const toggleBottomPanel = useStudioStore((s) => s.toggleBottomPanel);
   // Nothing to view/toggle on the home page — no connection means no open
   // tab at all, so disable rather than leave it clickable and inert.
   const view = useStudioStore((s) => s.view);
   const openLen = useStudioStore((s) => s.open.length);
   const on_home = view !== "workspace" || openLen === 0;
-  const toggleBottomPanel = () => {
-    setBottomPanelOpen(!bottomPanelOpen);
-  };
   return (
     <button
       type="button"

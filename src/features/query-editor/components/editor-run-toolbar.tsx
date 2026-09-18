@@ -13,6 +13,7 @@ import {
   Shrink,
   SpellCheck2,
   TextAlignStart,
+  Tags,
   TextSelect,
   WrapText
 } from "lucide-react";
@@ -51,6 +52,8 @@ export function EditorRunToolbar({
   on_compress,
   lint_enabled,
   on_toggle_lint,
+  insert_labels_enabled,
+  on_toggle_insert_labels,
   is_dirty,
   on_save,
   on_open,
@@ -79,6 +82,10 @@ export function EditorRunToolbar({
   on_compress?: () => void;
   lint_enabled?: boolean;
   on_toggle_lint?: () => void;
+  /** SQL editor only: shows/hides the column name drawn in front of each
+   *  INSERT value (see `insert-column-labels.ts`). Omitted = no toggle. */
+  insert_labels_enabled?: boolean;
+  on_toggle_insert_labels?: () => void;
   is_dirty?: boolean;
   on_save?: () => void;
   on_open?: () => void;
@@ -146,6 +153,19 @@ export function EditorRunToolbar({
               color="warning"
               active={lint_enabled}
               onClick={on_toggle_lint}
+            />
+          )}
+          {on_toggle_insert_labels && (
+            <ToolbarIconButton
+              icon={Tags}
+              label={
+                insert_labels_enabled
+                  ? "Hide INSERT column labels"
+                  : "Show INSERT column labels"
+              }
+              color="info"
+              active={insert_labels_enabled}
+              onClick={on_toggle_insert_labels}
             />
           )}
           {on_open && (
@@ -240,7 +260,6 @@ function ToolbarIconButton({
                 : `${TOOLBAR_ICON_COLORS[color]} hover:${TOOLBAR_ICON_COLORS[color]}`,
             )}
             disabled={disabled}
-            title={label}
             onClick={onClick}
           >
             <Icon className="size-3.5" />

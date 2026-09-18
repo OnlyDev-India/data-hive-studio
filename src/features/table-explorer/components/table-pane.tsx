@@ -88,10 +88,11 @@ export function TablePane({
     panelRef: bottomPanelRef,
     defaultLayout,
     onLayoutChanged,
-    onResize,
+    defaultSize: bottomDefaultSize,
     bottomPanelOpen,
   } = useBottomPanelSize({
-    id: tab_key,
+    conn_id,
+    tab_key,
     panelIds: ["top-panel", "bottom-panel"],
     storage: localStorage,
   });
@@ -418,13 +419,12 @@ export function TablePane({
 
                   <ResizablePanel
                     id="bottom-panel"
-                    defaultSize={25}
+                    defaultSize={bottomDefaultSize}
                     minSize={0}
                     collapsible
                     collapsedSize={0}
                     className="min-h-0 flex-col"
                     panelRef={bottomPanelRef}
-                    onResize={onResize}
                   >
                     <JsonViewer conn_id={conn_id} tab_key={tab_key} />
                   </ResizablePanel>

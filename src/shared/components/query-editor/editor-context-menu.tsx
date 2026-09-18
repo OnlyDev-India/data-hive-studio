@@ -257,7 +257,7 @@ export function EditorContextMenu({
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onOpenSearch}>
           <Search className="size-3.5" />
-          Find in editor
+          Find and replace
           <Shortcut binding={searchBinding} />
         </ContextMenuItem>
         <ContextMenuSeparator />

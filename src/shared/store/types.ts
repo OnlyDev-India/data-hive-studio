@@ -365,16 +365,23 @@ export interface StudioStore {
    *  Sidebar". */
   toggleLeftPanelOpen: () => void;
 
-  // One shared open/closed flag for the "bottom split" every tab kind has
+  // Per-tab open/closed state for the "bottom split" every tab kind has
   // below its main content — grid results for a SQL/Mongo-console editor
-  // tab (`editor-tab.tsx`, replacing its old per-tab-instance `zen` local
-  // state), the JSON detail panel for a table/collection tab
-  // (`table-pane.tsx`/`mongo-collection-pane.tsx`). One flag for whichever
-  // tab is active, not one per tab — nobody asked for that, and it'd need
-  // its own persistence-migration story.
-  bottomPanelOpen: boolean;
+  // tab (`editor-tab.tsx`), the JSON detail panel for a table/collection tab
+  // (`table-pane.tsx`/`mongo-collection-pane.tsx`). Keyed the same
+  // connection-scoped way `jsonRows` is (`` `${conn_id}\u0000${tabKey(tab)}` ``),
+  // so two same-shaped tabs in different connections never collide; an
+  // absent entry reads as closed, which is also a freshly opened tab's
+  // starting state, so nothing has to initialize it. `setBottomPanelOpen`/
+  // `toggleBottomPanel` are convenience wrappers for global chrome (title
+  // bar button, native "Toggle Bottom Panel" menu command) that resolve the
+  // currently ACTIVE tab's key fresh on every call; a caller that already
+  // knows its own scope (the grid, the JSON viewer, `useBottomPanelSize`)
+  // goes through `setBottomPanelOpenFor` directly.
+  bottomPanelOpen: Record<string, boolean>;
   setBottomPanelOpen: (open: boolean) => void;
   toggleBottomPanel: () => void;
+  setBottomPanelOpenFor: (scope: string, open: boolean) => void;
   jsonRows: Record<string, JsonRow | null>;
   setJsonRow: (scope: string, row: JsonRow | null) => void;
 
