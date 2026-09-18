@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Check, ChevronRight, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -12,29 +12,9 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 
-/** One entry in a review-before-apply dialog, shaped for a real unified-diff
- *  rendering: "add" sets only `after` (one green line), "drop" sets only
- *  `before` (one red line), "alter" sets both — full reconstructed lines,
- *  not just the changed fragment, so it reads like a real line diff instead
- *  of a fragment list. The single shared shape (and the single dialog below)
- *  is used everywhere in the app something needs a "here's what's about to
- *  change" review — the data grid's pending row edits and the schema
- *  designer's DDL batch — so the visual language never diverges between
- *  them. */
-export interface DiffChange {
-  id: string;
-  kind: "add" | "drop" | "alter";
-  /** Small muted label above the diff lines, e.g. "row", "column", "index". */
-  entity: string;
-  /** The name/identifier this change is about. */
-  title: string;
-  before?: string;
-  after?: string;
-}
-
 /** One CHANGED TABLE ROW for the grid-formatted review below (`rows` prop) —
- *  the data grid's own review, as an alternative to the text-hunk `changes`
- *  shape above. `columns` is just whatever this one row touched; the caller
+ *  the data grid's own review, as an alternative to the DDL grid shape
+ *  below. `columns` is just whatever this one row touched; the caller
  *  (`RowDiffGrid`) unions it across every row to build the grid's header.
  *  `ids` collects every underlying `PendingChange.id` this entry represents
  *  (several cell edits on the same row merge into ONE `RowDiffChange` — see
@@ -50,9 +30,88 @@ export interface RowDiffChange {
   after: Record<string, string>;
 }
 
+/** One property row in the "Table properties" panel — table rename and
+ *  primary key change both use this shape (a label plus before/after);
+ *  both are at most one row and always an alter, never an insert or
+ *  delete. */
+export interface DdlPropertyRow {
+  id: string;
+  label: string;
+  before?: string;
+  after?: string;
+}
+
+/** One column change, decomposed into real fields (unlike the other DDL
+ *  entities below) since columns are the highest volume DDL entity and the
+ *  one whose sub-fields are most useful to see separately. An "update" row
+ *  renders as a red row directly above a green row, matching `RowDiffGrid`'s
+ *  own update pattern. */
+export interface DdlColumnRow {
+  id: string;
+  kind: "insert" | "update" | "delete";
+  before?: { name: string; type: string; nullable: boolean; default: string };
+  after?: { name: string; type: string; nullable: boolean; default: string };
+}
+
+/** One index or foreign key change — still one opaque definition line (the
+ *  existing `idx_line(...)`/foreign key line text), just shown as a
+ *  Name+Definition grid row instead of a text hunk. */
+export interface DdlNamedRow {
+  id: string;
+  kind: "insert" | "update" | "delete";
+  name: string;
+  before?: string;
+  after?: string;
+}
+
+/** One trigger change — the full SQL body, rendered as a full width colored
+ *  row rather than squeezed into a normal cell. */
+export interface DdlTriggerRow {
+  id: string;
+  kind: "insert" | "update" | "delete";
+  name: string;
+  before?: string;
+  after?: string;
+}
+
+/** One entity-typed section of a DDL review (schema designer / Mongo schema
+ *  editor). A section only exists in the array when that entity type
+ *  actually changed — no empty sections. Table rename and primary key
+ *  change render together as one "Table properties" panel in `DdlDiffGrid`
+ *  even though they're separate section entries here. */
+export type DdlDiffSection =
+  | { entity: "table" | "primary key"; rows: DdlPropertyRow[] }
+  | { entity: "column"; rows: DdlColumnRow[] }
+  | { entity: "index" | "foreign key"; rows: DdlNamedRow[] }
+  | { entity: "trigger"; rows: DdlTriggerRow[] };
+
+/** Every row id in `sections`, with a `kind` for the header's +/~/- counts.
+ *  Table/primary key rows have no `kind` of their own (they're always an
+ *  alter), so they count as "update". */
+function flatten_ddl(
+  sections: DdlDiffSection[],
+): { id: string; kind: "insert" | "update" | "delete" }[] {
+  const out: { id: string; kind: "insert" | "update" | "delete" }[] = [];
+  for (const s of sections) {
+    switch (s.entity) {
+      case "table":
+      case "primary key":
+        for (const r of s.rows) out.push({ id: r.id, kind: "update" });
+        break;
+      case "column":
+      case "index":
+      case "foreign key":
+      case "trigger":
+        for (const r of s.rows) out.push({ id: r.id, kind: r.kind });
+        break;
+    }
+  }
+  return out;
+}
+
 export function ApplyChangesDialog({
   title = "Review changes",
-  changes,
+  ddl,
   rows,
   /** Per-item checkboxes to exclude entries before applying — only safe
    *  when every change is independent of the others (the grid's row/cell
@@ -66,9 +125,9 @@ export function ApplyChangesDialog({
   on_close,
 }: {
   title?: string;
-  /** Text-hunk rendering (schema DDL review) — mutually exclusive with
+  /** Grid rendering for a schema DDL review — mutually exclusive with
    *  `rows` below; pass exactly one. */
-  changes?: DiffChange[];
+  ddl?: DdlDiffSection[];
   /** Grid rendering (the data grid's row/cell review) — see
    *  `RowDiffChange`'s own doc comment. */
   rows?: RowDiffChange[];
@@ -77,12 +136,13 @@ export function ApplyChangesDialog({
   on_apply: (keepIds: Set<string>) => void;
   on_close: () => void;
 }) {
-  // Selection is keyed per rendered entry: a `DiffChange.id` for the hunk
-  // list, or a `RowDiffChange`'s first underlying id (a stable
-  // representative — see its doc comment) for the grid, one row at a time.
+  // Selection is keyed per rendered entry: a flattened DDL row id, or a
+  // `RowDiffChange`'s first underlying id (a stable representative — see
+  // its doc comment) for the grid, one row at a time.
   const entry_keys = useMemo(
-    () => (rows ? rows.map((r) => r.ids[0]) : (changes ?? []).map((c) => c.id)),
-    [rows, changes],
+    () =>
+      rows ? rows.map((r) => r.ids[0]) : flatten_ddl(ddl ?? []).map((e) => e.id),
+    [rows, ddl],
   );
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(entry_keys),
@@ -100,15 +160,15 @@ export function ApplyChangesDialog({
         else drop++;
       }
     } else {
-      for (const c of changes ?? []) {
-        if (selectable && !selected.has(c.id)) continue;
-        if (c.kind === "add") add++;
-        else if (c.kind === "alter") alter++;
+      for (const e of flatten_ddl(ddl ?? [])) {
+        if (selectable && !selected.has(e.id)) continue;
+        if (e.kind === "insert") add++;
+        else if (e.kind === "update") alter++;
         else drop++;
       }
     }
     return { add, alter, drop };
-  }, [rows, changes, selected, selectable]);
+  }, [rows, ddl, selected, selectable]);
 
   const all = entry_keys.length;
   const checked = selectable ? selected.size : all;
@@ -135,11 +195,7 @@ export function ApplyChangesDialog({
       }
       on_apply(keep);
     } else {
-      on_apply(
-        selectable
-          ? new Set(selected)
-          : new Set((changes ?? []).map((c) => c.id)),
-      );
+      on_apply(selectable ? new Set(selected) : new Set(entry_keys));
     }
     on_close();
   };
@@ -189,17 +245,7 @@ export function ApplyChangesDialog({
               on_toggle={toggle}
             />
           ) : (
-            <div className="divide-y">
-              {(changes ?? []).map((c) => (
-                <DiffHunk
-                  key={c.id}
-                  change={c}
-                  selectable={selectable}
-                  selected={selected.has(c.id)}
-                  on_toggle={(on) => toggle(c.id, on)}
-                />
-              ))}
-            </div>
+            <DdlDiffGrid sections={ddl ?? []} />
           )}
           {all === 0 && (
             <div className="text-muted-foreground p-6 text-center text-sm">
@@ -230,10 +276,10 @@ export function ApplyChangesDialog({
  *  pending edits) — column headers across the top (the union of every
  *  column touched across `rows`, in first-appearance order), one row per
  *  insert/delete, a stacked red-then-green row pair per update (a real
- *  line-replace, same visual language as `DiffLine` below just laid out as
- *  a grid instead of a text block). Selection is per `RowDiffChange`, not
- *  per underlying id — one checkbox per row (pair), spanning both of an
- *  update's rows. */
+ *  line-replace, same visual language as the DDL grid below just laid out
+ *  around dynamic column headers instead of fixed fields). Selection is per
+ *  `RowDiffChange`, not per underlying id — one checkbox per row (pair),
+ *  spanning both of an update's rows. */
 function RowDiffGrid({
   rows,
   selectable,
@@ -268,7 +314,7 @@ function RowDiffGrid({
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr className="border-b">
-            <th className="text-muted-foreground px-2 py-1.5 text-left font-medium">
+            <th className="text-muted-foreground w-16 px-2 py-1.5 text-left font-medium">
               Row
             </th>
             <th className="w-5" />
@@ -387,82 +433,294 @@ function RowDiffGrid({
   );
 }
 
-/** One "hunk": a collapsible heading (entity + name) over one or two full
- *  diff lines. `before`/`after` are each rendered as their OWN full line —
- *  a complete reconstructed value/definition, not just the changed
- *  fragment — so an alter reads as a real line replace (red line directly
- *  above green), matching how GitHub/VS Code render a modified line.
- *  Starts expanded — collapsing is for skimming past changes you already
- *  trust (a long trigger body, a bulk of untouched-looking row edits), not
- *  for hiding anything by default. */
-function DiffHunk({
-  change: c,
-  selectable,
-  selected,
-  on_toggle,
-}: {
-  change: DiffChange;
-  selectable: boolean;
-  selected: boolean;
-  on_toggle: (on: boolean) => void;
-}) {
-  const [open, setOpen] = useState(true);
+/** Grid-formatted review for `DdlDiffSection[]` (schema designer / Mongo
+ *  schema editor DDL review) — one small table per entity category present
+ *  in `sections` (never an empty one), each row styled with the same
+ *  insert/update/delete conventions `RowDiffGrid` uses (an update renders
+ *  as a red row directly above a green row). Table rename and primary key
+ *  change share one "Table properties" panel since both are at most one
+ *  row and always an alter. Always rendered read only (no checkboxes): DDL
+ *  review is never selectable, see the key invariant on
+ *  `ApplyChangesDialog`. */
+function DdlDiffGrid({ sections }: { sections: DdlDiffSection[] }) {
+  const properties = sections
+    .filter(
+      (s): s is { entity: "table" | "primary key"; rows: DdlPropertyRow[] } =>
+        s.entity === "table" || s.entity === "primary key",
+    )
+    .flatMap((s) => s.rows);
+  const columns =
+    sections.find(
+      (s): s is { entity: "column"; rows: DdlColumnRow[] } =>
+        s.entity === "column",
+    )?.rows ?? [];
+  const indexes =
+    sections.find(
+      (s): s is { entity: "index"; rows: DdlNamedRow[] } =>
+        s.entity === "index",
+    )?.rows ?? [];
+  const foreign_keys =
+    sections.find(
+      (s): s is { entity: "foreign key"; rows: DdlNamedRow[] } =>
+        s.entity === "foreign key",
+    )?.rows ?? [];
+  const triggers =
+    sections.find(
+      (s): s is { entity: "trigger"; rows: DdlTriggerRow[] } =>
+        s.entity === "trigger",
+    )?.rows ?? [];
+
   return (
-    <div
-      className={cn(
-        "flex items-start gap-2 px-3 py-2",
-        selectable && !selected && "opacity-50",
+    <div className="divide-y">
+      {properties.length > 0 && (
+        <DdlSection label="Table properties">
+          <PropertyTable rows={properties} />
+        </DdlSection>
       )}
-    >
-      {selectable && (
-        <Checkbox
-          className="mt-1"
-          checked={selected}
-          onCheckedChange={(v) => on_toggle(v === true)}
-          aria-label="Include this change"
-        />
+      {columns.length > 0 && (
+        <DdlSection label="Columns">
+          <ColumnTable rows={columns} />
+        </DdlSection>
       )}
-      <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          className="text-muted-foreground text-3xs mb-1 flex w-full items-baseline gap-1.5 text-left tracking-wide uppercase"
-        >
-          <ChevronRight
-            className={cn(
-              "size-3 shrink-0 self-center transition-transform",
-              open && "rotate-90",
-            )}
-          />
-          <span>{c.entity}</span>
-          <span className="text-foreground/70 min-w-0 truncate normal-case">
-            {c.title}
-          </span>
-        </button>
-        {open && (
-          <div className="overflow-hidden rounded border font-mono text-xs leading-5">
-            {c.before !== undefined && <DiffLine sign="-" text={c.before} />}
-            {c.after !== undefined && <DiffLine sign="+" text={c.after} />}
-          </div>
-        )}
-      </div>
+      {indexes.length > 0 && (
+        <DdlSection label="Indexes">
+          <NamedTable rows={indexes} />
+        </DdlSection>
+      )}
+      {foreign_keys.length > 0 && (
+        <DdlSection label="Foreign keys">
+          <NamedTable rows={foreign_keys} />
+        </DdlSection>
+      )}
+      {triggers.length > 0 && (
+        <DdlSection label="Triggers">
+          <TriggerRows rows={triggers} />
+        </DdlSection>
+      )}
     </div>
   );
 }
 
-function DiffLine({ sign, text }: { sign: "+" | "-"; text: string }) {
+function DdlSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div
-      className={cn(
-        "flex gap-2 px-2 py-1",
-        sign === "+"
-          ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
-          : "bg-red-500/10 text-red-800 dark:text-red-300",
-      )}
-    >
-      <span className="w-3 shrink-0 opacity-70 select-none">{sign}</span>
-      <span className="min-w-0 break-all whitespace-pre-wrap">{text}</span>
+    <div className="py-2">
+      <div className="text-muted-foreground text-3xs px-3 pb-1 font-medium tracking-wide uppercase">
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function PropertyTable({ rows }: { rows: DdlPropertyRow[] }) {
+  return (
+    <div className="overflow-x-auto px-3">
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b">
+            <th className="text-muted-foreground py-1 pr-3 text-left font-medium">
+              Property
+            </th>
+            <th className="text-muted-foreground py-1 pr-3 text-left font-medium">
+              Before
+            </th>
+            <th className="text-muted-foreground py-1 text-left font-medium">
+              After
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="border-b last:border-b-0">
+              <td className="text-muted-foreground py-1.5 pr-3 align-top font-medium whitespace-nowrap">
+                {r.label}
+              </td>
+              <td className="bg-red-500/10 py-1.5 pr-3 font-mono break-all text-red-800 dark:text-red-300">
+                {r.before ?? ""}
+              </td>
+              <td className="bg-emerald-500/10 py-1.5 font-mono break-all text-emerald-800 dark:text-emerald-300">
+                {r.after ?? ""}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const DDL_COLUMN_FIELDS = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "nullable", label: "Nullable" },
+  { key: "default", label: "Default" },
+] as const;
+
+function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
+  const cell_cls = "min-w-24 border-b px-2 py-1.5 font-mono break-all";
+  const added = "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
+  const removed = "bg-red-500/10 text-red-800 dark:text-red-300";
+
+  const cell = (
+    v: DdlColumnRow["before"],
+    key: (typeof DDL_COLUMN_FIELDS)[number]["key"],
+  ) => {
+    if (!v) return "";
+    if (key === "nullable") return v.nullable ? "yes" : "no";
+    return v[key];
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b">
+            <th className="w-5" />
+            {DDL_COLUMN_FIELDS.map((f) => (
+              <th
+                key={f.key}
+                className="text-muted-foreground min-w-24 px-2 py-1.5 text-left font-medium"
+              >
+                {f.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            if (r.kind === "update") {
+              return (
+                <Fragment key={r.id}>
+                  <tr>
+                    <td className="border-b px-1 py-1.5 text-red-600 select-none dark:text-red-400">
+                      −
+                    </td>
+                    {DDL_COLUMN_FIELDS.map((f) => (
+                      <td key={f.key} className={cn(cell_cls, removed)}>
+                        {cell(r.before, f.key)}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="border-b px-1 py-1.5 text-emerald-600 select-none dark:text-emerald-400">
+                      +
+                    </td>
+                    {DDL_COLUMN_FIELDS.map((f) => (
+                      <td key={f.key} className={cn(cell_cls, added)}>
+                        {cell(r.after, f.key)}
+                      </td>
+                    ))}
+                  </tr>
+                </Fragment>
+              );
+            }
+            const is_insert = r.kind === "insert";
+            const values = is_insert ? r.after : r.before;
+            return (
+              <tr key={r.id}>
+                <td
+                  className={cn(
+                    "border-b px-1 py-1.5 select-none",
+                    is_insert
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400",
+                  )}
+                >
+                  {is_insert ? "+" : "−"}
+                </td>
+                {DDL_COLUMN_FIELDS.map((f) => (
+                  <td
+                    key={f.key}
+                    className={cn(cell_cls, is_insert ? added : removed)}
+                  >
+                    {cell(values, f.key)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Index / foreign key rows — each still just one opaque definition line, so
+ *  the grid here is Name + Definition, not fully decomposed fields (see
+ *  spec 0003's Option 3 scope cut). */
+function NamedTable({ rows }: { rows: DdlNamedRow[] }) {
+  const line_cls = "px-2 py-1.5 font-mono break-all";
+  const added = "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
+  const removed = "bg-red-500/10 text-red-800 dark:text-red-300";
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b">
+            <th className="text-muted-foreground px-2 py-1.5 text-left font-medium">
+              Name
+            </th>
+            <th className="text-muted-foreground px-2 py-1.5 text-left font-medium">
+              Definition
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const is_insert = r.kind === "insert";
+            const text = is_insert ? r.after : r.before;
+            return (
+              <tr key={r.id} className="border-b last:border-b-0">
+                <td className="text-muted-foreground px-2 py-1.5 align-top font-mono">
+                  {r.name}
+                </td>
+                <td className={cn(line_cls, is_insert ? added : removed)}>
+                  {text ?? ""}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Trigger rows — the full SQL body doesn't fit a normal cell, so each row
+ *  renders full width instead (red for the old body, green for the new
+ *  one), inside the same section container as the other entity tables. */
+function TriggerRows({ rows }: { rows: DdlTriggerRow[] }) {
+  return (
+    <div className="space-y-1 px-3">
+      {rows.map((r) => {
+        const is_insert = r.kind === "insert";
+        const text = is_insert ? r.after : r.before;
+        return (
+          <div
+            key={r.id}
+            className={cn(
+              "overflow-hidden rounded border",
+              is_insert
+                ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                : "bg-red-500/10 text-red-800 dark:text-red-300",
+            )}
+          >
+            <div className="text-3xs border-current/20 flex items-baseline gap-1.5 border-b px-2 py-1 font-medium tracking-wide uppercase opacity-80">
+              <span className="select-none">{is_insert ? "+" : "−"}</span>
+              <span className="normal-case">{r.name}</span>
+            </div>
+            <div className="px-2 py-1.5 font-mono text-xs break-all whitespace-pre-wrap">
+              {text ?? ""}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

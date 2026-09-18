@@ -45,10 +45,11 @@ export function MongoCollectionPane({
     panelRef: bottomPanelRef,
     defaultLayout,
     onLayoutChanged,
-    onResize,
+    defaultSize: bottomDefaultSize,
     bottomPanelOpen,
   } = useBottomPanelSize({
-    id: tab_key,
+    conn_id,
+    tab_key,
     panelIds: ["top-panel", "bottom-panel"],
     storage: localStorage,
   });
@@ -307,13 +308,12 @@ export function MongoCollectionPane({
                   <ResizableHandle className="bg-background hover:bg-accent h-1!" />
                   <ResizablePanel
                     id="bottom-panel"
-                    defaultSize={25}
+                    defaultSize={bottomDefaultSize}
                     minSize={10}
                     collapsible
                     collapsedSize={0}
                     className="min-h-0 flex-col"
                     panelRef={bottomPanelRef}
-                    onResize={onResize}
                   >
                     <JsonViewer conn_id={conn_id} tab_key={tab_key} />
                   </ResizablePanel>

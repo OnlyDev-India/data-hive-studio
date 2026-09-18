@@ -1,5 +1,11 @@
 import type { DefaultMode, SchemaOp, TableSchema } from "@/shared/api";
-import type { DiffChange } from "@/shared/components/apply-changes-dialog";
+import type {
+  DdlColumnRow,
+  DdlDiffSection,
+  DdlNamedRow,
+  DdlPropertyRow,
+  DdlTriggerRow,
+} from "@/shared/components/apply-changes-dialog";
 
 /** Types offered in the dropdown. SQLite accepts any declared type; the
  *  PostgreSQL-specific entries only matter for PG connections. */
@@ -465,23 +471,6 @@ export function build_ops(
   return ops;
 }
 
-/** Full "column definition" line for a diff row: `name TYPE [NOT NULL] [DEFAULT x]`. */
-function col_line(
-  name: string,
-  data_type: string,
-  not_null: boolean,
-  default_text: string,
-): string {
-  return [
-    name,
-    data_type || "?",
-    not_null ? "NOT NULL" : null,
-    default_text ? `DEFAULT ${default_text}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
 /** Full "index definition" line for a diff row. */
 function idx_line(name: string, columns: string[], unique: boolean): string {
   return `${name} ON (${columns.join(", ")})${unique ? " UNIQUE" : ""}`;
@@ -489,10 +478,13 @@ function idx_line(name: string, columns: string[], unique: boolean): string {
 
 /** Mirrors `build_ops`'s traversal/conditions exactly (same order, same
  *  branches) so the two never disagree on what's about to run — this just
- *  narrates it for a human instead of emitting `SchemaOp`s. Kept as a
- *  parallel walk rather than deriving text from the built `ops[]` because
- *  several op kinds (`alter_column`, `set_primary_key`) only carry the NEW
- *  value; the "before" side only exists on the draft. */
+ *  narrates it for a human instead of emitting `SchemaOp`s, as grid-formatted
+ *  sections instead of text hunks. Kept as a parallel walk rather than
+ *  deriving the sections from the built `ops[]` because several op kinds
+ *  (`alter_column`, `set_primary_key`) only carry the NEW value; the
+ *  "before" side only exists on the draft. A section is only pushed when it
+ *  has at least one row — an entity type with nothing to show contributes
+ *  no section. */
 export function describe_schema_changes(
   orig_table: string,
   new_table: string,
@@ -502,35 +494,34 @@ export function describe_schema_changes(
   trigs: TriggerDraft[] = [],
   fks: FkDraft[] = [],
   schema_pk: string[] = [],
-): DiffChange[] {
-  const out: DiffChange[] = [];
+): DdlDiffSection[] {
+  const sections: DdlDiffSection[] = [];
   let n = 0;
   const next = () => `c${n++}`;
 
+  const table_rows: DdlPropertyRow[] = [];
   if (new_table !== orig_table) {
-    out.push({
+    table_rows.push({
       id: next(),
-      kind: "alter",
-      entity: "table",
-      title: "Table name",
+      label: "Table name",
       before: orig_table,
       after: new_table,
     });
   }
+  if (table_rows.length) sections.push({ entity: "table", rows: table_rows });
 
+  const column_rows: DdlColumnRow[] = [];
   for (const c of cols) {
     if (c.dropped && c.orig_name) {
-      out.push({
+      column_rows.push({
         id: next(),
-        kind: "drop",
-        entity: "column",
-        title: c.orig_name,
-        before: col_line(
-          c.orig_name,
-          c.orig_data_type ?? "",
-          !!c.orig_not_null,
-          c.orig_default ?? "",
-        ),
+        kind: "delete",
+        before: {
+          name: c.orig_name,
+          type: c.orig_data_type ?? "",
+          nullable: !!c.orig_not_null,
+          default: c.orig_default ?? "",
+        },
       });
     }
   }
@@ -538,12 +529,15 @@ export function describe_schema_changes(
     if (c.dropped || c.orig_name) continue;
     const name = c.name.trim();
     if (!name) continue;
-    out.push({
+    column_rows.push({
       id: next(),
-      kind: "add",
-      entity: "column",
-      title: name,
-      after: col_line(name, c.data_type.trim(), c.not_null, c.default_text),
+      kind: "insert",
+      after: {
+        name,
+        type: c.data_type.trim(),
+        nullable: c.not_null,
+        default: c.default_text,
+      },
     });
   }
   for (const c of cols) {
@@ -554,30 +548,34 @@ export function describe_schema_changes(
     const def_changed = c.default_text !== (c.orig_default ?? "");
     const renamed = name !== c.orig_name;
     if (!renamed && !type_changed && !nn_changed && !def_changed) continue;
-    out.push({
+    column_rows.push({
       id: next(),
-      kind: "alter",
-      entity: "column",
-      title: renamed ? `${c.orig_name} → ${name}` : name,
-      before: col_line(
-        c.orig_name,
-        c.orig_data_type ?? "",
-        !!c.orig_not_null,
-        c.orig_default ?? "",
-      ),
-      after: col_line(name, c.data_type.trim(), c.not_null, c.default_text),
+      kind: "update",
+      before: {
+        name: c.orig_name,
+        type: c.orig_data_type ?? "",
+        nullable: !!c.orig_not_null,
+        default: c.orig_default ?? "",
+      },
+      after: {
+        name,
+        type: c.data_type.trim(),
+        nullable: c.not_null,
+        default: c.default_text,
+      },
     });
   }
+  if (column_rows.length) sections.push({ entity: "column", rows: column_rows });
 
+  const index_rows: DdlNamedRow[] = [];
   const dropped_idx = new Set<string>();
   for (const ix of idxs) {
     if (ix.system) continue;
     if (!ix.orig_name || !ix.dropped) continue;
-    out.push({
+    index_rows.push({
       id: next(),
-      kind: "drop",
-      entity: "index",
-      title: ix.orig_name,
+      kind: "delete",
+      name: ix.orig_name,
       before: idx_line(ix.orig_name, ix.orig_columns ?? [], !!ix.orig_unique),
     });
     dropped_idx.add(ix.id);
@@ -595,11 +593,10 @@ export function describe_schema_changes(
         JSON.stringify(final_cols) !== JSON.stringify(ix.orig_columns) ||
         idx_extras_changed(ix));
     if (!is_new && changed && !dropped_idx.has(ix.id)) {
-      out.push({
+      index_rows.push({
         id: next(),
-        kind: "drop",
-        entity: "index",
-        title: ix.orig_name as string,
+        kind: "delete",
+        name: ix.orig_name as string,
         before: idx_line(
           ix.orig_name as string,
           ix.orig_columns ?? [],
@@ -608,23 +605,23 @@ export function describe_schema_changes(
       });
     }
     if (is_new || changed) {
-      out.push({
+      index_rows.push({
         id: next(),
-        kind: "add",
-        entity: "index",
-        title: name,
+        kind: "insert",
+        name,
         after: idx_line(name, final_cols, ix.unique),
       });
     }
   }
+  if (index_rows.length) sections.push({ entity: "index", rows: index_rows });
 
+  const trigger_rows: DdlTriggerRow[] = [];
   for (const t of trigs) {
     if (t.dropped && t.orig_name) {
-      out.push({
+      trigger_rows.push({
         id: next(),
-        kind: "drop",
-        entity: "trigger",
-        title: t.orig_name,
+        kind: "delete",
+        name: t.orig_name,
         before: t.orig_sql ?? t.orig_name,
       });
     }
@@ -632,48 +629,48 @@ export function describe_schema_changes(
   for (const t of trigs) {
     if (t.dropped || !trig_is_dirty(t)) continue;
     if (t.orig_name) {
-      out.push({
+      trigger_rows.push({
         id: next(),
-        kind: "drop",
-        entity: "trigger",
-        title: t.orig_name,
+        kind: "delete",
+        name: t.orig_name,
         before: t.orig_sql ?? t.orig_name,
       });
     }
-    out.push({
+    trigger_rows.push({
       id: next(),
-      kind: "add",
-      entity: "trigger",
-      title: trigger_name_from_sql(t.sql) || "(unnamed)",
+      kind: "insert",
+      name: trigger_name_from_sql(t.sql) || "(unnamed)",
       after: t.sql.trim(),
     });
   }
+  if (trigger_rows.length)
+    sections.push({ entity: "trigger", rows: trigger_rows });
 
+  const pk_rows: DdlPropertyRow[] = [];
   const final_pk = cols
     .filter((c) => !c.dropped && c.primary_key)
     .map((c) => resolve(c.name.trim()))
     .filter(Boolean);
   if (JSON.stringify(final_pk) !== JSON.stringify(schema_pk)) {
-    out.push({
+    pk_rows.push({
       id: next(),
-      kind: "alter",
-      entity: "primary key",
-      title: "Primary key",
+      label: "Primary key",
       before: schema_pk.length ? `(${schema_pk.join(", ")})` : "(none)",
       after: final_pk.length ? `(${final_pk.join(", ")})` : "(none)",
     });
   }
+  if (pk_rows.length) sections.push({ entity: "primary key", rows: pk_rows });
 
+  const fk_rows: DdlNamedRow[] = [];
   for (const f of fks) {
     if (
       (!f.dropped && f.orig_name !== null && fk_is_dirty(f)) ||
       (f.dropped && f.orig_name)
     ) {
-      out.push({
+      fk_rows.push({
         id: next(),
-        kind: "drop",
-        entity: "foreign key",
-        title: f.orig_name as string,
+        kind: "delete",
+        name: f.orig_name as string,
         before: `${f.orig_name} — ${f.columns.join(", ")} → ${f.ref_table}(${f.ref_columns.join(", ")})`,
       });
     }
@@ -689,14 +686,14 @@ export function describe_schema_changes(
     ]
       .filter(Boolean)
       .join(" ");
-    out.push({
+    fk_rows.push({
       id: next(),
-      kind: "add",
-      entity: "foreign key",
-      title: `${cols2.join(", ")} → ${f.ref_table}`,
+      kind: "insert",
+      name: `${cols2.join(", ")} → ${f.ref_table}`,
       after: `${cols2.join(", ")} → ${f.ref_table}(${f.ref_columns.join(", ")})${actions ? ` ${actions}` : ""}`,
     });
   }
+  if (fk_rows.length) sections.push({ entity: "foreign key", rows: fk_rows });
 
-  return out;
+  return sections;
 }

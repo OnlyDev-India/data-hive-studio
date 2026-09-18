@@ -60,6 +60,7 @@ import {
   statementGutter,
 } from "./statement-runner";
 import { inlineDiagnostics } from "./inline-diagnostics";
+import { insertColumnLabels } from "./insert-column-labels";
 import {
   NOSQL_SHELL_COMPLETIONS,
   nosqlConsoleCompletions,
@@ -226,6 +227,10 @@ interface QueryEditorProps {
    *  unknown-collection) linter — off doesn't touch manually-pushed run
    *  errors (`setErrors`), a separate mechanism. Default on. */
   lintEnabled?: boolean;
+  /** Draws each INSERT value's column name in front of it (SQL mode only —
+   *  purely visual, the statement text is untouched). Toolbar-driven like
+   *  `lintEnabled`. Default on, so read-only views get it too. */
+  showInsertLabels?: boolean;
   onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
   frameLayer?: boolean;
   autoCompletion?: boolean;
@@ -264,6 +269,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       readOnly = false,
       disableWrapping = false,
       lintEnabled = true,
+      showInsertLabels = true,
       frameLayer = true,
       autoCompletion = true,
       disableEnter = false,
@@ -705,6 +711,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
         editorTooltips,
         inlineDiagnostics,
+        ...(showInsertLabels ? [insertColumnLabels(schema ?? {})] : []),
         docHoverTooltip(resolveSqlDoc, onOpenDocDetails),
         docHoverTheme,
         ...(readOnly ? [] : [sqlSignatureHelp()]),
@@ -733,6 +740,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       runAtCursor,
       showLineNumber,
       lintEnabled,
+      showInsertLabels,
       frameLayer,
       disableEnter,
       disableEnterKeymap,
