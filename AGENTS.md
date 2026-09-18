@@ -9,7 +9,7 @@
 
 ## Build approach
 
-<TBD, set by /scope>
+Tracer Bullet (each feature built end to end through every layer, working).
 
 ## Commands
 
@@ -25,7 +25,7 @@ bun run test             # backend tests (cargo test -p dh-core)
 
 ## Specs
 
-No `docs/specs/` yet.
+Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
 
 ## Rules
 
