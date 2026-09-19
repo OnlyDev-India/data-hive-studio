@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpCircle,
   ChevronDown,
+  Loader2,
   Minus,
+  RefreshCw,
   Square,
   SquareStack,
   X,
@@ -118,36 +120,60 @@ function BottomPanelToggleButton({ className }: { className?: string }) {
 const UPDATE_CALLOUT_AUTO_DISMISS_MS = 8000;
 
 /** Only rendered once a background/on-demand check has actually found a
- *  newer release (`updateInfo`) that the user hasn't already dismissed via
- *  the dialog's "Skip" (`skippedUpdateVersion`) — a quiet affordance, not a
- *  permanent fixture, matching how `BottomPanelToggleButton` also only
- *  shows real state rather than always occupying the slot.
+ *  newer release (`updateInfo`) — a quiet affordance, not a permanent
+ *  fixture, matching how `BottomPanelToggleButton` also only shows real
+ *  state rather than always occupying the slot. Closing the update popup
+ *  ("Later") never hides it. It follows the update through its phases:
+ *  available, downloading (with percent), and ready (a distinct Restart
+ *  state), and always opens the same popup.
  *
- *  Announces itself once per newly-seen version with a tooltip that opens
- *  on its own (not just on hover) — a small icon appearing in a title bar
- *  is easy to miss entirely, so the first time a given version shows up it
- *  gets a few seconds of an unmissable callout before falling back to a
- *  normal hover tooltip. */
+ *  Announces itself once per newly-seen version, and once more when a
+ *  download becomes ready, with a tooltip that opens on its own (not just on
+ *  hover) — a small icon appearing in a title bar is easy to miss entirely,
+ *  so those moments get a few seconds of an unmissable callout before
+ *  falling back to a normal hover tooltip. */
 function UpdateBadgeButton({ className }: { className?: string }) {
   const updateInfo = useStudioStore((s) => s.updateInfo);
-  const skippedVersion = useStudioStore((s) => s.skippedUpdateVersion);
+  const phase = useStudioStore((s) => s.updatePhase);
+  const progress = useStudioStore((s) => s.updateProgress);
   const setUpdateDialogOpen = useStudioStore((s) => s.setUpdateDialogOpen);
   const [calloutOpen, setCalloutOpen] = useState(false);
-  const announced_version = useRef<string | null>(null);
+  const announced = useRef<string | null>(null);
+
+  const version = updateInfo?.version ?? null;
+  // Changes only for a new version, or when the download becomes ready.
+  const announce_key = version
+    ? phase === "ready"
+      ? `${version}:ready`
+      : version
+    : null;
 
   useEffect(() => {
-    if (!updateInfo || updateInfo.version === skippedVersion) return;
-    if (announced_version.current === updateInfo.version) return;
-    announced_version.current = updateInfo.version;
+    if (!announce_key || announced.current === announce_key) return;
+    announced.current = announce_key;
     setCalloutOpen(true);
     const t = setTimeout(
       () => setCalloutOpen(false),
       UPDATE_CALLOUT_AUTO_DISMISS_MS,
     );
     return () => clearTimeout(t);
-  }, [updateInfo, skippedVersion]);
+  }, [announce_key]);
 
-  if (!updateInfo || updateInfo.version === skippedVersion) return null;
+  if (!updateInfo) return null;
+
+  const percent = progress?.total
+    ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+    : null;
+  const label =
+    phase === "downloading"
+      ? `Downloading update — v${updateInfo.version}${
+          percent !== null ? ` (${percent}%)` : ""
+        }`
+      : phase === "ready"
+        ? `Update ready, restart to install — v${updateInfo.version}`
+        : phase === "installing"
+          ? `Installing update — v${updateInfo.version}`
+          : `Update available — v${updateInfo.version}`;
 
   return (
     <TooltipProvider delay={300}>
@@ -156,20 +182,27 @@ function UpdateBadgeButton({ className }: { className?: string }) {
           render={
             <button
               type="button"
-              aria-label={`Update available — v${updateInfo.version}`}
-              className={cn(className, "text-primary")}
+              aria-label={label}
+              className={cn(
+                className,
+                phase === "ready" ? "text-emerald-500" : "text-primary",
+              )}
               onClick={() => {
                 setCalloutOpen(false);
                 setUpdateDialogOpen(true);
               }}
             >
-              <ArrowUpCircle className="size-4" />
+              {phase === "downloading" || phase === "installing" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : phase === "ready" ? (
+                <RefreshCw className="size-4" />
+              ) : (
+                <ArrowUpCircle className="size-4" />
+              )}
             </button>
           }
         />
-        <TooltipContent side="bottom">
-          Update available — v{updateInfo.version}
-        </TooltipContent>
+        <TooltipContent side="bottom">{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

@@ -138,6 +138,10 @@ export interface JsonRow {
   on_edit?: (col: string, value: string | null) => void;
 }
 
+/** Life of a found update: `available` (known, not downloaded), `downloading`,
+ *  `ready` (downloaded, waiting for Restart or app quit), `installing`. */
+export type UpdatePhase = "available" | "downloading" | "ready" | "installing";
+
 /** Per-connection tab/workspace state. */
 export interface WorkspaceTabs {
   tabs: StudioTab[];
@@ -559,22 +563,29 @@ export interface StudioStore {
 
   /** A newer release than the running version, once the background/on-demand
    *  check (`src/features/updater/update-check.ts`) finds one — null while
-   *  unchecked, up to date, or the check failed. The plugin's actual `Update`
-   *  handle (with `.downloadAndInstall()`) isn't stored here — it's not
-   *  serializable, so it lives in a module-level singleton in that file. */
+   *  unchecked, up to date, or the check failed. The downloaded package
+   *  itself lives in Rust (`src-tauri/src/updater.rs`), never here. */
   updateInfo: { version: string; body: string | null } | null;
   setUpdateInfo: (
     info: { version: string; body: string | null } | null,
   ) => void;
+  /** Where the update is in its life; only meaningful while `updateInfo` is
+   *  set. Never persisted — a relaunch starts over at "available". */
+  updatePhase: UpdatePhase;
+  setUpdatePhase: (phase: UpdatePhase) => void;
+  /** Bytes received so far while `updatePhase` is "downloading"; `total` is
+   *  null when the server did not send a length. */
+  updateProgress: { downloaded: number; total: number | null } | null;
+  setUpdateProgress: (
+    progress: { downloaded: number; total: number | null } | null,
+  ) => void;
+  /** Why the last download or install failed, shown with a Retry button. */
+  updateError: string | null;
+  setUpdateError: (error: string | null) => void;
   /** The update dialog's open state — shown from the title-bar badge or the
    *  Help menu's "Check for Updates…". */
   updateDialogOpen: boolean;
   setUpdateDialogOpen: (open: boolean) => void;
-  /** Version the user chose "Skip" for — persisted so the title-bar badge
-   *  doesn't keep nagging about the SAME release, but reappears once a
-   *  newer one ships. */
-  skippedUpdateVersion: string | null;
-  setSkippedUpdateVersion: (version: string | null) => void;
 
   /** User-customizable trigger prefixes for the command palette's quick-open
    *  sub-modes (Settings → Command Palette). `>` (app commands) is fixed and
