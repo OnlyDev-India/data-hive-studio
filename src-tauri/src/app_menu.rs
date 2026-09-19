@@ -130,7 +130,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<(Menu<R>, FileMenu
             // "Toggle Sidebar" and "Toggle Activity Panel" would just be two
             // names for the exact same action.
             &MenuItem::with_id(app, "view.toggle_left_panel", "Toggle Sidebar", true, None::<&str>)?,
-            &MenuItem::with_id(app, "view.toggle_json", "Toggle JSON Panel", true, None::<&str>)?,
+            &MenuItem::with_id(app, "view.toggle_json", "Toggle Bottom Panel", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             // No accelerator — Cmd/Ctrl+P and Cmd/Ctrl+Shift+P already open
             // this in-app (see command-palette.tsx's own useShortcuts).

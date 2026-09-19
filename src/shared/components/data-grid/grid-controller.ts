@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useRowWindow } from "./use-row-window";
 import { quoteIdent } from "@/shared/api";
-import type { CellClick, CellKind, DistinctMap } from "./types";
+import type { CellClick, CellKind, DistinctMap, SortKey } from "./types";
 import { GUTTER_W_PX, ROW_HEIGHT_PX } from "./types";
 import { useGridKeyboard } from "./use-grid-keyboard";
 import {
@@ -18,6 +18,7 @@ import {
 } from "./grid-context";
 import type { JsonRow } from "@/shared/store";
 import { rowToObject, sortRows, toJsonValue, toSqlLiteral } from "./grid-utils";
+import { loadColumnLayout, saveColumnLayout } from "./column-layout-storage";
 
 /** `cellKey`'s own separator, derived rather than duplicated as a literal —
  *  `cellKey(0, "")` is `"0" + SEP`, so stripping the leading "0" leaves just
@@ -35,6 +36,12 @@ export interface GridControllerConfig {
   pk_columns: string[];
   conn_id: string;
   table: string;
+  /** Column layout (order/widths/pin/hidden/sort) persists to localStorage
+   *  under this key — omit for a grid with no stable table identity (e.g. a
+   *  one-off query result) to skip persistence entirely. The host builds
+   *  it (typically `${conn_id}::${database}::${schema}::${table}`) since
+   *  the controller itself doesn't know about database/schema. */
+  layout_key?: string | null;
   kinds: Record<string, CellKind>;
   types?: Record<string, string>;
   key_kinds?: Record<string, "primary" | "foreign" | "both">;
@@ -109,6 +116,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     pk_columns,
     conn_id,
     table,
+    layout_key,
     kinds,
     types,
     key_kinds,
@@ -133,15 +141,31 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     on_open_reference,
   } = cfg;
 
-  const [sort_col, setSortCol] = useState<string | null>(null);
-  const [sort_asc, setSortAsc] = useState(true);
-  const [pinned, setPinned] = useState<string[]>([]);
+  // Lazy-initialized ONCE from localStorage (see column-layout-storage.ts) —
+  // assumes a fresh `useGridController` mount per table, same as
+  // `pending_id_ref`'s own reset-per-mount elsewhere in this file; a single
+  // long-lived instance silently switched to a different `layout_key`
+  // wouldn't re-hydrate.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally read once, at mount, not on every `layout_key` change (see the comment above)
+  const initial_layout = useMemo(() => loadColumnLayout(layout_key), []);
+  const [sort_keys, setSortKeys] = useState<SortKey[]>(
+    initial_layout?.sort_keys ?? [],
+  );
+  const [pinned, setPinned] = useState<string[]>(initial_layout?.pinned ?? []);
+  const [column_order_override, setColumnOrderOverride] = useState<
+    string[] | null
+  >(initial_layout?.column_order ?? null);
+  const [hidden_columns, setHiddenColumns] = useState<Set<string>>(
+    () => new Set(initial_layout?.hidden ?? []),
+  );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sel_anchor, setSelAnchor] = useState<CellId | null>(null);
   const [active_cell, setActiveCell] = useState<CellId | null>(null);
   const [editing, setEditing] = useState<CellId | null>(null);
   const [editAsText, setEditAsText] = useState<boolean>(false);
-  const [col_widths, setColWidths] = useState<Record<string, number>>({});
+  const [col_widths, setColWidths] = useState<Record<string, number>>(
+    initial_layout?.col_widths ?? {},
+  );
 
   // ---- Fill handle (Excel-style, vertical-only — see start_fill_drag) ----
   const fill_active = useRef(false);
@@ -193,7 +217,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       }
     }
     const base = client_sort
-      ? sortRows(real, columns, sort_col, sort_asc)
+      ? sortRows(real, columns, sort_keys)
       : real;
     return pending_rows && pending_rows.length > 0
       ? [...pending_rows.map((p) => p.values), ...base]
@@ -202,16 +226,30 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     client_sort,
     rows,
     columns,
-    sort_col,
-    sort_asc,
+    sort_keys,
     pending_rows,
     dirty_cells,
     row_offset,
   ]);
 
   const view = useMemo(
-    () => computeGridView(columns, pinned, col_widths, selected),
-    [columns, pinned, col_widths, selected],
+    () =>
+      computeGridView(
+        columns,
+        pinned,
+        col_widths,
+        selected,
+        column_order_override,
+        hidden_columns,
+      ),
+    [
+      columns,
+      pinned,
+      col_widths,
+      selected,
+      column_order_override,
+      hidden_columns,
+    ],
   );
   const { col_index_of, col_meta, column_order } = view;
 
@@ -247,11 +285,20 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     return () => cancelAnimationFrame(raf);
   }, [rows, row_offset]);
 
+  // Sorting a column always ADDS it to the sort (upsert: updates its
+  // direction in place if it's already sorted, otherwise appends it as the
+  // next priority key) — never clears whatever else is already sorted.
+  // "Remove sort"/"Clear all sorts" are the only way to shrink the set.
   const on_sort = useCallback(
     (col: string, asc: boolean) => {
       if (loading) return;
-      setSortCol(col);
-      setSortAsc(asc);
+      setSortKeys((cur) => {
+        const i = cur.findIndex((k) => k.column === col);
+        if (i < 0) return [...cur, { column: col, asc }];
+        const next = cur.slice();
+        next[i] = { column: col, asc };
+        return next;
+      });
       on_navigation_change?.();
     },
     [on_navigation_change, loading],
@@ -259,13 +306,18 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
 
   const on_clear_sort = useCallback(
     (col: string) => {
-      if (sort_col === col) {
-        setSortCol(null);
-        on_navigation_change?.();
-      }
+      if (!sort_keys.some((k) => k.column === col)) return;
+      setSortKeys((cur) => cur.filter((k) => k.column !== col));
+      on_navigation_change?.();
     },
-    [sort_col, on_navigation_change],
+    [sort_keys, on_navigation_change],
   );
+
+  const on_clear_all_sort = useCallback(() => {
+    if (sort_keys.length === 0) return;
+    setSortKeys([]);
+    on_navigation_change?.();
+  }, [sort_keys, on_navigation_change]);
 
   const on_toggle_pin = useCallback((col: string) => {
     setPinned((list) =>
@@ -305,6 +357,143 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     },
     [col_index_of, rows_to_render, types, on_resize_col],
   );
+
+  // Drag `dragged` next to `target`'s CURRENT position — using
+  // `view.column_order` (already pin-partitioned) as the base means the
+  // stored override is always a full, self-consistent permutation, not a
+  // diff against whatever the previous override happened to be. Lands
+  // AFTER `target` when dragging rightward, BEFORE it when dragging
+  // leftward — not always "before": removing `dragged` shifts everything
+  // after it one slot left, so when `target` is the very next column over,
+  // "insert before" would put `dragged` right back where it started (a
+  // no-op you'd have to drag two columns past to see any movement at all).
+  const reorder_column = useCallback(
+    (dragged: string, target: string) => {
+      if (dragged === target) return;
+      const current = column_order;
+      const from = current.indexOf(dragged);
+      const to = current.indexOf(target);
+      if (from === -1 || to === -1) return;
+      const without = current.filter((c) => c !== dragged);
+      const target_idx = without.indexOf(target);
+      const insert_at = to > from ? target_idx + 1 : target_idx;
+      const next = [
+        ...without.slice(0, insert_at),
+        dragged,
+        ...without.slice(insert_at),
+      ];
+      setColumnOrderOverride(next);
+    },
+    [column_order],
+  );
+
+  const toggle_column_visibility = useCallback((col: string) => {
+    setHiddenColumns((cur) => {
+      const next = new Set(cur);
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
+      return next;
+    });
+  }, []);
+
+  // Column drag-reorder — pointer-based (mousedown/mouseenter/mouseup), not
+  // HTML5 DnD: this app's own tab-bar drag already found native DnD flaky
+  // inside a Tauri WebView (see `use-tab-drag.ts`) and moved off it. Header
+  // cells are separate sibling components, so "which column is the pointer
+  // over right now" has to live here (shared context), not per-cell state.
+  // Reorders LIVE as the pointer crosses into each new column (not just on
+  // drop) — `reorder_column` is idempotent for a given (dragged, target)
+  // pair, so re-entering the same cell after the layout shifts under the
+  // cursor is a no-op, not a flicker. `col_drag` also carries the live
+  // pointer position for the floating "ghost" badge that follows the drag.
+  const [col_drag, setColDrag] = useState<{
+    col: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [col_drag_over, setColDragOver] = useState<string | null>(null);
+  // Mirrors `col_drag`'s own column name for synchronous reads inside
+  // `column_drag_over` (a mouseenter handler) without needing `col_drag`
+  // itself in that callback's deps — keeps its identity stable across the
+  // x/y updates `col_drag` gets on every mousemove.
+  const col_drag_name = useRef<string | null>(null);
+
+  const start_column_drag = useCallback((col: string, x: number, y: number) => {
+    col_drag_name.current = col;
+    setColDrag({ col, x, y });
+    setColDragOver(col);
+  }, []);
+
+  const column_drag_over = useCallback(
+    (col: string) => {
+      setColDragOver((cur) => {
+        if (cur === col) return cur;
+        const dragged = col_drag_name.current;
+        if (dragged && dragged !== col) reorder_column(dragged, col);
+        return col;
+      });
+    },
+    [reorder_column],
+  );
+
+  const stop_column_drag = useCallback(() => {
+    col_drag_name.current = null;
+    setColDrag(null);
+    setColDragOver(null);
+  }, []);
+
+  useEffect(() => {
+    if (!col_drag) return;
+    const on_move = (e: MouseEvent) => {
+      setColDrag((cur) =>
+        cur ? { ...cur, x: e.clientX, y: e.clientY } : cur,
+      );
+      // Hit-test by cursor position instead of relying on each header
+      // cell's own `onMouseEnter` (same technique `use-tab-drag.ts` uses
+      // for its own drag) — a live reorder moves the dragged column's DOM
+      // node to sit right under a STATIONARY cursor, and browsers don't
+      // fire a fresh mouseenter just because the element underneath
+      // changed without the pointer itself moving; without this, the drag
+      // would only ever re-trigger once the pointer physically crossed
+      // into a neighboring cell's bounds "at the corner."
+      const el = document
+        .elementFromPoint(e.clientX, e.clientY)
+        ?.closest<HTMLElement>("[data-col]");
+      const over = el?.dataset.col;
+      if (over) column_drag_over(over);
+    };
+    window.addEventListener("mousemove", on_move);
+    window.addEventListener("mouseup", stop_column_drag);
+    return () => {
+      window.removeEventListener("mousemove", on_move);
+      window.removeEventListener("mouseup", stop_column_drag);
+    };
+    // Only re-subscribe on start/stop, not on every mousemove-driven x/y
+    // update — `col_drag !== null` is a stable boolean, unlike `col_drag`
+    // itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [col_drag !== null, stop_column_drag, column_drag_over]);
+
+  // Persist column layout on every change — cheap (one small JSON blob),
+  // so no debouncing. Skips entirely when `layout_key` is absent (see
+  // column-layout-storage.ts).
+  useEffect(() => {
+    saveColumnLayout(layout_key, {
+      version: 1,
+      column_order: column_order_override,
+      col_widths,
+      pinned,
+      hidden: [...hidden_columns],
+      sort_keys,
+    });
+  }, [
+    layout_key,
+    column_order_override,
+    col_widths,
+    pinned,
+    hidden_columns,
+    sort_keys,
+  ]);
 
   // ---- Selection / drag ----
   const do_click_cell = useCallback(
@@ -371,6 +560,52 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       setSelected(cur);
     },
     [column_order, sel_anchor, selected, col_index_of, col_meta],
+  );
+
+  // Header-cell click — selects the whole column, mirroring the row-gutter
+  // click above (whole-row select) but along the other axis. Shift extends
+  // a range of columns from the last anchor; Ctrl/Cmd toggles this column
+  // within the existing selection.
+  const select_column = useCallback(
+    (col: string, opts: { add?: boolean; range?: boolean } = {}) => {
+      setEditing(null);
+      const total_rows = rows_to_render.length;
+      if (opts.range && sel_anchor) {
+        const [, ac] = sel_anchor;
+        const a = col_index_of[ac];
+        const t = col_index_of[col];
+        if (a !== undefined && t !== undefined) {
+          const [clo, chi] = [Math.min(a, t), Math.max(a, t)];
+          const new_sel = new Set<string>();
+          for (let r = 0; r < total_rows; r++)
+            for (let ci = clo; ci <= chi; ci++)
+              new_sel.add(cellKey(r, col_meta[ci][0]));
+          setSelected(new_sel);
+          setActiveCell([0, col]);
+          return;
+        }
+      }
+      if (opts.add) {
+        let fully = true;
+        for (let r = 0; r < total_rows && fully; r++) {
+          if (!selected.has(cellKey(r, col))) fully = false;
+        }
+        const cur = new Set(selected);
+        for (let r = 0; r < total_rows; r++) {
+          const key = cellKey(r, col);
+          if (fully) cur.delete(key);
+          else cur.add(key);
+        }
+        setSelected(cur);
+      } else {
+        const new_sel = new Set<string>();
+        for (let r = 0; r < total_rows; r++) new_sel.add(cellKey(r, col));
+        setSelected(new_sel);
+      }
+      setSelAnchor([0, col]);
+      setActiveCell([0, col]);
+    },
+    [rows_to_render.length, sel_anchor, col_index_of, col_meta, selected],
   );
 
   const start_drag = useCallback(
@@ -1128,8 +1363,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     distinct,
     view,
     col_index_of,
-    sort_col,
-    sort_asc,
+    sort_keys,
     pinned,
     selected,
     sel_anchor,
@@ -1139,9 +1373,18 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     col_widths,
     on_sort,
     on_clear_sort,
+    on_clear_all_sort,
     on_toggle_pin,
     on_resize_col,
     auto_fit_col,
+    reorder_column,
+    hidden_columns,
+    toggle_column_visibility,
+    col_drag,
+    col_drag_over,
+    start_column_drag,
+    column_drag_over,
+    select_column,
     on_select: setSelected,
     on_sel_anchor: setSelAnchor,
     on_active_cell: setActiveCell,

@@ -192,10 +192,16 @@ export function FilterConditionBuilder({
                 <span className="text-muted-foreground mx-1">
                   {OP_LABEL[f.op]}
                 </span>
-                {NEEDS_VALUE.includes(f.op) && (
+                {f.op === "in" ? (
                   <span className="text-foreground/80 truncate font-normal">
-                    {f.value || "NULL"}
+                    {(f.values ?? []).length} selected
                   </span>
+                ) : (
+                  NEEDS_VALUE.includes(f.op) && (
+                    <span className="text-foreground/80 truncate font-normal">
+                      {f.value || "NULL"}
+                    </span>
+                  )
                 )}
                 <Button
                   type="button"

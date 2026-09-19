@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dialog, DialogContent } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
@@ -27,7 +27,6 @@ import {
   labelForMode,
   modeNeedsTables,
   resolveMode,
-  tableMatches,
   type PaletteItem,
   type PaletteMode,
   type PaletteTable,
@@ -74,6 +73,12 @@ export function CommandPalette() {
   const setOpen = useStudioStore((s) => s.setCommandPaletteOpen);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  // Set when a `run()` resolves to a failure string (e.g. the "Open ..."
+  // fallback suggestion's table/schema-not-found result) — shown at the
+  // bottom of the palette instead of closing it, so the user sees why and
+  // can adjust the query. Cleared on any further typing/selection change.
+  const [error_message, setErrorMessage] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
   // A recognized prefix (`>`, `schema:`, ...), once fully typed/selected,
   // renders as a highlighted chip instead of plain text in the input — see
   // the input's onChange for the "snap into a chip" logic and onKeyDown for
@@ -144,6 +149,16 @@ export function CommandPalette() {
           : null,
       );
       setSelected(0);
+      setErrorMessage(null);
+      // Own tables and the sibling search are otherwise cached for as long
+      // as this (always-mounted) component stays alive — without this, a
+      // table created after the first search of a session would never show
+      // up, since `own_loaded_for`/`siblings_for_ref` already "match" and
+      // skip re-fetching. Re-arming both here makes every fresh open re-check.
+      setOwnLoadedFor(null);
+      siblings_for_ref.current = null;
+      setSiblings(null);
+      setSiblingsLoading(false);
       // Focus after the portal mounts.
       requestAnimationFrame(() => input_ref.current?.focus());
     }
@@ -200,44 +215,60 @@ export function CommandPalette() {
   }, [load_key]);
   const own_ready = !want_tables || own_loaded_for === load_key;
 
-  // Siblings: fetched lazily, once, the first time a typed query comes up
-  // empty against `own_tables` — reset whenever the target connection
-  // changes so a stale sibling list never survives a switch.
+  // Siblings: fetched lazily, once per connection, the first time the user
+  // types ANY search (not gated on the own database coming up empty — a
+  // table sitting in another schema/database is easy to miss that way when
+  // the own database also happens to have some unrelated partial match for
+  // the same text, e.g. searching "orders" when the active schema already
+  // has "purchase_orders"). `siblings_for_ref` (a ref, NOT state) is the
+  // "already started/done for this connection" guard — it must not be state
+  // read by this same effect's own dependency array, or setting it would
+  // retrigger the effect, and React would run THIS invocation's cleanup
+  // (cancelling the fetch that invocation itself just started) before the
+  // result ever arrives. That silent self-cancellation was why a real match
+  // could search-complete and still never show up.
   const q = rest.trim().toLowerCase();
-  const own_has_match =
-    !q || (own_tables ?? []).some((t) => tableMatches(t, q));
-  const need_siblings = want_tables && own_ready && !!q && !own_has_match;
+  const need_siblings = want_tables && own_ready && !!q;
   const [siblings, setSiblings] = useState<PaletteTable[] | null>(null);
-  const [siblings_for, setSiblingsFor] = useState<string | null>(null);
+  const [siblings_loading, setSiblingsLoading] = useState(false);
+  const siblings_for_ref = useRef<string | null>(null);
   useEffect(() => {
+    siblings_for_ref.current = null;
     setSiblings(null);
-    setSiblingsFor(null);
+    setSiblingsLoading(false);
   }, [load_key]);
   useEffect(() => {
-    if (!load_key || !need_siblings || siblings_for === load_key) return;
+    if (!load_key || !need_siblings || siblings_for_ref.current === load_key)
+      return;
+    siblings_for_ref.current = load_key;
     let cancelled = false;
-    setSiblingsFor(load_key);
+    setSiblingsLoading(true);
     void fetchSiblingTables(load_key, is_mongo)
       .then((t) => {
         if (!cancelled) setSiblings(t);
       })
-      .catch(() => {
-        if (!cancelled) setSiblings([]);
+      .finally(() => {
+        if (!cancelled) setSiblingsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [load_key, need_siblings, siblings_for, is_mongo]);
+  }, [load_key, need_siblings, is_mongo]);
 
-  // Empty query or a match in the own database → own results only (never
-  // mixed with siblings). A typed query with nothing local → fall back to
-  // whatever sibling search has found so far (empty/loading until it lands).
+  // Empty query → own database only (no reason to pay for a sibling fetch
+  // just to show the preview list). A typed query merges in whatever
+  // sibling search has found so far (empty/loading until it lands) instead
+  // of switching to it — a local partial match should never hide a real
+  // match sitting in another schema/database.
   const tables = useMemo<PaletteTable[] | null>(
-    () => (!q || own_has_match ? own_tables : (siblings ?? [])),
-    [q, own_has_match, own_tables, siblings],
+    () => (!q ? own_tables : [...(own_tables ?? []), ...(siblings ?? [])]),
+    [q, own_tables, siblings],
   );
-  const tablesLoading =
-    want_tables && (!own_ready || (need_siblings && !siblings));
+  // Only the own-database fetch blocks the list — sibling results merge in
+  // silently once they land, so a query never sits on a "Loading…" screen
+  // waiting on a cross-database round-trip it doesn't need for a local hit.
+  const tablesLoading = want_tables && !own_ready;
+  const siblings_pending = need_siblings && siblings_loading;
 
   const items = useMemo<PaletteItem[]>(() => {
     if (!open) return [];
@@ -245,9 +276,9 @@ export function CommandPalette() {
       case "commands":
         return buildCommandItems({ mode: theme.mode, setMode: theme.setMode });
       case "schema-open":
-        return buildSchemaOpenItems(tables, tablesLoading, rest);
+        return buildSchemaOpenItems(tables, tablesLoading, rest, siblings_pending);
       case "tables-only":
-        return buildTableItems(tables, tablesLoading, rest);
+        return buildTableItems(tables, tablesLoading, rest, siblings_pending);
       case "connections-only":
         return buildConnectionItems();
       case "tabs-only":
@@ -268,6 +299,7 @@ export function CommandPalette() {
     rest,
     tables,
     tablesLoading,
+    siblings_pending,
     theme.mode,
     theme.setMode,
     paletteKeywords,
@@ -353,7 +385,7 @@ export function CommandPalette() {
   }, [selected, item_row_of]);
 
   const runCommand = (cmd: PaletteItem | undefined) => {
-    if (!cmd || cmd.disabled) return;
+    if (!cmd || cmd.disabled || running) return;
     if (cmd.fillQuery !== undefined) {
       // Filter-hint items ARE a full prefix — snap straight to a chip
       // instead of leaving the raw prefix text sitting in the input.
@@ -371,8 +403,25 @@ export function CommandPalette() {
       setRefocusSignal((n) => n + 1);
       return;
     }
+    setErrorMessage(null);
+    const result = cmd.run();
+    // Most items resolve synchronously (undefined) — close right away, same
+    // as before. A Promise means "this one needs to actually try something"
+    // (the exact-match fallback's cross-schema search): keep the palette
+    // open with a spinner-less "running" guard against double-invoking
+    // Enter/click while it's in flight, then either close on success or
+    // report the failure string at the bottom on failure.
+    if (result instanceof Promise) {
+      setRunning(true);
+      void result
+        .then((err) => {
+          if (typeof err === "string") setErrorMessage(err);
+          else setOpen(false);
+        })
+        .finally(() => setRunning(false));
+      return;
+    }
     setOpen(false);
-    cmd.run();
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -438,6 +487,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => {
               const raw = e.target.value;
+              setErrorMessage(null);
               if (!chip) {
                 // A full prefix was just typed out — snap it into a chip
                 // instead of leaving it as plain highlighted-nowhere text.
@@ -549,6 +599,17 @@ export function CommandPalette() {
             </div>
           )}
         </div>
+        {running && (
+          <p className="text-muted-foreground flex items-center gap-2 border-t px-3 py-2 text-sm">
+            <Loader2 className="size-3.5 animate-spin" />
+            Opening…
+          </p>
+        )}
+        {!running && error_message && (
+          <p className="text-destructive border-t px-3 py-2 text-sm">
+            {error_message}
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );

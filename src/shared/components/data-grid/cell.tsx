@@ -256,7 +256,15 @@ export function Cell({ row, col, dci }: CellProps) {
           ) : is_array && value !== null ? (
             <ArrayCell value={value} />
           ) : value !== null ? (
-            <span className="truncate">{value}</span>
+            <span className="truncate">
+              {value}
+              {ctx.fk_labels?.[col]?.[value] && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({ctx.fk_labels[col][value]})
+                </span>
+              )}
+            </span>
           ) : (
             <span className="text-muted-foreground italic">NULL</span>
           )}

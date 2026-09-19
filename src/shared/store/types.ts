@@ -66,6 +66,16 @@ export interface GridBridge {
   /** Buffer `value` (or NULL) into every currently-selected cell — the
    *  bulk-edit dialog's "Selection" mode. */
   bulk_edit_selection: (value: string | null) => void;
+  /** Every real column (including hidden ones), in current display order
+   *  (pin-partitioned, drag-reordered) — the column-visibility popover's
+   *  checklist. */
+  all_columns: string[];
+  hidden_columns: string[];
+  toggle_column_visibility: (col: string) => void;
+  /** Drag `dragged` to just before/after `target`'s current position —
+   *  the column-visibility popover's own drag-reorder, same action the
+   *  header cells' drag handle uses. */
+  reorder_column: (dragged: string, target: string) => void;
   elapsed_ms: number | null;
   delete_rows: () => void;
   /** True while not-yet-inserted "pending" rows are being drafted. */
@@ -355,12 +365,23 @@ export interface StudioStore {
    *  Sidebar". */
   toggleLeftPanelOpen: () => void;
 
-  // Right sidebar (JSON row viewer)
-  rightSidebarOpen: boolean;
-  rightSidebarWidth: number;
-  toggleRightSidebar: () => void;
-  setRightSidebarOpen: (open: boolean) => void;
-  setRightSidebarWidth: (px: number) => void;
+  // Per-tab open/closed state for the "bottom split" every tab kind has
+  // below its main content — grid results for a SQL/Mongo-console editor
+  // tab (`editor-tab.tsx`), the JSON detail panel for a table/collection tab
+  // (`table-pane.tsx`/`mongo-collection-pane.tsx`). Keyed the same
+  // connection-scoped way `jsonRows` is (`` `${conn_id}\u0000${tabKey(tab)}` ``),
+  // so two same-shaped tabs in different connections never collide; an
+  // absent entry reads as closed, which is also a freshly opened tab's
+  // starting state, so nothing has to initialize it. `setBottomPanelOpen`/
+  // `toggleBottomPanel` are convenience wrappers for global chrome (title
+  // bar button, native "Toggle Bottom Panel" menu command) that resolve the
+  // currently ACTIVE tab's key fresh on every call; a caller that already
+  // knows its own scope (the grid, the JSON viewer, `useBottomPanelSize`)
+  // goes through `setBottomPanelOpenFor` directly.
+  bottomPanelOpen: Record<string, boolean>;
+  setBottomPanelOpen: (open: boolean) => void;
+  toggleBottomPanel: () => void;
+  setBottomPanelOpenFor: (scope: string, open: boolean) => void;
   jsonRows: Record<string, JsonRow | null>;
   setJsonRow: (scope: string, row: JsonRow | null) => void;
 
@@ -579,6 +600,16 @@ export interface StudioStore {
    *  own editor-only zoom rather than tying it to the overall chrome size. */
   editorFontSize: number;
   setEditorFontSize: (px: number) => void;
+
+  /** `sql-formatter` options exposed in Settings → SQL Format (the "Format"
+   *  toolbar button previously always used a fixed `preserve`/2-space
+   *  style) — flat scalar fields, not a settings object, so there's no
+   *  fixed shape to fall out of sync with on rehydrate (same reasoning as
+   *  `editorFontSize` above, unlike `paletteKeywords`). */
+  sqlFormatKeywordCase: "preserve" | "upper" | "lower";
+  setSqlFormatKeywordCase: (c: "preserve" | "upper" | "lower") => void;
+  sqlFormatIndentWidth: number;
+  setSqlFormatIndentWidth: (n: number) => void;
 
   /** Delimited-list builder dialog's last-used settings (Settings aren't
    *  exposed separately — the dialog itself is the only editor, same as

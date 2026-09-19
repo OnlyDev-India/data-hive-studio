@@ -1,16 +1,12 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
-import { AnimatePresence, motion, type Transition } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Braces } from "lucide-react";
-import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 import { TreeControls } from "./tree-controls";
 import { JsonViewerToolbar } from "./json-viewer-toolbar";
 import {
@@ -33,11 +29,6 @@ import {
   StateField,
 } from "@codemirror/state";
 import { BsonEditor } from "@/features/query-editor";
-
-const layoutTransition: Transition = { duration: 0.3, ease: "easeInOut" };
-// Used for the single render right after a drag-resize ends — see
-// `instantSettle`'s comment at its declaration.
-const instantTransition: Transition = { duration: 0 };
 
 // ---- Search-match highlighting: matches are found in React state (below)
 // and pushed into the editor as decorations via this field, since CodeMirror
@@ -97,111 +88,27 @@ function sqlCell(v: unknown): string | null {
  *  the console editor, folding to collapse whole objects, search/wrap/copy and
  *  an expanded dialog. Editing the document commits changed top-level fields
  *  back into the grid's buffered state (on blur or Cmd/Ctrl+S) so the toolbar
- *  Apply reviews + persists them. Resizable by its left edge. */
+ *  Apply reviews + persists them. Rendered as a `ResizablePanel` below the
+ *  grid (see `table-pane.tsx`/`mongo-collection-pane.tsx`) — sizing and
+ *  open/closed state are entirely the parent's concern now, not this
+ *  component's (it used to host its own drag-resize and a framer-motion
+ *  shared-layout morph into the dialog below; both were dropped as the main
+ *  source of this feature's bugs). */
 export function JsonViewer({
   conn_id,
   tab_key,
-  landing = false,
-  panelRef,
-  onInstantChange,
 }: {
   conn_id: string;
-  tab_key: string | null;
-  /** True while the connection's Home/landing view is showing instead of a
-   *  table — there's no row to inspect there, so the panel hides (without
-   *  unmounting, for the same "keep the shared-layout animation" reason
-   *  noted below) and reappears if the panel was open when Home was left. */
-  landing?: boolean;
-  /** The host's `EdgePanelSlot` node (workspace.tsx owns that wrapper, for
-   *  the same reasons the left sidebar's does) — mutated directly in sync
-   *  with the aside during a live drag-resize, see the drag effect below. */
-  panelRef: RefObject<HTMLDivElement | null>;
-  /** Mirrors `instantSettle` (below) up to the host, so its `EdgePanelSlot`
-   *  can apply the same one-render instant correction after a drag ends. */
-  onInstantChange: (v: boolean) => void;
+  tab_key: string;
 }) {
   // The visible row is scoped to the ACTIVE tab: switching tabs/connections
   // shows that tab's selection (or nothing), never a stale row from another.
-  const jsonRow = useStudioStore((s) =>
-    tab_key ? (s.jsonRows[`${conn_id}\u0000${tab_key}`] ?? null) : null,
+  const jsonRow = useStudioStore(
+    (s) => s.jsonRows[`${conn_id}\u0000${tab_key}`] ?? null,
   );
-  // Read directly rather than relying on the host (workspace.tsx) to
-  // mount/unmount this whole component per toggle — this component (and its
-  // `motion.aside`'s `layoutId="json-panel"` shared-layout transition with
-  // the dialog below) needs to stay mounted continuously for its own
-  // AnimatePresence to animate cleanly; tearing the whole tree down and
-  // rebuilding it on every close/reopen left the reopened panel stuck at
-  // its exit-animation values (opacity: 0, pointer-events: none) since
-  // there was no longer a "from" element for the shared layout animation to
-  // resolve against.
-  const panel_open = useStudioStore((s) => s.rightSidebarOpen);
-  const open = panel_open && !landing;
-  const width = useStudioStore((s) => s.rightSidebarWidth);
-  const setWidth = useStudioStore((s) => s.setRightSidebarWidth);
-  const close = useStudioStore((s) => s.setRightSidebarOpen);
-
-  const [dragging, setDragging] = useState(false);
-  const drag_ref = useRef<{ start_x: number; start_w: number } | null>(null);
-  // The panel's own DOM node — during a drag, width is written here directly
-  // (bypassing React) instead of through `setWidth` on every pointermove.
-  // `setWidth` is a state update, which re-renders this `motion.aside`; even
-  // with `layout={!dragging}` disabling the FLIP animation, `layoutId`
-  // still puts the element through Framer Motion's layout-measurement pass
-  // on every one of those re-renders, and that overhead was exactly the
-  // "background snaps but everything else lags behind" feel — the DOM
-  // width was updating, but a beat behind whatever Framer was busy
-  // re-measuring. Mutating the node directly skips React (and therefore
-  // Framer) entirely while the pointer is moving, so this tracks the cursor
-  // exactly like the plain, non-motion sidebar does; only the FINAL value
-  // on pointerup goes through `setWidth`, for a single settling re-render.
-  const asideRef = useRef<HTMLElement | null>(null);
-  const liveWidthRef = useRef(width);
-  // Set for exactly one render right after a drag ends — re-enabling
-  // `layout` there makes Framer notice the width is different from
-  // whatever it last measured before `layout={false}` started ignoring
-  // DOM changes, so it schedules a FLIP correction. With the normal 300ms
-  // `layoutTransition` that correction itself becomes a second, unwanted
-  // animation right as the cursor stops — the panel visibly settles into
-  // place a beat late instead of already being where the cursor let go.
-  // Forcing that one correction to `duration: 0` makes it apply instantly
-  // (it's already the right size, so there's nothing to actually animate),
-  // and the ref below flips it back to the real transition on the very
-  // next frame so open/close and the dialog-morph animate as before.
-  const [instantSettle, setInstantSettle] = useState(false);
-  useEffect(() => {
-    onInstantChange(instantSettle);
-  }, [instantSettle, onInstantChange]);
-  useEffect(() => {
-    if (!instantSettle) return;
-    const id = requestAnimationFrame(() => setInstantSettle(false));
-    return () => cancelAnimationFrame(id);
-  }, [instantSettle]);
-  useEffect(() => {
-    if (!dragging) return;
-    const on_move = (e: PointerEvent) => {
-      const d = drag_ref.current;
-      if (!d) return;
-      const w = Math.min(
-        560,
-        Math.max(240, d.start_w + (d.start_x - e.clientX)),
-      );
-      liveWidthRef.current = w;
-      if (asideRef.current) asideRef.current.style.width = `${w}px`;
-      if (panelRef.current) panelRef.current.style.width = `${w}px`;
-    };
-    const on_up = () => {
-      setDragging(false);
-      drag_ref.current = null;
-      setWidth(liveWidthRef.current);
-      setInstantSettle(true);
-    };
-    window.addEventListener("pointermove", on_move);
-    window.addEventListener("pointerup", on_up);
-    return () => {
-      window.removeEventListener("pointermove", on_move);
-      window.removeEventListener("pointerup", on_up);
-    };
-  }, [dragging, setWidth, panelRef]);
+  const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
+  const close = () =>
+    setBottomPanelOpenFor(`${conn_id}\u0000${tab_key}`, false);
 
   const [wrap, setWrap] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -310,7 +217,7 @@ export function JsonViewer({
     return JSON.stringify(jsonRow.data, null, 2);
   }, [jsonRow]);
 
-  // While the sidebar editor is focused its live content (uncontrolled inside
+  // While the panel's editor is focused its live content (uncontrolled inside
   // the view) is the source of truth; republishes from the grid must not reset
   // it mid-type. `shownDoc` follows `doc` again once the editor loses focus.
   const [editorFocused, setEditorFocused] = useState(false);
@@ -479,22 +386,6 @@ export function JsonViewer({
     extraExtensions,
   };
 
-  const headerProps = {
-    query,
-    onQueryChange: (q: string) => setQuery(q),
-    searching,
-    matchCount: matchPos.length,
-    activeMatch,
-    onPrev: goPrev,
-    onNext: goNext,
-    onClear: () => {
-      setQuery("");
-      setActiveMatch(0);
-    },
-    onClose: () => close(false),
-    disabled: !jsonRow,
-  };
-
   const toolbarProps = {
     wrap,
     onToggleWrap: () => setWrap((w) => !w),
@@ -505,90 +396,66 @@ export function JsonViewer({
     disabled: !jsonRow,
   };
 
-  console.log(wrap);
-
   return (
-    <AnimatePresence>
-      {!dialogOpen && (
-        <motion.aside
-          key="json-sidebar"
-          ref={asideRef}
-          layoutId="json-panel"
-          // `layoutId` alone only animates a transition BETWEEN two
-          // elements sharing this id — this aside <-> the "Open in dialog"
-          // morph below. Open/close itself is owned by the host's
-          // `EdgePanelSlot` wrapper (width + opacity), so this only ever
-          // needs to handle the dialog-morph transition.
-          layout={!dragging}
-          transition={instantSettle ? instantTransition : layoutTransition}
-          className="bg-background relative flex min-h-0 shrink-0 flex-col"
-          style={{ width }}
-        >
-          <div
-            className="flex min-h-0 flex-1 flex-col"
-            onFocus={() => setEditorFocused(true)}
-            onBlur={() => setEditorFocused(false)}
-          >
-            <TreeControls {...headerProps} />
-            <JsonViewerToolbar
-              {...toolbarProps}
-              onExpand={() => setDialogOpen(true)}
-            />
-            {jsonRow ? (
-              <BsonEditor
-                {...editorProps}
-                className="min-w-0 flex-1 rounded-none border-0"
-                minHeight="calc(100%-34px)"
-                disableWrapping={!wrap}
-              />
-            ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-                <Braces className="text-muted-foreground/40 size-8" />
-                <p className="text-muted-foreground text-sm">
-                  No row selected. Right-click any grid cell and choose "View
-                  JSON" to inspect its row here.
-                </p>
-              </div>
-            )}
-          </div>
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            title="Drag to resize"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.currentTarget.setPointerCapture(e.pointerId);
-              drag_ref.current = { start_x: e.clientX, start_w: width };
-              setDragging(true);
-            }}
-            className={cn(
-              "absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize",
-              dragging ? "bg-primary/60" : "hover:bg-accent bg-transparent",
-            )}
-          />
-        </motion.aside>
+    <div
+      className="bg-background flex min-h-0 flex-1 flex-col"
+      onFocus={() => setEditorFocused(true)}
+      onBlur={() => setEditorFocused(false)}
+    >
+      <TreeControls
+        query={query}
+        onQueryChange={setQuery}
+        searching={searching}
+        matchCount={matchPos.length}
+        activeMatch={activeMatch}
+        onPrev={goPrev}
+        onNext={goNext}
+        onClear={() => {
+          setQuery("");
+          setActiveMatch(0);
+        }}
+        onClose={close}
+        disabled={!jsonRow}
+      />
+      <JsonViewerToolbar
+        {...toolbarProps}
+        onExpand={() => setDialogOpen(true)}
+      />
+      {jsonRow ? (
+        <BsonEditor
+          {...editorProps}
+          className="min-w-0 flex-1 rounded-none border-0"
+          minHeight="calc(100%-34px)"
+          disableWrapping={!wrap}
+        />
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+          <Braces className="text-muted-foreground/40 size-8" />
+          <p className="text-muted-foreground text-sm">
+            No row selected. Right-click any grid cell and choose "View JSON" to
+            inspect its row here.
+          </p>
+        </div>
       )}
-      {open && dialogOpen && jsonRow && (
-        <motion.div
-          key="json-dialog"
-          className="fixed inset-0 z-100 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          onClick={() => setDialogOpen(false)}
-        >
-          <motion.div
-            layoutId="json-panel"
-            transition={layoutTransition}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Row JSON"
-            className="bg-background pointer-events-auto flex h-[80vh] w-[min(760px,92vw)] min-w-0 flex-col overflow-hidden rounded-xl border shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+      {jsonRow && (
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent
+            className="flex h-[80vh] w-[min(760px,92vw)] max-w-[92vw] min-w-0 flex-col gap-0 overflow-hidden p-0"
+            hideCloseButton
           >
+            <DialogTitle className="sr-only">Row JSON</DialogTitle>
             <TreeControls
-              {...headerProps}
+              query={query}
+              onQueryChange={setQuery}
+              searching={searching}
+              matchCount={matchPos.length}
+              activeMatch={activeMatch}
+              onPrev={goPrev}
+              onNext={goNext}
+              onClear={() => {
+                setQuery("");
+                setActiveMatch(0);
+              }}
               onClose={() => setDialogOpen(false)}
             />
             <JsonViewerToolbar {...toolbarProps} />
@@ -597,11 +464,12 @@ export function JsonViewer({
                 {...editorProps}
                 className="min-w-0 flex-1 rounded-none border-0"
                 minHeight="100%"
+                disableWrapping={!wrap}
               />
             </div>
-          </motion.div>
-        </motion.div>
+          </DialogContent>
+        </Dialog>
       )}
-    </AnimatePresence>
+    </div>
   );
 }

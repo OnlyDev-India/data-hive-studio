@@ -6,8 +6,14 @@ import {
   useContext,
 } from "react";
 import type { RowWindow } from "./use-row-window";
-import type { DiffChange } from "@/shared/components/apply-changes-dialog";
-import type { CellClick, CellKind, DistinctMap } from "./types";
+import type { RowDiffChange } from "@/shared/components/apply-changes-dialog";
+import type {
+  CellClick,
+  CellKind,
+  DistinctMap,
+  GridFilter,
+  SortKey,
+} from "./types";
 import { COL_W_PX, GUTTER_W_PX } from "./types";
 
 /** Identity of a cell: (row index in the page, column name). */
@@ -42,57 +48,79 @@ function fmt_cell(v: string | null | undefined): string {
   return v === null || v === undefined ? "NULL" : v;
 }
 
-/** Renders a row's columns as `col: value` lines, one per line, for an
- *  insert/delete diff block. Blank/absent values are dropped for an insert
- *  (skip-empty is the default there — see `QueryOp::Insert`), always kept
- *  for a delete (the row's full stored contents matter for review). */
-function row_lines(
-  columns: string[] | undefined,
-  values: (string | null)[] | undefined,
-  kind: "insert" | "delete",
-): string {
-  return (columns ?? [])
-    .map((col, i) => [col, values?.[i]] as const)
-    .filter(([, v]) => kind === "delete" || (v !== null && v !== ""))
-    .map(([col, v]) => `${col}: ${fmt_cell(v)}`)
-    .join("\n");
-}
-
-/** Maps the grid's own `PendingChange` shape onto the shared `DiffChange`
- *  shape the review dialog renders — kept as a pure function next to
- *  `PendingChange` so the two can never silently drift apart. */
-export function pending_changes_to_diff(
+/** Maps the grid's own `PendingChange` shape onto the shared `RowDiffChange`
+ *  shape the review dialog's grid renderer expects — kept as a pure
+ *  function next to `PendingChange` so the two can never silently drift
+ *  apart. Insert/delete stay one entry per change; every `update` touching
+ *  the SAME row is merged into a single entry (`ids` collects every
+ *  underlying `PendingChange.id` involved, so (de)selecting the merged row
+ *  in the dialog still maps back to each individual change when applying —
+ *  see `ApplyChangesDialog`'s own doc comment on `rows`). Preserves the
+ *  original first-appearance order of rows. */
+export function pending_changes_to_row_diff(
   changes: PendingChange[],
-): DiffChange[] {
-  return changes.map((c): DiffChange => {
+): RowDiffChange[] {
+  const result: RowDiffChange[] = [];
+  const update_index = new Map<number, number>(); // row -> index in result
+
+  for (const c of changes) {
     if (c.kind === "insert") {
-      return {
-        id: c.id,
-        kind: "add",
-        entity: "row",
-        title: "New row",
-        after:
-          row_lines(c.value_columns, c.values, "insert") || "(defaults only)",
-      };
+      const cols = c.value_columns ?? [];
+      const columns = cols.filter((_, i) => {
+        const v = c.values?.[i];
+        return v !== null && v !== "";
+      });
+      const after: Record<string, string> = {};
+      for (const col of columns)
+        after[col] = fmt_cell(c.values?.[cols.indexOf(col)]);
+      result.push({
+        ids: [c.id],
+        kind: "insert",
+        row: c.row,
+        columns,
+        before: {},
+        after,
+      });
+      continue;
     }
     if (c.kind === "delete") {
-      return {
-        id: c.id,
-        kind: "drop",
-        entity: "row",
-        title: `Row ${c.row}`,
-        before: row_lines(c.value_columns, c.values, "delete"),
-      };
+      const columns = c.value_columns ?? [];
+      const before: Record<string, string> = {};
+      columns.forEach((col, i) => {
+        before[col] = fmt_cell(c.values?.[i]);
+      });
+      result.push({
+        ids: [c.id],
+        kind: "delete",
+        row: c.row,
+        columns,
+        before,
+        after: {},
+      });
+      continue;
     }
-    return {
-      id: c.id,
-      kind: "alter",
-      entity: "cell",
-      title: `Row ${c.row} · ${c.column}`,
-      before: fmt_cell(c.before),
-      after: fmt_cell(c.after),
-    };
-  });
+    // update — merge with any earlier change already staged for this row.
+    const col = c.column ?? "";
+    const existing_i = update_index.get(c.row);
+    if (existing_i === undefined) {
+      update_index.set(c.row, result.length);
+      result.push({
+        ids: [c.id],
+        kind: "update",
+        row: c.row,
+        columns: [col],
+        before: { [col]: fmt_cell(c.before) },
+        after: { [col]: fmt_cell(c.after) },
+      });
+    } else {
+      const entry = result[existing_i];
+      entry.ids.push(c.id);
+      entry.columns.push(col);
+      entry.before[col] = fmt_cell(c.before);
+      entry.after[col] = fmt_cell(c.after);
+    }
+  }
+  return result;
 }
 
 /** Bounding box of the selection net, in row index / display-column index. */
@@ -107,6 +135,11 @@ export interface SelBounds {
 export interface GridViewData {
   all_columns: string[];
   column_order: string[];
+  /** Same pin-partitioned, drag-reordered sequence as `column_order`, but
+   *  including hidden columns too (in their last-known position) — the
+   *  column-visibility menu's list, so toggling one back on doesn't jump it
+   *  to the end. */
+  full_column_order: string[];
   /** (column name, index into the result row). */
   col_meta: [string, number][];
   /** Column name -> display (column-order) index. */
@@ -124,6 +157,15 @@ export function computeGridView(
   pinned: string[],
   col_widths: Record<string, number>,
   selected: Set<string>,
+  /** User drag-reorder, as a full permutation of column names — `null`/
+   *  columns it doesn't mention (e.g. a query whose result added a column
+   *  since this was saved) fall back to/append in the natural DB order. */
+  column_order_override?: string[] | null,
+  /** Hidden columns — excluded from `column_order`/`col_meta` (so headers,
+   *  cells, and row-copy/export all skip them) but kept in `all_columns` so
+   *  `col_index_of` can still resolve them if something needs to (e.g. a
+   *  drill-down that re-hides then un-hides the same column later). */
+  hidden?: ReadonlySet<string>,
 ): GridViewData {
   const all_columns: string[] = [];
   const seen = new Set<string>();
@@ -134,10 +176,26 @@ export function computeGridView(
     }
   }
 
+  let base_order = all_columns;
+  if (column_order_override && column_order_override.length > 0) {
+    const known = new Set(all_columns);
+    const kept = column_order_override.filter((c) => known.has(c));
+    const keptSet = new Set(kept);
+    base_order = [...kept, ...all_columns.filter((c) => !keptSet.has(c))];
+  }
+
   const pinned_list = pinned.filter((p) => all_columns.includes(p));
+  const pinned_set = new Set(pinned_list);
+  const visible = hidden
+    ? base_order.filter((c) => !hidden.has(c))
+    : base_order;
   const column_order = [
-    ...pinned_list,
-    ...all_columns.filter((c) => !pinned_list.includes(c)),
+    ...visible.filter((c) => pinned_set.has(c)),
+    ...visible.filter((c) => !pinned_set.has(c)),
+  ];
+  const full_column_order = [
+    ...base_order.filter((c) => pinned_set.has(c)),
+    ...base_order.filter((c) => !pinned_set.has(c)),
   ];
   const col_meta: [string, number][] = column_order.map((name) => [
     name,
@@ -175,6 +233,7 @@ export function computeGridView(
   return {
     all_columns,
     column_order,
+    full_column_order,
     col_meta,
     col_index_of,
     pin_px,
@@ -268,8 +327,8 @@ export interface GridContextValue {
   /** Column name -> display (column-order) index. */
   col_index_of: Record<string, number>;
   // Visual state.
-  sort_col: string | null;
-  sort_asc: boolean;
+  /** Sort keys in priority order; index 0 = primary. Empty = unsorted. */
+  sort_keys: SortKey[];
   pinned: string[];
   selected: Set<string>;
   sel_anchor: CellId | null;
@@ -278,11 +337,55 @@ export interface GridContextValue {
   editAsText: boolean;
   col_widths: Record<string, number>;
   // Actions.
+  /** Adds `col` to the sort (or updates its direction in place if it's
+   *  already sorted) without clearing any other active sort key. */
   on_sort: (col: string, asc: boolean) => void;
+  /** Removes just `col` from the sort, leaving any other active keys. */
   on_clear_sort: (col: string) => void;
+  on_clear_all_sort: () => void;
   on_toggle_pin: (col: string) => void;
   on_resize_col: (col: string, px: number) => void;
   auto_fit_col: (col: string) => void;
+  /** Drag `dragged` to just before/after `target`'s current position. */
+  reorder_column: (dragged: string, target: string) => void;
+  hidden_columns: ReadonlySet<string>;
+  toggle_column_visibility: (col: string) => void;
+  /** Column currently being pointer-dragged (from anywhere in the header,
+   *  not a dedicated handle), plus the live pointer position for the
+   *  floating ghost badge; `null` when no column drag is in progress. */
+  col_drag: { col: string; x: number; y: number } | null;
+  /** Column the drag is currently hovering over — reordering happens live
+   *  as this changes, not just on drop, so it's also the current position
+   *  of the dragged column. */
+  col_drag_over: string | null;
+  start_column_drag: (col: string, x: number, y: number) => void;
+  column_drag_over: (col: string) => void;
+  /** Selects every cell in `col` (the header's own click) — Ctrl/Cmd toggles
+   *  it within the existing selection, Shift extends from the last anchor
+   *  column across a range. */
+  select_column: (
+    col: string,
+    opts?: { add?: boolean; range?: boolean },
+  ) => void;
+  /** Currently applied WHERE filters (the same list the filter bar shows) —
+   *  header cells read this to know whether their own quick-filter is
+   *  active and pre-check the right boxes. Absent for grids with no filter
+   *  bar at all (e.g. `query-results-grid.tsx`). */
+  filters?: GridFilter[];
+  /** Sets (or clears, when `values` is null) an Excel-style "column IN
+   *  (...)" quick filter — the header's own per-column filter popover.
+   *  Absent for grids with no filter bar. */
+  on_column_filter?: (col: string, values: string[] | null) => void;
+  /** Live `SelectDistinct` query for one column, unbounded — the quick
+   *  filter's escalation path when the loaded page doesn't hold every
+   *  distinct value. Absent for grids with no live backend (e.g. read-only
+   *  query results), which fall back to the loaded page's own values. */
+  fetch_distinct_values?: (col: string) => Promise<(string | null)[]>;
+  /** FK column -> raw value -> looked-up display label from the referenced
+   *  row (`"<value> (<label>)"` in the cell) — only covers values on the
+   *  currently loaded page. Absent/missing entries just render the raw
+   *  value, same as before this existed. */
+  fk_labels?: Record<string, Record<string, string>>;
   on_select: (sel: Set<string>) => void;
   on_sel_anchor: (a: CellId | null) => void;
   on_active_cell: (a: CellId | null) => void;

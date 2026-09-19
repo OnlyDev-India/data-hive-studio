@@ -4,6 +4,8 @@
  *  the stateful hook itself isn't split further: its selection/editing/sort
  *  state is one tightly-coupled closure, not independently separable pieces. */
 
+import type { SortKey } from "./types";
+
 /** Convert a raw cell string into the value shown in the JSON viewer. */
 export function toJsonValue(
   v: string | null,
@@ -83,32 +85,41 @@ export function rowToObject(
   return obj;
 }
 
-/** Sort rows client-side, mirroring SQL defaults (NULLs last, numeric-aware). */
+/** Compare two cell values for one sort key (NULLs last, numeric-aware). */
+function compareCells(av: string | null, bv: string | null, asc: boolean): number {
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  const na = Number(av);
+  const nb = Number(bv);
+  if (
+    !Number.isNaN(na) &&
+    !Number.isNaN(nb) &&
+    String(na) === av.trim() &&
+    String(nb) === bv.trim()
+  ) {
+    return asc ? na - nb : nb - na;
+  }
+  return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+}
+
+/** Sort rows client-side by one or more keys in priority order, mirroring SQL
+ *  defaults (NULLs last, numeric-aware) — a tie on key 0 falls through to
+ *  key 1, and so on. */
 export function sortRows(
   rows: (string | null)[][],
   columns: string[],
-  sort_col: string | null,
-  sort_asc: boolean,
+  sort_keys: SortKey[],
 ): (string | null)[][] {
-  if (!sort_col) return rows;
-  const ci = columns.indexOf(sort_col);
-  if (ci < 0) return rows;
+  const keys = sort_keys
+    .map((k) => ({ ci: columns.indexOf(k.column), asc: k.asc }))
+    .filter((k) => k.ci >= 0);
+  if (keys.length === 0) return rows;
   return [...rows].sort((a, b) => {
-    const av = a[ci];
-    const bv = b[ci];
-    if (av === null && bv === null) return 0;
-    if (av === null) return 1;
-    if (bv === null) return -1;
-    const na = Number(av);
-    const nb = Number(bv);
-    if (
-      !Number.isNaN(na) &&
-      !Number.isNaN(nb) &&
-      String(na) === av.trim() &&
-      String(nb) === bv.trim()
-    ) {
-      return sort_asc ? na - nb : nb - na;
+    for (const { ci, asc } of keys) {
+      const c = compareCells(a[ci], b[ci], asc);
+      if (c !== 0) return c;
     }
-    return sort_asc ? av.localeCompare(bv) : bv.localeCompare(av);
+    return 0;
   });
 }

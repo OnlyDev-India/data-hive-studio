@@ -1,10 +1,52 @@
 import { describe, it, expect } from "vitest";
 import {
   computeFillBox,
+  computeGridView,
   isNewFillCell,
   fillSourceCell,
   type SelBounds,
 } from "../grid-context";
+
+describe("computeGridView column order/visibility", () => {
+  const columns = ["id", "name", "email", "created_at"];
+
+  it("uses the natural DB order with no override", () => {
+    const view = computeGridView(columns, [], {}, new Set());
+    expect(view.column_order).toEqual(columns);
+  });
+
+  it("applies a drag-reorder override, appending any new column not in it", () => {
+    const view = computeGridView(columns, [], {}, new Set(), [
+      "name",
+      "id",
+      "email",
+    ]);
+    expect(view.column_order).toEqual(["name", "id", "email", "created_at"]);
+  });
+
+  it("still puts pinned columns first, preserving the override's relative order", () => {
+    const view = computeGridView(columns, ["email"], {}, new Set(), [
+      "name",
+      "id",
+      "email",
+      "created_at",
+    ]);
+    expect(view.column_order).toEqual(["email", "name", "id", "created_at"]);
+  });
+
+  it("excludes hidden columns from column_order but keeps them in full_column_order", () => {
+    const view = computeGridView(
+      columns,
+      [],
+      {},
+      new Set(),
+      null,
+      new Set(["email"]),
+    );
+    expect(view.column_order).toEqual(["id", "name", "created_at"]);
+    expect(view.full_column_order).toEqual(columns);
+  });
+});
 
 describe("computeFillBox", () => {
   const source: SelBounds = { min_r: 2, max_r: 4, min_ci: 1, max_ci: 3 };

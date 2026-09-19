@@ -66,6 +66,58 @@ pub struct ColumnInfo {
     pub is_array: bool,
 }
 
+/// A key's distinct-count truncation marker on a wide `FieldShape` object
+/// (spec 0001, AC-5): `shown` of `total` distinct keys were kept.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FieldKeyTruncation {
+    pub shown: u32,
+    pub total: u32,
+}
+
+/// One node of a MongoDB collection's inferred nested field shape (spec
+/// 0001), read only and independent of `ColumnInfo`/`TableSchema` (which
+/// stay flat for the data grid's column headers, see `MongoAdapter::field_tree`
+/// for the sampling that builds this).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FieldShape {
+    /// Last path segment, e.g. `"zip"` for `address.zip`.
+    pub name: String,
+    /// Full dot path from the document root, e.g. `"address.zip"`.
+    pub path: String,
+    /// The single most common BSON type observed at this path ("object",
+    /// "array", or a scalar name). Never a union — a mixed-type field still
+    /// reports only its most common type, matching `inferred_schema`'s
+    /// existing top-level behavior.
+    #[serde(rename = "type")]
+    pub bson_type: String,
+    /// True when present in fewer sampled documents than its parent is
+    /// (`present_count(path) < present_count(parent_path)`, where
+    /// `present_count(root)` is the sample size) — NOT the raw sample size,
+    /// so a field always present whenever its parent exists is not
+    /// misleadingly optional just because the parent itself sometimes is not.
+    pub optional: bool,
+    /// Nested fields, present when `bson_type` is "object", or "array" whose
+    /// sampled elements include objects.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<FieldShape>,
+    /// Present only when `bson_type` is "array": the union of BSON types
+    /// observed among sampled elements (e.g. `["object", "string"]`). The
+    /// one place a union appears; `bson_type` itself never is one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub element_types: Vec<String>,
+    /// Set when an object's distinct sampled keys exceeded the 50 key cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<FieldKeyTruncation>,
+    /// True when `bson_type` is "object"/"array" but zero keys/elements were
+    /// observed across the whole sample.
+    #[serde(default)]
+    pub empty: bool,
+    /// True when recursion stopped at the 6 level depth cap, or the global
+    /// node budget, even though the real document nests deeper.
+    #[serde(default)]
+    pub depth_truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ForeignKeyInfo {
     pub column: String,
@@ -190,6 +242,10 @@ pub enum FilterOp {
     Lte,
     IsNull,
     IsNotNull,
+    /// Column value is one of `GridFilterCond::values` — the header's own
+    /// Excel-style distinct-value checkbox quick filter. An empty `values`
+    /// matches nothing (all boxes unchecked), same as Excel.
+    In,
 }
 
 /// One filter condition as sent by the UI filter bar.
@@ -198,9 +254,24 @@ pub struct GridFilterCond {
     pub column: String,
     pub op: FilterOp,
     pub value: String,
+    /// Only populated for `FilterOp::In` — the checked values. NULL is
+    /// deliberately not selectable here (that's what `is_null`/`is_not_null`
+    /// are for), so these are always non-null.
+    #[serde(default)]
+    pub values: Vec<String>,
     /// How this condition combines with the previous one. Defaults to AND.
     #[serde(default)]
     pub conjunction: Option<String>,
+}
+
+/// One column of a multi-column sort, in priority order (index 0 = primary).
+/// `dir` is a loose string (`"DESC"` else ascending), matching how the old
+/// single-column `order_dir` was already compared — no enum needed since
+/// every adapter just checks `== "DESC"`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OrderByCond {
+    pub column: String,
+    pub dir: String,
 }
 
 /// A structured statement request. Values are always bound as `?` parameters
@@ -216,10 +287,9 @@ pub enum QueryOp {
         /// Raw WHERE text written by the user; wins over `filters`.
         #[serde(default)]
         custom_where: Option<String>,
+        /// Sort keys in priority order; empty = unsorted.
         #[serde(default)]
-        order_by: Option<String>,
-        #[serde(default)]
-        order_dir: Option<String>,
+        order_by: Vec<OrderByCond>,
         #[serde(default)]
         limit: Option<i64>,
         #[serde(default)]

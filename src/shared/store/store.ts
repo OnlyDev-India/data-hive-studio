@@ -16,7 +16,8 @@ import { WEB } from "@/shared/api/web";
 import { connectionActions } from "./connections";
 import { DEFAULT_PALETTE_KEYWORDS } from "./types";
 import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-editor/delimited-list";
-import type { SavedConnParams, StudioStore } from "./types";
+import type { SavedConnParams, StudioStore, WorkspaceTabs } from "./types";
+import { tabKey } from "./tab-utils";
 import { workspaceActions } from "./workspace";
 import {
   loadPendingWorkspaceRestores,
@@ -71,6 +72,20 @@ function readLegacySavedLocal(): Record<string, SavedConnParams> {
  *  cleared after applying, which would otherwise recycle counter values and
  *  make the landing form's dedupe drop the next click). */
 let prefill_seq = 0;
+
+/** The currently focused tab's own composite `bottomPanelOpen` key, same
+ *  format `jsonRows` already uses. Resolved fresh on every call (never
+ *  cached) so global chrome always acts on whichever tab is active right
+ *  now. `null` when there's no tab to act on — no active connection, or
+ *  that connection's focused pane has no active tab — so callers can no-op
+ *  instead of acting on a guessed key. */
+function activeBottomPanelScope(
+  activeId: string | null,
+  workspaces: Record<string, WorkspaceTabs>,
+): string | null {
+  const active = activeId ? (workspaces[activeId]?.active ?? null) : null;
+  return active ? `${activeId}\u0000${tabKey(active)}` : null;
+}
 
 export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
   create<StudioStore>()(
@@ -140,6 +155,15 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ editorFontSize: Math.max(10, Math.min(24, Math.round(px))) });
         },
 
+        sqlFormatKeywordCase: "preserve",
+        setSqlFormatKeywordCase(c) {
+          set({ sqlFormatKeywordCase: c });
+        },
+        sqlFormatIndentWidth: 2,
+        setSqlFormatIndentWidth(n) {
+          set({ sqlFormatIndentWidth: n });
+        },
+
         delimitedListSettings: DEFAULT_DELIMITED_LIST_SETTINGS,
         setDelimitedListSettings(s) {
           set({ delimitedListSettings: s });
@@ -196,16 +220,32 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set((s) => ({ leftPanelOpen: !s.leftPanelOpen }));
         },
 
-        rightSidebarOpen: false,
-        rightSidebarWidth: 320,
-        toggleRightSidebar() {
-          set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen }));
+        bottomPanelOpen: {},
+        setBottomPanelOpenFor(scope, open) {
+          set((s) => ({
+            bottomPanelOpen: { ...s.bottomPanelOpen, [scope]: open },
+          }));
         },
-        setRightSidebarOpen(open) {
-          set({ rightSidebarOpen: open });
+        setBottomPanelOpen(open) {
+          set((s) => {
+            const scope = activeBottomPanelScope(s.activeId, s.workspaces);
+            if (!scope) return {};
+            return {
+              bottomPanelOpen: { ...s.bottomPanelOpen, [scope]: open },
+            };
+          });
         },
-        setRightSidebarWidth(px) {
-          set({ rightSidebarWidth: px });
+        toggleBottomPanel() {
+          set((s) => {
+            const scope = activeBottomPanelScope(s.activeId, s.workspaces);
+            if (!scope) return {};
+            return {
+              bottomPanelOpen: {
+                ...s.bottomPanelOpen,
+                [scope]: !s.bottomPanelOpen[scope],
+              },
+            };
+          });
         },
         jsonRows: {},
         setJsonRow(scope, row) {
@@ -496,10 +536,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           leftPanelOpen: s.leftPanelOpen,
           leftPanelMode: s.leftPanelMode,
           sidebarWidth: s.sidebarWidth,
-          rightSidebarWidth: s.rightSidebarWidth,
           paletteKeywords: s.paletteKeywords,
           shortcutOverrides: s.shortcutOverrides,
           editorFontSize: s.editorFontSize,
+          sqlFormatKeywordCase: s.sqlFormatKeywordCase,
+          sqlFormatIndentWidth: s.sqlFormatIndentWidth,
           delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
           skippedUpdateVersion: s.skippedUpdateVersion,

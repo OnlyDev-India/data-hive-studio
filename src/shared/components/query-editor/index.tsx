@@ -21,6 +21,7 @@ import {
   tooltips,
   type ViewUpdate,
 } from "@codemirror/view";
+import { search, selectNextOccurrence } from "@codemirror/search";
 import {
   forEachDiagnostic,
   linter,
@@ -47,6 +48,8 @@ import {
 } from "./editor-text-commands";
 import { DelimitedListDialog } from "./delimited-list-dialog";
 import { EditorContextMenu } from "./editor-context-menu";
+import { EditorSearchBar } from "./editor-search-bar";
+import { getTooltipRoot } from "./tooltip-root";
 import { schemaCompletions } from "./sql-completions";
 import { sqlLinter } from "./sql-lint";
 import { nosqlSyntaxLinter } from "./nosql-lint";
@@ -57,12 +60,14 @@ import {
   statementGutter,
 } from "./statement-runner";
 import { inlineDiagnostics } from "./inline-diagnostics";
+import { insertColumnLabels } from "./insert-column-labels";
 import {
   NOSQL_SHELL_COMPLETIONS,
   nosqlConsoleCompletions,
 } from "./nosql-completions";
 import { docHoverTheme, docHoverTooltip, type DocEntry } from "./doc-hover";
 import { resolveSqlDoc } from "./sql-docs";
+import { sqlSignatureHelp } from "./signature-help";
 import { resolveMongoDoc } from "./nosql-docs";
 import { DocDetailBody } from "./doc-markdown";
 import {
@@ -116,9 +121,38 @@ const errorLinter = linter(null);
 // open above a diagnostic on line 1 (there's no room within the editor to
 // open above it there) ends up clipped by this editor's own
 // `overflow-hidden` wrapper below instead of floating freely over the page.
-// Rendering into `document.body` sidesteps every ancestor's
-// overflow/transform entirely.
-const editorTooltips = tooltips({ parent: document.body });
+// Rendering into `getTooltipRoot()` (a single shared, named host appended
+// to `document.body` — see tooltip-root.ts) sidesteps every ancestor's
+// overflow/transform entirely without leaving this editor's own unlabeled
+// div as a direct child of <body>.
+const editorTooltips = tooltips({ parent: getTooltipRoot() });
+
+// Search STATE + match highlighting only — no `searchKeymap` (disabled in
+// `basicSetupConfig` below) and `openSearchPanel` is never called, so the
+// library's own default panel never gets created. `EditorSearchBar` is the
+// front end instead, driving the exact same `setSearchQuery`/`findNext`/
+// `findPrevious` a hand-written panel would use, styled to match the rest
+// of the app instead of CodeMirror's stock look.
+const editorSearch = search();
+const editorSearchMatchTheme = EditorView.baseTheme({
+  ".cm-searchMatch": {
+    backgroundColor: "var(--warning-light)",
+    outline: "1px solid var(--warning)",
+  },
+  ".cm-searchMatch-selected": {
+    backgroundColor: "var(--warning)",
+    color: "var(--warning-foreground)",
+  },
+});
+// The only piece of the library's bundled `searchKeymap` this app still
+// wants with `searchKeymap: false` below — everything else in that keymap
+// (Mod-f -> openSearchPanel, Mod-g -> findNext, Escape -> closeSearchPanel,
+// …) either opens the stock panel this custom bar replaces or has no
+// documented binding here. `Mod-d` is the one entry the context menu's "Add
+// next occurrence" item already advertises a keyboard shortcut for.
+const editorSelectOccurrenceKeymap = keymap.of([
+  { key: "Mod-d", run: selectNextOccurrence, preventDefault: true },
+]);
 
 // `lineNumbers`/`foldGutter` are always off here — explicit `lineNumbers()`/
 // `lucideFoldGutter()` extensions are added instead (after the statement-run
@@ -139,7 +173,12 @@ const basicSetupConfig = {
   closeBrackets: true,
   bracketMatching: true,
   indentOnInput: true,
-  searchKeymap: true,
+  // Off — its bundled Mod-f -> openSearchPanel would otherwise fight
+  // `EditorSearchBar` for the same key and pop the library's own stock
+  // panel on top of it. `editorSearch`/`editorSearchMatchTheme` (added to
+  // `extensions` below) plus `editorSelectOccurrenceKeymap` cover the parts
+  // of that bundled keymap this app still uses.
+  searchKeymap: false,
   tabSize: 2,
 };
 
@@ -188,10 +227,15 @@ interface QueryEditorProps {
    *  unknown-collection) linter — off doesn't touch manually-pushed run
    *  errors (`setErrors`), a separate mechanism. Default on. */
   lintEnabled?: boolean;
+  /** Draws each INSERT value's column name in front of it (SQL mode only —
+   *  purely visual, the statement text is untouched). Toolbar-driven like
+   *  `lintEnabled`. Default on, so read-only views get it too. */
+  showInsertLabels?: boolean;
   onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
   frameLayer?: boolean;
   autoCompletion?: boolean;
   disableEnter?: boolean;
+  disableContextMenu?:boolean;
 }
 
 /**
@@ -225,9 +269,11 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       readOnly = false,
       disableWrapping = false,
       lintEnabled = true,
+      showInsertLabels = true,
       frameLayer = true,
       autoCompletion = true,
       disableEnter = false,
+      disableContextMenu=false,
     },
     ref,
   ) {
@@ -527,9 +573,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     const runBinding = useAppShortcut("editor.run");
     const runTargetBinding = useAppShortcut("editor.runTarget");
     const saveBinding = useAppShortcut("editor.save");
+    const searchBinding = useAppShortcut("editor.search");
+    const [searchOpen, setSearchOpen] = useState(false);
     const shortcuts: Shortcut[] = [
       { ...runBinding, handler: onRun },
       { ...runTargetBinding, handler: onRunTarget },
+      { ...searchBinding, handler: () => setSearchOpen(true) },
     ];
     if (onSave) shortcuts.push({ ...saveBinding, handler: onSave });
     useShortcuts(shortcuts);
@@ -588,6 +637,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           // whatever unstyled default CodeMirror falls back to.
           ...appEditorExtensions,
           fontSizeTheme,
+          editorSearch,
+          editorSearchMatchTheme,
+          editorSelectOccurrenceKeymap,
           // JS parsing/highlighting. The raw language keeps CodeMirror's built-in
           // JS keyword completions (`default`, `do`, …) out of the console's
           // suggestion list — the one below is the only completion provider.
@@ -638,6 +690,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       return [
         ...appEditorExtensions,
         fontSizeTheme,
+        editorSearch,
+        editorSearchMatchTheme,
+        editorSelectOccurrenceKeymap,
         sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
         // Register the schema-aware source alongside lang-sql's built-ins.
         EditorState.languageData.of(() => [{ autocomplete: schemaSource }]),
@@ -656,8 +711,10 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
         editorTooltips,
         inlineDiagnostics,
+        ...(showInsertLabels ? [insertColumnLabels(schema ?? {})] : []),
         docHoverTooltip(resolveSqlDoc, onOpenDocDetails),
         docHoverTheme,
+        ...(readOnly ? [] : [sqlSignatureHelp()]),
         // Run-button gutter before the line-number gutter (basicSetup's own
         // `lineNumbers` is disabled below) so it renders to the LEFT of the
         // numbers — see the identical comment in the "js" branch above.
@@ -683,6 +740,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       runAtCursor,
       showLineNumber,
       lintEnabled,
+      showInsertLabels,
       frameLayer,
       disableEnter,
       disableEnterKeymap,
@@ -709,9 +767,15 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           pasteAsInBinding={pasteAsInBinding}
           delimitedListBinding={delimitedListBinding}
           onOpenDelimitedList={openDelimitedList}
+          searchBinding={searchBinding}
+          onOpenSearch={() => setSearchOpen(true)}
+          disabled={disableContextMenu}
         >
           <div
-            className={cn("min-h-0 w-full overflow-hidden", className)}
+            className={cn(
+              "relative min-h-0 w-full overflow-hidden",
+              className,
+            )}
             style={{ height }}
           >
             <CodeMirror
@@ -735,6 +799,11 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
                     : "SELECT * FROM sqlite_master;"
               }
               {...(onKeyDown ? { onKeyDown } : {})}
+            />
+            <EditorSearchBar
+              open={searchOpen}
+              onOpenChange={setSearchOpen}
+              getView={() => cmsRef.current?.view ?? null}
             />
           </div>
         </EditorContextMenu>

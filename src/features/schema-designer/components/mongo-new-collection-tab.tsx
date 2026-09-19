@@ -10,6 +10,9 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { useStudioStore } from "@/shared/store";
+import { Button } from "@/shared/components/ui";
+import { SquareArrowOutUpRight } from "lucide-react";
+import { QueryEditor } from "@/features/query-editor";
 
 interface MongoNewCollectionTabProps {
   conn_id: string;
@@ -47,6 +50,7 @@ export function MongoNewCollectionTab({
   const push_notification = useStudioStore((s) => s.pushNotification);
   const setNewTable = useStudioStore((s) => s.setNewTable);
   const clearNewTable = useStudioStore((s) => s.clearNewTable);
+  const openMongoConsole = useStudioStore((s) => s.openMongoConsole);
 
   // Defaults to the connection's own active database, same as before this
   // became a real picker — Mongo connections can span several databases
@@ -134,6 +138,11 @@ export function MongoNewCollectionTab({
     return () => clearNewTable(tab_key);
   }, [active, tab_key, creating, valid, has_draft, setNewTable, clearNewTable]);
 
+  const restore_to_editor = () => {
+    if (!trimmed) return;
+    openMongoConsole(conn_id, database, `db.createCollection("${trimmed}")`);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-6">
       <div className="flex gap-3">
@@ -172,16 +181,43 @@ export function MongoNewCollectionTab({
       </div>
 
       <div className="bg-background rounded-md border p-3">
-        <div className="text-muted-foreground mb-1 text-xs font-medium">
-          Preview
+        <div className="text-muted-foreground mb-1 flex justify-between text-xs font-medium">
+          <span>Preview</span>
+          <Button
+            variant="ghost"
+            size="iconXs"
+            aria-label="Restore to editor"
+            title="Open in a new, editable tab"
+            onClick={restore_to_editor}
+            className="ml-auto shrink-0"
+            disabled={!trimmed}
+          >
+            <SquareArrowOutUpRight />
+          </Button>
         </div>
-        <pre className="bg-muted/50 max-h-40 overflow-auto rounded p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+        <QueryEditor
+          value={`db.createCollection("${trimmed}")`}
+          onChange={() => {}}
+          onRun={() => {}}
+          onRunTarget={() => {}}
+          lintEnabled={false}
+          showLineNumber={false}
+          className="rounded-md"
+          frameLayer={false}
+          autoCompletion={false}
+          placeholder="e.g. age >= 18 AND name LIKE 'a%'"
+          language="js"
+          disableWrapping={false}
+          disableEnter
+          disableContextMenu
+        />
+        {/* <pre className="bg-muted/50 max-h-40 overflow-auto rounded p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
           <code>
             {trimmed
               ? `db.createCollection("${trimmed}")`
               : "Enter a collection name."}
           </code>
-        </pre>
+        </pre> */}
       </div>
 
       <p className="text-muted-foreground text-xs">

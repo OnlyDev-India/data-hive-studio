@@ -36,15 +36,20 @@ import { cn } from "@/shared/lib/utils";
 import { inlineDiagnostics } from "@/shared/components/query-editor/inline-diagnostics";
 import { bsonSyntaxLinter } from "./bson-lint";
 import { bsonKvFrameLayer } from "./bson-kv-frame";
+import { getTooltipRoot } from "../tooltip-root";
 
 // CodeMirror parents lint/hover tooltips inside the editor's own DOM by
 // default, positioned `fixed` — normally viewport-relative, but a
 // `transform` on any ancestor (or, here, the JSON inspector's own
 // `overflow-hidden` modal — json-viewer/index.tsx) clips a tooltip that
-// would otherwise open outside it. Rendering into `document.body`
-// sidesteps that entirely — same fix `editor/index.tsx` already applies
-// for the SQL/Mongo console's own lint tooltips.
-const editorTooltips = tooltips({ parent: document.body });
+// would otherwise open outside it. Rendering into `getTooltipRoot()` (a
+// single shared, named host appended to `document.body` — see
+// tooltip-root.ts) sidesteps that entirely, the same fix `index.tsx`
+// already applies for the SQL/Mongo console's own lint tooltips, without
+// this editor's own container showing up as an unlabeled direct child of
+// <body> — the JSON row panel can have two of these mounted at once (the
+// panel + its expanded dialog), which otherwise reads as leaked elements.
+const editorTooltips = tooltips({ parent: getTooltipRoot() });
 
 // Being a `document.body` child only fixes CLIPPING, not stacking: the
 // JSON inspector modal (json-viewer/index.tsx) is itself a `z-100` overlay
@@ -392,6 +397,13 @@ export function BsonEditor({
       bracketMatching: true,
       indentOnInput: true,
       tabSize: 2,
+      // basicSetup binds Mod-f to CodeMirror's own `openSearchPanel` by
+      // default — its DOM (a `cm-panels` host plus a style-mod scoped div
+      // per baseTheme) would appear stacked on top of this editor's own
+      // custom search (json-viewer/index.tsx's TreeControls + StateField
+      // highlighting) instead of the field it drives. Off so Mod-f (and the
+      // rest of the library's search keymap) never reaches this editor.
+      searchKeymap: false,
     }),
     [lineNumbers, foldable, constructorsOnly],
   );

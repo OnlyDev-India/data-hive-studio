@@ -3,6 +3,7 @@ import {
   Code,
   History,
   House,
+  Loader2,
   Monitor,
   Moon,
   Plug,
@@ -21,7 +22,14 @@ import {
   type PaletteKeywords,
 } from "@/shared/store";
 import type { ThemeMode } from "@/shared/theme/theme";
-import { listDatabases, listSchemaObjects, type TableInfo } from "@/shared/api";
+import {
+  getActiveSchema,
+  listDatabases,
+  listSchemaObjects,
+  listSchemasIn,
+  tableSchema,
+  type TableInfo,
+} from "@/shared/api";
 import { DBIcons, IconTypeMap } from "@/shared/components/icons/types";
 
 export interface PaletteItem {
@@ -35,7 +43,12 @@ export interface PaletteItem {
    *  the palette's original behavior. */
   section?: string;
   icon: ReactNode;
-  run: () => void;
+  /** A resolved string means "run failed" — shown at the bottom of the
+   *  palette instead of closing it, so a fallback item (see
+   *  `buildTableItems`'s exact-match suggestion) can report "Table not
+   *  found"/"Schema not found" instead of silently opening nothing or a
+   *  broken tab. Every other item just returns void/undefined (success). */
+  run: () => void | Promise<void | string>;
   /** Disabled items still render but can't be run. */
   disabled?: boolean;
   /** Filter-hint items (e.g. `schema:`) don't run/close the palette on
@@ -187,57 +200,102 @@ async function openMongoCollectionSchema(
 /** A table/collection found for the palette's `table:`/`schema:` modes —
  *  `database` is set only for a SIBLING database (not the connection's own
  *  current one), so `run()` knows to pass an explicit override instead of
- *  relying on ambient connection state. */
+ *  relying on ambient connection state. `schema` is likewise only set for a
+ *  schema OTHER than the connection's own currently active one (Postgres
+ *  only — Mongo has no schema level, never sets it). */
 export interface PaletteTable extends TableInfo {
   database?: string;
+  schema?: string;
 }
 
 /** Whether `t` matches search text `q` (already trimmed/lowercased) — name
- *  or kind, the same two fields the results list itself shows. Shared by
- *  `previewOrMatch` below and by the palette's own "does the connection's
- *  own database already have a match" check, which decides whether sibling
- *  databases need fetching at all (see `fetchSiblingTables`). */
+ *  or kind, the same two fields the results list itself shows. */
 export function tableMatches(t: TableInfo, q: string): boolean {
   return t.name.toLowerCase().includes(q) || t.kind.toLowerCase().includes(q);
 }
 
-/** Tables/collections from every OTHER database reachable through this
- *  connection — the sidebar can browse sibling databases (Postgres: a
- *  secondary pool via `pool_for`; MongoDB: any database on the same server,
- *  no extra connection needed), so the palette should be able to find them
- *  too. Deliberately NOT fetched eagerly alongside the connection's own
- *  tables — only called once a typed search comes up empty against the own
- *  database (see the `need_siblings` effect in `command-palette.tsx`), so a
- *  connection with many sibling databases doesn't pay for this on every
- *  palette open, only when the result would otherwise be "not found."
- *  Scoped to each sibling's `public` schema for Postgres (MongoDB has no
- *  schema layer) — one round trip per sibling database rather than
- *  enumerating every schema of every database. Best-effort: a sibling that
- *  fails to list (permissions, network) is just skipped, never an error. */
+/** Bounds one lookup to `ms` — a stuck/unreachable database (a dropped
+ *  connection with no error, just silence) would otherwise hang the whole
+ *  `Promise.allSettled` group around it forever, since `.catch()` only
+ *  handles a rejection, never a promise that simply never settles. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+const SIBLING_LOOKUP_TIMEOUT_MS = 8000;
+
+/** Every table/collection reachable from this connection OTHER than the
+ *  active database+schema: other schemas of the connection's own database,
+ *  plus every schema of every sibling database (Postgres — MongoDB has no
+ *  schema level, so it's just every other database). One flat list, fetched
+ *  in parallel; every individual lookup is bounded by `withTimeout` so a
+ *  slow/unreachable target can't hang the whole search. Best-effort: a
+ *  database/schema that fails to list (permissions, network) is just
+ *  skipped, never a hard error. */
 export async function fetchSiblingTables(
   connId: string,
   isMongo: boolean,
 ): Promise<PaletteTable[]> {
   const own_db = useStudioStore.getState().recentParams[connId]?.database;
-  let siblings: string[];
+  let sibling_dbs: string[];
   try {
-    siblings = (await listDatabases(connId)).filter((d) => d !== own_db);
+    sibling_dbs = (await listDatabases(connId)).filter((d) => d !== own_db);
   } catch {
     return [];
   }
+  const entries: PaletteTable[] = [];
+
+  if (isMongo) {
+    const results = await Promise.allSettled(
+      sibling_dbs.map((db) =>
+        withTimeout(
+          listSchemaObjects(connId, "", "table", db),
+          SIBLING_LOOKUP_TIMEOUT_MS,
+          [],
+        ).then((objs) =>
+          objs.map((o) => ({ name: o.name, kind: "table", database: db })),
+        ),
+      ),
+    );
+    for (const r of results) if (r.status === "fulfilled") entries.push(...r.value);
+    return entries;
+  }
+
+  const [own_schema, own_db_schemas, sibling_schema_lists] = await Promise.all([
+    getActiveSchema(connId).catch(() => null),
+    listSchemasIn(connId).catch(() => [] as string[]),
+    Promise.allSettled(
+      sibling_dbs.map((database) =>
+        withTimeout(
+          listSchemasIn(connId, database),
+          SIBLING_LOOKUP_TIMEOUT_MS,
+          [],
+        ).then((schemas) => schemas.map((schema) => ({ database, schema }))),
+      ),
+    ),
+  ]);
+
+  const targets: { database?: string; schema: string }[] = own_db_schemas
+    .filter((schema) => schema !== own_schema)
+    .map((schema) => ({ schema }));
+  for (const r of sibling_schema_lists) {
+    if (r.status === "fulfilled") targets.push(...r.value);
+  }
 
   const results = await Promise.allSettled(
-    siblings.map((db) =>
-      listSchemaObjects(connId, isMongo ? "" : "public", "table", db).then(
-        (objs) =>
-          objs.map((o) => ({ name: o.name, kind: "table", database: db })),
+    targets.map(({ database, schema }) =>
+      withTimeout(
+        listSchemaObjects(connId, schema, "table", database),
+        SIBLING_LOOKUP_TIMEOUT_MS,
+        [],
+      ).then((objs) =>
+        objs.map((o) => ({ name: o.name, kind: "table", database, schema })),
       ),
     ),
   );
-  const entries: PaletteTable[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") entries.push(...r.value);
-  }
+  for (const r of results) if (r.status === "fulfilled") entries.push(...r.value);
   return entries;
 }
 
@@ -386,12 +444,59 @@ function previewOrMatch(
   const source = tables ?? [];
   const q = query.trim().toLowerCase();
   if (!q) return source.slice(0, PREVIEW_COUNT);
-  return source
-    .filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) || t.kind.toLowerCase().includes(q),
-    )
-    .slice(0, MATCH_CAP);
+  return source.filter((t) => tableMatches(t, q)).slice(0, MATCH_CAP);
+}
+
+/** `database.table`/`schema.table`-aware scope label — blank when neither
+ *  is set (a match in the connection's own currently active database AND
+ *  schema needs no callout). */
+function scopeOf(t: PaletteTable): string | undefined {
+  const parts = [t.database, t.schema].filter((s): s is string => !!s);
+  return parts.length > 0 ? parts.join(".") : undefined;
+}
+
+/** Resolves `name` (optionally typed as `schema.table`) to a real table/
+ *  collection reachable from this connection — the command palette's "run
+ *  it anyway" fallback for a name that isn't in the (capped) preview list.
+ *  Tries the active database/schema first (cheap, the common case — the
+ *  name just didn't happen to be in the loaded/capped list yet), then falls
+ *  back to `fetchSiblingTables`'s broader search. Returns the resolved
+ *  table, or a human-readable reason it couldn't be. */
+export async function resolveExactTable(
+  connId: string,
+  isMongo: boolean,
+  name: string,
+): Promise<PaletteTable | string> {
+  const dot = name.indexOf(".");
+  const explicit_schema = dot > 0 ? name.slice(0, dot).trim() : undefined;
+  const bare_name = (dot > 0 ? name.slice(dot + 1) : name).trim();
+  const noun = isMongo ? "Collection" : "Table";
+  if (!bare_name) return `${noun} not found: "${name}"`;
+
+  try {
+    if (isMongo) {
+      const own_objs = await listSchemaObjects(connId, "", "table");
+      if (own_objs.some((o) => o.name === bare_name)) {
+        return { name: bare_name, kind: "table" };
+      }
+    } else {
+      await tableSchema(connId, bare_name, undefined, explicit_schema);
+      return { name: bare_name, kind: "table", schema: explicit_schema };
+    }
+  } catch {
+    /* not in the active database/schema — broaden below */
+  }
+
+  const everywhere = await fetchSiblingTables(connId, isMongo);
+  const hit = everywhere.find(
+    (t) =>
+      t.name === bare_name && (!explicit_schema || t.schema === explicit_schema),
+  );
+  if (hit) return hit;
+
+  return explicit_schema
+    ? `Schema "${explicit_schema}" or table "${bare_name}" not found`
+    : `${noun} "${bare_name}" not found`;
 }
 
 /** `table:` prefix mode — open a table/collection's Data view. */
@@ -399,6 +504,7 @@ export function buildTableItems(
   tables: PaletteTable[] | null,
   tables_loading: boolean,
   query: string,
+  siblings_pending: boolean,
 ): PaletteItem[] {
   const s = useStudioStore.getState();
   const active_conn = activeConn();
@@ -418,28 +524,60 @@ export function buildTableItems(
       },
     ];
   }
-  return previewOrMatch(tables, query).map((t) => ({
-    id: `table:${t.database ?? ""}:${t.name}`,
+  // Fire-and-forget: opening a table must be instant on Enter/click — the
+  // tab appears right away and shows its OWN loading state while it fetches,
+  // same as every other way of opening one. Only the "Open <query>" fallback
+  // below (which has to resolve WHERE the table even is first) legitimately
+  // awaits anything before the palette can close.
+  const open_table = (t: PaletteTable) => {
+    if (is_mongo) void openMongoCollection(active_conn.id, t.name, t.database);
+    else s.openTable(active_conn.id, t.name, undefined, t.database, t.schema);
+  };
+  const matches = previewOrMatch(tables, query);
+  const items: PaletteItem[] = matches.map((t) => ({
+    id: `table:${t.database ?? ""}:${t.schema ?? ""}:${t.name}`,
     label: t.name,
     hint: t.kind,
-    // Which sibling database this came from — blank (the connection's own
-    // current database) needs no callout.
-    scope: t.database,
+    scope: scopeOf(t),
     section: noun,
     icon: <Table2 className="size-4" />,
-    run: () => {
-      if (is_mongo)
-        void openMongoCollection(active_conn.id, t.name, t.database);
-      else
-        s.openTable(
-          active_conn.id,
-          t.name,
-          undefined,
-          t.database,
-          t.database ? "public" : undefined,
-        );
-    },
+    run: () => open_table(t),
   }));
+
+  // Nothing already matched by that exact name (either no results at all,
+  // or only partial matches) — offer to search every reachable schema/
+  // database for it and open it if found, instead of leaving the user with
+  // just a passive "not found" message and no way to actually try.
+  const q = query.trim();
+  const found_exact = matches.some((t) => t.name === q);
+  if (q && !found_exact) {
+    items.push({
+      id: `table:run:${q}`,
+      label: `Open "${q}"`,
+      hint: "Search every schema/database and open if found",
+      section: noun,
+      icon: <Table2 className="size-4" />,
+      run: async () => {
+        const hit = await resolveExactTable(active_conn.id, is_mongo, q);
+        if (typeof hit === "string") return hit;
+        open_table(hit);
+      },
+    });
+    // The cross-schema/database fetch is still in flight — surface that so
+    // "not found yet" doesn't read as "not found", since a match may still
+    // land once it resolves (the list re-renders on its own when it does).
+    if (siblings_pending) {
+      items.push({
+        id: "table:searching",
+        label: `Searching other schemas/databases for "${q}"…`,
+        section: noun,
+        icon: <Loader2 className="size-4 animate-spin" />,
+        disabled: true,
+        run: () => {},
+      });
+    }
+  }
+  return items;
 }
 
 /** `conn:` prefix mode (and a section of default quick-open) — switch to
@@ -531,6 +669,7 @@ export function buildSchemaOpenItems(
   tables: PaletteTable[] | null,
   tables_loading: boolean,
   query: string,
+  siblings_pending: boolean,
 ): PaletteItem[] {
   const active_conn = activeConn();
   if (!active_conn) return [];
@@ -550,22 +689,46 @@ export function buildSchemaOpenItems(
   }
 
   const s = useStudioStore.getState();
-  return previewOrMatch(tables, query).map((t) => ({
-    id: `schema:${t.database ?? ""}:${t.name}`,
+  // Fire-and-forget — see the identical note on `buildTableItems`'s own
+  // `open_table` for why this must stay synchronous.
+  const open_structure = (t: PaletteTable) => {
+    if (is_mongo)
+      void openMongoCollectionSchema(active_conn.id, t.name, t.database);
+    else s.openStructure(active_conn.id, t.name, t.database, t.schema);
+  };
+  const matches = previewOrMatch(tables, query);
+  const items: PaletteItem[] = matches.map((t) => ({
+    id: `schema:${t.database ?? ""}:${t.schema ?? ""}:${t.name}`,
     label: t.name,
     hint: `Open ${is_mongo ? "collection" : "table"} schema`,
-    scope: t.database,
+    scope: scopeOf(t),
     icon: <Table2 className="size-4" />,
-    run: () => {
-      if (is_mongo)
-        void openMongoCollectionSchema(active_conn.id, t.name, t.database);
-      else
-        s.openStructure(
-          active_conn.id,
-          t.name,
-          t.database,
-          t.database ? "public" : undefined,
-        );
-    },
+    run: () => open_structure(t),
   }));
+
+  const q = query.trim();
+  const found_exact = matches.some((t) => t.name === q);
+  if (q && !found_exact) {
+    items.push({
+      id: `schema:run:${q}`,
+      label: `Open "${q}"`,
+      hint: "Search every schema/database and open if found",
+      icon: <Table2 className="size-4" />,
+      run: async () => {
+        const hit = await resolveExactTable(active_conn.id, is_mongo, q);
+        if (typeof hit === "string") return hit;
+        open_structure(hit);
+      },
+    });
+    if (siblings_pending) {
+      items.push({
+        id: "schema:searching",
+        label: `Searching other schemas/databases for "${q}"…`,
+        icon: <Loader2 className="size-4 animate-spin" />,
+        disabled: true,
+        run: () => {},
+      });
+    }
+  }
+  return items;
 }
