@@ -62,13 +62,18 @@ pub async fn connect_mongodb(
 
 #[tauri::command]
 pub async fn open_database(name: String, bytes: Vec<u8>) -> Result<ConnectionInfo, String> {
-    crate::db::open_database(&DbKind::Sqlite, &name, Some(&bytes)).await.map_err(to_err)
+    crate::db::open_database(&DbKind::Sqlite, &name, Some(&bytes), Default::default()).await.map_err(to_err)
 }
 
-forward_cmd! {
-    /// Open an existing database directly from its file path. Changes persist to
-    /// that file automatically.
-    open_database_path(path: String) -> ConnectionInfo => open_database_path
+/// Open an existing database directly from its file path. Changes persist to
+/// that file automatically. `guard`: the read only flag and environment label
+/// (spec 0007); omitted means not read only, no label.
+#[tauri::command]
+pub async fn open_database_path(
+    path: String,
+    guard: Option<crate::api::ConnGuard>,
+) -> Result<ConnectionInfo, String> {
+    crate::db::open_database_path(&path, guard.unwrap_or_default()).await.map_err(to_err)
 }
 
 /// Remember the real file a connection should save to.
@@ -80,7 +85,7 @@ pub fn set_database_path(conn_id: String, path: String) -> Result<(), String> {
 /// Create a new, empty database and register a connection.
 #[tauri::command]
 pub async fn create_database(name: String) -> Result<ConnectionInfo, String> {
-    crate::db::open_database(&DbKind::Sqlite, &name, None).await.map_err(to_err)
+    crate::db::open_database(&DbKind::Sqlite, &name, None, Default::default()).await.map_err(to_err)
 }
 
 forward_cmd! {

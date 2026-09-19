@@ -10,6 +10,8 @@ import { Plus, RefreshCw, Search, Star, Trash2, Unplug } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { ConnFlags } from "@/shared/components/env-chip";
+import { usePendingGuardChange } from "@/features/connections";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,6 +26,7 @@ import {
   dropPgSchema,
   duplicateTable,
   executeOp,
+  hasConnFlags,
   catalogOverview,
   quoteIdent,
   refreshMatview,
@@ -209,6 +212,10 @@ export function TablesBrowser({
     (s) => s.open.find((c) => c.id === conn_id)?.name,
   );
   const pg_current_db = recents_db ?? conn_name ?? "";
+  const conn_info = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  // Saved settings changed while this connection was open (spec 0007): the
+  // live one keeps its old flag and label until it reconnects.
+  const pending_change = usePendingGuardChange(conn_id);
   const saved_local = useStudioStore((s) => s.savedLocal);
   const update_saved_local = useStudioStore((s) => s.updateSavedLocal);
   /** The saved connection profile (if any — `savedLocal` is name-keyed, and
@@ -630,7 +637,9 @@ export function TablesBrowser({
       setExtensionLists((cur) => {
         if (cur[database] !== undefined) return cur;
         listExtensions(conn_id, db_arg(database))
-          .then((rows) => setExtensionLists((c) => ({ ...c, [database]: rows })))
+          .then((rows) =>
+            setExtensionLists((c) => ({ ...c, [database]: rows })),
+          )
           .catch(() => setExtensionLists((c) => ({ ...c, [database]: null })));
         return { ...cur, [database]: "loading" };
       });
@@ -1155,34 +1164,58 @@ export function TablesBrowser({
   // reachable without first expanding the right database/schema/category.
   // It still only searches/selects within that active list (the one list
   // wired to keyboard nav), same as before, just visually relocated.
+  //
+  // A connection that is labelled or read only gets a slim header row above
+  // the search with its name, the environment chip and the lock (spec 0007);
+  // a plain connection keeps the sidebar exactly as it was.
   const search_bar_ui = (
-    // The sidebar's own wrapper dropped its right padding so the tree's
-    // scrollbar can hug the edge (see sidebar/index.tsx) — this row isn't
-    // scrollable, so it keeps its own inset here instead.
-    <div className="flex items-center gap-1 pr-2">
-      <div className="relative min-w-0 flex-1">
-        <Search className="text-muted-foreground absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-        <Input
-          className="pr-2 pl-7 text-xs"
-          placeholder="Search tables…"
-          value={search}
-          disabled={loading}
-          onChange={(e) => on_search_change(e.target.value)}
-          onKeyDown={handle_nav_keys}
-        />
+    <>
+      {conn_info && (hasConnFlags(conn_info) || pending_change) && (
+        <div
+          data-slot="sidebar-conn-flags"
+          className="flex min-w-0 items-center gap-1.5 pr-2 text-xs"
+        >
+          <span className="min-w-0 truncate font-medium">{conn_info.name}</span>
+          <ConnFlags conn={conn_info} />
+          {pending_change && (
+            <span
+              role="status"
+              title="You saved new read only or environment settings for this connection. They apply when you reconnect."
+              className="text-warning-dark text-3xs ml-auto shrink-0"
+            >
+              Change pending, reconnect to apply
+            </span>
+          )}
+        </div>
+      )}
+      {/* The sidebar's own wrapper dropped its right padding so the tree's
+          scrollbar can hug the edge (see sidebar/index.tsx) — this row isn't
+          scrollable, so it keeps its own inset here instead. */}
+      <div className="flex items-center gap-1 pr-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="text-muted-foreground absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+          <Input
+            className="pr-2 pl-7 text-xs"
+            placeholder="Search tables…"
+            value={search}
+            disabled={loading}
+            onChange={(e) => on_search_change(e.target.value)}
+            onKeyDown={handle_nav_keys}
+          />
+        </div>
+        <Button
+          size="iconSm"
+          variant="outline"
+          aria-label={reloading ? "Refreshing tables" : "Refresh tables"}
+          title="Reload all tables"
+          className="size-7"
+          disabled={reloading}
+          onClick={refresh_everything}
+        >
+          <RefreshCw className={cn("size-3.5", reloading && "animate-spin")} />
+        </Button>
       </div>
-      <Button
-        size="iconSm"
-        variant="outline"
-        aria-label={reloading ? "Refreshing tables" : "Refresh tables"}
-        title="Reload all tables"
-        className="size-7"
-        disabled={reloading}
-        onClick={refresh_everything}
-      >
-        <RefreshCw className={cn("size-3.5", reloading && "animate-spin")} />
-      </Button>
-    </div>
+    </>
   );
 
   // The connection's own active database(+schema for PG)'s "Tables"
@@ -1220,6 +1253,7 @@ export function TablesBrowser({
         </div>
       ) : (
         <LazyTableRows
+          read_only={!!conn_info?.read_only}
           state={filtered_tables}
           empty_label="No tables found."
           depth={0}
@@ -1449,7 +1483,15 @@ export function TablesBrowser({
                                     {is_current_db && (
                                       <ContextMenuItem
                                         variant="destructive"
-                                        disabled={schema === "public"}
+                                        disabled={
+                                          schema === "public" ||
+                                          !!conn_info?.read_only
+                                        }
+                                        title={
+                                          conn_info?.read_only
+                                            ? "Read only connection: this change is refused"
+                                            : undefined
+                                        }
                                         onSelect={() =>
                                           open_ddl("schema-drop", schema)
                                         }
@@ -1514,6 +1556,7 @@ export function TablesBrowser({
                                         cat.kind === "view" ||
                                         cat.kind === "materialized_view" ? (
                                           <LazyTableRows
+                                            read_only={!!conn_info?.read_only}
                                             state={cat_state}
                                             empty_label={`No ${cat.label.toLowerCase()}.`}
                                             depth={3}
@@ -1677,6 +1720,12 @@ export function TablesBrowser({
               type="button"
               className="text-muted-foreground hover:bg-muted/50 hover:text-foreground flex items-center gap-1.5 rounded py-1 text-left"
               style={depthPadding(0)}
+              disabled={!!conn_info?.read_only}
+              title={
+                conn_info?.read_only
+                  ? "Read only connection: this change is refused"
+                  : undefined
+              }
               onClick={() => {
                 setDdlName("");
                 open_ddl("db-create");
@@ -1776,6 +1825,7 @@ export function TablesBrowser({
                     )}
                     {db_expanded && (
                       <LazyTableRows
+                        read_only={!!conn_info?.read_only}
                         state={
                           searching
                             ? filterObjects(object_lists[cache_key], search_q)
@@ -1826,6 +1876,7 @@ export function TablesBrowser({
       {!is_pg && !is_mongo && active_tables_list_ui}
 
       <DropDialog
+        env={conn_info}
         open={confirm_drop !== null}
         on_open_change={(open) => {
           if (!open && !dropping) setConfirmDrop(null);
@@ -1879,6 +1930,7 @@ export function TablesBrowser({
       />
 
       <DbSchemaDdlDialog
+        env={conn_info}
         dialog={ddl_dialog}
         name_value={ddl_name}
         on_name_change={setDdlName}

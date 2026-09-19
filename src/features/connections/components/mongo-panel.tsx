@@ -2,6 +2,8 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Checkbox } from "@/shared/components/ui/checkbox";
+import { GuardFields } from "./guard-fields";
+import { applyGuardPatch } from "../lib/guard-form";
 import {
   Check,
   Cloud,
@@ -41,6 +43,14 @@ export interface MongoFormValues {
   ssl_client_cert_file: string;
   /** Disable retryable writes (retryWrites=false) — required for Amazon DocumentDB. */
   retry_writes: boolean;
+  /** Refuse every write from this app on this connection (spec 0007). */
+  read_only: boolean;
+  /** Environment name shown as a chip: "", a preset, or custom text. */
+  env_label: string;
+  /** Palette key for a custom environment's colour, else "". */
+  env_color: string;
+  /** Ask before every write, even without a Production label. */
+  confirm_writes: boolean;
   /** Replica set name (replicaSet=...) — required by a real Amazon
    *  DocumentDB cluster, typically "rs0". */
   replica_set: string;
@@ -235,6 +245,11 @@ export function MongoPanel({
             placeholder="connection name (optional)"
             value={form.name}
             onChange={(e) => setField("name", e.target.value)}
+          />
+          <GuardFields
+            idPrefix="mongo"
+            value={form}
+            onChange={(patch) => applyGuardPatch(setField, patch)}
           />
         </div>
       )}

@@ -217,6 +217,7 @@ function SchemaEditor({
   // Apply results (success AND failure) are reported through the action-bar
   // notification center — the schema tab itself stays clean and editable.
   const push_notification = useStudioStore((s) => s.pushNotification);
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
 
   // Building the ops and opening the review dialog is instant/sync; the
   // actual DDL only runs once the user confirms in `ApplyChangesDialog`.
@@ -463,6 +464,7 @@ function SchemaEditor({
         <ApplyChangesDialog
           title="Review schema changes"
           ddl={confirm_apply.ddl}
+          env={conn}
           applying={applying}
           on_apply={() => {
             const { ops } = confirm_apply;

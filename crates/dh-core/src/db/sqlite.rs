@@ -14,13 +14,16 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, Sq
 use sqlx::{Column, Connection, Executor, Row, Statement, Value, ValueRef};
 
 use crate::api::{
-    ColumnInfo, DefaultMode, FilterOp, ForeignKeyInfo, GridFilterCond, IndexInfo, QueryChunk,
+    ColumnInfo, ConnGuard, DefaultMode, FilterOp, ForeignKeyInfo, GridFilterCond, IndexInfo, QueryChunk,
     QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema, TriggerInfo,
 };
 
 use std::sync::Arc;
 
-use super::{BatchSink, BuiltQuery, DbAdapter, DbError, DbResult, RunHandle};
+use super::{
+    read_only::{Dialect, ReadOnlyGuard},
+    BatchSink, BuiltQuery, DbAdapter, DbError, DbResult, RunHandle,
+};
 use async_trait::async_trait;
 
 /// Rows per streamed IPC chunk. Big enough to amortize channel overhead,
@@ -96,34 +99,55 @@ async fn release_run(run: Option<&RunHandle>) {
 pub struct SqliteAdapter {
     pool: SqlitePool,
     path: PathBuf,
+    /// Refuses writes on a read only connection (spec 0007). Fixed for the
+    /// life of the adapter.
+    guard: ReadOnlyGuard,
 }
 
 impl SqliteAdapter {
     /// Open (or create) a database backed by a temp file. `bytes` seeds the
     /// file if provided (existing db), otherwise a fresh empty db is created.
-    pub async fn open(name: &str, bytes: Option<&[u8]>) -> DbResult<Self> {
+    ///
+    /// A read only connection sets `query_only` on every pooled connection
+    /// (the file is our own temp copy, so it cannot be opened read only and
+    /// still be seeded). The SQL check refuses the PRAGMA that turns it off.
+    pub async fn open(name: &str, bytes: Option<&[u8]>, guard: &ConnGuard) -> DbResult<Self> {
         let path = temp_path(name)?;
         if let Some(b) = bytes {
             std::fs::write(&path, b)?;
         }
-        Self::connect(path).await
+        Self::connect_guarded(path, ReadOnlyGuard::new(guard.read_only), false).await
     }
 
     /// Open a database directly at `real_path` (the file the user picked).
     /// The connection works against the original file, so every change is
     /// persisted in place — no separate save step is required.
-    pub async fn open_at(real_path: &std::path::Path) -> DbResult<Self> {
-        Self::connect(real_path.to_path_buf()).await
+    ///
+    /// A read only connection opens the file with the read only flag, which no
+    /// statement can undo, and never touches the journal mode (switching it is
+    /// itself a write). A missing file is an error, not a new empty database.
+    pub async fn open_at(real_path: &std::path::Path, guard: &ConnGuard) -> DbResult<Self> {
+        Self::connect_guarded(real_path.to_path_buf(), ReadOnlyGuard::new(guard.read_only), true).await
     }
 
+    #[cfg(test)]
     async fn connect(path: PathBuf) -> DbResult<Self> {
-        let options = SqliteConnectOptions::new()
-            .filename(&path)
-            .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Wal)
-            .foreign_keys(true);
+        Self::connect_guarded(path, ReadOnlyGuard::default(), false).await
+    }
+
+    /// `file_backed`: the path is the user's own file, not a temp copy.
+    async fn connect_guarded(path: PathBuf, guard: ReadOnlyGuard, file_backed: bool) -> DbResult<Self> {
+        let options = SqliteConnectOptions::new().filename(&path).foreign_keys(true);
+        let options = match (guard.is_on(), file_backed) {
+            (true, true) => options.read_only(true),
+            (true, false) => options
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal)
+                .pragma("query_only", "ON"),
+            (false, _) => options.create_if_missing(true).journal_mode(SqliteJournalMode::Wal),
+        };
         let pool = SqlitePool::connect_with(options).await.map_err(DbError::SqlEngine)?;
-        Ok(Self { pool, path })
+        Ok(Self { pool, path, guard })
     }
 
     /// Whether this connection is backed by a real user file (vs a temp copy
@@ -958,11 +982,16 @@ impl SqliteAdapter {
     /// Merge the WAL into the main database file so the file alone holds all
     /// changes (used before save and before closing a connection).
     pub async fn checkpoint(&self) -> DbResult<()> {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        let merged = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&self.pool)
             .await
-            .map_err(DbError::SqlEngine)?;
-        Ok(())
+            .map_err(DbError::SqlEngine);
+        // A read only connection never wrote anything to merge, and the
+        // database may refuse the checkpoint: that is not a failure.
+        match merged {
+            Err(_) if self.guard.is_on() => Ok(()),
+            other => other.map(|_| ()),
+        }
     }
 
     /// Serialize the full database contents to bytes (for download/save).
@@ -2055,7 +2084,10 @@ impl DbAdapter for SqliteAdapter {
         _schema: Option<&str>,
         sql: &str,
     ) -> DbResult<QueryResult> {
-        SqliteAdapter::run_sql(self, sql, None).await
+        self.guard.check_sql(Dialect::Sqlite, sql)?;
+        SqliteAdapter::run_sql(self, sql, None)
+            .await
+            .map_err(|e| self.guard.refine(e))
     }
     async fn execute_params(
         &self,
@@ -2063,6 +2095,9 @@ impl DbAdapter for SqliteAdapter {
         sql: &str,
         params: &[Option<String>],
     ) -> DbResult<u64> {
+        // Grid built statements only, so the same statement check as the editor
+        // names the keyword it refused (UPDATE, INSERT, DELETE).
+        self.guard.check_sql(Dialect::Sqlite, sql)?;
         SqliteAdapter::execute_params(self, sql, params).await
     }
     async fn run_sql_params(
@@ -2071,6 +2106,7 @@ impl DbAdapter for SqliteAdapter {
         sql: &str,
         params: &[Option<String>],
     ) -> DbResult<QueryResult> {
+        self.guard.check_sql(Dialect::Sqlite, sql)?;
         SqliteAdapter::run_sql_params(self, sql, params).await
     }
     async fn execute_op(
@@ -2079,6 +2115,7 @@ impl DbAdapter for SqliteAdapter {
         _schema: Option<&str>,
         op: &QueryOp,
     ) -> DbResult<super::OpOutcome> {
+        self.guard.check_op(op)?;
         SqliteAdapter::execute_op(self, op).await
     }
     async fn execute_op_stream(
@@ -2088,6 +2125,7 @@ impl DbAdapter for SqliteAdapter {
         op: &QueryOp,
         mut on_batch: BatchSink<'_>,
     ) -> DbResult<super::OpOutcome> {
+        self.guard.check_op(op)?;
         SqliteAdapter::execute_op_stream(self, op, &mut on_batch).await
     }
     async fn run_sql_stream(
@@ -2098,7 +2136,12 @@ impl DbAdapter for SqliteAdapter {
         run: Option<&RunHandle>,
         mut on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult> {
-        SqliteAdapter::run_sql_stream(self, sql, run, &mut on_batch).await
+        // Before a canceller is armed, so a refused statement never becomes
+        // a run Stop could reach.
+        self.guard.check_sql(Dialect::Sqlite, sql)?;
+        SqliteAdapter::run_sql_stream(self, sql, run, &mut on_batch)
+            .await
+            .map_err(|e| self.guard.refine(e))
     }
     async fn apply_schema_ops_batch(
         &self,
@@ -2106,6 +2149,9 @@ impl DbAdapter for SqliteAdapter {
         _schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> DbResult<Vec<String>> {
+        if !ops.is_empty() {
+            self.guard.check_write("schema changes")?;
+        }
         SqliteAdapter::apply_schema_ops_batch(self, ops).await
     }
     async fn duplicate_table(
@@ -2116,6 +2162,7 @@ impl DbAdapter for SqliteAdapter {
         target: &str,
         copy_data: bool,
     ) -> DbResult<Vec<String>> {
+        self.guard.check_write("duplicate table")?;
         SqliteAdapter::duplicate_table(self, source, target, copy_data).await
     }
     async fn checkpoint(&self) -> DbResult<()> {
@@ -2131,8 +2178,240 @@ impl DbAdapter for SqliteAdapter {
         self.close_pool().await;
         if !self.has_real_path() {
             self.remove_files();
-        } else {
+        } else if !self.guard.is_on() {
+            // A read only connection could not merge the WAL, and the file may
+            // be in use by another program: leave its WAL and shared memory
+            // files alone.
             self.remove_aux_files();
         }
+    }
+}
+
+/// The read only lock (spec 0007): a file opens with the read only flag, a temp
+/// copy runs with `query_only`, and every write path is refused.
+#[cfg(test)]
+mod read_only_tests {
+    use super::*;
+    use crate::db::READ_ONLY_PREFIX;
+
+    fn ro() -> ConnGuard {
+        ConnGuard { read_only: true, ..Default::default() }
+    }
+
+    fn scratch_path() -> PathBuf {
+        let dir = std::env::temp_dir().join("dh-studio-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(format!("ro-{}.db", uuid::Uuid::new_v4()))
+    }
+
+    /// A writable database with one row, at a real path.
+    async fn seeded(path: &PathBuf) -> SqliteAdapter {
+        let a = SqliteAdapter::connect(path.clone()).await.unwrap();
+        a.run_sql("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)", None).await.unwrap();
+        a.run_sql("INSERT INTO t VALUES (1, 'a')", None).await.unwrap();
+        a
+    }
+
+    /// Close a writable adapter the way the app does: WAL merged and removed,
+    /// so the file on its own is the whole database.
+    async fn close_writer(a: SqliteAdapter) {
+        Arc::new(a).close().await;
+    }
+
+    fn is_refusal<T>(res: DbResult<T>) -> bool {
+        matches!(&res, Err(DbError::ReadOnly(m)) if m.starts_with(READ_ONLY_PREFIX))
+    }
+
+    async fn count(a: &SqliteAdapter) -> String {
+        let r = DbAdapter::run_sql(a, None, None, "SELECT count(*) FROM t").await.unwrap();
+        r.rows[0][0].clone().unwrap()
+    }
+
+    /// AC-1: no guard given means a normal, writable connection.
+    #[tokio::test]
+    async fn a_connection_opened_without_the_flag_still_writes() {
+        let path = scratch_path();
+        close_writer(seeded(&path).await).await;
+        let a = SqliteAdapter::open_at(&path, &ConnGuard::default()).await.unwrap();
+        DbAdapter::run_sql(&a, None, None, "INSERT INTO t VALUES (2, 'b')").await.unwrap();
+        assert_eq!(count(&a).await, "2");
+    }
+
+    /// AC-2, AC-14: on a file, reads work and a hand typed write is refused
+    /// by the check.
+    #[tokio::test]
+    async fn file_reads_work_and_hand_typed_writes_are_refused() {
+        let path = scratch_path();
+        close_writer(seeded(&path).await).await;
+        let a = SqliteAdapter::open_at(&path, &ro()).await.unwrap();
+
+        let read = DbAdapter::run_sql(&a, None, None, "SELECT v FROM t").await.unwrap();
+        assert_eq!(read.rows, vec![vec![Some("a".to_string())]]);
+        DbAdapter::run_sql(&a, None, None, "PRAGMA table_info('t')").await.unwrap();
+        DbAdapter::run_sql(&a, None, None, "EXPLAIN QUERY PLAN SELECT * FROM t").await.unwrap();
+
+        for sql in ["UPDATE t SET v = 'b'", "INSERT INTO t VALUES (2, 'b')", "DROP TABLE t"] {
+            assert!(is_refusal(DbAdapter::run_sql(&a, None, None, sql).await), "{sql}");
+        }
+        // A script with any refused statement runs none of its statements.
+        assert!(is_refusal(
+            DbAdapter::run_sql(&a, None, None, "SELECT 1; INSERT INTO t VALUES (3, 'c')").await
+        ));
+        assert_eq!(count(&a).await, "1");
+    }
+
+    /// AC-3: the open flag holds under the check. A write that gets past the
+    /// check (it starts with WITH) is refused by the database and comes back
+    /// as the typed error; a raw write straight to the pool fails too.
+    #[tokio::test]
+    async fn the_open_flag_refuses_what_the_check_lets_through() {
+        let path = scratch_path();
+        close_writer(seeded(&path).await).await;
+        let a = SqliteAdapter::open_at(&path, &ro()).await.unwrap();
+
+        let cte = "WITH x AS (SELECT 9, 'z') INSERT INTO t SELECT * FROM x";
+        assert!(is_refusal(DbAdapter::run_sql(&a, None, None, cte).await));
+        let streamed = DbAdapter::run_sql_stream(&a, None, None, cte, None, &mut |_| Ok(())).await;
+        assert!(is_refusal(streamed));
+
+        let raw = sqlx::query("INSERT INTO t VALUES (9, 'z')").execute(&a.pool).await;
+        assert!(raw.is_err(), "the file must not be writable at all");
+        let off = sqlx::query("PRAGMA query_only = OFF").execute(&a.pool).await;
+        let after = sqlx::query("INSERT INTO t VALUES (9, 'z')").execute(&a.pool).await;
+        assert!(off.is_err() || after.is_err(), "turning query_only off must not open the file");
+        assert_eq!(count(&a).await, "1");
+    }
+
+    /// AC-3: the statements that could undo a lock are refused by the check.
+    #[tokio::test]
+    async fn lock_breakers_are_refused() {
+        let path = scratch_path();
+        close_writer(seeded(&path).await).await;
+        let a = SqliteAdapter::open_at(&path, &ro()).await.unwrap();
+        for sql in [
+            "PRAGMA query_only = OFF",
+            "PRAGMA writable_schema = ON",
+            "ATTACH DATABASE ':memory:' AS x",
+            "SELECT load_extension('nothing')",
+            "BEGIN IMMEDIATE",
+            "VACUUM",
+        ] {
+            assert!(is_refusal(DbAdapter::run_sql(&a, None, None, sql).await), "{sql}");
+        }
+    }
+
+    /// AC-5: every structured write is refused before it runs.
+    #[tokio::test]
+    async fn structured_writes_are_refused() {
+        let path = scratch_path();
+        close_writer(seeded(&path).await).await;
+        let a = SqliteAdapter::open_at(&path, &ro()).await.unwrap();
+
+        let delete = QueryOp::Delete {
+            table: "t".into(),
+            match_row: [("id".to_string(), Some("1".to_string()))].into(),
+        };
+        let insert = QueryOp::Insert {
+            table: "t".into(),
+            values: [("id".to_string(), Some("5".to_string()))].into(),
+            skip_empty: false,
+        };
+        let update = QueryOp::Update {
+            table: "t".into(),
+            set: [("v".to_string(), Some("b".to_string()))].into(),
+            match_row: [("id".to_string(), Some("1".to_string()))].into(),
+        };
+        let bulk = QueryOp::BulkUpdate {
+            table: "t".into(),
+            column: "v".into(),
+            value: Some("b".into()),
+            filters: vec![],
+            custom_where: None,
+        };
+        for op in [delete, insert, update, bulk, QueryOp::DropTable { table: "t".into() }] {
+            assert!(is_refusal(DbAdapter::execute_op(&a, None, None, &op).await), "{op:?}");
+            let streamed = DbAdapter::execute_op_stream(&a, None, None, &op, &mut |_| Ok(())).await;
+            assert!(is_refusal(streamed), "{op:?}");
+        }
+        assert!(is_refusal(
+            DbAdapter::execute_params(&a, None, "DELETE FROM t WHERE id = ?", &[Some("1".into())]).await
+        ));
+        assert!(is_refusal(DbAdapter::duplicate_table(&a, None, None, "t", "t2", true).await));
+        let ops = [SchemaOp::DropColumn { table: "t".into(), name: "v".into() }];
+        assert!(is_refusal(DbAdapter::apply_schema_ops_batch(&a, None, None, &ops).await));
+        assert_eq!(count(&a).await, "1");
+    }
+
+    /// AC-14: everything that only reads keeps working.
+    #[tokio::test]
+    async fn reads_keep_working() {
+        let path = scratch_path();
+        close_writer(seeded(&path).await).await;
+        let a = SqliteAdapter::open_at(&path, &ro()).await.unwrap();
+
+        assert_eq!(a.list_tables().await.unwrap().len(), 1);
+        let (schema, _) = a.table_schema("t").await.unwrap();
+        assert_eq!(schema.columns.len(), 2);
+        let select = QueryOp::Select {
+            table: "t".into(),
+            filters: vec![],
+            custom_where: None,
+            order_by: vec![],
+            limit: Some(10),
+            offset: None,
+        };
+        let out = DbAdapter::execute_op(&a, None, None, &select).await.unwrap();
+        assert_eq!(out.result.rows.len(), 1);
+        let count_op = QueryOp::Count { table: "t".into(), filters: vec![], custom_where: None };
+        DbAdapter::execute_op(&a, None, None, &count_op).await.unwrap();
+        DbAdapter::run_sql_params(&a, None, "SELECT v FROM t WHERE id = ?", &[Some("1".into())])
+            .await
+            .unwrap();
+        DbAdapter::set_active_schema(&a, "main").await.unwrap();
+        // Save to bytes still works: the checkpoint is best effort.
+        assert!(!a.save_bytes().await.unwrap().is_empty());
+    }
+
+    /// A missing file is an error on a read only open, never a new empty
+    /// database created behind a lock icon.
+    #[tokio::test]
+    async fn a_missing_file_is_not_created() {
+        let path = scratch_path();
+        assert!(SqliteAdapter::open_at(&path, &ro()).await.is_err());
+        assert!(!path.exists());
+    }
+
+    /// Closing a read only connection leaves another program's WAL alone: it
+    /// could not merge it, and deleting it would drop committed rows.
+    #[tokio::test]
+    async fn closing_a_read_only_file_keeps_its_wal_files() {
+        let path = scratch_path();
+        let writer = seeded(&path).await; // stays open: its WAL is live
+        let a = Arc::new(SqliteAdapter::open_at(&path, &ro()).await.unwrap());
+        assert_eq!(count(&a).await, "1");
+        let wal = PathBuf::from(format!("{}-wal", path.display()));
+        assert!(wal.exists(), "the writer's WAL should exist while it is open");
+        a.clone().close().await;
+        assert!(wal.exists(), "a read only close must not delete the WAL");
+        assert_eq!(count(&writer).await, "1");
+    }
+
+    /// A temp copy (bytes) cannot use the open flag, so it runs `query_only`.
+    #[tokio::test]
+    async fn a_temp_copy_runs_query_only() {
+        let path = scratch_path();
+        let source = seeded(&path).await;
+        let bytes = source.save_bytes().await.unwrap();
+        let a = SqliteAdapter::open("ro-copy", Some(&bytes), &ro()).await.unwrap();
+
+        assert_eq!(count(&a).await, "1");
+        assert!(is_refusal(DbAdapter::run_sql(&a, None, None, "DELETE FROM t").await));
+        let cte = "WITH x AS (SELECT 9, 'z') INSERT INTO t SELECT * FROM x";
+        assert!(is_refusal(DbAdapter::run_sql(&a, None, None, cte).await));
+        assert!(is_refusal(DbAdapter::run_sql(&a, None, None, "PRAGMA query_only = OFF").await));
+        let raw = sqlx::query("INSERT INTO t VALUES (9, 'z')").execute(&a.pool).await;
+        assert!(raw.is_err(), "query_only must hold on every pooled connection");
+        assert_eq!(count(&a).await, "1");
+        Arc::new(a).close().await;
     }
 }

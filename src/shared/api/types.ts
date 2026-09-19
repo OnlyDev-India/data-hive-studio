@@ -16,7 +16,23 @@ export type SavedDbKind = Exclude<DbKind, "mysql">;
  *  and "sqlite" (neither is supported as a shared connection). */
 export type SharedDbKind = Exclude<DbKind, "mysql" | "sqlite">;
 
-export interface ConnectionInfo {
+/** How careful to be with a connection (spec 0007). Mirrors the Rust
+ *  `ConnGuard`, which flattens these four fields into every struct that saves,
+ *  describes or opens a connection. A connection saved before this existed has
+ *  none of them: read that as not read only, no label. */
+export interface ConnGuard {
+  /** Writes are refused by the backend. Fixed for a live connection: changing
+   *  it means saving, then reconnecting. */
+  read_only?: boolean;
+  /** Environment name shown as a chip (Production, Staging, or custom). */
+  env_label?: string | null;
+  /** Palette key for a custom label's colour. */
+  env_color?: string | null;
+  /** Ask before every write, even without a Production label. */
+  confirm_writes?: boolean;
+}
+
+export interface ConnectionInfo extends ConnGuard {
   id: string;
   name: string;
   kind: DbKind;

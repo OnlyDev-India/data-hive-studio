@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WEB, wcall, webServerConfig, apiUrl } from "./web";
+import { withReadOnlyHint } from "./read-only";
 
 // ---- Server (team) connection id helpers -----------------------------------
 //
@@ -70,6 +71,24 @@ export function dispatchDbCall<T>(
     localCmd: string;
     args: Record<string, unknown>;
   },
+): Promise<T> {
+  return hinted(connId, dispatchRaw<T>(connId, opts));
+}
+
+/** Add the where-to-turn-it-off hint to a read only refusal (spec 0007): the
+ *  backend's text says what was refused but not whether the connection is
+ *  local or shared, so a `srv:` id gets "ask an org admin" and a local one
+ *  "connection settings". Every other failure passes through untouched. Wrap
+ *  any write call that does not go through {@link dispatchDbCall}. */
+export function hinted<T>(connId: string, call: Promise<T>): Promise<T> {
+  return call.catch((e: unknown) => {
+    throw withReadOnlyHint(e, isServerConn(connId));
+  });
+}
+
+function dispatchRaw<T>(
+  connId: string,
+  opts: Parameters<typeof dispatchDbCall>[1],
 ): Promise<T> {
   if (WEB && isServerConn(connId)) {
     const { url, token } = webAuthFor(profileOf(connId));

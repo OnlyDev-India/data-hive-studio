@@ -246,6 +246,7 @@ export function MongoCollectionPane({
               schemaPane={schemaPane}
               drop_label="Drop collection"
               pane_ref={pane_ref}
+              conn_id={conn_id}
             />
           )}
         </div>

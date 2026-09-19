@@ -3,6 +3,7 @@ import { WEB, wcall } from "./web";
 import {
   dedupe,
   dispatchDbCall,
+  hinted,
   isServerConn,
   profileOf,
   remoteOf,
@@ -90,7 +91,10 @@ export async function executeParams(
 ): Promise<number> {
   serverUnsupported(connId);
 
-  return invoke("execute_params", { connId, database, sql, params });
+  return hinted(
+    connId,
+    invoke("execute_params", { connId, database, sql, params }),
+  );
 }
 
 /** Run a SELECT with bound `?` parameters (used by UI-built filters).

@@ -2,6 +2,8 @@ import { FolderOpen, Save } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { CardDescription } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
+import { GuardFields } from "./guard-fields";
+import type { GuardFormValues } from "../lib/guard-form";
 
 export interface SqlitePanelProps {
   /** Chosen file path — from Browse, or prefilled from a saved/recent
@@ -9,6 +11,10 @@ export interface SqlitePanelProps {
   path: string | null;
   name: string;
   setName: (v: string) => void;
+  /** Read only and environment label (spec 0007). Read only opens the file
+   *  with the read only flag, so nothing can write to it. */
+  guard: GuardFormValues;
+  setGuard: (patch: Partial<GuardFormValues>) => void;
 
   opening: boolean;
   /** Pick a file. Only chooses it; opening is the separate Open step so the
@@ -26,6 +32,8 @@ export function SqlitePanel({
   path,
   name,
   setName,
+  guard,
+  setGuard,
   opening,
   onBrowse,
   onOpen,
@@ -48,6 +56,7 @@ export function SqlitePanel({
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
+      <GuardFields idPrefix="sqlite" value={guard} onChange={setGuard} />
       <div className="flex gap-2 pt-1">
         <Button variant="outline" onClick={onBrowse} disabled={opening}>
           <FolderOpen className="size-4" />

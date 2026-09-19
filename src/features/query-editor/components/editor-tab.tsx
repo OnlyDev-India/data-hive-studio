@@ -44,13 +44,12 @@ import {
   type QueryEditorHandle,
 } from "@/shared/components/query-editor";
 import { EditorRunToolbar } from "./editor-run-toolbar";
-import {
-  DangerConfirmDialog,
-  type DangerousStatement,
-} from "./danger-confirm-dialog";
+import type { ConfirmItem } from "@/shared/components/write-confirm-dialog";
+import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
 import { BindVariablesDialog } from "./bind-variables-dialog";
 import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 import { dangerousSqlReason } from "../lib/dangerous-sql";
+import { isWriteMongo, isWriteSql } from "../lib/write-detect";
 import {
   findBindVariables,
   substituteBindVariables,
@@ -424,26 +423,44 @@ function SqlEditorBody({
 
   // Gates a run behind an explicit confirm when one of its statements is
   // unconditionally destructive (UPDATE/DELETE with no WHERE, TRUNCATE,
-  // DROP — see `dangerous-sql.ts`). The Promise this resolves lets
-  // `run_all`/`run_target` simply `await` the gate instead of threading a
-  // callback through the whole statement-collection logic below.
-  const [danger_pending, setDangerPending] = useState<{
-    statements: DangerousStatement[];
-    resolve: (ok: boolean) => void;
-  } | null>(null);
+  // DROP — see `dangerous-sql.ts`) or, on a Production connection or one
+  // with Confirm before writes on, when it writes at all (spec 0007). Both
+  // reasons for one statement share one row in one dialog, never two. The
+  // Promise this resolves lets `run_all`/`run_target` simply `await` the gate
+  // instead of threading a callback through the whole statement-collection
+  // logic below.
+  const {
+    ask: ask_write_confirm,
+    env_reason,
+    dialog: write_confirm_dialog,
+  } = useWriteConfirm(conn_id);
+  const is_read_only = useStudioStore(
+    (s) => !!s.open.find((c) => c.id === conn_id)?.read_only,
+  );
   const confirm_if_dangerous = useCallback(
     (texts: string[]): Promise<boolean> => {
-      const statements: DangerousStatement[] = [];
+      // A read only connection refuses the write in the backend with a clear
+      // message. Asking first would only suggest that confirming could let
+      // it through.
+      if (is_read_only) return Promise.resolve(true);
+      const items: ConfirmItem[] = [];
       for (const text of texts) {
-        const reason = dangerousSqlReason(text);
-        if (reason) statements.push({ text, reason });
+        const reasons: string[] = [];
+        const danger = dangerousSqlReason(text);
+        if (danger) reasons.push(danger);
+        if (env_reason && isWriteSql(text)) reasons.push(env_reason);
+        if (reasons.length > 0) items.push({ text, reasons });
       }
-      if (statements.length === 0) return Promise.resolve(true);
-      return new Promise((resolve) => {
-        setDangerPending({ statements, resolve });
+      if (items.length === 0) return Promise.resolve(true);
+      return ask_write_confirm({
+        items,
+        description:
+          items.length === 1
+            ? "This statement needs confirmation before it runs:"
+            : `${items.length} statements in this run need confirmation before they run:`,
       });
     },
-    [],
+    [is_read_only, env_reason, ask_write_confirm],
   );
 
   // Same Promise-gate shape as `confirm_if_dangerous`, one step earlier in
@@ -1128,17 +1145,7 @@ function SqlEditorBody({
           setBindPending(null);
         }}
       />
-      <DangerConfirmDialog
-        statements={danger_pending?.statements ?? null}
-        onConfirm={() => {
-          danger_pending?.resolve(true);
-          setDangerPending(null);
-        }}
-        onCancel={() => {
-          danger_pending?.resolve(false);
-          setDangerPending(null);
-        }}
-      />
+      {write_confirm_dialog}
       <EditorRunToolbar
         has_selection={has_selection}
         can_run_target={sql_text.trim().length > 0}
@@ -1576,6 +1583,32 @@ function MongoEditorBody({
   const conn_kind = useStudioStore(
     (s) => s.open.find((c) => c.id === conn_id)?.kind,
   );
+  // Same gate as the SQL tab's (spec 0007): a Production connection, or one
+  // with Confirm before writes on, asks before a command that writes. A read
+  // only connection has no env reason, so it never asks and the backend's
+  // refusal is the answer.
+  const {
+    ask: ask_write_confirm,
+    env_reason,
+    dialog: write_confirm_dialog,
+  } = useWriteConfirm(conn_id);
+  const confirm_writes = useCallback(
+    (texts: string[]): Promise<boolean> => {
+      if (!env_reason) return Promise.resolve(true);
+      const items: ConfirmItem[] = texts
+        .filter(isWriteMongo)
+        .map((text) => ({ text, reasons: [env_reason] }));
+      if (items.length === 0) return Promise.resolve(true);
+      return ask_write_confirm({
+        items,
+        description:
+          items.length === 1
+            ? "This command needs confirmation before it runs:"
+            : `${items.length} commands in this run need confirmation before they run:`,
+      });
+    },
+    [env_reason, ask_write_confirm],
+  );
 
   const run_query = useCallback(
     async (id: number, text: string, range?: { from: number; to: number }) => {
@@ -1722,7 +1755,7 @@ function MongoEditorBody({
     [keep_all_tabs, run_query, active_id],
   );
 
-  const run_all = useCallback(() => {
+  const run_all = useCallback(async () => {
     const stmts = statementRanges(script_text)
       .map((r) => ({
         from: r.start,
@@ -1731,6 +1764,7 @@ function MongoEditorBody({
       }))
       .filter((s) => s.text);
     if (stmts.length === 0) return;
+    if (!(await confirm_writes(stmts.map((s) => s.text)))) return;
     // Fresh batch — previous run's error markers no longer apply.
     error_ranges.current.clear();
     sync_errors();
@@ -1738,21 +1772,28 @@ function MongoEditorBody({
       run_in_tab(s.text, { from: s.from, to: s.to }, stmts.length);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
-  }, [script_text, run_in_tab, sync_errors, error_ranges.current]);
+  }, [
+    script_text,
+    run_in_tab,
+    sync_errors,
+    error_ranges.current,
+    confirm_writes,
+  ]);
 
-  const run_target = useCallback(() => {
+  const run_target = useCallback(async () => {
     const targets = editorRef.current?.getTargets() ?? [];
     const stmts = targets
       .map((t) => ({ from: t.from, to: t.to, text: strip_comments(t.text) }))
       .filter((s) => s.text);
     if (stmts.length === 0) return;
+    if (!(await confirm_writes(stmts.map((s) => s.text)))) return;
     error_ranges.current.clear();
     sync_errors();
     for (const s of stmts) {
       run_in_tab(s.text, { from: s.from, to: s.to }, stmts.length);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
-  }, [run_in_tab, sync_errors, error_ranges.current]);
+  }, [run_in_tab, sync_errors, error_ranges.current, confirm_writes]);
 
   const close_tab = useCallback((id: number) => {
     if (reusable_entry_id.current === id) reusable_entry_id.current = null;
@@ -1831,6 +1872,7 @@ function MongoEditorBody({
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
+      {write_confirm_dialog}
       <EditorRunToolbar
         has_selection={has_selection}
         can_run_target={script_text.trim().length > 0}

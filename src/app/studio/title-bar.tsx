@@ -17,6 +17,7 @@ import {
   useStudioStore,
 } from "@/shared/store";
 import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
+import { ConnFlags } from "@/shared/components/env-chip";
 import PanelLeftIcon from "@/shared/components/icons/panel-left";
 import PanelBottomIcon from "@/shared/components/icons/panel-bottom";
 import { Input } from "@/shared/components/ui/input";
@@ -259,6 +260,7 @@ function ConnectionSwitcher() {
             >
               {ActiveIcon && <ActiveIcon className="size-3.5 shrink-0" />}
               <span className="min-w-0 truncate">{active.name}</span>
+              <ConnFlags conn={active} />
               <ChevronDown className="size-3 shrink-0 opacity-60" />
             </button>
           }
@@ -304,6 +306,7 @@ function ConnectionSwitcher() {
                   <span className="flex min-w-0 items-center gap-2">
                     {Icon && <Icon className="size-3.5 shrink-0" />}
                     <span className="truncate">{conn.name}</span>
+                    <ConnFlags conn={conn} />
                   </span>
                   <DisconnectDbBtn conn={conn} />
                 </DropdownMenuItem>

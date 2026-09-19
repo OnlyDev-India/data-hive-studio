@@ -46,7 +46,16 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
 | 16  | ER diagram                                  | Slice 16 | planned     |
 | 17  | Streaming results for Postgres and MongoDB  | Slice 17 | planned     |
-| 18  | Split large adapter files                   | Slice 18 | planned     |
+| 18  | Split large backend files                   | Slice 18 | in-progress |
+| 19  | Owner claim and invite only accounts        | Slice 19 | planned     |
+| 20  | Short lived sessions and devices            | Slice 20 | planned     |
+| 21  | Orgs, members and email bound invites       | Slice 21 | planned     |
+| 22  | Connection roles and grants with expiry     | Slice 22 | planned     |
+| 23  | Groups                                      | Slice 23 | planned     |
+| 24  | Proxy only shared connections               | Slice 24 | planned     |
+| 25  | Audit trail with retention                  | Slice 25 | planned     |
+| 26  | Suspend, rate limits and owner recovery     | Slice 26 | planned     |
+| 27  | Personal access tokens                      | Slice 27 | planned     |
 
 
 
@@ -310,14 +319,14 @@ code in `src/features/query-editor/components/editor-run-toolbar.tsx`, `crates/d
 Nothing on a connection says how careful you should be with it, so a production database looks the same as a scratch one. Let a connection be marked read only (writes are refused, not just warned about) and carry an environment label (for example production, staging, development) with a colour that shows in the sidebar, the tab bar, and the title bar. This builds on the existing dangerous SQL warning. The design pass settles where read only is enforced (it has to hold even for a query typed by hand and for Mongo), and how it behaves for team server shared connections.
 **Done when:** a connection marked read only refuses every write from the editor, the grid, and the schema designer with a clear message, and any connection with an environment label shows that label and colour wherever you can see the connection.
 spec [0007](../specs/0007-read-only-environment-labels/index.md)
-code in `src/features/connections`, `src/features/query-editor/lib/dangerous-sql.ts`, `crates/dh-core/src/db/mod.rs`
+code in `src/features/connections`, `src/features/query-editor/lib/dangerous-sql.ts`, `crates/dh-core/src/db/mod.rs`, `crates/dh-core/src/db/read_only.rs`, `src/shared/api/read-only.ts`, `src/shared/api/env.ts`, `src/shared/components/env-chip.tsx`, `src/shared/hooks/use-write-confirm.tsx`
 
 - [x] Design it (spec): `/architect read only and environment labels`
 - [ ] Build it: `/develop read only and environment labels`
-  - [ ] Thread on Postgres, local: `ConnGuard` fields, `ReadOnlyGuard`, `DbError::ReadOnly`, first SQL check, Postgres session lock, Read only switch, lock icon in the sidebar — satisfies AC-1, AC-2, AC-7
-  - [ ] Guard on every database: full SQL check with bypass tests, structured writes, SQLite open flag, Mongo method allowlist, refusals in the Activity log — satisfies AC-2, AC-3, AC-4, AC-5, AC-7
-  - [ ] Label and interface: label fields and form, colour tokens and chip, disabled write controls, Production confirm, Reconnect flow — satisfies AC-1, AC-6, AC-8, AC-9, AC-10
-  - [ ] Team server and shared connections: migration, Owner or Admin rule, server enforcement, capabilities, stale flag refresh — satisfies AC-11, AC-12, AC-13
+  - [x] Thread on Postgres, local: `ConnGuard` fields, `ReadOnlyGuard`, `DbError::ReadOnly`, first SQL check, Postgres session lock, Read only switch, lock icon in the sidebar — satisfies AC-1, AC-2, AC-7
+  - [x] Guard on every database: full SQL check with bypass tests, structured writes, SQLite open flag, Mongo method allowlist, refusals in the Activity log — satisfies AC-2, AC-3, AC-4, AC-5, AC-7
+  - [x] Label and interface: label fields and form, colour tokens and chip, disabled write controls, Production confirm, Reconnect flow — satisfies AC-1, AC-6, AC-8, AC-9, AC-10
+  - [ ] Team server and shared connections: migration, Owner or Admin rule, server enforcement, capabilities, stale flag refresh — satisfies AC-11, AC-12, AC-13 (waits for slice 22, the new connection roles, so the Owner or Admin rule becomes a connection admin rule)
   - [ ] Regression pass: reads still work on a read only connection, plus tests across all layers — satisfies AC-14
 - [ ] Verify it: `/check verify read only and environment labels`
 - [ ] Test it: `/test read only and environment labels`
@@ -343,7 +352,7 @@ code in `src/features/data-export`
   - [ ] Mapping, checks, reports and formats: full mapping and preview, type checks, Skip and Check, error list and failed rows CSV, encoding, JSON, JSON Lines and Excel — satisfies AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-10, AC-11, AC-15
   - [ ] PostgreSQL and new table: Postgres writer with casts and savepoints, then create a table from the file inside the same transaction — satisfies AC-5, AC-8, AC-9, AC-12, AC-14
   - [ ] MongoDB: document path, transaction when the server supports it, not atomic warning, Check disabled on a standalone server, `_id` rules — satisfies AC-6, AC-9, AC-10, AC-19
-  - [ ] Team server, web, cancel and guards: gateway route with the larger body limit, audit, Member role, spinner, local progress and Cancel, sidebar entry, read only and Production confirm — satisfies AC-1, AC-13, AC-16, AC-17, AC-20
+  - [ ] Team server, web, cancel and guards: gateway route with the larger body limit, audit, Member role, spinner, local progress and Cancel, sidebar entry, read only and Production confirm — satisfies AC-1, AC-13, AC-16, AC-17, AC-20 (waits for slice 22, so the Member role becomes a connection editor role)
 - [ ] Verify it: `/check verify import data`
 - [ ] Test it: `/test import data`
 - [ ] Review it (fresh model): `/check review import data`
@@ -423,17 +432,151 @@ code in `crates/dh-core/src/db/postgres.rs`, `crates/dh-core/src/db/mongodb.rs`
 
 
 
-## Slice 18: Split large adapter files
+## Slice 18: Split large backend files
 
 
 
-### 18. Split large adapter files · needs a decision · Alpha
+### 18. Split large backend files · in-progress · Alpha
 
-Each database adapter lives in one very large file: `mongodb.rs` is about 3400 lines, `postgres.rs` about 2950, `sqlite.rs` about 2100, and `db/mod.rs` about 1400. Restructure each adapter into its own folder of smaller files grouped by job (for example connecting, running queries, schema work, row edits), so no single file is huge and a change lands in a small, obvious place. This is a move only refactor: behaviour does not change. Run it after slices 10, 11 and 12 land, since they are still editing these same files and splitting first would cause heavy merge conflicts. The design pass settles where to cut each adapter, whether `db/mod.rs` is included, and how the public paths other crates import stay unchanged.
-**Done when:** no adapter is one large file (each is a folder of focused files), every existing backend test still passes unchanged, and nothing outside `crates/dh-core/src/db` needed a code change to keep compiling.
-code in `crates/dh-core/src/db`
+Several backend files have grown very large and each mixes many jobs. The database adapters are the biggest: `mongodb.rs` is about 3400 lines, `postgres.rs` about 3000, `sqlite.rs` about 2100, and `db/mod.rs` about 1400. Past them, a second group sits at 500 to 1000 lines: the team server files (`router.rs`, `vault.rs`, `gateway.rs`, `client.rs`, `orgs.rs`), the native shell files (`servers.rs`, `commands.rs`, `local_connections.rs`), the shared core files (`ssh_tunnel.rs`, `api/common.rs`), and the helpers inside the db folder (`mongo_json.rs`, `mongo_sql.rs`, `runs.rs`). Restructure each one into its own folder of smaller files grouped by job (for an adapter: connecting, running queries, schema work, row edits; for the server: routes grouped by area), so no single file is huge and a change lands in a small, obvious place. This is a move only refactor: behaviour does not change. Run it after slices 10, 11 and 12 land, since they are still editing the db files and splitting first would cause heavy merge conflicts. Slices 19 to 27 then rework the server files inside the smaller layout. The design pass settles the size line that makes a file worth splitting, where to cut each one, whether `db/mod.rs` is included, how the public paths other crates import and the Tauri command names the frontend calls stay unchanged, and whether it lands as one pass or as a few commits by area.
+**Done when:** no large backend file is left as one big file (each is a folder of focused files), every existing backend test still passes unchanged, and no code outside the files being split needed a change to keep compiling, including the Tauri commands the frontend calls.
+spec [0009](../specs/0009-split-large-backend-files/index.md)
+code in `crates/dh-core/src`, `src-tauri/src`
 
-- [ ] Design it (spec): `/architect split large adapter files`
+- [x] Design it (spec): `/architect split large backend files`
+- [ ] Build it: `/develop split large backend files`
+  - [ ] Gate and baseline: slices 10, 11 and 12 merged, fresh branch, saved test lists and size report (waits for those slices, and the spec recommends landing before slice 17) — satisfies AC-4, AC-9
+  - [ ] Pilots: Postgres adapter and the Tauri commands, proving the thin trait wrapper, test placement and the handler paths — satisfies AC-1, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8
+  - [ ] Rest of the adapters and the shared core: MongoDB, SQLite, `db/mod.rs`, `mongo_json`, `mongo_sql`, `api/common` — satisfies AC-1, AC-3, AC-5, AC-6, AC-7, AC-8
+  - [ ] Team server and the rest of the native shell: `router`, `gateway`, `vault`, `client`, `servers`, `local_connections` — satisfies AC-1, AC-3, AC-5, AC-7
+  - [ ] Final gate and after merge: size report empty, test lists match, workspace compiles, then `/sync` for the AGENTS.md updates — satisfies AC-1, AC-2, AC-3, AC-4, AC-9, AC-10
+- [ ] Verify it: `/check verify split large backend files`
+
+
+
+## Slice 19: Owner claim and invite only accounts
+
+
+
+### 19. Owner claim and invite only accounts · needs a decision · GA
+
+This starts the team server access rebuild (slices 19 to 27), a fresh start with no migration from the current server, aimed at small self hosted teams first. Today anyone who can reach a new server and sign in with Google or GitHub gets an account. Make a new server start closed: a one time setup code printed in the server log lets the first person claim the server owner role, and after that only invited people get an account. The same person signing in through Google and through GitHub with the same verified email becomes one account (today the second sign in fails, because email must be unique). The design pass settles the account shape, how the server keeps versioned schema changes (today it only creates tables if missing), and what happens with an email a provider has not verified.
+**Done when:** a fresh server refuses every sign in until the first person enters the setup code, a stranger who signs in later without an invite gets no account, and one verified email used through Google and GitHub lands in a single account.
+code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/store.rs`, `crates/dh-server/src/main.rs`
+
+- [ ] Design it (spec): `/architect owner claim and invite only accounts`
+
+
+
+## Slice 20: Short lived sessions and devices
+
+
+
+### 20. Short lived sessions and devices · needs a decision · GA
+
+Sessions are one 30 day token today, and it travels in a URL back to the desktop app. Replace it with a short token that renews quietly, one session per device. People see their devices and can sign out one or all of them, and the server owner can end every session of a person. This covers both the desktop app and the web UI the server serves. The design pass settles how the token is handed to the desktop app safely, how renewal stays safe if a token is stolen, and where the web page keeps it.
+**Done when:** a signed in desktop app and web page keep working past the short token life without signing in again, signing out one device leaves the others alone, sign out everywhere ends every session, and an expired or revoked token is refused.
+code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/router.rs`, `src-tauri/src/servers.rs`
+
+- [ ] Design it (spec): `/architect short lived sessions and devices`
+
+
+
+## Slice 21: Orgs, members and email bound invites
+
+
+
+### 21. Orgs, members and email bound invites · needs a decision · GA
+
+Only the server owner creates organizations, and one person can belong to several. Org roles (owner, admin, member) only control people and settings, never database data (that moves to connection roles in slice 22, so today's viewer role goes away). Owners and admins invite by email, bound to that address, or make an optional shareable link with a use limit and an expiry. Removing someone ends their access to that org's connections at once, and the last owner guard stays. The design pass settles the invite delivery (the server may not be able to send email) and how the current invite screens change.
+**Done when:** the server owner creates an org and invites a person by email, only that email can redeem the invite, a shareable link stops working after its limit or expiry, removing a person cuts their access at once, and the last owner cannot be removed or demoted.
+code in `crates/dh-core/src/server/orgs.rs`, `src/features/sharing`
+
+- [ ] Design it (spec): `/architect orgs members and email bound invites`
+
+
+
+## Slice 22: Connection roles and grants with expiry
+
+
+
+### 22. Connection roles and grants with expiry · needs a decision · GA
+
+One place decides what a person may do on a shared connection, replacing today's four org roles plus three switch overrides. Each connection has its own roles: viewer (reads), editor (also changes rows and runs writes), admin (also changes schema, settings and who has access). Only org owners and admins add a connection. A new connection is usable by nobody until granted, and an org admin can grant themselves access, which is logged. A grant can carry an end time, and if a person has more than one grant the highest access wins, with no deny rules. Every gateway route asks this same check, and the grant screens are new, since none exist today. The connection wide read only switch from spec 0007 stays separate and beats any role. Slices 10, 11 and 12 finish their team server milestones on this model. The design pass settles how each route maps to a role (SQL console, schema changes, import, Stop), and how an end time is enforced on a connection that is already open.
+**Done when:** a new connection is invisible to everyone except org owners and admins until granted, a viewer reads but cannot write, an editor writes rows but cannot change the schema or access, an admin can do both, a grant with an end time stops working at that time, and every route uses the same check.
+code in `crates/dh-core/src/server/gateway.rs`, `crates/dh-core/src/server/grants.rs`, `src/features/sharing`
+
+- [ ] Design it (spec): `/architect connection roles and grants with expiry`
+
+
+
+## Slice 23: Groups
+
+
+
+### 23. Groups · needs a decision · GA
+
+Named groups of people inside an org, managed by org owners and admins. A connection role can be granted to a group, and every member of the group gets it. When a person has both a direct grant and group grants, the highest access wins. The design pass settles how groups sit in the access check from slice 22 so it stays one check, and what removing a group does to the grants it held.
+**Done when:** adding a person to a group gives them the group's connection roles at once, removing them takes those roles away, a person in two groups gets the higher role, and deleting a group removes every grant it held.
+code in `crates/dh-core/src/server/grants.rs`, `src/features/sharing`
+
+- [ ] Design it (spec): `/architect groups`
+
+
+
+## Slice 24: Proxy only shared connections
+
+
+
+### 24. Proxy only shared connections · needs a decision · GA
+
+Members should never receive a shared database password. Queries already run through the server, but the `/v1/connections/{id}/credentials` route still hands the decrypted password to anyone with read access, and the sidebar uses it to prefill a local connection form when you click a shared connection. Retire that route and that prefill, and show the details a member may see without the secret. The design pass settles what an admin still needs to see when editing a connection, and how the change reaches web and desktop clients together.
+**Done when:** no server route returns a stored password or SSH secret to a member or to an admin who is only viewing, clicking a shared connection still shows its non secret details, and queries, streaming results and Stop keep working through the server.
+code in `crates/dh-core/src/server/gateway.rs`, `crates/dh-core/src/server/router.rs`, `src/features/workspace/components/sidebar/home-view.tsx`
+
+- [ ] Design it (spec): `/architect proxy only shared connections`
+
+
+
+## Slice 25: Audit trail with retention
+
+
+
+### 25. Audit trail with retention · needs a decision · GA
+
+The audit log today is a best effort list of a few actions per org. Record security events (sign ins, invites, role and grant changes, suspensions) long term, and every query with its text for 90 days by default, then clear it, since query text can hold sensitive values. Org owners and admins read their org's trail, and each person can read their own. The design pass settles who sees what, where the retention setting lives, and how the trail stays cheap on a busy server.
+**Done when:** every access change and sign in appears in the trail with who did it, every query on a shared connection appears with its text for the retention period and is then removed, and an org admin can filter the trail by person and connection.
+code in `crates/dh-core/src/server/store.rs`, `src/features/sharing/components/admin-dashboard.tsx`
+
+- [ ] Design it (spec): `/architect audit trail with retention`
+
+
+
+## Slice 26: Suspend, rate limits and owner recovery
+
+
+
+### 26. Suspend, rate limits and owner recovery · needs a decision · GA
+
+Three protections for a server that people can reach over the network. The server owner can suspend a person server wide, which ends every session at once without deleting their history. Sign in and invite redemption are rate limited so codes cannot be guessed. A server side command names a new server owner if the only owner loses their Google or GitHub account. The design pass settles where rate limit counts live on hosts that keep no state between requests.
+**Done when:** a suspended person is refused everywhere straight away and can be restored, repeated wrong invite codes or sign in attempts get blocked for a while, and the recovery command makes a chosen account the server owner from the server side only.
+code in `crates/dh-core/src/server/router.rs`, `crates/dh-core/src/server/auth.rs`, `crates/dh-server/src/main.rs`
+
+- [ ] Design it (spec): `/architect suspend rate limits and owner recovery`
+
+
+
+## Slice 27: Personal access tokens
+
+
+
+### 27. Personal access tokens · needs a decision · GA
+
+A person can create a token for scripts and CI. It never carries more than its owner, and it can be narrowed when created: chosen connections only, read only, and an expiry. If the owner loses access, the token loses it too, and a suspended owner's tokens stop working. The design pass settles how a token is shown once, stored, and checked alongside the sign in sessions from slice 20.
+**Done when:** a person creates a token limited to one connection and read only, a script using it can read that connection and nothing else, revoking the token stops it at once, and removing the owner's access to the connection stops the token too.
+code in `crates/dh-core/src/server/auth.rs`, `src/features/sharing`
+
+- [ ] Design it (spec): `/architect personal access tokens`
 
 
 
@@ -442,10 +585,16 @@ code in `crates/dh-core/src/db`
 Out of scope for the current build pass, kept so the plan stays honest.
 
 - **Stopped status in the activity log**: a query stopped with the Stop button is logged as a failed entry with the message "Stopped by user" (spec 0006). Give the activity record and its screen a real "stopped" status so stopped runs stop showing in the failed filter · from spec 0006 · code in `crates/dh-core/src/activity.rs`
+- **Break up the longest backend functions**: splitting the files (spec 0009) moves long functions whole, so Postgres `execute_op` (about 290 lines), MongoDB `run_db_call` (about 265), `table_schema` and `apply_schema_ops_batch` stay long. Cut them by step once the file split has landed · from spec 0009 · code in `crates/dh-core/src/db`
 - **Import upsert and skip duplicates**: import is insert only, so a clash with an existing key is a bad row (spec 0008). Add a Skip duplicates choice and an Update on duplicate (upsert) mode, with a key to match on and different Mongo handling · from spec 0008 · code in `src/features/data-import`, `crates/dh-core/src/db/mod.rs`
 - **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB (spec 0008). Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/mod.rs`
 - **Cancel and progress for remote imports**: on team server and web connections an import shows a spinner and cannot be cancelled (spec 0008). Once spec 0006's run registry is built, send `run_id` with the import and reuse its cancel route · from spec 0008 · code in `crates/dh-core/src/server/router.rs`
 - **Master password secret storage**: saved connection passwords, SSH secrets, and team server tokens live in the OS keychain in release builds, which needs a signed app this project does not have. Move them to encrypted files on disk with one storage path for dev and release, carrying over existing keychain entries. Open question for when you pick it up: a master password typed once per launch, or an app managed key with no prompt (with or without an optional password in Settings)? · needs a decision · code in `src-tauri/src/local_connections.rs`, `src-tauri/src/servers.rs`, `src-tauri/src/secret_file.rs`
+- **Company login (SAML or OIDC) and directory provisioning**: sign in through a company's own identity system, with domain rules and people added from its directory. Slices 19 and 20 keep the sign in code open for another provider · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/auth.rs`
+- **Hosted service for many unrelated orgs**: one server run for many customers, with tenant isolation, plans and billing hooks. Orgs already exist in the model (slice 21) · from the team server access rebuild · needs a decision · GA
+- **Access requests with approval**: a member asks for time limited access to a connection and an admin approves it, building on grant expiry (slice 22) · from the team server access rebuild · needs a decision
+- **Schema and table level permissions**: rules narrower than one connection, such as one schema only. Slice 22 leaves room in the access model but enforces per connection only · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/gateway.rs`
+- **Email and password, magic link and Microsoft sign in**: more ways to sign in than Google and GitHub · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/auth.rs`
 
 
 

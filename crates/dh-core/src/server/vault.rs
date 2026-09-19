@@ -522,6 +522,8 @@ impl Store {
                 connect_timeout_secs: row.connect_timeout_secs.map(|v| v as u32),
                 server_selection_timeout_secs: row.server_selection_timeout_secs.map(|v| v as u32),
                 max_idle_time_secs: row.idle_timeout_secs.map(|v| v as u32),
+                // Shared connections carry no guard yet (spec 0007, task 12).
+                guard: Default::default(),
                 ssh,
             }),
             // Postgres, and every other kind until it gets its own adapter
@@ -541,6 +543,8 @@ impl Store {
                 connect_timeout_secs: row.connect_timeout_secs.map(|v| v as u32),
                 idle_timeout_secs: row.idle_timeout_secs.map(|v| v as u32),
                 max_lifetime_secs: row.max_lifetime_secs.map(|v| v as u32),
+                // Shared connections carry no guard yet (spec 0007, task 12).
+                guard: Default::default(),
                 ssh,
             }),
         })

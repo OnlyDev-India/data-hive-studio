@@ -21,7 +21,12 @@ import {
   TooltipTrigger,
 } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
-import type { SchemaEditHandle, SchemaPaneHandle } from "@/shared/store";
+import {
+  useStudioStore,
+  type SchemaEditHandle,
+  type SchemaPaneHandle,
+} from "@/shared/store";
+import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
 import { usePaneCompactWidth } from "./grid-action-bar";
 import { Fragment, type ReactNode, type RefObject } from "react";
 
@@ -36,19 +41,33 @@ export function SchemaActionBar({
   schemaPane,
   drop_label,
   pane_ref,
+  conn_id,
 }: {
   schemaEdit: SchemaEditHandle | null;
   schemaPane: SchemaPaneHandle | null;
   drop_label: string;
   pane_ref: RefObject<HTMLDivElement | null>;
+  /** Whose schema this is: a read only connection (spec 0007) disables every
+   *  button that changes it, with the reason as a tooltip. */
+  conn_id: string;
 }) {
+  const read_only = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.read_only ?? false,
+  );
+  // Direct Apply skips the review dialog, so on a Production connection (or
+  // one with Confirm before writes on) it asks first (spec 0007).
+  const write_confirm = useWriteConfirm(conn_id);
+  const read_only_title = read_only
+    ? "Read only connection: schema changes are refused"
+    : undefined;
   type ButtonFactory = (props: { compact: boolean }) => ReactNode;
   const buttons: ButtonFactory[] = [
     (props) => (
       <SchemaToolbarButton
         icon={Trash2}
         label={drop_label}
-        disabled={!schemaPane || schemaPane?.busy}
+        title={read_only_title}
+        disabled={!schemaPane || schemaPane?.busy || read_only}
         onClick={() => schemaPane?.drop()}
         className="text-destructive/70 bg-destructive/10 hover:text-destructive hover:bg-destructive/20"
         {...props}
@@ -81,7 +100,13 @@ export function SchemaActionBar({
           iconClassName={
             schemaEdit?.busy ? "size-3.5 animate-spin" : "size-3.5"
           }
-          disabled={!schemaEdit || schemaEdit?.busy || schemaEdit?.count === 0}
+          title={read_only_title}
+          disabled={
+            !schemaEdit ||
+            schemaEdit?.busy ||
+            schemaEdit?.count === 0 ||
+            read_only
+          }
           onClick={() => schemaEdit?.review()}
           {...props}
         />
@@ -91,10 +116,13 @@ export function SchemaActionBar({
               <Button
                 size="iconXs"
                 disabled={
-                  !schemaEdit || schemaEdit?.busy || schemaEdit?.count === 0
+                  !schemaEdit ||
+                  schemaEdit?.busy ||
+                  schemaEdit?.count === 0 ||
+                  read_only
                 }
                 aria-label="Pending schema changes options"
-                title="Pending schema changes options"
+                title={read_only_title ?? "Pending schema changes options"}
                 className="-ml-0.5 rounded-l-none"
               />
             }
@@ -103,7 +131,13 @@ export function SchemaActionBar({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuItem
-              onClick={() => schemaEdit?.apply()}
+              onClick={() =>
+                void write_confirm
+                  .confirm_write(
+                    `Apply ${schemaEdit?.count ?? 0} pending schema change${schemaEdit?.count === 1 ? "" : "s"}`,
+                  )
+                  .then((ok) => ok && schemaEdit?.apply())
+              }
               disabled={schemaEdit?.busy}
             >
               <Check className="size-3.5" />
@@ -118,6 +152,7 @@ export function SchemaActionBar({
 
   return (
     <TooltipProvider delay={500}>
+      {write_confirm.dialog}
       <div className="flex min-w-0 flex-1 shrink-0 items-center gap-1">
         <div className="flex min-w-0 flex-1 items-center gap-1" />
         {buttons.map((btn, idx) => (

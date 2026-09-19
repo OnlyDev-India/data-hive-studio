@@ -8,12 +8,14 @@ mod mongo_json;
 mod mongo_sql;
 mod mongodb;
 mod postgres;
+mod read_only;
 mod runs;
 mod sqlite;
 
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};
 pub use mongodb::{MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
+pub use read_only::{Dialect, ReadOnlyGuard, READ_ONLY_PREFIX};
 pub use runs::{cancel as cancel_run, CancelOutcome, CancelState, RunHandle};
 
 use std::collections::HashMap;
@@ -22,7 +24,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 
 use crate::api::{
-    ConnectionInfo, DbKind, FieldShape, MongoRunResult, QueryChunk, QueryOp, QueryResult,
+    ConnGuard, ConnectionInfo, DbKind, FieldShape, MongoRunResult, QueryChunk, QueryOp, QueryResult,
     SchemaOp, TableInfo, TableSchema,
 };
 use serde_json;
@@ -54,6 +56,11 @@ pub enum DbError {
     /// wrappers only ever see it as a result, not an `Err`.
     #[error("Stopped by user")]
     Cancelled,
+    /// A write was refused because the connection is read only (spec 0007).
+    /// The text always starts with [`read_only::READ_ONLY_PREFIX`] so the
+    /// frontend can tell a refusal from any other failure.
+    #[error("{0}")]
+    ReadOnly(String),
 }
 
 pub type DbResult<T> = std::result::Result<T, DbError>;
@@ -514,10 +521,11 @@ pub async fn open_database(
     kind: &DbKind,
     name: &str,
     bytes: Option<&[u8]>,
+    guard: ConnGuard,
 ) -> DbResult<ConnectionInfo> {
     let t = std::time::Instant::now();
     let adapter: Arc<dyn DbAdapter> = match kind {
-        DbKind::Sqlite => Arc::new(SqliteAdapter::open(name, bytes).await?),
+        DbKind::Sqlite => Arc::new(SqliteAdapter::open(name, bytes, &guard).await?),
         DbKind::Postgres => return Err(DbError::Unsupported(*kind)),
         DbKind::Mysql => return Err(DbError::Unsupported(*kind)),
         DbKind::Mongodb => return Err(DbError::Unsupported(*kind)),
@@ -528,6 +536,7 @@ pub async fn open_database(
         name: name.to_string(),
         kind: *kind,
         source_path: None,
+        guard,
     };
     // Register BEFORE logging, so the resolver can already find it and this
     // very first entry gets a `conn_key` too.
@@ -538,10 +547,10 @@ pub async fn open_database(
 
 /// Open a database directly at `path` and register a connection. The file on
 /// disk becomes the database, so all changes persist in place automatically.
-pub async fn open_database_path(path: &str) -> DbResult<ConnectionInfo> {
+pub async fn open_database_path(path: &str, guard: ConnGuard) -> DbResult<ConnectionInfo> {
     let t = std::time::Instant::now();
     let p = std::path::Path::new(path);
-    let adapter: Arc<dyn DbAdapter> = Arc::new(SqliteAdapter::open_at(p).await?);
+    let adapter: Arc<dyn DbAdapter> = Arc::new(SqliteAdapter::open_at(p, &guard).await?);
     let name = p
         .file_stem()
         .and_then(|s| s.to_str())
@@ -552,6 +561,7 @@ pub async fn open_database_path(path: &str) -> DbResult<ConnectionInfo> {
         name,
         kind: DbKind::Sqlite,
         source_path: Some(path.to_string()),
+        guard,
     };
     insert_connection(info.clone(), adapter);
     crate::activity::log_ok_origin(&info.id, "connect", &format!("sqlite:{}", path), t, 0, "app");
@@ -827,6 +837,15 @@ pub async fn list_documents_ext(
     .await
 }
 
+/// A write refused because the connection is read only is a failed entry in
+/// the Activity log (spec 0007). Document saves and inserts log nothing when
+/// they work, so only the refusal is recorded here, as app initiated.
+fn log_refusal<T>(conn_id: &str, kind: &str, target: &str, t: std::time::Instant, res: &DbResult<T>) {
+    if let Err(e @ DbError::ReadOnly(_)) = res {
+        crate::activity::log_err_origin(conn_id, kind, target, t, e, "app");
+    }
+}
+
 /// Replace a single MongoDB document by its `_id` (ObjectId hex string) with
 /// the document parsed from `document_text` (MQL extended JSON).
 pub async fn save_document(
@@ -835,10 +854,13 @@ pub async fn save_document(
     id: &str,
     document_text: &str,
 ) -> DbResult<bool> {
-    with_connection(conn_id, |a| async move {
+    let t = std::time::Instant::now();
+    let res = with_connection(conn_id, |a| async move {
         a.save_document(collection, id, document_text).await
     })
-    .await
+    .await;
+    log_refusal(conn_id, "update", &format!("UPDATE {collection} (document {id})"), t, &res);
+    res
 }
 
 /// Insert a new MongoDB document parsed from `document_text`.
@@ -847,10 +869,13 @@ pub async fn insert_document(
     collection: &str,
     document_text: &str,
 ) -> DbResult<()> {
-    with_connection(conn_id, |a| async move {
+    let t = std::time::Instant::now();
+    let res = with_connection(conn_id, |a| async move {
         a.insert_document(collection, document_text).await
     })
-    .await
+    .await;
+    log_refusal(conn_id, "insert", &format!("INSERT {collection} (document)"), t, &res);
+    res
 }
 
 /// Run a MongoDB console command (JSON find/aggregate or a shell-subset
@@ -1387,6 +1412,7 @@ pub async fn connect_postgres(params: PgParams) -> DbResult<ConnectionInfo> {
                 name: params.database.clone(),
                 kind: DbKind::Postgres,
                 source_path: None,
+                guard: params.guard.clone(),
             };
             // Register BEFORE logging, so the resolver can already find it
             // and this very first entry gets a `conn_key` too.
@@ -1413,6 +1439,7 @@ pub async fn connect_mongodb(params: MongoParams) -> DbResult<ConnectionInfo> {
                 name: params.database.clone(),
                 kind: DbKind::Mongodb,
                 source_path: None,
+                guard: params.guard.clone(),
             };
             // Register BEFORE logging, so the resolver can already find it
             // and this very first entry gets a `conn_key` too.

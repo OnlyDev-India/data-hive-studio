@@ -33,6 +33,7 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
 import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
+import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
 import { useStudioStore, type GridBridge } from "@/shared/store";
 import {
   pending_changes_to_row_diff,
@@ -125,6 +126,15 @@ export function GridActionBar({
   );
   const [bulk_edit_open, setBulkEditOpen] = useState(false);
   const openSql = useStudioStore((s) => s.openSql);
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  // Direct Apply skips the review dialog, so on a Production connection (or
+  // one with Confirm before writes on) it asks first (spec 0007). Review is
+  // itself the confirmation and just wears the environment chip.
+  const write_confirm = useWriteConfirm(conn_id);
+  // Why the write buttons are off on a read only connection (spec 0007).
+  const read_only_reason = bridge.read_only
+    ? "Read only connection: writes are refused"
+    : undefined;
   // ColumnVisibilityMenu takes no `compact` prop (it's icon-only already,
   // nothing to collapse) — its factory just ignores the argument every
   // other entry spreads onto `GridToolbarButton`. A function expecting
@@ -160,6 +170,7 @@ export function GridActionBar({
         icon={Plus}
         label="Add Row"
         disabled={!bridge.editable}
+        disabled_reason={read_only_reason}
         onClick={() => bridge.start_pending()}
         {...props}
       />
@@ -170,6 +181,7 @@ export function GridActionBar({
         icon={Trash2}
         label="Delete Row(s)"
         disabled={bridge.selected_cell_count === 0 || !bridge.editable}
+        disabled_reason={read_only_reason}
         onClick={() => bridge.delete_rows()}
         className=""
         {...props}
@@ -180,6 +192,7 @@ export function GridActionBar({
         icon={Pencil}
         label="Bulk Edit"
         disabled={!bulk_edit || !bridge.editable}
+        disabled_reason={read_only_reason}
         onClick={() => setBulkEditOpen(true)}
         {...props}
       />
@@ -244,7 +257,13 @@ export function GridActionBar({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              onClick={() => bridge.apply_pending()}
+              onClick={() =>
+                void write_confirm
+                  .confirm_write(
+                    `Apply ${bridge.pending_count} pending change${bridge.pending_count === 1 ? "" : "s"} to ${bridge.table}`,
+                  )
+                  .then((ok) => ok && bridge.apply_pending())
+              }
               disabled={bridge.loading}
             >
               <Check className="size-3.5" />
@@ -266,10 +285,12 @@ export function GridActionBar({
         <ApplyChangesDialog
           rows={pending_changes_to_row_diff(apply_changes)}
           selectable
+          env={conn}
           on_apply={(keepIds) => bridge.apply_pending(keepIds)}
           on_close={() => setApplyChanges(null)}
         />
       )}
+      {write_confirm.dialog}
       {bulk_edit && (
         <BulkEditDialog
           open={bulk_edit_open}
@@ -291,6 +312,7 @@ function GridToolbarButton({
   label,
   onClick,
   disabled,
+  disabled_reason,
   className,
   iconClassName,
   isIcon,
@@ -302,6 +324,9 @@ function GridToolbarButton({
    *  wrapped in `ColumnVisibilityMenu`), which already handles opening it. */
   onClick?: () => void;
   disabled?: boolean;
+  /** Why the button is disabled, shown as a tooltip. Only shown while it is
+   *  disabled, and set only when the reason is one the user can change. */
+  disabled_reason?: string;
   className?: string;
   iconClassName?: string;
   isIcon?: boolean;
@@ -310,7 +335,7 @@ function GridToolbarButton({
   compact?: boolean;
 }) {
   const icon_only = isIcon || compact;
-  return (
+  const button = (
     <Tooltip>
       <TooltipTrigger
         disabled={!icon_only}
@@ -339,4 +364,14 @@ function GridToolbarButton({
       </TooltipContent>
     </Tooltip>
   );
+  // A disabled button gets no pointer events, so its reason rides on a
+  // wrapper that does.
+  if (disabled && disabled_reason) {
+    return (
+      <span title={disabled_reason} className="inline-flex">
+        {button}
+      </span>
+    );
+  }
+  return button;
 }

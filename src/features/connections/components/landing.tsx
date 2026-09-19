@@ -24,6 +24,7 @@ import {
   serversCreateConnection,
   serversUpdateConnection,
   canPublishConnections,
+  type ConnGuard,
   type ConnectionInfo,
   type SavedDbKind,
   type SharedDbKind,
@@ -34,7 +35,16 @@ import { pickDatabaseFile } from "@/shared/lib/platform";
 import { useStudioStore } from "@/shared/store";
 import type { LandingEditTarget } from "@/shared/store";
 
+import {
+  EMPTY_GUARD_FORM,
+  guardFromForm,
+  guardToForm,
+  isPlainGuard,
+  type GuardFormValues,
+} from "../lib/guard-form";
+import { guardsDiffer, savedNameFor } from "../lib/pending-change";
 import { EditBanner } from "./edit-banner";
+import { ReconnectDialog } from "./reconnect-dialog";
 import { FormTabBar, type FormTabKey } from "./form-tabs";
 import type { SshFormValue } from "./ssh-fields";
 
@@ -229,6 +239,11 @@ export function Landing() {
    *  connection (single-click). */
   const [sqlite_path, setSqlitePath] = useState<string | null>(null);
   const [sqlite_name, setSqliteName] = useState("");
+  /** Read only and environment label for the file (spec 0007). */
+  const [sqlite_guard, setSqliteGuardState] =
+    useState<GuardFormValues>(EMPTY_GUARD_FORM);
+  const setSqliteGuard = (patch: Partial<GuardFormValues>) =>
+    setSqliteGuardState((g) => ({ ...g, ...patch }));
 
   // Browse only picks the file, so it can be saved without opening it.
   const browse_sqlite_click = async () => {
@@ -237,11 +252,16 @@ export function Landing() {
   };
 
   const open_sqlite = useCallback(
-    async (path: string) => {
+    async (path: string, guard: ConnGuard = {}) => {
       if (opening) return;
       setOpening(true);
       try {
-        const conn = await openDatabasePath(path);
+        // A plain file is opened exactly as before; a read only or labelled
+        // one sends its guard, so the backend opens it with the read only
+        // flag and the connection carries its label.
+        const conn = isPlainGuard(guard)
+          ? await openDatabasePath(path)
+          : await openDatabasePath(path, guard);
         openConn(conn);
       } catch (e) {
         useStudioStore.getState().pushNotification({
@@ -273,6 +293,7 @@ export function Landing() {
     connect_timeout_secs: "",
     idle_timeout_secs: "",
     max_lifetime_secs: "",
+    ...EMPTY_GUARD_FORM,
     ssh_host: "",
     ssh_port: "",
     ssh_user: "",
@@ -314,6 +335,7 @@ export function Landing() {
     ssl_ca_file: "",
     ssl_client_cert_file: "",
     retry_writes: false,
+    ...EMPTY_GUARD_FORM,
     replica_set: "",
     pool_max: "",
     pool_min: "",
@@ -357,6 +379,7 @@ export function Landing() {
     connect_timeout_secs: optionalNumber(pg.connect_timeout_secs),
     idle_timeout_secs: optionalNumber(pg.idle_timeout_secs),
     max_lifetime_secs: optionalNumber(pg.max_lifetime_secs),
+    ...guardFromForm(pg),
     ssh: build_ssh_connect_params(pg),
   });
 
@@ -607,6 +630,7 @@ export function Landing() {
     ssl_ca_file: mongo.ssl_ca_file.trim() || undefined,
     ssl_client_cert_file: mongo.ssl_client_cert_file.trim() || undefined,
     retry_writes: mongo.retry_writes ? false : undefined,
+    ...guardFromForm(mongo),
     replica_set: mongo.replica_set.trim() || undefined,
     pool_max: optionalNumber(mongo.pool_max),
     pool_min: optionalNumber(mongo.pool_min),
@@ -683,6 +707,54 @@ export function Landing() {
   );
   const [saving_to, setSavingTo] = useState<string | null>(null);
   const [editing, setEditing] = useState<LandingEditTarget | null>(null);
+  const closeConn = useStudioStore((st) => st.closeConn);
+
+  // Read only and the environment label are fixed when a connection connects
+  // (spec 0007), so saving edits to a connection that is open leaves the live
+  // one on its old settings until it reconnects. `live_for` finds those open
+  // connections BEFORE the saved entry changes (a rename would break the
+  // link), and `offer_reconnect` asks about the ones that now disagree.
+  const [reconnect_ids, setReconnectIds] = useState<string[] | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const live_for = (name: string): ConnectionInfo[] => {
+    const st = useStudioStore.getState();
+    return st.open.filter(
+      (c) => savedNameFor(c, st.recentParams[c.id], st.savedLocal) === name,
+    );
+  };
+  const offer_reconnect = (live: ConnectionInfo[], next: ConnGuard) => {
+    const stale = live.filter((c) => guardsDiffer(c, next)).map((c) => c.id);
+    if (stale.length > 0) setReconnectIds(stale);
+  };
+  const reconnect_now = async () => {
+    if (!reconnect_ids) return;
+    setReconnecting(true);
+    try {
+      // Close the old connections first: a connection with different flags
+      // is a different session, so the new one would not replace them.
+      for (const id of reconnect_ids) {
+        try {
+          await closeConnection(id);
+        } catch {
+          /* already gone */
+        }
+        closeConn(id);
+      }
+      setReconnectIds(null);
+      // The form still holds the values that were just saved.
+      if (kind === "sqlite") {
+        if (sqlite_path) {
+          await open_sqlite(sqlite_path, guardFromForm(sqlite_guard));
+        }
+      } else if (kind === "postgres") {
+        await pg_connect_click();
+      } else {
+        await mongo_connect_click();
+      }
+    } finally {
+      setReconnecting(false);
+    }
+  };
 
   /** Full saved record for the PG form — `kind` routes it on reopen.
    *  `build_params()`'s nested `ssh` (the connect-payload shape) gets
@@ -697,23 +769,38 @@ export function Landing() {
     };
   };
 
-  const save_local = () => {
-    if (editing?.source === "local") {
-      updateSavedLocal(editing.oldName, display_name(), pg_saved_params());
+  const save_local = async () => {
+    try {
+      if (editing?.source === "local") {
+        const live = live_for(editing.oldName);
+        await updateSavedLocal(
+          editing.oldName,
+          display_name(),
+          pg_saved_params(),
+        );
+        pushNotification({
+          kind: "success",
+          title: "Updated saved connection",
+          detail: display_name(),
+        });
+        setEditing(null);
+        offer_reconnect(live, guardFromForm(pg));
+        return;
+      }
+      await saveLocal(display_name(), pg_saved_params());
       pushNotification({
         kind: "success",
-        title: "Updated saved connection",
+        title: "Saved on this device",
         detail: display_name(),
       });
-      setEditing(null);
-      return;
+    } catch (e) {
+      // The backend refuses a bad environment label or colour.
+      pushNotification({
+        kind: "error",
+        title: "Save failed",
+        detail: String(e),
+      });
     }
-    saveLocal(display_name(), pg_saved_params());
-    pushNotification({
-      kind: "success",
-      title: "Saved on this device",
-      detail: display_name(),
-    });
   };
 
   const mongo_display_name = () =>
@@ -737,27 +824,37 @@ export function Landing() {
     };
   };
 
-  const save_mongo_local = () => {
-    if (editing?.source === "local") {
-      updateSavedLocal(
-        editing.oldName,
-        mongo_display_name(),
-        mongo_saved_params(),
-      );
+  const save_mongo_local = async () => {
+    try {
+      if (editing?.source === "local") {
+        const live = live_for(editing.oldName);
+        await updateSavedLocal(
+          editing.oldName,
+          mongo_display_name(),
+          mongo_saved_params(),
+        );
+        pushNotification({
+          kind: "success",
+          title: "Updated saved MongoDB connection",
+          detail: mongo_display_name(),
+        });
+        setEditing(null);
+        offer_reconnect(live, guardFromForm(mongo));
+        return;
+      }
+      await saveLocal(mongo_display_name(), mongo_saved_params());
       pushNotification({
         kind: "success",
-        title: "Updated saved MongoDB connection",
+        title: "Saved on this device",
         detail: mongo_display_name(),
       });
-      setEditing(null);
-      return;
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Save failed",
+        detail: String(e),
+      });
     }
-    saveLocal(mongo_display_name(), mongo_saved_params());
-    pushNotification({
-      kind: "success",
-      title: "Saved on this device",
-      detail: mongo_display_name(),
-    });
   };
 
   const sqlite_display_name = () =>
@@ -774,12 +871,14 @@ export function Landing() {
     password: "",
     database: "",
     source_path: path,
+    ...guardFromForm(sqlite_guard),
   });
 
   const save_sqlite_local = async () => {
     if (!sqlite_path) return;
     const name = sqlite_display_name();
     const updating = editing?.source === "local";
+    const live = updating ? live_for(editing.oldName) : [];
     try {
       if (updating) {
         await updateSavedLocal(
@@ -797,7 +896,10 @@ export function Landing() {
           : "Saved on this device",
         detail: name,
       });
-      if (updating) setEditing(null);
+      if (updating) {
+        setEditing(null);
+        offer_reconnect(live, guardFromForm(sqlite_guard));
+      }
     } catch (e) {
       pushNotification({
         kind: "error",
@@ -1059,6 +1161,7 @@ export function Landing() {
           ssl_ca_file: m.ssl_ca_file ?? "",
           ssl_client_cert_file: m.ssl_client_cert_file ?? "",
           retry_writes: m.retry_writes ?? false,
+          ...guardToForm(m),
           replica_set: m.replica_set ?? "",
           pool_max: m.pool_max != null ? String(m.pool_max) : "",
           pool_min: m.pool_min != null ? String(m.pool_min) : "",
@@ -1086,7 +1189,10 @@ export function Landing() {
         setFormTab("general");
         setSqlitePath(p.source_path ?? null);
         setSqliteName(p.name ?? "");
-        if (connect_now && p.source_path) void open_sqlite(p.source_path);
+        setSqliteGuardState(guardToForm(p));
+        if (connect_now && p.source_path) {
+          void open_sqlite(p.source_path, guardFromForm(guardToForm(p)));
+        }
       } else {
         const pgv = p;
         setKind("postgres");
@@ -1111,6 +1217,7 @@ export function Landing() {
             pgv.idle_timeout_secs != null ? String(pgv.idle_timeout_secs) : "",
           max_lifetime_secs:
             pgv.max_lifetime_secs != null ? String(pgv.max_lifetime_secs) : "",
+          ...guardToForm(pgv),
           ssh_host: pgv.ssh_host ?? "",
           ssh_port: pgv.ssh_port != null ? String(pgv.ssh_port) : "",
           ssh_user: pgv.ssh_user ?? "",
@@ -1152,7 +1259,7 @@ export function Landing() {
   });
 
   // PG form field setter — keeps form_ref in sync via the effect above.
-  const setPgField = (key: keyof PgFormValues, value: string) => {
+  const setPgField = (key: keyof PgFormValues, value: string | boolean) => {
     setPg((p) => ({ ...p, [key]: value }));
   };
 
@@ -1183,9 +1290,14 @@ export function Landing() {
                   path={sqlite_path}
                   name={sqlite_name}
                   setName={setSqliteName}
+                  guard={sqlite_guard}
+                  setGuard={setSqliteGuard}
                   opening={opening}
                   onBrowse={() => void browse_sqlite_click()}
-                  onOpen={() => sqlite_path && void open_sqlite(sqlite_path)}
+                  onOpen={() =>
+                    sqlite_path &&
+                    void open_sqlite(sqlite_path, guardFromForm(sqlite_guard))
+                  }
                   editing={editing !== null}
                   onSaveLocal={() => void save_sqlite_local()}
                   onCancelEdit={() => setEditing(null)}
@@ -1207,14 +1319,14 @@ export function Landing() {
                   saving_to={saving_to}
                   admin_servers={admin_servers}
                   editing={editing !== null}
-                  onSaveLocal={save_mongo_local}
+                  onSaveLocal={() => void save_mongo_local()}
                   onSaveServer={(pid, name) =>
                     void mongo_save_to_server(pid, name)
                   }
                   onUpdate={() =>
                     editing?.source === "server"
                       ? void mongo_update_server()
-                      : save_mongo_local()
+                      : void save_mongo_local()
                   }
                   onCancelEdit={() => setEditing(null)}
                   onClear={clear_mongo_form}
@@ -1245,9 +1357,15 @@ export function Landing() {
                   saving_to={saving_to}
                   admin_servers={admin_servers}
                   editing={editing}
-                  onSaveLocal={save_local}
+                  onSaveLocal={() => void save_local()}
                   onSaveServer={(pid, name) => void save_to_server(pid, name)}
-                  onUpdate={() => void update_server()}
+                  // A local edit saves to this device, same as MongoDB's Update:
+                  // `update_server` only handles a shared connection.
+                  onUpdate={() =>
+                    editing?.source === "server"
+                      ? void update_server()
+                      : void save_local()
+                  }
                   onCancelEdit={() => setEditing(null)}
                   onClear={clear_pg_form}
                 />
@@ -1256,6 +1374,12 @@ export function Landing() {
           </Card>
         </div>
       </div>
+      <ReconnectDialog
+        conn_ids={reconnect_ids}
+        busy={reconnecting}
+        onReconnect={() => void reconnect_now()}
+        onLater={() => setReconnectIds(null)}
+      />
     </div>
   );
 }

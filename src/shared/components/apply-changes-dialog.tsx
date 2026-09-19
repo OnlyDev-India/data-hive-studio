@@ -3,6 +3,8 @@ import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
+import type { ConnGuard } from "@/shared/api";
+import { EnvChip } from "./env-chip";
 import {
   Dialog,
   DialogContent,
@@ -121,10 +123,15 @@ export function ApplyChangesDialog({
    *  an all-or-nothing gate instead of a picker. */
   selectable = false,
   applying = false,
+  env,
   on_apply,
   on_close,
 }: {
   title?: string;
+  /** The connection's label and lock (spec 0007), shown as a chip in the
+   *  title. This review is itself the confirmation before a write, so on a
+   *  Production connection it says where the change is going. */
+  env?: ConnGuard | null;
   /** Grid rendering for a schema DDL review — mutually exclusive with
    *  `rows` below; pass exactly one. */
   ddl?: DdlDiffSection[];
@@ -141,7 +148,9 @@ export function ApplyChangesDialog({
   // its doc comment) for the grid, one row at a time.
   const entry_keys = useMemo(
     () =>
-      rows ? rows.map((r) => r.ids[0]) : flatten_ddl(ddl ?? []).map((e) => e.id),
+      rows
+        ? rows.map((r) => r.ids[0])
+        : flatten_ddl(ddl ?? []).map((e) => e.id),
     [rows, ddl],
   );
   const [selected, setSelected] = useState<Set<string>>(
@@ -204,7 +213,10 @@ export function ApplyChangesDialog({
     <Dialog open onOpenChange={(o) => !o && !applying && on_close()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {title}
+            {env && <EnvChip conn={env} />}
+          </DialogTitle>
           <DialogDescription>
             {selectable
               ? `${all} staged change${all === 1 ? "" : "s"}. Uncheck anything you don’t want to apply.`
@@ -711,7 +723,7 @@ function TriggerRows({ rows }: { rows: DdlTriggerRow[] }) {
                 : "bg-red-500/10 text-red-800 dark:text-red-300",
             )}
           >
-            <div className="text-3xs border-current/20 flex items-baseline gap-1.5 border-b px-2 py-1 font-medium tracking-wide uppercase opacity-80">
+            <div className="text-3xs flex items-baseline gap-1.5 border-b border-current/20 px-2 py-1 font-medium tracking-wide uppercase opacity-80">
               <span className="select-none">{is_insert ? "+" : "−"}</span>
               <span className="normal-case">{r.name}</span>
             </div>

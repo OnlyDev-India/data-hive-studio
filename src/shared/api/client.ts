@@ -4,6 +4,8 @@
 // most of the app already imports from here (directly or via the
 // `shared/api` barrel) and there's no reason to force a mass path rewrite.
 export * from "./dispatch";
+export * from "./env";
+export * from "./read-only";
 export * from "./server-admin";
 export * from "./connection";
 export * from "./query";

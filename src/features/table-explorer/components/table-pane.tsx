@@ -351,6 +351,7 @@ export function TablePane({
               schemaPane={schemaPane}
               drop_label="Drop table"
               pane_ref={pane_ref}
+              conn_id={conn_id}
             />
           )}
         </div>

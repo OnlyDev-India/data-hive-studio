@@ -16,12 +16,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::api::{
-    FilterOp, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
+    ConnGuard, FilterOp, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
     ColumnInfo, IndexInfo, TriggerInfo,
 };
 use super::{
-    runs::Canceller, BatchSink, DbAdapter, DbError, DbResult, RoleDetail, RunHandle, SchemaObject,
-    SchemaObjectKind,
+    read_only::{Dialect, ReadOnlyGuard}, runs::Canceller, BatchSink, DbAdapter, DbError, DbResult, RoleDetail,
+    RunHandle, SchemaObject, SchemaObjectKind,
 };
 
 /// Parameters for connecting to a PostgreSQL server.
@@ -77,6 +77,10 @@ pub struct PgParams {
     /// minutes — applies when unset).
     #[serde(default)]
     pub max_lifetime_secs: Option<u32>,
+    /// Read only flag and environment label (spec 0007). The adapter reads
+    /// only `read_only`; the rest passes through to `ConnectionInfo`.
+    #[serde(flatten)]
+    pub guard: ConnGuard,
 }
 
 fn ssl_mode(v: Option<&str>) -> sqlx::postgres::PgSslMode {
@@ -170,6 +174,15 @@ fn pg_connect_options(
     if let Some(key) = &params.ssl_client_key_file {
         options = options.ssl_client_key(key);
     }
+    // Read only lock (spec 0007): every pooled session, secondary pools and
+    // the short lived Stop connection included, opens with new transactions
+    // read only. The SQL check refuses the statements that could switch it
+    // back off; this refuses the writes the check cannot see (a data changing
+    // CTE, a writing function). Only set when asked, so a normal connection's
+    // startup is unchanged.
+    if params.guard.read_only {
+        options = options.options([("default_transaction_read_only", "on")]);
+    }
     options
 }
 
@@ -241,6 +254,9 @@ pub struct PgAdapter {
     /// extends that to the adapter's lifetime, same exposure `ssl_client_key_file`
     /// etc. already have.
     params: PgParams,
+    /// Refuses writes on a read only connection (spec 0007). Fixed for the
+    /// life of the adapter.
+    guard: ReadOnlyGuard,
     /// One extra pool per sibling database the sidebar's catalog tree has
     /// expanded, opened lazily on first expand and kept warm — this is what
     /// lets a Postgres connection browse another database inline (a single
@@ -298,6 +314,7 @@ impl PgAdapter {
             type_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             database: params.database.clone(),
             params: params.clone(),
+            guard: ReadOnlyGuard::new(params.guard.read_only),
             secondary_pools: std::sync::Mutex::new(std::collections::HashMap::new()),
             opening: std::sync::Mutex::new(std::collections::HashMap::new()),
             _ssh_tunnel: tunnel,
@@ -435,6 +452,91 @@ impl PgAdapter {
             None => (self.params.host.clone(), self.params.port),
         };
         pg_connect_options(&host, port, &self.params, database)
+    }
+
+    /// `run_sql` past the read only check. The session itself is also read
+    /// only on a read only connection, so a write the check let through (a
+    /// data changing CTE) fails here and the caller turns it into the typed
+    /// refusal.
+    async fn run_sql_locked(&self, database: Option<&str>, schema: Option<&str>, sql: &str) -> DbResult<QueryResult> {
+        let pool = self.pool_for(database).await?;
+        let start = Instant::now();
+        let converted = dollar_placeholders(sql);
+        let trimmed = converted.trim();
+        let first_word = trimmed
+            .split(|c: char| c == ' ' || c == '\n' || c == '\t')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let is_select = first_word == "select" || first_word == "with";
+
+        // A target schema (the SQL editor's own picker) resolves every
+        // unqualified name in `sql` through a TRANSACTION-LOCAL search_path
+        // — same mechanism/reasoning as `apply_schema_ops_batch`: SET LOCAL
+        // dies with the transaction, so pooled connections stay clean
+        // (PgBouncer-safe) whether this commits or errors out.
+        if let Some(schema) = schema {
+            let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
+            let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
+            sqlx::query(&format!("SET LOCAL search_path = {}", q(schema)))
+                .execute(&mut *tx)
+                .await
+                .map_err(DbError::SqlEngine)?;
+            let result = if is_select {
+                let columns = describe_columns_conn(&mut tx, trimmed).await?;
+                let rows = sqlx::query(trimmed).fetch_all(&mut *tx).await.map_err(DbError::SqlEngine)?;
+                let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
+                QueryResult {
+                    columns,
+                    rows: out,
+                    rows_affected: 0,
+                    is_select: true,
+                    error: null_error(),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    cancelled: false,
+                }
+            } else {
+                let res = sqlx::query(trimmed).execute(&mut *tx).await.map_err(DbError::SqlEngine)?;
+                QueryResult {
+                    columns: vec![],
+                    rows: vec![],
+                    rows_affected: res.rows_affected(),
+                    is_select: false,
+                    error: null_error(),
+                    elapsed_ms: start.elapsed().as_millis(),
+                    cancelled: false,
+                }
+            };
+            tx.commit().await.map_err(DbError::SqlEngine)?;
+            return Ok(result);
+        }
+
+        if is_select {
+            let columns = describe_columns(&pool, trimmed).await?;
+            let rows = sqlx::query(trimmed).fetch_all(&pool).await.map_err(DbError::SqlEngine)?;
+            // Reuse row_to_vec so every type (dates, timestamps, arrays,
+            // booleans, numerics, …) renders as human-readable text.
+            let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
+            return Ok(QueryResult {
+                columns,
+                rows: out,
+                rows_affected: 0,
+                is_select: true,
+                error: null_error(),
+                elapsed_ms: start.elapsed().as_millis(),
+                cancelled: false,
+            });
+        }
+        let res = sqlx::query(trimmed).execute(&pool).await.map_err(DbError::SqlEngine)?;
+        Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            rows_affected: res.rows_affected(),
+            is_select: false,
+            error: null_error(),
+            elapsed_ms: start.elapsed().as_millis(),
+            cancelled: false,
+        })
     }
 
     /// The editor's Run for a stoppable run (spec 0006). Takes a dedicated
@@ -1426,6 +1528,7 @@ impl DbAdapter for PgAdapter {
     // Identifier safety: q() doubles embedded quotes, so interpolated names
     // cannot break out of the quoted identifier.
     async fn create_database(&self, name: &str) -> DbResult<()> {
+        self.guard.check_write("create database")?;
         let name = name.trim();
         if name.is_empty() {
             return Err(DbError::InvalidOperation(
@@ -1441,6 +1544,7 @@ impl DbAdapter for PgAdapter {
     }
 
     async fn drop_database(&self, name: &str) -> DbResult<()> {
+        self.guard.check_write("drop database")?;
         let name = name.trim();
         if name.is_empty() {
             return Err(DbError::InvalidOperation(
@@ -1461,6 +1565,7 @@ impl DbAdapter for PgAdapter {
     }
 
     async fn create_schema(&self, name: &str) -> DbResult<()> {
+        self.guard.check_write("create schema")?;
         let name = name.trim();
         if name.is_empty() {
             return Err(DbError::InvalidOperation(
@@ -1476,6 +1581,7 @@ impl DbAdapter for PgAdapter {
     }
 
     async fn drop_schema(&self, name: &str, cascade: bool) -> DbResult<()> {
+        self.guard.check_write("drop schema")?;
         let name = name.trim();
         if name.is_empty() {
             return Err(DbError::InvalidOperation(
@@ -1502,84 +1608,10 @@ impl DbAdapter for PgAdapter {
     }
 
     async fn run_sql(&self, database: Option<&str>, schema: Option<&str>, sql: &str) -> DbResult<QueryResult> {
-        let pool = self.pool_for(database).await?;
-        let start = Instant::now();
-        let converted = dollar_placeholders(sql);
-        let trimmed = converted.trim();
-        let first_word = trimmed
-            .split(|c: char| c == ' ' || c == '\n' || c == '\t')
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let is_select = first_word == "select" || first_word == "with";
-
-        // A target schema (the SQL editor's own picker) resolves every
-        // unqualified name in `sql` through a TRANSACTION-LOCAL search_path
-        // — same mechanism/reasoning as `apply_schema_ops_batch`: SET LOCAL
-        // dies with the transaction, so pooled connections stay clean
-        // (PgBouncer-safe) whether this commits or errors out.
-        if let Some(schema) = schema {
-            let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
-            let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
-            sqlx::query(&format!("SET LOCAL search_path = {}", q(schema)))
-                .execute(&mut *tx)
-                .await
-                .map_err(DbError::SqlEngine)?;
-            let result = if is_select {
-                let columns = describe_columns_conn(&mut tx, trimmed).await?;
-                let rows = sqlx::query(trimmed).fetch_all(&mut *tx).await.map_err(DbError::SqlEngine)?;
-                let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
-                QueryResult {
-                    columns,
-                    rows: out,
-                    rows_affected: 0,
-                    is_select: true,
-                    error: null_error(),
-                    elapsed_ms: start.elapsed().as_millis(),
-                    cancelled: false,
-                }
-            } else {
-                let res = sqlx::query(trimmed).execute(&mut *tx).await.map_err(DbError::SqlEngine)?;
-                QueryResult {
-                    columns: vec![],
-                    rows: vec![],
-                    rows_affected: res.rows_affected(),
-                    is_select: false,
-                    error: null_error(),
-                    elapsed_ms: start.elapsed().as_millis(),
-                    cancelled: false,
-                }
-            };
-            tx.commit().await.map_err(DbError::SqlEngine)?;
-            return Ok(result);
-        }
-
-        if is_select {
-            let columns = describe_columns(&pool, trimmed).await?;
-            let rows = sqlx::query(trimmed).fetch_all(&pool).await.map_err(DbError::SqlEngine)?;
-            // Reuse row_to_vec so every type (dates, timestamps, arrays,
-            // booleans, numerics, …) renders as human-readable text.
-            let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
-            return Ok(QueryResult {
-                columns,
-                rows: out,
-                rows_affected: 0,
-                is_select: true,
-                error: null_error(),
-                elapsed_ms: start.elapsed().as_millis(),
-                cancelled: false,
-            });
-        }
-        let res = sqlx::query(trimmed).execute(&pool).await.map_err(DbError::SqlEngine)?;
-        Ok(QueryResult {
-            columns: vec![],
-            rows: vec![],
-            rows_affected: res.rows_affected(),
-            is_select: false,
-            error: null_error(),
-            elapsed_ms: start.elapsed().as_millis(),
-            cancelled: false,
-        })
+        self.guard.check_sql(Dialect::Postgres, sql)?;
+        self.run_sql_locked(database, schema, sql)
+            .await
+            .map_err(|e| self.guard.refine(e))
     }
 
     async fn execute_params(
@@ -1588,6 +1620,9 @@ impl DbAdapter for PgAdapter {
         sql: &str,
         params: &[Option<String>],
     ) -> DbResult<u64> {
+        // Grid built statements only, so the same statement check as the editor
+        // names the keyword it refused (UPDATE, INSERT, DELETE).
+        self.guard.check_sql(Dialect::Postgres, sql)?;
         let pool = self.pool_for(database).await?;
         let converted = dollar_placeholders(sql);
         // Bind the parameters — frontend-built statements use $1..$n and are
@@ -1606,6 +1641,7 @@ impl DbAdapter for PgAdapter {
         sql: &str,
         params: &[Option<String>],
     ) -> DbResult<QueryResult> {
+        self.guard.check_sql(Dialect::Postgres, sql)?;
         let pool = self.pool_for(database).await?;
         let start = Instant::now();
         // Frontend-built statements use `?`; renumber to $n and bind.
@@ -1634,6 +1670,7 @@ impl DbAdapter for PgAdapter {
         schema: Option<&str>,
         op: &QueryOp,
     ) -> DbResult<super::OpOutcome> {
+        self.guard.check_op(op)?;
         let pool = self.pool_for(database).await?;
         let database_key = self.resolve_database(database).to_string();
         let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
@@ -1926,6 +1963,7 @@ impl DbAdapter for PgAdapter {
         op: &QueryOp,
         on_batch: BatchSink<'_>,
     ) -> DbResult<super::OpOutcome> {
+        self.guard.check_op(op)?;
         // Only SELECT streams; everything else runs normally.
         let QueryOp::Select { table, filters, custom_where, order_by, limit, offset } = op else {
             return self.execute_op(database, schema, op).await
@@ -1989,8 +2027,14 @@ impl DbAdapter for PgAdapter {
         run: Option<&RunHandle>,
         on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult> {
+        // Before a canceller is armed, so a refused statement never becomes
+        // a run Stop could reach.
+        self.guard.check_sql(Dialect::Postgres, sql)?;
         let result = match run {
-            Some(run) => self.run_sql_cancellable(database, schema, sql, run).await?,
+            Some(run) => self
+                .run_sql_cancellable(database, schema, sql, run)
+                .await
+                .map_err(|e| self.guard.refine(e))?,
             None => self.run_sql(database, schema, sql).await?,
         };
         if result.is_select && !result.rows.is_empty() {
@@ -2009,6 +2053,9 @@ impl DbAdapter for PgAdapter {
         schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> DbResult<Vec<String>> {
+        if !ops.is_empty() {
+            self.guard.check_write("schema changes")?;
+        }
         let pool = self.pool_for(database).await?;
         let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
         let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
@@ -2208,6 +2255,7 @@ impl DbAdapter for PgAdapter {
         target: &str,
         _copy_data: bool,
     ) -> DbResult<Vec<String>> {
+        self.guard.check_write("duplicate table")?;
         // TODO(postgres duplicate UI): honor copy_data once Postgres gets the
         // same copy-data checkbox as Mongo's "Duplicate collection" — for now
         // this always copies structure + indexes + data, matching prior
@@ -2256,6 +2304,7 @@ impl DbAdapter for PgAdapter {
         schema: Option<&str>,
         name: &str,
     ) -> DbResult<()> {
+        self.guard.check_write("refresh materialized view")?;
         let pool = self.pool_for(database).await?;
         let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
         let sql = format!("REFRESH MATERIALIZED VIEW {}", tq(&schema, name));
@@ -2550,6 +2599,49 @@ fn bind_all<'a>(
         q = bind_str(q, p);
     }
     q
+}
+
+#[cfg(test)]
+mod read_only_tests {
+    use super::*;
+
+    fn params(read_only: bool) -> PgParams {
+        serde_json::from_value(serde_json::json!({
+            "host": "db.example", "user": "u", "password": "p", "database": "d",
+            "read_only": read_only,
+        }))
+        .unwrap()
+    }
+
+    /// AC-3: a read only connection starts every session with new
+    /// transactions read only.
+    #[test]
+    fn read_only_connection_opens_sessions_read_only() {
+        let p = params(true);
+        assert!(p.guard.read_only);
+        let options = pg_connect_options("db.example", 5432, &p, "d");
+        assert_eq!(options.get_options(), Some("-c default_transaction_read_only=on"));
+    }
+
+    /// A normal connection's startup is untouched (PgBouncer and friends
+    /// never see an `options` startup parameter they did not get before).
+    #[test]
+    fn normal_connection_sends_no_startup_options() {
+        let p = params(false);
+        assert!(!p.guard.read_only);
+        let options = pg_connect_options("db.example", 5432, &p, "d");
+        assert_eq!(options.get_options(), None);
+    }
+
+    /// AC-1: params without any of the four keys default to not read only.
+    #[test]
+    fn params_without_guard_fields_default_to_not_read_only() {
+        let p: PgParams = serde_json::from_value(serde_json::json!({
+            "host": "h", "user": "u", "password": "p", "database": "d",
+        }))
+        .unwrap();
+        assert_eq!(p.guard, ConnGuard::default());
+    }
 }
 
 /// Stop a running query (spec 0006): the pure decisions, no server needed.
@@ -2951,5 +3043,105 @@ mod stop_tests {
             .expect("the pool must hand out a fresh connection, not the busy one")
             .unwrap();
         assert_eq!(next.rows, vec![vec![Some("1".to_string())]]);
+    }
+}
+
+/// The read only lock (spec 0007) against a real server. All `#[ignore]`d,
+/// same instance as the Stop tests: `cargo test -p dh-core -- --ignored
+/// pg_read_only`.
+#[cfg(test)]
+mod read_only_live_tests {
+    use super::*;
+
+    fn params(read_only: bool) -> PgParams {
+        let url = std::env::var("DH_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres@127.0.0.1:5544/dh_server_test".to_string());
+        let rest = url.strip_prefix("postgres://").expect("a postgres:// url");
+        let (auth, tail) = rest.split_once('@').expect("user@host in the url");
+        let (user, password) = auth.split_once(':').unwrap_or((auth, ""));
+        let (hostport, database) = tail.split_once('/').expect("/database in the url");
+        let (host, port) = hostport.split_once(':').unwrap_or((hostport, "5432"));
+        serde_json::from_value(serde_json::json!({
+            "host": host, "port": port.parse::<u16>().unwrap(), "user": user,
+            "password": password, "database": database, "ssl_mode": "disable",
+            "read_only": read_only,
+        }))
+        .unwrap()
+    }
+
+    fn is_refusal<T>(res: DbResult<T>) -> bool {
+        matches!(&res, Err(DbError::ReadOnly(m)) if m.starts_with(super::super::READ_ONLY_PREFIX))
+    }
+
+    /// AC-2, AC-3, AC-5, AC-14: reads work, every kind of write is refused
+    /// with the typed error, and the row is still there afterwards.
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database, see server::store::test_pg_url"]
+    async fn pg_read_only_refuses_writes_and_keeps_reads() {
+        let rw = PgAdapter::connect(&params(false)).await.unwrap();
+        let ro = PgAdapter::connect(&params(true)).await.unwrap();
+        let table = format!("dh_ro_{}", uuid::Uuid::new_v4().simple());
+        rw.run_sql(None, None, &format!("CREATE TABLE {table} (id int primary key, v text)"))
+            .await
+            .unwrap();
+        rw.run_sql(None, None, &format!("INSERT INTO {table} VALUES (1, 'a')")).await.unwrap();
+
+        // Reads still work.
+        let read = ro.run_sql(None, None, &format!("SELECT v FROM {table}")).await.unwrap();
+        assert_eq!(read.rows, vec![vec![Some("a".to_string())]]);
+        ro.run_sql(None, None, &format!("EXPLAIN SELECT * FROM {table}")).await.unwrap();
+
+        // The check refuses a hand typed write, and a whole script.
+        assert!(is_refusal(ro.run_sql(None, None, &format!("UPDATE {table} SET v = 'b'")).await));
+        assert!(is_refusal(
+            ro.run_sql(None, None, &format!("SELECT 1; DELETE FROM {table}")).await
+        ));
+
+        // Statements that could switch the lock off are refused by the check.
+        for sql in [
+            "SET default_transaction_read_only = off",
+            "SELECT set_config('default_transaction_read_only', 'off', false)",
+            "BEGIN READ WRITE",
+        ] {
+            assert!(is_refusal(ro.run_sql(None, None, sql).await), "{sql}");
+        }
+
+        // A write the check lets through (starts with WITH) is refused by the
+        // session lock, and comes back as the typed error too.
+        let cte = format!("WITH d AS (DELETE FROM {table} RETURNING *) SELECT * FROM d");
+        assert!(is_refusal(ro.run_sql(None, None, &cte).await));
+
+        // Structured writes are refused before they reach the database.
+        let delete = QueryOp::Delete {
+            table: table.clone(),
+            match_row: [("id".to_string(), Some("1".to_string()))].into(),
+        };
+        assert!(is_refusal(ro.execute_op(None, None, &delete).await));
+        assert!(is_refusal(ro.execute_op(None, None, &QueryOp::DropTable { table: table.clone() }).await));
+        assert!(is_refusal(ro.execute_params(None, &format!("DELETE FROM {table}"), &[]).await));
+        assert!(is_refusal(ro.duplicate_table(None, None, &table, "dh_ro_copy", true).await));
+        assert!(is_refusal(ro.create_schema("dh_ro_schema").await));
+        assert!(is_refusal(ro.drop_schema("dh_ro_schema", false).await));
+        assert!(is_refusal(ro.create_database("dh_ro_db").await));
+        assert!(is_refusal(ro.drop_database("dh_ro_db").await));
+        assert!(is_refusal(ro.refresh_matview(None, None, "dh_ro_mv").await));
+
+        // Nothing changed.
+        let left = rw.run_sql(None, None, &format!("SELECT count(*) FROM {table}")).await.unwrap();
+        assert_eq!(left.rows, vec![vec![Some("1".to_string())]]);
+        rw.run_sql(None, None, &format!("DROP TABLE {table}")).await.unwrap();
+    }
+
+    /// AC-3: a pooled session on a read only connection starts with new
+    /// transactions read only, whatever the SQL check says.
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database, see server::store::test_pg_url"]
+    async fn pg_read_only_sessions_start_read_only() {
+        let ro = PgAdapter::connect(&params(true)).await.unwrap();
+        let on = ro.run_sql(None, None, "SHOW default_transaction_read_only").await.unwrap();
+        assert_eq!(on.rows, vec![vec![Some("on".to_string())]]);
+        let rw = PgAdapter::connect(&params(false)).await.unwrap();
+        let off = rw.run_sql(None, None, "SHOW default_transaction_read_only").await.unwrap();
+        assert_eq!(off.rows, vec![vec![Some("off".to_string())]]);
     }
 }
