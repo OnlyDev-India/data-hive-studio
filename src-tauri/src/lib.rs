@@ -2,10 +2,8 @@
 //! re-exports keep `crate::api` / `crate::db` / `crate::activity` paths in
 //! `commands.rs` valid.
 
-// Only used by the macOS-only native-menu setup below (`app.manage(...)`) —
-// Windows/Linux never call a `Manager` method, so an unconditional import
-// warns as unused on those targets.
-#[cfg(target_os = "macos")]
+// Needed on every platform: `toggle_devtools` calls `Manager` methods and is
+// compiled everywhere, and the macOS native-menu setup uses `app.manage(...)`.
 use tauri::Manager;
 pub use dh_core::{activity, api, db};
 pub mod activity_store;
@@ -16,6 +14,24 @@ pub mod local_connections;
 mod secret_file;
 pub mod servers;
 pub mod workspace_state;
+
+/// Opens or closes the inspector on the focused window (falling back to
+/// "main"). Lives here rather than in the frontend so it still works when the
+/// webview rendered nothing.
+fn toggle_devtools(app: &tauri::AppHandle) {
+  let window = app
+    .webview_windows()
+    .into_values()
+    .find(|w| w.is_focused().unwrap_or(false))
+    .or_else(|| app.get_webview_window("main"));
+  if let Some(window) = window {
+    if window.is_devtools_open() {
+      window.close_devtools();
+    } else {
+      window.open_devtools();
+    }
+  }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,6 +56,10 @@ pub fn run() {
         .build(),
     )
     .on_menu_event(|app_handle, event| {
+      if event.id().as_ref() == app_menu::TOGGLE_DEVTOOLS_ID {
+        toggle_devtools(app_handle);
+        return;
+      }
       use tauri::Emitter;
       let _ = app_handle.emit("menu-action", event.id().as_ref());
     })

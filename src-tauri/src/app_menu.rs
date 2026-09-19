@@ -14,6 +14,10 @@
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Runtime};
 
+/// Menu id for View → Toggle Developer Tools. Handled natively, never emitted
+/// to the frontend.
+pub const TOGGLE_DEVTOOLS_ID: &str = "view.toggle_devtools";
+
 /// File-menu items that only make sense with a connection open — grayed out
 /// on the Home screen via `set_menu_context`, rather than always enabled
 /// and silently no-op'ing when clicked with nothing open.
@@ -135,6 +139,17 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<(Menu<R>, FileMenu
             // No accelerator — Cmd/Ctrl+P and Cmd/Ctrl+Shift+P already open
             // this in-app (see command-palette.tsx's own useShortcuts).
             &MenuItem::with_id(app, "view.command_palette", "Command Palette", true, None::<&str>)?,
+            // Handled entirely in Rust (see `toggle_devtools` in lib.rs), NOT
+            // forwarded to the frontend: the whole point is diagnosing a
+            // blank window, where the JS that would receive the event may
+            // be exactly what failed.
+            &MenuItem::with_id(
+                app,
+                TOGGLE_DEVTOOLS_ID,
+                "Toggle Developer Tools",
+                true,
+                Some("CmdOrCtrl+Alt+I"),
+            )?,
             #[cfg(target_os = "macos")]
             &PredefinedMenuItem::separator(app)?,
             #[cfg(target_os = "macos")]
