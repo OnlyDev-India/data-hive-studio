@@ -114,13 +114,17 @@ jobs:
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - Command palette: refactored to use `useAppShortcut` for keyboard shortcuts; replaced left panel with edge panel for a cleaner layout
-            - Editor toolbar: added compress query option and zen mode toggle for distraction-free editing
-            - Danger confirm dialog: prompts for confirmation before executing potentially destructive SQL statements
-            - Editor: text-editing commands (join/delete lines, case conversion, naming-style cycling, delimited-list, paste-as-IN), zoom, and right-click context menu
-            - Data grid: multi-directional (incl. diagonal) fill-handle drag, bulk-edit dialog with server-side conditional update, right-click value generation (NULL/timestamp/UUID/increment), row delete/clone on selection
-            - Mongo: filter bar now uses the BSON/JSON editor; backend filter parser accepts BSON constructors (e.g. `ObjectId(...)`)
-            - JSON viewer and BSON key/value frame improvements
+            - Data grid: drag to reorder columns, column visibility menu with select all, and column layout remembered between sessions
+            - Data grid: Excel style quick filter on each column listing its distinct values
+            - Data grid: foreign key cells show a readable label from the referenced table
+            - Data grid: staged edit buffer, result view tabs, and a resizable bottom panel that now keeps its own open and size state per tab
+            - SQL editor: bind variable dialog for `:name` and `${name}` placeholders, and function signature help while typing
+            - SQL editor: find bar now supports replace, case sensitive matching, and regular expressions
+            - SQL editor: generated INSERT statements show each value labeled with its column name, with a toggle in the toolbar
+            - Schema designer: DDL changes are reviewed in a grid style diff, and MongoDB collections show a nested field tree
+            - Mongo: richer query editing and BSON support in the editor and backend
+            - Settings: SQL formatting options for keyword case and indent width
+            - Sidebar: Postgres extensions are listed once per database
 
             Full commit history: ${{ github.sha }}
 
