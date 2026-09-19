@@ -37,14 +37,16 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 5   | Table comparison view                       | Slice 5  | planned     |
 | 6   | Query editor find and replace               | Slice 6  | done        |
 | 7   | Column labels in generated INSERT SQL       | Slice 7  | done        |
-| 9   | Update dialog markdown and deferred restart | Slice 9  | in-progress |
-| 10  | Stop a running query                        | Slice 10 | planned     |
-| 11  | Read only and environment labels            | Slice 11 | planned     |
-| 12  | Import data                                 | Slice 12 | planned     |
+| 9   | Update dialog markdown and deferred restart | Slice 9  | done        |
+| 10  | Stop a running query                        | Slice 10 | in-progress |
+| 11  | Read only and environment labels            | Slice 11 | in-progress |
+| 12  | Import data                                 | Slice 12 | in-progress |
 | 13  | Explain plan viewer                         | Slice 13 | planned     |
 | 14  | Saved queries and snippets                  | Slice 14 | planned     |
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
 | 16  | ER diagram                                  | Slice 16 | planned     |
+| 17  | Streaming results for Postgres and MongoDB  | Slice 17 | planned     |
+| 18  | Split large adapter files                   | Slice 18 | planned     |
 
 
 
@@ -257,7 +259,7 @@ code in `src/shared/components/query-editor/insert-column-labels.ts`, `src/share
 
 
 
-### 9. Update dialog markdown and deferred restart · in-progress · from L. Auto updater
+### 9. Update dialog markdown and deferred restart · done · from L. Auto updater
 
 The update popup (`update-dialog.tsx`) shows release notes as plain text, so headings, lists, links, and code in the notes appear as raw markdown symbols. Its Skip button hides the title bar update badge for that version for good, and Update & Restart relaunches the app the moment the download finishes, with no chance to save your work first. Render the notes as real markdown, replace Skip with a Later button that only closes the popup and leaves the update button visible, and stop relaunching automatically after the install. Once the update is installed, the same place that offered it (the popup and the title bar badge that opens it) shows a Restart button you press when you are ready. The design pass settles where that Restart state lives so it survives closing the popup, and how release note links and unsafe markup are handled.
 **Done when:** the update popup shows release notes as formatted markdown (headings, lists, links, code), offers Later instead of Skip so the update button stays visible in the title bar after closing, and after an install finishes the app does not relaunch by itself but shows a Restart button in the same place until you press it.
@@ -269,10 +271,10 @@ code in `src/features/updater/update-dialog.tsx`, `src/features/updater/update-c
   - [x] Rust thread: new `updater.rs` with `updater_download` and `updater_install_and_restart`, registered in `lib.rs`, and the quit hook skips restart requests — satisfies AC-3, AC-4, AC-5, AC-8
   - [x] Frontend thread: store phases replace `skippedUpdateVersion`, recheck guard, and the dialog gets Later, Update, Restart now, Retry — satisfies AC-2, AC-3, AC-4, AC-7, AC-8
   - [x] Install on quit: the exit hook installs a waiting update after database cleanup — satisfies AC-6
-  - [ ] Title bar badge phase states and callout, plus the Restart confirmation when staged edits exist — satisfies AC-2, AC-4, AC-5, AC-11
-  - [ ] Markdown release notes with the opener plugin for links, then a regression pass (web build, entry points, failure cases) — satisfies AC-1, AC-8, AC-9, AC-10, AC-11
-- [ ] Verify it: `/check verify update dialog markdown and deferred restart`
-- [ ] Test it: `/test update dialog markdown and deferred restart`
+  - [x] Title bar badge phase states and callout, plus the Restart confirmation when staged edits exist — satisfies AC-2, AC-4, AC-5, AC-11
+  - [x] Markdown release notes with the opener plugin for links, then a regression pass (web build, entry points, failure cases) — satisfies AC-1, AC-8, AC-9, AC-10, AC-11
+- [x] Verify it: `/check verify update dialog markdown and deferred restart`
+- [x] Test it: `/test update dialog markdown and deferred restart`
 
 
 
@@ -280,13 +282,22 @@ code in `src/features/updater/update-dialog.tsx`, `src/features/updater/update-c
 
 
 
-### 10. Stop a running query · needs a decision
+### 10. Stop a running query · in-progress
 
 Once a query starts in the editor there is no way to stop it, so a slow or runaway query ties up the tab (and the database) until it finishes on its own. Add a Stop button to the editor's run toolbar that cancels the running query for SQLite, PostgreSQL, and MongoDB, including a large result that is still streaming in. Each database cancels in its own way, so the design pass settles how cancel works per backend, what the tab shows afterward, and what happens to rows already streamed.
 **Done when:** while a query is running in the editor, a Stop button ends it, the tab shows that it was stopped (not an error), and you can run another query right away, on all three databases.
+spec [0006](../specs/0006-stop-running-query/index.md)
 code in `src/features/query-editor/components/editor-run-toolbar.tsx`, `crates/dh-core/src/db/mod.rs`
 
-- [ ] Design it (spec): `/architect stop a running query`
+- [x] Design it (spec): `/architect stop a running query`
+- [x] Build it: `/develop stop a running query`
+  - [x] Thread on SQLite, local: run registry, `run_id`, `sqlite3_interrupt`, Stop button and Stopped tab state, 3 second confirm cap, activity log entry — satisfies AC-1, AC-2, AC-5, AC-9, AC-12, AC-13, AC-16
+  - [x] PostgreSQL: dedicated connection per run, pid capture, `pg_cancel_backend` from a separate connection, abandon and detach — satisfies AC-1, AC-2, AC-4, AC-8, AC-13
+  - [x] MongoDB SQL editor and console: `comment` tag, `currentOp` plus `killOp`, denied fallback, console Stop and write warning — satisfies AC-3, AC-6, AC-8
+  - [x] Run all and closing: Stop all and per tab stop, queued runs cancelled, cancel on tab close or disconnect, Cmd or Ctrl plus period — satisfies AC-7, AC-10, AC-11
+  - [x] Team server and web: cancel route, owner or Owner and Admin rule, audit, older server fallback, then a regression pass — satisfies AC-12, AC-14, AC-15
+- [x] Verify it: `/check verify stop a running query`
+- [x] Test it: `/test stop a running query`
 
 
 
@@ -294,13 +305,24 @@ code in `src/features/query-editor/components/editor-run-toolbar.tsx`, `crates/d
 
 
 
-### 11. Read only and environment labels · needs a decision · GA
+### 11. Read only and environment labels · in-progress · GA
 
 Nothing on a connection says how careful you should be with it, so a production database looks the same as a scratch one. Let a connection be marked read only (writes are refused, not just warned about) and carry an environment label (for example production, staging, development) with a colour that shows in the sidebar, the tab bar, and the title bar. This builds on the existing dangerous SQL warning. The design pass settles where read only is enforced (it has to hold even for a query typed by hand and for Mongo), and how it behaves for team server shared connections.
 **Done when:** a connection marked read only refuses every write from the editor, the grid, and the schema designer with a clear message, and any connection with an environment label shows that label and colour wherever you can see the connection.
+spec [0007](../specs/0007-read-only-environment-labels/index.md)
 code in `src/features/connections`, `src/features/query-editor/lib/dangerous-sql.ts`, `crates/dh-core/src/db/mod.rs`
 
-- [ ] Design it (spec): `/architect read only and environment labels`
+- [x] Design it (spec): `/architect read only and environment labels`
+- [ ] Build it: `/develop read only and environment labels`
+  - [ ] Thread on Postgres, local: `ConnGuard` fields, `ReadOnlyGuard`, `DbError::ReadOnly`, first SQL check, Postgres session lock, Read only switch, lock icon in the sidebar — satisfies AC-1, AC-2, AC-7
+  - [ ] Guard on every database: full SQL check with bypass tests, structured writes, SQLite open flag, Mongo method allowlist, refusals in the Activity log — satisfies AC-2, AC-3, AC-4, AC-5, AC-7
+  - [ ] Label and interface: label fields and form, colour tokens and chip, disabled write controls, Production confirm, Reconnect flow — satisfies AC-1, AC-6, AC-8, AC-9, AC-10
+  - [ ] Team server and shared connections: migration, Owner or Admin rule, server enforcement, capabilities, stale flag refresh — satisfies AC-11, AC-12, AC-13
+  - [ ] Regression pass: reads still work on a read only connection, plus tests across all layers — satisfies AC-14
+- [ ] Verify it: `/check verify read only and environment labels`
+- [ ] Test it: `/test read only and environment labels`
+- [ ] Review it (fresh model): `/check review read only and environment labels`
+- [ ] Document it: `/document read only and environment labels`
 
 
 
@@ -308,13 +330,24 @@ code in `src/features/connections`, `src/features/query-editor/lib/dangerous-sql
 
 
 
-### 12. Import data · needs a decision · GA
+### 12. Import data · in-progress · GA
 
 Export is covered in five formats, but you cannot bring data back in. Add import: pick a CSV or JSON file (Excel too if it stays cheap), map its columns to a table's columns or a collection's fields, preview what will be written, and load it. Import writes many rows at once, so the design pass settles how it runs (one transaction or in batches), how bad rows are reported, and how it works for Mongo.
 **Done when:** you can import a CSV or JSON file into an existing table or collection with a preview and column mapping, see which rows failed and why, and a failed import does not leave a half written table on the databases that support a transaction.
+spec [0008](../specs/0008-import-data/index.md)
 code in `src/features/data-export`
 
-- [ ] Design it (spec): `/architect import data`
+- [x] Design it (spec): `/architect import data`
+- [ ] Build it: `/develop import data`
+  - [ ] Thread on SQLite, local: Rust request and report types, SQLite writer with savepoint batches, local command, dialog with CSV and automatic mapping, Roll back mode, Import button in the action bar — satisfies AC-1, AC-2, AC-3, AC-8, AC-9, AC-13, AC-14, AC-18
+  - [ ] Mapping, checks, reports and formats: full mapping and preview, type checks, Skip and Check, error list and failed rows CSV, encoding, JSON, JSON Lines and Excel — satisfies AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-10, AC-11, AC-15
+  - [ ] PostgreSQL and new table: Postgres writer with casts and savepoints, then create a table from the file inside the same transaction — satisfies AC-5, AC-8, AC-9, AC-12, AC-14
+  - [ ] MongoDB: document path, transaction when the server supports it, not atomic warning, Check disabled on a standalone server, `_id` rules — satisfies AC-6, AC-9, AC-10, AC-19
+  - [ ] Team server, web, cancel and guards: gateway route with the larger body limit, audit, Member role, spinner, local progress and Cancel, sidebar entry, read only and Production confirm — satisfies AC-1, AC-13, AC-16, AC-17, AC-20
+- [ ] Verify it: `/check verify import data`
+- [ ] Test it: `/test import data`
+- [ ] Review it (fresh model): `/check review import data`
+- [ ] Document it: `/document import data`
 
 
 
@@ -376,10 +409,42 @@ code in `src/features/schema-designer`, `src/features/workspace/components/sideb
 
 
 
+## Slice 17: Streaming results for Postgres and MongoDB
+
+
+
+### 17. Streaming results for Postgres and MongoDB · needs a decision · from spec 0006
+
+Only SQLite sends rows back as it reads them. PostgreSQL and MongoDB fetch the whole result first and then push it in batches, so a large query shows nothing until it has all loaded, and a stopped query has no partial rows to keep. Make both stream rows as they arrive, the way SQLite does, including the MongoDB SQL translation path. The design pass settles how each engine streams without holding the full result in memory, and how it interacts with the new Stop button.
+**Done when:** a large SELECT on PostgreSQL or MongoDB starts showing rows before the query has finished loading, and stopping it keeps the rows already shown.
+code in `crates/dh-core/src/db/postgres.rs`, `crates/dh-core/src/db/mongodb.rs`
+
+- [ ] Design it (spec): `/architect streaming results for postgres and mongodb`
+
+
+
+## Slice 18: Split large adapter files
+
+
+
+### 18. Split large adapter files · needs a decision · Alpha
+
+Each database adapter lives in one very large file: `mongodb.rs` is about 3400 lines, `postgres.rs` about 2950, `sqlite.rs` about 2100, and `db/mod.rs` about 1400. Restructure each adapter into its own folder of smaller files grouped by job (for example connecting, running queries, schema work, row edits), so no single file is huge and a change lands in a small, obvious place. This is a move only refactor: behaviour does not change. Run it after slices 10, 11 and 12 land, since they are still editing these same files and splitting first would cause heavy merge conflicts. The design pass settles where to cut each adapter, whether `db/mod.rs` is included, and how the public paths other crates import stay unchanged.
+**Done when:** no adapter is one large file (each is a folder of focused files), every existing backend test still passes unchanged, and nothing outside `crates/dh-core/src/db` needed a code change to keep compiling.
+code in `crates/dh-core/src/db`
+
+- [ ] Design it (spec): `/architect split large adapter files`
+
+
+
 ## Deferred
 
 Out of scope for the current build pass, kept so the plan stays honest.
 
+- **Stopped status in the activity log**: a query stopped with the Stop button is logged as a failed entry with the message "Stopped by user" (spec 0006). Give the activity record and its screen a real "stopped" status so stopped runs stop showing in the failed filter · from spec 0006 · code in `crates/dh-core/src/activity.rs`
+- **Import upsert and skip duplicates**: import is insert only, so a clash with an existing key is a bad row (spec 0008). Add a Skip duplicates choice and an Update on duplicate (upsert) mode, with a key to match on and different Mongo handling · from spec 0008 · code in `src/features/data-import`, `crates/dh-core/src/db/mod.rs`
+- **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB (spec 0008). Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/mod.rs`
+- **Cancel and progress for remote imports**: on team server and web connections an import shows a spinner and cannot be cancelled (spec 0008). Once spec 0006's run registry is built, send `run_id` with the import and reuse its cancel route · from spec 0008 · code in `crates/dh-core/src/server/router.rs`
 - **Master password secret storage**: saved connection passwords, SSH secrets, and team server tokens live in the OS keychain in release builds, which needs a signed app this project does not have. Move them to encrypted files on disk with one storage path for dev and release, carrying over existing keychain entries. Open question for when you pick it up: a master password typed once per launch, or an app managed key with no prompt (with or without an optional password in Settings)? · needs a decision · code in `src-tauri/src/local_connections.rs`, `src-tauri/src/servers.rs`, `src-tauri/src/secret_file.rs`
 
 
