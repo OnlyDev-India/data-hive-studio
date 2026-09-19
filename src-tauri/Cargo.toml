@@ -24,7 +24,10 @@ serde_json.workspace = true
 log.workspace = true
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 uuid.workspace = true
-tauri = { version = "2.11.3", features = [] }
+# `devtools` keeps the webview inspector available in release builds too
+# (View → Toggle Developer Tools), so a blank window in a shipped build can
+# be diagnosed from its console instead of guessed at.
+tauri = { version = "2.11.3", features = ["devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2.4.1"
