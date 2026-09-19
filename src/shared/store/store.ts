@@ -112,15 +112,30 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
 
         updateInfo: null,
         setUpdateInfo(info) {
-          set({ updateInfo: info });
+          set((s) => ({
+            updateInfo: info,
+            // A failure belongs to the version it happened on.
+            updateError:
+              info && s.updateInfo?.version === info.version
+                ? s.updateError
+                : null,
+          }));
+        },
+        updatePhase: "available",
+        setUpdatePhase(phase) {
+          set({ updatePhase: phase });
+        },
+        updateProgress: null,
+        setUpdateProgress(progress) {
+          set({ updateProgress: progress });
+        },
+        updateError: null,
+        setUpdateError(error) {
+          set({ updateError: error });
         },
         updateDialogOpen: false,
         setUpdateDialogOpen(open) {
           set({ updateDialogOpen: open });
-        },
-        skippedUpdateVersion: null,
-        setSkippedUpdateVersion(version) {
-          set({ skippedUpdateVersion: version });
         },
 
         paletteKeywords: DEFAULT_PALETTE_KEYWORDS,
@@ -543,7 +558,6 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           sqlFormatIndentWidth: s.sqlFormatIndentWidth,
           delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
-          skippedUpdateVersion: s.skippedUpdateVersion,
         }),
       },
     ),

@@ -35,6 +35,7 @@ import {
   tabLabel,
   findOwnerLeaf,
   stableConnKey,
+  summarizeUnappliedWork,
   type PaneNode,
   type StudioTab,
 } from "@/shared/store";
@@ -283,22 +284,13 @@ export default function Workspace({
   const [confirm_close, setConfirmClose] = useState<StudioTab[] | null>(null);
   const [applying_close, setApplyingClose] = useState(false);
 
-  const summarize_dirty = useCallback((key: string): string[] => {
-    const s = useStudioStore.getState();
-    const parts: string[] = [];
-    const se = s.schemaEdits[key];
-    if (se) parts.push(`${se.count} schema change${se.count === 1 ? "" : "s"}`);
-    const gb = s.gridBridges[key];
-    if (gb?.pending_exists)
-      parts.push(
-        `${gb.pending_count} unsaved row edit${gb.pending_count === 1 ? "" : "s"}`,
-      );
-    const nt = s.newTables[key];
-    if (nt?.has_draft) parts.push("table definition");
-    const sq = s.sqlTabs[key];
-    if (sq?.is_dirty) parts.push("unsaved queries");
-    return parts;
-  }, []);
+  const summarize_dirty = useCallback(
+    (key: string): string[] =>
+      summarizeUnappliedWork(useStudioStore.getState(), key, {
+        include_queries: true,
+      }),
+    [],
+  );
 
   /** Close without asking — also drops pane modes via the store. */
   const performClose = useCallback(

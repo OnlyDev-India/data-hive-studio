@@ -2,10 +2,6 @@
 //! re-exports keep `crate::api` / `crate::db` / `crate::activity` paths in
 //! `commands.rs` valid.
 
-// Only used by the macOS-only native-menu setup below (`app.manage(...)`) —
-// Windows/Linux never call a `Manager` method, so an unconditional import
-// warns as unused on those targets.
-#[cfg(target_os = "macos")]
 use tauri::Manager;
 pub use dh_core::{activity, api, db};
 pub mod activity_store;
@@ -15,6 +11,7 @@ pub mod file_open;
 pub mod local_connections;
 mod secret_file;
 pub mod servers;
+pub mod updater;
 pub mod workspace_state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,7 +19,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_os::init())
     // `Builder::default()`'s `StateFlags` include DECORATIONS, which
     // restores a saved `decorated` value on top of the window AFTER it's
@@ -62,6 +59,9 @@ pub fn run() {
       // passes the path as a CLI argument on cold start. (macOS instead
       // delivers it via RunEvent::Opened, handled in run() below.)
       file_open::check_argv();
+
+      // The downloaded-but-not-installed update package (see `updater.rs`).
+      app.manage(updater::UpdaterState::default());
 
       // Hydrate the in-memory activity log from the previous run's
       // persisted snapshot before anything can log a fresh entry.
@@ -164,6 +164,8 @@ pub fn run() {
       local_connections::get_local_connection_secret,
       local_connections::migrate_local_connections,
       file_open::take_pending_open_path,
+      updater::updater_download,
+      updater::updater_install_and_restart,
       #[cfg(target_os = "macos")]
       app_menu::set_menu_context,
       workspace_state::load_workspace_state,
@@ -248,7 +250,18 @@ pub fn run() {
       // (`prevent_exit`) until it finishes, then `exit(0)` — which itself
       // re-fires `ExitRequested`; `EXITING` stops that second pass from
       // spawning another cleanup and deferring forever.
-      if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+      //
+      // A waiting update installs here too, after the databases are closed,
+      // so closing the app applies it (see `updater::install_pending_on_quit`).
+      //
+      // Restart requests (`app.restart()` from `updater_install_and_restart`)
+      // are skipped: `prevent_exit` is ignored for them, so this cleanup task
+      // would race the restart with `exit(0)`, and that command has already
+      // installed and closed the databases itself.
+      if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+        if *code == Some(tauri::RESTART_EXIT_CODE) {
+          return;
+        }
         use std::sync::atomic::{AtomicBool, Ordering};
         static EXITING: AtomicBool = AtomicBool::new(false);
         if !EXITING.swap(true, Ordering::SeqCst) {
@@ -256,6 +269,7 @@ pub fn run() {
           let handle = app_handle.clone();
           tauri::async_runtime::spawn(async move {
             db::close_all().await;
+            updater::install_pending_on_quit(&handle).await;
             handle.exit(0);
           });
         }
