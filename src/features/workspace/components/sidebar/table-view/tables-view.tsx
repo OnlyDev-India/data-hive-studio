@@ -30,6 +30,7 @@ import {
   runSql,
   listSchemasIn,
   listSchemaObjects,
+  listExtensions,
   type SchemaObject,
   type SchemaObjectKind,
 } from "@/shared/api";
@@ -325,6 +326,13 @@ export function TablesBrowser({
   const [object_lists, setObjectLists] = useState<
     Record<string, "loading" | SchemaObject[] | null>
   >({});
+  // Installed extensions per browsed database (Postgres) — keyed by database
+  // name alone: unlike `schema_lists`/`object_lists`, extensions aren't
+  // schema-owned, so there's exactly one list per database, not one per
+  // schema/kind combination.
+  const [extension_lists, setExtensionLists] = useState<
+    Record<string, "loading" | SchemaObject[] | null>
+  >({});
 
   /** Every database this connection has an ACTUAL backend connection open
    *  for right now — the tree's green "connected" dot AND icon tint,
@@ -617,6 +625,18 @@ export function TablesBrowser({
     },
     [conn_id, db_arg],
   );
+  const ensure_extensions = useCallback(
+    (database: string) => {
+      setExtensionLists((cur) => {
+        if (cur[database] !== undefined) return cur;
+        listExtensions(conn_id, db_arg(database))
+          .then((rows) => setExtensionLists((c) => ({ ...c, [database]: rows })))
+          .catch(() => setExtensionLists((c) => ({ ...c, [database]: null })));
+        return { ...cur, [database]: "loading" };
+      });
+    },
+    [conn_id, db_arg],
+  );
   const ensure_objects = useCallback(
     (database: string, schema: string, kind: SchemaObjectKind) => {
       const key = objectKey(database, schema, kind);
@@ -687,11 +707,23 @@ export function TablesBrowser({
       ];
       refresh_sibling_objects({ database, schema, kind });
     }
+    for (const database of Object.keys(extension_lists)) {
+      if (extension_lists[database] === undefined) continue;
+      setExtensionLists((cur) => {
+        if (!(database in cur)) return cur;
+        const next = { ...cur };
+        delete next[database];
+        return next;
+      });
+      ensure_extensions(database);
+    }
   }, [
     on_refresh,
     schema_lists,
     object_lists,
+    extension_lists,
     ensure_schemas,
+    ensure_extensions,
     refresh_sibling_objects,
   ]);
   /** Open an object found anywhere in the catalog tree. Browsing (expanding
@@ -1290,6 +1322,12 @@ export function TablesBrowser({
                     ? schemas_state.filter((s) => schema_table_match(db, s))
                     : schemas_state
                   : null;
+                // Extensions aren't schema-owned (same set regardless of
+                // which schema you're looking at), so this is a sibling of
+                // the schema list itself, not nested under any one schema.
+                const ext_id = `${db_id}/extensions`;
+                const ext_expanded = tree_expanded.has(ext_id);
+                const ext_state = extension_lists[db];
                 const db_row = (
                   <TreeToggleRow
                     kind="database"
@@ -1598,6 +1636,31 @@ export function TablesBrowser({
                           );
                         })
                       ))}
+                    {db_expanded && (
+                      <div>
+                        <TreeToggleRow
+                          kind="extension"
+                          label="Extensions"
+                          expanded={ext_expanded}
+                          depth={1}
+                          loading={
+                            ext_expanded &&
+                            (ext_state === "loading" || ext_state === undefined)
+                          }
+                          onClick={() => {
+                            toggle_tree(ext_id);
+                            if (!ext_expanded) ensure_extensions(db);
+                          }}
+                        />
+                        {ext_expanded && (
+                          <LazyObjectRows
+                            state={ext_state}
+                            empty_label="No extensions."
+                            depth={2}
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

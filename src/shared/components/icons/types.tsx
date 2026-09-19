@@ -19,6 +19,7 @@ import {
   SquarePlus,
   Terminal,
   History,
+  Puzzle,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -51,7 +52,8 @@ export type IconType =
   | "database"
   | "folder"
   | "users"
-  | "layers";
+  | "layers"
+  | "extension";
 
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
   table: <TableIcon className="size-3 shrink-0 text-sky-500" />,
@@ -65,6 +67,7 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   folder: <FolderIcon className="size-3 shrink-0 text-amber-500" />,
   users: <UsersIcon className="size-3 shrink-0 text-rose-500" />,
   layers: <Layers className="size-3 shrink-0 text-indigo-500" />,
+  extension: <Puzzle className="size-3 shrink-0 text-fuchsia-500" />,
   mongo: <MongoIcon className={cn("size-3.5")} />,
   sql: <Code className={cn("size-3.5 text-emerald-400")} />,
   "new-table": <SquarePlus className={cn("size-3.5 text-orange-400")} />,

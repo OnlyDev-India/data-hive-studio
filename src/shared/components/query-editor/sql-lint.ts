@@ -126,7 +126,7 @@ export function sqlLinter(
 /** Loose structural shape covering just the CST fields the checks below
  *  read — `sql-parser-cst`'s real node union is large and only matters here
  *  insofar as these few fields exist on the node kinds we look for. */
-interface CstNode {
+export interface CstNode {
   type: string;
   range?: [number, number];
   [key: string]: unknown;
@@ -139,7 +139,7 @@ interface CstNode {
  *  `RETURNING`/`::cast`, etc.) as wrong just because it isn't valid in the
  *  other. Whichever dialect DOES accept it is what the semantic checks
  *  below run against. */
-const DIALECTS = ["sqlite", "postgresql"] as const;
+export const DIALECTS = ["sqlite", "postgresql"] as const;
 
 type ParseForLint =
   { ok: true; program: CstNode } | { ok: false; diagnostic: Diagnostic };
@@ -207,7 +207,7 @@ function starWithoutFrom(program: CstNode): Diagnostic[] {
   return diagnostics;
 }
 
-function asNodeArray(value: unknown): CstNode[] {
+export function asNodeArray(value: unknown): CstNode[] {
   return Array.isArray(value) ? (value as CstNode[]) : [];
 }
 

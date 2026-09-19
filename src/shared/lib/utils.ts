@@ -103,6 +103,82 @@ export function maskComments(sql: string): string {
   return out;
 }
 
+/** Like `maskComments`, but also blanks string-literal BODIES (keeping their
+ *  quotes, so positions/lengths still line up) — `maskComments` keeps quoted
+ *  text since its own callers (unknown-identifier checks) need to still see
+ *  quoted identifiers. SQL-only comment styles (`--`, `/* *\/`), no `//` —
+ *  callers scanning arbitrary SQL text (danger-statement detection,
+ *  bind-variable placeholders, function-call argument parsing) that must
+ *  never mistake English text or punctuation inside a string/comment for
+ *  real SQL syntax. */
+export function maskStringsAndComments(sql: string): string {
+  let out = "";
+  let i = 0;
+  const n = sql.length;
+  let inStr: string | null = null;
+  let inLine = false;
+  let inBlock = false;
+  const blank = (ch: string) => (ch === "\n" ? "\n" : " ");
+  while (i < n) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (inLine) {
+      out += blank(ch);
+      if (ch === "\n") inLine = false;
+      i++;
+      continue;
+    }
+    if (inBlock) {
+      if (ch === "*" && next === "/") {
+        out += "  ";
+        inBlock = false;
+        i += 2;
+      } else {
+        out += blank(ch);
+        i++;
+      }
+      continue;
+    }
+    if (inStr) {
+      if (ch === inStr) {
+        if (next === inStr) {
+          out += "  ";
+          i += 2;
+          continue;
+        }
+        inStr = null;
+        out += ch;
+        i++;
+        continue;
+      }
+      out += blank(ch);
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === "`") {
+      inStr = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "-" && next === "-") {
+      inLine = true;
+      out += "  ";
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlock = true;
+      out += "  ";
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 export function statementRanges(sql: string): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
   let i = 0;

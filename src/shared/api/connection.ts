@@ -5,6 +5,7 @@ import type {
   ActivityEntry,
   CatalogOverview,
   ConnectionInfo,
+  FieldShape,
   RoleDetail,
   SchemaObject,
   SchemaObjectKind,
@@ -222,6 +223,26 @@ export async function listRoles(connId: string): Promise<SchemaObject[]> {
     serverCmd: "server_list_roles",
     localCmd: "list_roles",
     args: { connId },
+  });
+}
+
+/** Installed extensions (Postgres `pg_extension`) within `database` (omitted
+ *  = this connection's own) — the sidebar catalog tree's "Extensions" row,
+ *  shown once per database node. Unlike `listRoles` (cluster-wide, no
+ *  database concept at all) extensions ARE per-database, but they're still
+ *  not owned by any one schema — so this doesn't take a `schema` param the
+ *  way `listSchemaObjects` does. */
+export async function listExtensions(
+  connId: string,
+  database?: string,
+): Promise<SchemaObject[]> {
+  return dispatchDbCall<SchemaObject[]>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/extensions`,
+    httpBody: { database: database ?? null },
+    serverCmd: "server_list_extensions",
+    localCmd: "list_extensions",
+    args: { connId, database: database ?? null },
   });
 }
 
@@ -522,6 +543,31 @@ export function tableSchema(
           schema: schema ?? null,
           table,
         },
+      }),
+  );
+}
+
+/** The recursively inferred nested field shape for a MongoDB collection
+ *  (spec 0001's "Fields" view) — independent of `tableSchema`/`ColumnInfo`,
+ *  so the data grid's column headers are never affected by this call.
+ *  `database` is required, matching `MongoSchemaEditor`'s own convention
+ *  (Mongo tabs always carry one explicitly). Deduped the same way as
+ *  `tableSchema`, since this is an idempotent introspection read too. */
+export function mongoFieldTree(
+  connId: string,
+  database: string,
+  collection: string,
+): Promise<FieldShape[]> {
+  return dedupe(
+    `field-tree:${connId} ${database} ${collection}`,
+    () =>
+      dispatchDbCall<FieldShape[]>(connId, {
+        httpMethod: "GET",
+        httpPath: (id) =>
+          `/v1/c/${encodeURIComponent(id)}/mongo/field-tree/${encodeURIComponent(collection)}?database=${encodeURIComponent(database)}`,
+        serverCmd: "server_mongo_field_tree",
+        localCmd: "mongo_field_tree",
+        args: { connId, database, collection },
       }),
   );
 }

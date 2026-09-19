@@ -418,12 +418,21 @@ impl SqliteAdapter {
 
     fn build_query_inner(&self, op: &QueryOp) -> DbResult<BuiltQuery> {
         match op {
-            QueryOp::Select { table, filters, custom_where, order_by, order_dir, limit, offset } => {
+            QueryOp::Select { table, filters, custom_where, order_by, limit, offset } => {
                 let mut sql = format!("SELECT * FROM {}", quote_ident(table));
                 let params = apply_where(&mut sql, filters, custom_where.as_deref());
-                if let Some(col) = order_by {
-                    let dir = order_direction(order_dir.as_deref());
-                    sql.push_str(&format!(" ORDER BY {} {}", quote_ident(col), dir));
+                if !order_by.is_empty() {
+                    let clauses: Vec<String> = order_by
+                        .iter()
+                        .map(|o| {
+                            format!(
+                                "{} {}",
+                                quote_ident(&o.column),
+                                order_direction(Some(o.dir.as_str()))
+                            )
+                        })
+                        .collect();
+                    sql.push_str(&format!(" ORDER BY {}", clauses.join(", ")));
                 }
                 if let Some(l) = limit {
                     sql.push_str(&format!(" LIMIT {l}"));
@@ -1330,6 +1339,17 @@ fn apply_where(
             }
             FilterOp::IsNull => format!("{col} IS NULL"),
             FilterOp::IsNotNull => format!("{col} IS NOT NULL"),
+            FilterOp::In => {
+                if f.values.is_empty() {
+                    "1 = 0".to_string()
+                } else {
+                    let placeholders = vec!["?"; f.values.len()].join(", ");
+                    for v in &f.values {
+                        params.push(bind_value(v));
+                    }
+                    format!("{col} IN ({placeholders})")
+                }
+            }
         };
         if parts.is_empty() {
             parts.push(part);
@@ -1655,6 +1675,7 @@ mod tests {
                     column: "status".into(),
                     op: crate::api::FilterOp::Eq,
                     value: "pending".into(),
+                    values: Vec::new(),
                     conjunction: None,
                 }],
                 custom_where: None,

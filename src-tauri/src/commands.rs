@@ -1,6 +1,6 @@
 use crate::api::{
-    ConnectionInfo, DbKind, MongoDocumentsResult, MongoExtDocumentsResult, MongoRunResult,
-    QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
+    ConnectionInfo, DbKind, FieldShape, MongoDocumentsResult, MongoExtDocumentsResult,
+    MongoRunResult, QueryChunk, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema,
 };
 use crate::db::CatalogOverview;
 
@@ -112,6 +112,19 @@ forward_cmd! {
 forward_cmd! {
     /// Full role attribute set (Postgres) — the Users & Privileges tab.
     list_role_details(conn_id: String) -> Vec<crate::db::RoleDetail> => list_role_details
+}
+
+/// Installed extensions (Postgres) within `database` (`None` = this
+/// connection's own) — the sidebar catalog tree's per-database "Extensions"
+/// row. Hand-written for the same reason as `list_schemas_in`.
+#[tauri::command]
+pub async fn list_extensions(
+    conn_id: String,
+    database: Option<String>,
+) -> Result<Vec<crate::db::SchemaObject>, String> {
+    crate::db::list_extensions(&conn_id, database.as_deref())
+        .await
+        .map_err(to_err)
 }
 
 /// Schemas within `database` (`None` = this connection's own database) — the
@@ -286,6 +299,20 @@ pub async fn table_schema(
     table: String,
 ) -> Result<TableSchema, String> {
     crate::db::table_schema(&conn_id, database.as_deref(), schema.as_deref(), &table)
+        .await
+        .map_err(to_err)
+}
+
+/// The recursively inferred nested field shape for a MongoDB collection
+/// (spec 0001's "Fields" view) — independent of `table_schema`/`ColumnInfo`,
+/// so the data grid's column headers are never affected by this call.
+#[tauri::command]
+pub async fn mongo_field_tree(
+    conn_id: String,
+    database: String,
+    collection: String,
+) -> Result<Vec<FieldShape>, String> {
+    crate::db::field_tree(&conn_id, &database, &collection)
         .await
         .map_err(to_err)
 }
