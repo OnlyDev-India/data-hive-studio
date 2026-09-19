@@ -299,7 +299,11 @@ export function workspaceActions(set: SetState) {
     ) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);
-        const tab: StudioTab = { kind: "sql", id: cur.nextSqlId };
+        const tab: StudioTab = {
+          kind: "sql",
+          id: cur.nextSqlId,
+          conn_id: connId,
+        };
         const next = addTabToFocusedPane(
           {
             ...cur,

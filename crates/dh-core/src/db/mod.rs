@@ -8,11 +8,13 @@ mod mongo_json;
 mod mongo_sql;
 mod mongodb;
 mod postgres;
+mod runs;
 mod sqlite;
 
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};
 pub use mongodb::{MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
+pub use runs::{cancel as cancel_run, CancelOutcome, CancelState, RunHandle};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -45,6 +47,13 @@ pub enum DbError {
     SqlEngine(#[from] sqlx::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// The user pressed Stop and the engine confirmed (or the run was
+    /// abandoned). Never produced for an engine error nobody asked for, so a
+    /// `statement_timeout` still reads as the error it is. Converted to a
+    /// `cancelled` result at the `db::` wrapper boundary, so callers of those
+    /// wrappers only ever see it as a result, not an `Err`.
+    #[error("Stopped by user")]
+    Cancelled,
 }
 
 pub type DbResult<T> = std::result::Result<T, DbError>;
@@ -173,11 +182,17 @@ pub trait DbAdapter: Send + Sync {
         op: &QueryOp,
         on_batch: BatchSink<'_>,
     ) -> DbResult<OpOutcome>;
+    /// `run`: the editor run this belongs to, so Stop can reach it. `None`
+    /// means not cancellable. An adapter that supports Stop arms its own
+    /// canceller on `run` and returns [`DbError::Cancelled`] when the engine
+    /// stops the statement because the user asked; one that does not yet
+    /// support it ignores `run` (the wrapper still frees the tab).
     async fn run_sql_stream(
         &self,
         database: Option<&str>,
         schema: Option<&str>,
         sql: &str,
+        run: Option<&RunHandle>,
         on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult>;
     /// See `table_schema`'s doc comment for `database`/`schema` semantics.
@@ -349,11 +364,14 @@ pub trait DbAdapter: Send + Sync {
     /// Run a MongoDB console command (a JSON find/aggregate or a shell-subset
     /// statement) against database `db`, with an optional current `collection`
     /// for bare JSON queries. Non-Mongo adapters reject it.
+    /// `run`: the console run this belongs to, so Stop can reach it (see
+    /// `run_sql_stream`'s doc comment).
     async fn run_mongo(
         &self,
         _db: &str,
         _collection: Option<&str>,
         _script: &str,
+        _run: Option<&RunHandle>,
     ) -> DbResult<MongoRunResult> {
         Err(DbError::InvalidOperation(
             "Mongo console commands are only available on MongoDB connections".into(),
@@ -846,17 +864,36 @@ pub async fn insert_document(
 /// `MongoRunResult::error` (e.g. a bad script) — both need to show up as a
 /// failed activity entry, so the `error` field is checked inside the `Ok`
 /// arm too.
+///
+/// `run_id`: the console run's id, when the caller can offer Stop for it (see
+/// [`runs`] and `run_sql_stream`). A stopped run resolves as `Ok` with
+/// `cancelled: true`, logged as a failed "Stopped by user" entry.
 pub async fn run_mongo(
     conn_id: &str,
     db: &str,
     collection: Option<&str>,
     script: &str,
+    run_id: Option<&str>,
 ) -> DbResult<MongoRunResult> {
     let t = std::time::Instant::now();
-    let res = with_connection(conn_id, |a| async move {
-        a.run_mongo(db, collection, script).await
+    let run = run_id.map(|id| runs::register(conn_id, id));
+    let run_ref = run.as_ref();
+    let res = with_connection(conn_id, move |a| async move {
+        runs::until_abandoned(run_ref, a.run_mongo(db, collection, script, run_ref)).await
     })
     .await;
+    if let Some(r) = &run {
+        r.finish().await;
+    }
+    if let Err(DbError::Cancelled) = &res {
+        crate::activity::log_stmt_err(conn_id, "mongo", script, t, &DbError::Cancelled);
+        return Ok(MongoRunResult {
+            command: script.trim().to_string(),
+            cancelled: true,
+            elapsed_ms: t.elapsed().as_millis(),
+            ..Default::default()
+        });
+    }
     match &res {
         Ok(r) if r.error.is_none() => {
             crate::activity::log_stmt_ok(conn_id, "mongo", script, t, activity_rows_mongo(r))
@@ -1213,11 +1250,18 @@ pub async fn execute_op_stream(
 /// web/server connections fall back to non-streaming `run_sql` instead — see
 /// `runSqlStream` on the frontend), so it's unconditionally user-initiated,
 /// same as `log_stmt_ok`/`log_stmt_err`'s default below.
+///
+/// `run_id`: the editor run's id, when the caller can offer Stop for it (see
+/// [`runs`]). A run the user stopped resolves as `Ok` with `cancelled: true`
+/// (rows already streamed stay with the caller) and is logged as a failed
+/// "Stopped by user" entry; if the database has not confirmed within the
+/// cap, the query is dropped here so the tab still frees up.
 pub async fn run_sql_stream(
     conn_id: &str,
     database: Option<&str>,
     schema: Option<&str>,
     sql: &str,
+    run_id: Option<&str>,
     on_batch: impl FnMut(QueryChunk) -> DbResult<()> + Send,
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
@@ -1226,15 +1270,37 @@ pub async fn run_sql_stream(
     let database = database.map(str::to_string);
     let schema = schema.map(str::to_string);
     let mut sink = on_batch;
+    let run = run_id.map(|id| runs::register(conn_id, id));
+    let run_ref = run.as_ref();
     let res = with_connection(conn_id, move |a| async move {
-        a.run_sql_stream(database.as_deref(), schema.as_deref(), &sql, &mut sink).await
+        let call = a.run_sql_stream(database.as_deref(), schema.as_deref(), &sql, run_ref, &mut sink);
+        runs::until_abandoned(run_ref, call).await
     })
     .await;
-    match &res {
-        Ok(r) => crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, activity_rows(r)),
-        Err(e) => crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, e),
+    // After the adapter has let go of its connection (it finishes the run
+    // itself before releasing one); this also covers adapters that ignore
+    // `run` and the abandon path above.
+    if let Some(r) = &run {
+        r.finish().await;
     }
-    res
+    match res {
+        Err(DbError::Cancelled) => {
+            crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, &DbError::Cancelled);
+            Ok(QueryResult {
+                cancelled: true,
+                elapsed_ms: t.elapsed().as_millis(),
+                ..Default::default()
+            })
+        }
+        Ok(r) => {
+            crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, activity_rows(&r));
+            Ok(r)
+        }
+        Err(e) => {
+            crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, &e);
+            Err(e)
+        }
+    }
 }
 
 pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {

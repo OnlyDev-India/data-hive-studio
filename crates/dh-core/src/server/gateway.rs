@@ -355,7 +355,7 @@ impl Gateway {
         let result = self
             .adapter(conn_id)
             .await?
-            .run_mongo(db, collection, script)
+            .run_mongo(db, collection, script, None)
             .await
             .map_err(|e| e.to_string())?;
         self.store.audit(ctx, Some(&org_id), "mongo.run", conn_id, Some(&result.command)).await?;

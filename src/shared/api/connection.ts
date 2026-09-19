@@ -377,16 +377,24 @@ export interface MongoRunResult {
   /** Set by `use <db>` so the console updates its current-database context. */
   switch_db: string | null;
   elapsed_ms: number;
+  /** The user stopped this run (spec 0006). Not an error. Documents a
+   *  stopped write already changed stay changed. Absent from an older
+   *  server's reply. */
+  cancelled?: boolean;
 }
 
 /** Run a MongoDB console command (JSON find/aggregate or a shell-subset
  *  statement) against `database`. `collection` is the console's current
- *  collection, used only for bare JSON query/pipeline input. */
+ *  collection, used only for bare JSON query/pipeline input. `runId` makes
+ *  the run stoppable through `cancelRun`; a stopped run resolves with
+ *  `cancelled: true`. Only desktop local connections honor it so far, see
+ *  `canCancelRun`. */
 export async function runMongo(
   connId: string,
   database: string,
   collection: string | null,
   script: string,
+  runId?: string,
 ): Promise<MongoRunResult> {
   return dispatchDbCall<MongoRunResult>(connId, {
     httpMethod: "POST",
@@ -394,7 +402,7 @@ export async function runMongo(
     httpBody: { database, collection, script },
     serverCmd: "server_run_mongo",
     localCmd: "run_mongo",
-    args: { connId, database, collection, script },
+    args: { connId, database, collection, script, runId },
   });
 }
 

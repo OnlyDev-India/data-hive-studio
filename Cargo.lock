@@ -1465,6 +1465,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "hex",
+ "libsqlite3-sys",
  "log",
  "mongodb",
  "rand 0.10.2",

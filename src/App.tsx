@@ -74,7 +74,7 @@ function App() {
         {shouldShowTitleBar() && <TitleBar />}
         <div className="min-h-0 flex-1">
           {ready ? (
-            <Suspense fallback={null}>
+            <Suspense fallback={<SplashScreen status={status} />}>
               <WebGate>
                 <Studio />
               </WebGate>

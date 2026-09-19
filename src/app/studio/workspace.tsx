@@ -284,6 +284,11 @@ export default function Workspace({
   const [confirm_close, setConfirmClose] = useState<StudioTab[] | null>(null);
   const [applying_close, setApplyingClose] = useState(false);
 
+  // Same name the tab strip shows, for the close-guard dialog below.
+  const close_label = (tab: StudioTab) => {
+    const handle = useStudioStore.getState().sqlTabs[tabKey(tab)];
+    return tabLabel(tab, handle?.file_name, handle?.database);
+  };
   const summarize_dirty = useCallback(
     (key: string): string[] =>
       summarizeUnappliedWork(useStudioStore.getState(), key, {
@@ -499,7 +504,7 @@ export default function Workspace({
             <DialogTitle>Unsaved changes</DialogTitle>
             <DialogDescription>
               {confirm_close?.length === 1
-                ? `“${tabLabel(confirm_close[0])}” has unapplied changes.`
+                ? `“${close_label(confirm_close[0])}” has unapplied changes.`
                 : `${confirm_close?.length ?? 0} open tabs have unapplied changes.`}
             </DialogDescription>
           </DialogHeader>
@@ -513,7 +518,7 @@ export default function Workspace({
                   className="flex items-center justify-between gap-3"
                 >
                   <span className="min-w-0 truncate font-medium">
-                    {tabLabel(t)}
+                    {close_label(t)}
                   </span>
                   <span className="text-muted-foreground shrink-0 text-xs">
                     {parts.join(", ")}

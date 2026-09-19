@@ -21,21 +21,25 @@ async function openPendingFile(onStatus?: (s: string) => void): Promise<void> {
   await openFileFromOs(path);
 }
 
+/** Loads the Studio chunk (Landing plus the per-connection Workspace, which
+ *  it imports statically). `App` renders it through `lazy()`, and a `lazy()`
+ *  import still in flight when the splash lifts leaves a blank screen, so
+ *  the splash has to wait for it. A failed load is left for `lazy()` to
+ *  report when it actually renders. */
+function preloadStudioChunk(): Promise<unknown> {
+  return import("@/app/studio/studio").catch(() => {});
+}
+
 /** Runs everything the splash screen covers: preload saved connections +
- *  persisted workspace state, and (desktop only) finish opening any
- *  `.db`/`.sqlite`/`.sqlite3` file the OS handed us at launch — so a
- *  double-clicked file is already open by the time the real UI paints,
- *  instead of flashing the Landing screen first. Never rejects — a timeout
- *  lifts the splash regardless, since a permanent splash would be a much
- *  worse regression than one that gave up early. */
+ *  persisted workspace state, load the Studio chunk, and (desktop only)
+ *  finish opening any `.db`/`.sqlite`/`.sqlite3` file the OS handed us at
+ *  launch — so a double-clicked file is already open by the time the real
+ *  UI paints, instead of flashing the Landing screen first. Never rejects —
+ *  a timeout lifts the splash regardless, since a permanent splash would be
+ *  a much worse regression than one that gave up early. */
 export async function runStartupBootstrap(
   onStatus?: (s: string) => void,
 ): Promise<void> {
-  // Prefetch the Studio chunk in parallel — its own lazy() import resolves
-  // instantly once this is cached, so lifting the splash doesn't trade one
-  // blank moment for another.
-  void import("@/app/studio/studio");
-
   // Fire-and-forget: never awaited, never delays the splash. Whenever it
   // resolves (could be well after first paint), the title-bar badge/Help
   // menu just pick up `updateInfo` reactively.
@@ -45,6 +49,7 @@ export async function runStartupBootstrap(
     await Promise.all([
       useStudioStore.getState().hydrateSavedLocal(),
       bootstrapWorkspaceRestore(),
+      preloadStudioChunk(),
     ]);
     await openPendingFile(onStatus);
   })();

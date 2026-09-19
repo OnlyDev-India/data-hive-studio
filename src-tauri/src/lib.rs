@@ -174,6 +174,7 @@ pub fn run() {
       commands::execute_op,
       commands::execute_op_stream,
       commands::run_sql_stream,
+      commands::cancel_run,
       commands::save_database,
       commands::duplicate_table,
       commands::apply_schema_ops,

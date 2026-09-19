@@ -1,11 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
 import {
@@ -27,9 +20,7 @@ import { CommandPalette } from "./command-palette";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 import { UpdateDialog } from "@/features/updater";
-
-/** Per-connection workspaces are code-split away from the shell. */
-const Workspace = lazy(() => import("./workspace"));
+import Workspace from "./workspace";
 
 export function Studio() {
   const open = useStudioStore((s) => s.open);
@@ -86,17 +77,6 @@ export function Studio() {
       window.removeEventListener("pagehide", release);
       window.removeEventListener("beforeunload", release);
     };
-  }, []);
-
-  // Warm the per-connection workspace chunk as soon as the shell mounts —
-  // filling in a connection form and waiting on the connect round-trip
-  // easily takes longer than this chunk takes to fetch, so by the time
-  // `open` actually gains an entry the dynamic import below has already
-  // resolved and Suspense renders it inline with no fallback flash (which
-  // would otherwise blank out the sidebar/activity bar for a moment, since
-  // they're mounted inside Workspace for the connected-view branch).
-  useEffect(() => {
-    void import("./workspace");
   }, []);
 
   // "Open with DH Studio" / double-clicking a .db file with it set as the
@@ -331,15 +311,13 @@ export function Studio() {
                 key={conn.id}
                 className={is_active ? "flex h-full w-full" : "hidden"}
               >
-                <Suspense fallback={<WorkspaceFallback />}>
-                  <Workspace
-                    conn={conn}
-                    landing={landing}
-                    on_home={on_home}
-                    on_tables={show_tables}
-                    on_activity={show_activity}
-                  />
-                </Suspense>
+                <Workspace
+                  conn={conn}
+                  landing={landing}
+                  on_home={on_home}
+                  on_tables={show_tables}
+                  on_activity={show_activity}
+                />
               </div>
             );
           })
@@ -351,14 +329,6 @@ export function Studio() {
       <UpdateDialog />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
-    </div>
-  );
-}
-
-function WorkspaceFallback() {
-  return (
-    <div className="text-muted-foreground flex h-full w-full items-center justify-center text-sm select-none">
-      Loading…
     </div>
   );
 }

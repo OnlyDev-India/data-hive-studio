@@ -249,6 +249,7 @@ function TabItem({
 }) {
   const key = tabKey(tab);
   const file_name = useStudioStore((s) => s.sqlTabs[key]?.file_name);
+  const database = useStudioStore((s) => s.sqlTabs[key]?.database);
   const dragging = useStudioStore(
     (s) => !!s.dragTab && tabKey(s.dragTab.tab) === key,
   );
@@ -275,7 +276,7 @@ function TabItem({
           >
             {tabTypeIcon}
             <span className="max-w-56 truncate">
-              {tabLabel(tab, file_name)}
+              {tabLabel(tab, file_name, database)}
             </span>
             {/* Dirty tabs show a dot; hovering it reveals the close X. */}
             {dirty ? (

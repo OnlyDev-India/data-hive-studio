@@ -63,13 +63,17 @@ export async function executeOpStream(
  *  batches to `onChunk` as they come back. The resolved result carries every
  *  field EXCEPT rows. Other statements run normally and never emit chunks.
  *  `database`: omitted = this connection's own primary database. `schema`:
- *  see {@link runSql}'s own doc comment. */
+ *  see {@link runSql}'s own doc comment. `runId`: makes the run stoppable
+ *  through `cancelRun`; a stopped run resolves with `cancelled: true` (rows
+ *  already emitted stay with the caller). Only desktop local connections
+ *  honor it so far — see `canCancelRun`. */
 export async function runSqlStream(
   connId: string,
   sql: string,
   onChunk?: ChunkSink,
   database?: string,
   schema?: string,
+  runId?: string,
 ): Promise<QueryResult> {
   if (isServerConn(connId) || WEB) {
     // Still the editor's own "Run" — just a different transport.
@@ -82,6 +86,7 @@ export async function runSqlStream(
     database,
     schema,
     sql,
+    runId,
     channel: makeChannel(onChunk),
   });
 }
