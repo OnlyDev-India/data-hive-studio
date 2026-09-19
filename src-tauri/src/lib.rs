@@ -2,10 +2,8 @@
 //! re-exports keep `crate::api` / `crate::db` / `crate::activity` paths in
 //! `commands.rs` valid.
 
-// Only used by the macOS-only native-menu setup below (`app.manage(...)`) —
-// Windows/Linux never call a `Manager` method, so an unconditional import
-// warns as unused on those targets.
-#[cfg(target_os = "macos")]
+// Needed on every platform: `toggle_devtools` calls `Manager` methods and is
+// compiled everywhere, and the macOS native-menu setup uses `app.manage(...)`.
 use tauri::Manager;
 pub use dh_core::{activity, api, db};
 pub mod activity_store;
