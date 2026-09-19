@@ -1,0 +1,9 @@
+{
+  "tool": "vitest",
+  "gate": null,
+  "additionalTools": ["@testing-library/react", "@testing-library/user-event"],
+  "e2eTool": "none",
+  "testDir": "beside the source, in a __tests__/ folder",
+  "filePattern": "*.test.ts / *.test.tsx",
+  "packageManager": "bun"
+}
