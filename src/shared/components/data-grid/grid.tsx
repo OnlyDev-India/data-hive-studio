@@ -10,6 +10,7 @@ import {
 import {
   executeOp,
   executeOpStream,
+  tableSchema,
   type QueryOp,
   type QueryResult,
   type TableSchema,
@@ -21,9 +22,11 @@ import type { PendingChange } from "./grid-context";
 import { useGridController } from "./grid-controller";
 import {
   classify,
+  DISTINCT_LIMIT,
   type CellKind,
   type DistinctMap,
   type GridFilter,
+  type SortKey,
 } from "./types";
 
 /** Mongo document session — the grid's live page + buffered edits, shared with
@@ -81,18 +84,44 @@ interface GridProps {
    *  `schema`) since that prop is already the `TableSchema` object. */
   database?: string;
   schema_name?: string;
+  /** Sets (or clears) the header's own per-column Excel-style quick filter —
+   *  same `filters` list the filter bar owns, just another writer of it. */
+  on_column_filter?: (col: string, values: string[] | null) => void;
 }
 
 // Render one cell value as a SQL literal. Values are always single-quoted —
 // both SQLite and Postgres coerce string literals to the target column type,
 // and escaping is just doubling the quote.
-function sql_literal(v: string | null): string {
+export function sql_literal(v: string | null): string {
   return v === null ? "NULL" : `'${v.replaceAll("'", "''")}'`;
 }
 
+// Stable fallbacks for `result?.rows`/`result?.columns` while `result` is
+// still null (the loading window right after a table/tab first mounts) — a
+// fresh `?? []` literal there is a NEW array on every one of that window's
+// re-renders, which used to be harmless (nothing downstream cared about
+// array IDENTITY, only content) but now feeds `useGridController`'s `view`
+// memo (keyed on `columns`), which feeds this component's own `bridge`
+// memo, which feeds a `setGridBridge` effect — an unstable `columns`
+// reference there is a real infinite-render loop ("Maximum update depth
+// exceeded"), not just a wasted recompute.
+const EMPTY_ROWS: (string | null)[][] = [];
+const EMPTY_COLUMNS: string[] = [];
+
 // Double-quoted identifier (works for SQLite and Postgres alike).
-function sql_ident(name: string): string {
+export function sql_ident(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
+}
+
+// The controller's UI-facing SortKey[] -> the wire shape QueryOp sends;
+// `undefined` (not `[]`) when unsorted, matching the old single-column
+// field's own "omit when absent" convention.
+function wire_order_by(
+  sort_keys: SortKey[],
+): { column: string; dir: "ASC" | "DESC" }[] | undefined {
+  return sort_keys.length === 0
+    ? undefined
+    : sort_keys.map((k) => ({ column: k.column, dir: k.asc ? "ASC" : "DESC" }));
 }
 
 export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
@@ -112,6 +141,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     active = true,
     database,
     schema_name,
+    on_column_filter,
   },
   ref,
 ) {
@@ -177,7 +207,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const setGridBridge = useStudioStore((s) => s.setGridBridge);
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
-  const setRightSidebarOpen = useStudioStore((s) => s.setRightSidebarOpen);
+  const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
   // The JSON viewer shows the ACTIVE tab's row; publishing under this scope
   // (connection + tab) keeps one tab's selection from leaking into another.
   const json_scope = `${conn_id}\u0000${tab_key}`;
@@ -249,8 +279,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     ],
   );
   const open_json = useCallback(
-    () => setRightSidebarOpen(true),
-    [setRightSidebarOpen],
+    () => setBottomPanelOpenFor(json_scope, true),
+    [setBottomPanelOpenFor, json_scope],
   );
 
   const pk_columns = useMemo(
@@ -302,6 +332,112 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       ),
     [schema],
   );
+
+  // FK inline display label ("<value> (<looked-up label>)"): resolve each
+  // referenced table's own "best" display column once — a schema fetch,
+  // deduped by `tableSchema` itself — then batch-lookup labels for just the
+  // values on the loaded page, never the whole referenced table.
+  const fk_table_names = useMemo(
+    () => [...new Set(Object.values(fk_targets).map((fk) => fk.table))],
+    [fk_targets],
+  );
+  const [fk_label_cols, setFkLabelCols] = useState<
+    Record<string, string | null>
+  >({});
+  useEffect(() => {
+    if (fk_table_names.length === 0) {
+      setFkLabelCols({});
+      return;
+    }
+    let cancelled = false;
+    const PREFERRED = ["name", "title", "label", "display_name", "username", "email"];
+    void (async () => {
+      const entries = await Promise.all(
+        fk_table_names.map(async (t) => {
+          try {
+            const s = await tableSchema(conn_id, t, database, schema_name);
+            const pk = new Set(
+              s.columns.filter((c) => c.primary_key).map((c) => c.name),
+            );
+            const non_pk = s.columns.filter((c) => !pk.has(c.name));
+            const preferred = non_pk.find((c) =>
+              PREFERRED.includes(c.name.toLowerCase()),
+            );
+            return [t, (preferred ?? non_pk[0])?.name ?? null] as const;
+          } catch {
+            return [t, null] as const;
+          }
+        }),
+      );
+      if (!cancelled) setFkLabelCols(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fk_table_names, conn_id, database, schema_name]);
+
+  const [fk_labels, setFkLabels] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  useEffect(() => {
+    const page_columns = result?.columns ?? [];
+    const page_rows = result?.rows ?? [];
+    const fk_cols = page_columns.filter(
+      (c) => fk_targets[c] && fk_label_cols[fk_targets[c].table],
+    );
+    if (fk_cols.length === 0) {
+      setFkLabels({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        fk_cols.map(async (col) => {
+          const fk = fk_targets[col];
+          const label_col = fk_label_cols[fk.table]!;
+          const idx = page_columns.indexOf(col);
+          const values = [
+            ...new Set(
+              page_rows
+                .map((r) => r[idx])
+                .filter((v): v is string => v !== null),
+            ),
+          ];
+          if (values.length === 0) return [col, {}] as const;
+          try {
+            const res = await executeOp(
+              conn_id,
+              {
+                kind: "select",
+                table: fk.table,
+                filters: [{ column: fk.column, op: "in", value: "", values }],
+                limit: values.length,
+              },
+              database,
+              schema_name,
+            );
+            const key_idx = res.columns.indexOf(fk.column);
+            const label_idx = res.columns.indexOf(label_col);
+            const map: Record<string, string> = {};
+            if (key_idx !== -1 && label_idx !== -1) {
+              for (const r of res.rows) {
+                const k = r[key_idx];
+                const lv = r[label_idx];
+                if (k !== null && lv !== null) map[k] = lv;
+              }
+            }
+            return [col, map] as const;
+          } catch {
+            return [col, {}] as const;
+          }
+        }),
+      );
+      if (!cancelled) setFkLabels(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [result, fk_targets, fk_label_cols, conn_id, database, schema_name]);
 
   // Column name -> whether the column allows NULL (drives the NULL dropdown
   // option in cell editors; SQLite booleans are 0/1 integers, not NULL).
@@ -775,11 +911,36 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     return stmts.length > 0 ? stmts.join("\n\n") : null;
   }, [result, pending, dirty_cells, deleted_rows, match_for, table, offset]);
 
+  // Header quick-filter's live escalation past the loaded page: a bounded
+  // probe first (cheap, and usually enough), unbounded only when the probe
+  // comes back capped — same `select_distinct` op the enum/bool dropdown
+  // editors already use for a bounded fetch.
+  const fetch_distinct_values = useCallback(
+    async (col: string): Promise<(string | null)[]> => {
+      const probe = await executeOp(
+        conn_id,
+        { kind: "select_distinct", table, column: col, limit: DISTINCT_LIMIT },
+        database,
+        schema_name,
+      );
+      const values = probe.rows.map((r) => r[0] ?? null);
+      if (values.length < DISTINCT_LIMIT) return values;
+      const full = await executeOp(
+        conn_id,
+        { kind: "select_distinct", table, column: col },
+        database,
+        schema_name,
+      );
+      return full.rows.map((r) => r[0] ?? null);
+    },
+    [conn_id, table, database, schema_name],
+  );
+
   // Sort state + selection live in the controller; we read the sort cursor out
   // of it for the SQL below and a sort change restarts from page 0.
   const ctl = useGridController({
-    rows: result?.rows ?? [],
-    columns: result?.columns ?? [],
+    rows: result?.rows ?? EMPTY_ROWS,
+    columns: result?.columns ?? EMPTY_COLUMNS,
     row_offset: offset,
     editable,
     loading: show_loading,
@@ -787,6 +948,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     pk_columns,
     conn_id,
     table,
+    layout_key: `${conn_id}::${database ?? ""}::${schema_name ?? ""}::${table}`,
     kinds: kindsTyped,
     types: column_types,
     key_kinds,
@@ -862,8 +1024,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
               table,
               filters,
               custom_where: user_where,
-              order_by: ctl.sort_col ?? undefined,
-              order_dir: ctl.sort_asc ? "ASC" : "DESC",
+              order_by: wire_order_by(ctl.sort_keys),
               limit: page_size,
               offset,
             },
@@ -915,8 +1076,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     table,
     filters,
     user_where,
-    ctl.sort_col,
-    ctl.sort_asc,
+    ctl.sort_keys,
     page_size,
     offset,
     revision,
@@ -984,6 +1144,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       selected_cell_count: ctl.selected.size,
       table,
       bulk_edit_selection: ctl.bulk_edit_selection,
+      all_columns: ctl.view.full_column_order,
+      hidden_columns: [...ctl.hidden_columns],
+      toggle_column_visibility: ctl.toggle_column_visibility,
+      reorder_column: ctl.reorder_column,
       editable: editable && !show_loading,
       loading: show_loading,
       elapsed_ms: result?.elapsed_ms ?? null,
@@ -1016,8 +1180,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         table,
         filters,
         custom_where: user_where || undefined,
-        order_by: ctl.sort_col ?? undefined,
-        order_dir: ctl.sort_asc ? "ASC" : "DESC",
+        order_by: wire_order_by(ctl.sort_keys),
       }),
       database,
       schema_name,
@@ -1047,10 +1210,13 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       column_types,
       filters,
       user_where,
-      ctl.sort_col,
-      ctl.sort_asc,
+      ctl.sort_keys,
       ctl.selected.size,
       ctl.bulk_edit_selection,
+      ctl.view.full_column_order,
+      ctl.hidden_columns,
+      ctl.toggle_column_visibility,
+      ctl.reorder_column,
     ],
   );
 
@@ -1098,7 +1264,15 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         {/* Spinners for both first load and refetch live in table-pane's
           overlay; this box just keeps its height so nothing jumps. */}
         {!result ? null : (
-          <GridProvider value={ctl}>
+          <GridProvider
+            value={{
+              ...ctl,
+              filters,
+              on_column_filter,
+              fetch_distinct_values,
+              fk_labels,
+            }}
+          >
             <GridBody />
           </GridProvider>
         )}

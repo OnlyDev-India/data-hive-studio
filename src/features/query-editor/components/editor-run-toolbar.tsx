@@ -8,15 +8,14 @@ import {
   Button,
 } from "@/shared/components/ui";
 import {
-  FolderOpen,
-  Maximize2,
-  Minimize2,
-  PlayIcon,
+  FolderOpen, PlayIcon,
   Save,
   Shrink,
   SpellCheck2,
   TextAlignStart,
+  Tags,
   TextSelect,
+  WrapText
 } from "lucide-react";
 import { DBIcons, type DbIconKind } from "@/shared/components/icons/types";
 import { cn } from "@/shared/lib/utils";
@@ -53,11 +52,13 @@ export function EditorRunToolbar({
   on_compress,
   lint_enabled,
   on_toggle_lint,
+  insert_labels_enabled,
+  on_toggle_insert_labels,
   is_dirty,
   on_save,
   on_open,
-  zen_enabled,
-  on_toggle_zen,
+  wrap,
+  onToggleWrap
 }: {
   has_selection: boolean;
   can_run_target: boolean;
@@ -81,15 +82,15 @@ export function EditorRunToolbar({
   on_compress?: () => void;
   lint_enabled?: boolean;
   on_toggle_lint?: () => void;
+  /** SQL editor only: shows/hides the column name drawn in front of each
+   *  INSERT value (see `insert-column-labels.ts`). Omitted = no toggle. */
+  insert_labels_enabled?: boolean;
+  on_toggle_insert_labels?: () => void;
   is_dirty?: boolean;
   on_save?: () => void;
   on_open?: () => void;
-  /** Distraction-free view: hides the results panel so the editor takes the
-   *  full pane height. A view toggle, not a document action — grouped with
-   *  the database picker on the right rather than the left-hand action
-   *  buttons. */
-  zen_enabled?: boolean;
-  on_toggle_zen?: () => void;
+  wrap?: boolean;
+  onToggleWrap?: () => void;
 }) {
   const DbIcon = db_kind ? DBIcons[db_kind] : null;
   return (
@@ -119,6 +120,14 @@ export function EditorRunToolbar({
               {has_selection ? "Run selected" : "Run all"}
             </TooltipContent>
           </Tooltip>
+          {onToggleWrap && (
+            <ToolbarIconButton
+              icon={WrapText}
+              label={wrap ? "Word wrap on" : "Word wrap off"}
+              color="info"
+              onClick={onToggleWrap}
+            />
+          )}
           {on_format && (
             <ToolbarIconButton
               icon={TextAlignStart}
@@ -144,6 +153,19 @@ export function EditorRunToolbar({
               color="warning"
               active={lint_enabled}
               onClick={on_toggle_lint}
+            />
+          )}
+          {on_toggle_insert_labels && (
+            <ToolbarIconButton
+              icon={Tags}
+              label={
+                insert_labels_enabled
+                  ? "Hide INSERT column labels"
+                  : "Show INSERT column labels"
+              }
+              color="info"
+              active={insert_labels_enabled}
+              onClick={on_toggle_insert_labels}
             />
           )}
           {on_open && (
@@ -188,15 +210,6 @@ export function EditorRunToolbar({
                 </SelectGroup>
               </SelectContent>
             </Select>
-          )}
-          {on_toggle_zen && (
-            <ToolbarIconButton
-              icon={zen_enabled ? Minimize2 : Maximize2}
-              label={zen_enabled ? "Exit zen mode" : "Zen mode"}
-              color="primary"
-              active={zen_enabled ?? false}
-              onClick={on_toggle_zen}
-            />
           )}
         </div>
       </div>
@@ -247,7 +260,6 @@ function ToolbarIconButton({
                 : `${TOOLBAR_ICON_COLORS[color]} hover:${TOOLBAR_ICON_COLORS[color]}`,
             )}
             disabled={disabled}
-            title={label}
             onClick={onClick}
           >
             <Icon className="size-3.5" />

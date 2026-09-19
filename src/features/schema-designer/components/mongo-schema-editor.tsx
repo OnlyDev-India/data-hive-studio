@@ -13,7 +13,7 @@ import { IndexesPanel } from "./schema-tab/indexes-panel";
 import { DropTableDialog } from "./schema-tab/drop-table-dialog";
 import {
   ApplyChangesDialog,
-  type DiffChange,
+  type DdlDiffSection,
 } from "@/shared/components/apply-changes-dialog";
 import {
   build_index_ops,
@@ -103,7 +103,9 @@ export function MongoSchemaEditor({
     setEditingName(false);
   };
 
-  const [confirm_apply, setConfirmApply] = useState<DiffChange[] | null>(null);
+  const [confirm_apply, setConfirmApply] = useState<DdlDiffSection[] | null>(
+    null,
+  );
 
   /** Direct apply, no review dialog — close-guards and the dropdown's
    *  "Apply" option (mirrors the grid's Review & Apply / Apply split). */
@@ -223,7 +225,7 @@ export function MongoSchemaEditor({
       {confirm_apply && (
         <ApplyChangesDialog
           title="Review schema changes"
-          changes={confirm_apply}
+          ddl={confirm_apply}
           applying={applying}
           on_apply={() => void run_apply()}
           on_close={() => setConfirmApply(null)}

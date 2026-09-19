@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Cell } from "./cell";
 import { HeaderCell } from "./header-cell";
+import { ColumnDragGhost } from "./column-drag-ghost";
 import { useGrid } from "./grid-context";
 import { GridSearchBar } from "./search-bar";
 
@@ -35,11 +36,16 @@ export function GridBody() {
   const virt = ctx.row_virtualizer;
   const items = virt.getVirtualItems();
 
+  // Column -> its own priority index (0 = primary) and direction, so each
+  // header reads its OWN sort entry instead of a single shared one.
+  const sort_by_col = new Map(
+    ctx.sort_keys.map((k, i) => [k.column, { index: i, asc: k.asc }]),
+  );
   const headers = column_order.map(
     (col) =>
       [
         col,
-        ctx.sort_col === col,
+        sort_by_col.get(col) ?? null,
         pinned.includes(col),
         pin_px[col] ?? 0,
       ] as const,
@@ -48,6 +54,7 @@ export function GridBody() {
   return (
     <div className="relative h-full">
       <GridSearchBar />
+      <ColumnDragGhost />
       <div
         ref={(el) => on_root_ready(el)}
         tabIndex={0}
@@ -63,12 +70,13 @@ export function GridBody() {
           <div className="border-border/40 bg-muted text-2xs sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r">
             <span>#</span>
           </div>
-          {headers.map(([col, isSorted, isPinned, px]) => (
+          {headers.map(([col, sort, isPinned, px]) => (
             <HeaderCell
               key={col}
               col={col}
-              is_sorted={isSorted}
-              is_asc={ctx.sort_asc}
+              is_sorted={sort !== null}
+              is_asc={sort?.asc ?? true}
+              sort_index={sort?.index ?? null}
               is_pinned={isPinned}
               px={px}
               width={width_of(col)}

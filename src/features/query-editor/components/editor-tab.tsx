@@ -1,17 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Loader2, X } from "lucide-react";
+import { Layers, Loader2, X } from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
 import { format as formatSql } from "sql-formatter";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/components/ui/tooltip";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
 import { basename, cn, statementRanges } from "@/shared/lib/utils";
-import { QueryResultsGrid } from "@/shared/components/data-grid/query-results-grid";
+import {
+  QueryResultsGrid,
+  type QueryResultEditableSource,
+} from "@/shared/components/data-grid/query-results-grid";
+import { singleTableSelect } from "@/shared/components/query-editor/sql-editable";
+import { singleCollectionQuery } from "@/shared/components/query-editor/mongo-editable";
 import {
   catalogOverview,
   listDatabases,
@@ -35,7 +46,13 @@ import {
   DangerConfirmDialog,
   type DangerousStatement,
 } from "./danger-confirm-dialog";
+import { BindVariablesDialog } from "./bind-variables-dialog";
+import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 import { dangerousSqlReason } from "../lib/dangerous-sql";
+import {
+  findBindVariables,
+  substituteBindVariables,
+} from "../lib/bind-variables";
 import { compressSql } from "../lib/compress-sql";
 
 /** A single failed-statement marker pushed to the editor via `setErrors`. */
@@ -55,6 +72,38 @@ function useErrorRanges(editorRef: React.RefObject<QueryEditorHandle | null>) {
   return { ranges, sync };
 }
 
+/** `db.table` (or just `table`, or `schema.table` when the query itself was
+ *  schema-qualified) when a SQL statement clearly targets one table, for the
+ *  result tab's own label — a cheap, synchronous, best-effort read of the
+ *  text alone (no schema round trip), so a freshly-created tab shows
+ *  something meaningful immediately instead of a generic "Query N". `null`
+ *  when nothing recognizable was found, so the caller can fall back. */
+function deriveSqlTabLabel(
+  text: string,
+  database: string | undefined,
+): string | null {
+  const table =
+    singleTableSelect(text)?.table ??
+    /^\s*(?:insert\s+into|update|delete\s+from)\s+("?[A-Za-z_][\w$]*"?(?:\."?[A-Za-z_][\w$]*"?)?)/i
+      .exec(text)?.[1]
+      ?.replaceAll('"', "");
+  if (!table) return null;
+  return table.includes(".")
+    ? table
+    : database
+      ? `${database}.${table}`
+      : table;
+}
+
+/** Same idea as {@link deriveSqlTabLabel}, for a Mongo console command —
+ *  `db.<collection>.<anything>(` names its collection regardless of which
+ *  method, so this doesn't need `mongo-editable.ts`'s narrower
+ *  editability-focused detection. */
+function deriveMongoTabLabel(text: string, database: string): string | null {
+  const collection = /^\s*db\.([A-Za-z_$][\w$]*)\./.exec(text)?.[1];
+  return collection ? `${database}.${collection}` : null;
+}
+
 /** One row of the result strip, normalized across SQL's and Mongo's own
  *  entry shapes — just enough for the tab strip to render without caring
  *  which kind of editor it's showing. */
@@ -68,56 +117,96 @@ interface ResultTabSummary {
 /** The result-tab strip: a colored status dot, a truncated label, and a
  *  close button — identical chrome for both SQL and Mongo, which otherwise
  *  differ in what a "result" even contains. */
+/** The result-tab strip: a leading toggle for whether every run opens its
+ *  own tab, then a row of pill-shaped tabs (status dot, truncated label,
+ *  close button) — identical chrome for both SQL and Mongo, which otherwise
+ *  differ in what a "result" even contains. */
 function ResultTabStrip({
   items,
   active_id,
   on_select,
   on_close,
+  keep_all_tabs,
+  on_toggle_keep_all_tabs,
 }: {
   items: ResultTabSummary[];
   active_id: number | null;
   on_select: (id: number) => void;
   on_close: (id: number) => void;
+  /** ON: every run opens a fresh tab. OFF: repeat single-statement runs
+   *  reuse one tab instead of piling up new ones. */
+  keep_all_tabs: boolean;
+  on_toggle_keep_all_tabs: () => void;
 }) {
   if (items.length === 0) return null;
   return (
-    <div className="bg-background flex shrink-0 scrollbar-none items-center gap-0.5 overflow-x-auto border-b px-1.5 pt-1">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          role="button"
-          tabIndex={0}
-          onClick={() => on_select(item.id)}
-          className={cn(
-            "flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-b-2 px-2.5 py-1.5 text-sm whitespace-nowrap select-none",
-            item.id === active_id
-              ? "border-primary text-foreground"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
-          )}
-        >
-          {item.running ? (
-            <span className="bg-primary size-2 shrink-0 animate-pulse rounded-full" />
-          ) : item.has_error ? (
-            <span className="bg-destructive size-2 shrink-0 rounded-full" />
-          ) : (
-            <span className="bg-success size-2 shrink-0 rounded-full" />
-          )}
-          <span className="truncate">{item.label}</span>
-          <Button
-            variant="ghost"
-            size="iconXs"
-            className="-mr-1 ml-0.5 size-5 opacity-60 hover:opacity-100"
-            aria-label="Close result tab"
-            onClick={(e) => {
-              e.stopPropagation();
-              on_close(item.id);
-            }}
+    <TooltipProvider delay={500}>
+      <div className="bg-background flex shrink-0 items-center gap-1 px-1.5 py-1">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="iconXs"
+                aria-label={
+                  keep_all_tabs ? "New tab per run: on" : "New tab per run: off"
+                }
+                className={cn(
+                  "shrink-0",
+                  keep_all_tabs && "bg-muted text-foreground",
+                )}
+                onClick={on_toggle_keep_all_tabs}
+              />
+            }
           >
-            <X className="size-3.5" />
-          </Button>
+            <Layers className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {keep_all_tabs
+              ? "New tab per run — click to reuse one tab instead"
+              : "Reusing one tab per run — click for a new tab every time"}
+          </TooltipContent>
+        </Tooltip>
+        <div className="bg-border h-4 w-px shrink-0" />
+        <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-1 overflow-x-auto">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => on_select(item.id)}
+              className={cn(
+                "flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-sm whitespace-nowrap select-none",
+                item.id === active_id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              )}
+            >
+              {item.running ? (
+                <span className="bg-primary size-1.5 shrink-0 animate-pulse rounded-full" />
+              ) : item.has_error ? (
+                <span className="bg-destructive size-1.5 shrink-0 rounded-full" />
+              ) : (
+                <span className="bg-success size-1.5 shrink-0 rounded-full" />
+              )}
+              <span className="truncate">{item.label}</span>
+              <Button
+                variant="ghost"
+                size="iconXs"
+                className="-mr-1 ml-0.5 size-4 opacity-60 hover:opacity-100"
+                aria-label="Close result tab"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  on_close(item.id);
+                }}
+              >
+                <X className="size-3" />
+              </Button>
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -184,6 +273,10 @@ interface SqlResultTab {
   label: string;
   result: QueryResult | null;
   running: boolean;
+  /** The exact statement text that produced (or is producing) `result` —
+   *  shown in the result's own Query view and used to detect whether it's a
+   *  single-table SELECT eligible for editing. */
+  sql: string;
 }
 
 /** Completion hints shared by EVERY SQL tab in the session, keyed by
@@ -246,6 +339,10 @@ function SqlEditorBody({
   // about yet (e.g. right after a bulk DDL run) that would otherwise flag
   // everything as "unknown".
   const [lint_enabled, setLintEnabled] = useState(true);
+  // Toolbar toggle: the column name drawn in front of each INSERT value
+  // (purely visual — see `insert-column-labels.ts`). Per tab, resets to on
+  // when the tab is reopened, same as `lint_enabled`.
+  const [insert_labels_enabled, setInsertLabelsEnabled] = useState(true);
 
   // Gates a run behind an explicit confirm when one of its statements is
   // unconditionally destructive (UPDATE/DELETE with no WHERE, TRUNCATE,
@@ -266,6 +363,37 @@ function SqlEditorBody({
       if (statements.length === 0) return Promise.resolve(true);
       return new Promise((resolve) => {
         setDangerPending({ statements, resolve });
+      });
+    },
+    [],
+  );
+
+  // Same Promise-gate shape as `confirm_if_dangerous`, one step earlier in
+  // the pipeline: prompts for a value per `:name`/`${name}` bind variable
+  // (`bind-variables.ts`) and substitutes them into the statement texts
+  // before anything else (the danger-confirm gate included) ever sees them —
+  // a "DELETE FROM t WHERE id = :id" with no WHERE-less DELETE should still
+  // be flagged if the user leaves `:id` empty (substitutes to NULL, which
+  // `WHERE id = NULL` never matches — that's a query-correctness surprise
+  // for the user, not a reason to skip the danger check).
+  const [bind_pending, setBindPending] = useState<{
+    names: string[];
+    resolve: (values: Record<string, string> | null) => void;
+  } | null>(null);
+  const resolve_bind_variables = useCallback(
+    (texts: string[]): Promise<string[] | null> => {
+      const names = findBindVariables(texts);
+      if (names.length === 0) return Promise.resolve(texts);
+      return new Promise((resolve) => {
+        setBindPending({
+          names,
+          resolve: (values) =>
+            resolve(
+              values
+                ? texts.map((t) => substituteBindVariables(t, values))
+                : null,
+            ),
+        });
       });
     },
     [],
@@ -451,6 +579,8 @@ function SqlEditorBody({
   // non-string value, whatever the actual source of a bad update turns out
   // to be (e.g. dev-mode HMR preserving a stale/mismatched state shape).
   const sql_text = typeof sql === "string" ? sql : String(sql ?? "");
+  const format_keyword_case = useStudioStore((s) => s.sqlFormatKeywordCase);
+  const format_indent_width = useStudioStore((s) => s.sqlFormatIndentWidth);
   const format_sql = useCallback(() => {
     try {
       setSql(
@@ -460,6 +590,8 @@ function SqlEditorBody({
             : conn?.kind === "sqlite"
               ? "sqlite"
               : "sql",
+          keywordCase: format_keyword_case,
+          tabWidth: format_indent_width,
         }),
       );
     } catch {
@@ -467,14 +599,29 @@ function SqlEditorBody({
       // parse (mid-edit, a dialect quirk it doesn't know); silently doing
       // nothing beats replacing a query the user was actively writing.
     }
-  }, [sql_text, is_pg, conn, setSql]);
+  }, [sql_text, is_pg, conn, setSql, format_keyword_case, format_indent_width]);
   const compress_sql = useCallback(() => {
     setSql(compressSql(sql_text));
   }, [sql_text, setSql]);
-  // View toggle (not persisted): hides the results panel so the editor
-  // takes the whole pane — reuses the same "no results yet" full-height
-  // layout below rather than a separate rendering path.
-  const [zen, setZen] = useState(false);
+  // View toggle: hides the results panel so the editor takes the whole pane
+  // — reuses the same "no results yet" full-height layout below rather than
+  // a separate rendering path. Shared with the title bar's own bottom-panel
+  // toggle (and, for a table/collection tab, the JSON detail panel's same
+  // flag) rather than a local `useState` — one open/closed concept for
+  // whichever tab is active, not per-tab.
+  const {
+    panelRef: bottomPanelRef,
+    defaultLayout,
+    onLayoutChanged,
+    defaultSize: bottomDefaultSize,
+    bottomPanelOpen,
+  } = useBottomPanelSize({
+    conn_id,
+    tab_key,
+    panelIds: ["top-panel", "bottom-panel"],
+    storage: localStorage,
+  });
+
   const [tabs, setTabs] = useState<SqlResultTab[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const next_id = useRef(0);
@@ -557,6 +704,7 @@ function SqlEditorBody({
         label: `Query ${next_label.current++}`,
         result: null,
         running: false,
+        sql: "",
       },
     ]);
     setActiveId(id);
@@ -567,7 +715,36 @@ function SqlEditorBody({
     setTabs((cur) => cur.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
+  // "New tab per run" (the result strip's leading toggle) — ON (default,
+  // matches this app's original behavior) always opens a fresh result tab.
+  // OFF reuses ONE tab across repeat single-statement runs instead of
+  // piling up a new one every time; a run that actually produces more than
+  // one statement still gets one tab each — those are genuinely different
+  // results, not reruns of the same query.
+  const [keep_all_tabs, setKeepAllTabs] = useState(true);
+  const reusable_tab_id = useRef<number | null>(null);
+  const resolve_tab_id = useCallback(
+    (batch_len: number): number => {
+      if (keep_all_tabs || batch_len > 1) return add_tab();
+      // Nothing marked reusable yet (toggled off just now, or this is the
+      // very first run) — reuse whatever tab is already active instead of
+      // opening one throwaway tab first, so turning the toggle off takes
+      // effect on the very next run, not the one after.
+      const reuse_id = reusable_tab_id.current ?? active_id;
+      if (reuse_id !== null) {
+        reusable_tab_id.current = reuse_id;
+        setActiveId(reuse_id);
+        return reuse_id;
+      }
+      const id = add_tab();
+      reusable_tab_id.current = id;
+      return id;
+    },
+    [keep_all_tabs, add_tab, active_id],
+  );
+
   const close_tab = useCallback((id: number) => {
+    if (reusable_tab_id.current === id) reusable_tab_id.current = null;
     setTabs((cur) => {
       const idx = cur.findIndex((t) => t.id === id);
       const nextList = cur.filter((t) => t.id !== id);
@@ -582,7 +759,7 @@ function SqlEditorBody({
 
   const run_query = useCallback(
     async (id: number, query: string, range?: { from: number; to: number }) => {
-      patch_tab(id, { running: true, result: null });
+      patch_tab(id, { running: true, result: null, sql: query });
       // Accumulate streamed rows; flush to the tab at most once per frame so
       // large results paint progressively without a render per batch.
       const acc: { cols: string[] | null; rows: (string | null)[][] } = {
@@ -667,45 +844,53 @@ function SqlEditorBody({
       }))
       .filter((s) => s.text);
     if (stmts.length === 0) return;
-    const ok = await confirm_if_dangerous(stmts.map((s) => s.text));
+    const bound_texts = await resolve_bind_variables(stmts.map((s) => s.text));
+    if (!bound_texts) return;
+    const bound = stmts.map((s, i) => ({ ...s, text: bound_texts[i] }));
+    const ok = await confirm_if_dangerous(bound.map((s) => s.text));
     if (!ok) return;
     // Fresh batch — previous run's error markers no longer apply.
     error_ranges.current.clear();
     sync_errors();
-    for (const s of stmts) {
-      const id = add_tab();
+    for (const s of bound) {
+      const id = resolve_tab_id(bound.length);
       void run_query(id, s.text, { from: s.from, to: s.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
   }, [
     sql_text,
-    add_tab,
+    resolve_tab_id,
     run_query,
     sync_errors,
     error_ranges.current,
+    resolve_bind_variables,
     confirm_if_dangerous,
   ]);
 
   const run_target = useCallback(async () => {
     const targets = editorRef.current?.getTargets() ?? [];
-    if (targets.length === 0) return;
-    const texts = targets.map((t) => t.text.trim()).filter(Boolean);
-    const ok = await confirm_if_dangerous(texts);
+    const stmts = targets
+      .map((t) => ({ from: t.from, to: t.to, text: t.text.trim() }))
+      .filter((s) => s.text);
+    if (stmts.length === 0) return;
+    const bound_texts = await resolve_bind_variables(stmts.map((s) => s.text));
+    if (!bound_texts) return;
+    const bound = stmts.map((s, i) => ({ ...s, text: bound_texts[i] }));
+    const ok = await confirm_if_dangerous(bound.map((s) => s.text));
     if (!ok) return;
     error_ranges.current.clear();
     sync_errors();
-    for (const t of targets) {
-      const text = t.text.trim();
-      if (!text) continue;
-      const id = add_tab();
-      void run_query(id, text, { from: t.from, to: t.to });
+    for (const s of bound) {
+      const id = resolve_tab_id(bound.length);
+      void run_query(id, s.text, { from: s.from, to: s.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above run_query's own deps array
   }, [
-    add_tab,
+    resolve_tab_id,
     run_query,
     sync_errors,
     error_ranges.current,
+    resolve_bind_variables,
     confirm_if_dangerous,
   ]);
 
@@ -774,13 +959,24 @@ function SqlEditorBody({
 
   const strip_items: ResultTabSummary[] = tabs.map((t) => ({
     id: t.id,
-    label: t.label,
+    label: deriveSqlTabLabel(t.sql, target_database) ?? t.label,
     running: t.running,
     has_error: !!t.result?.error,
   }));
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
+      <BindVariablesDialog
+        names={bind_pending?.names ?? null}
+        onConfirm={(values) => {
+          bind_pending?.resolve(values);
+          setBindPending(null);
+        }}
+        onCancel={() => {
+          bind_pending?.resolve(null);
+          setBindPending(null);
+        }}
+      />
       <DangerConfirmDialog
         statements={danger_pending?.statements ?? null}
         onConfirm={() => {
@@ -806,11 +1002,11 @@ function SqlEditorBody({
         on_compress={compress_sql}
         lint_enabled={lint_enabled}
         on_toggle_lint={() => setLintEnabled((v) => !v)}
+        insert_labels_enabled={insert_labels_enabled}
+        on_toggle_insert_labels={() => setInsertLabelsEnabled((v) => !v)}
         is_dirty={is_dirty}
         on_save={() => void save_sql()}
         on_open={() => void open_sql_file()}
-        zen_enabled={zen}
-        on_toggle_zen={() => setZen((v) => !v)}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <QueryEditor
@@ -825,35 +1021,44 @@ function SqlEditorBody({
           schema={schema}
           schemaTables={is_pg ? schema_tables : undefined}
           lintEnabled={lint_enabled}
+          showInsertLabels={insert_labels_enabled}
           height="100%"
         />
       </div>
     </div>
   );
 
-  // No result tabs yet, or zen mode is on: give the editor the full pane
-  // instead of splitting 40/60 with a results section underneath it.
-  if (tabs.length === 0 || zen) {
-    return <div className="flex h-full min-h-0 flex-col">{editor_pane}</div>;
-  }
-
+  // Zen mode (bottom panel closed): the "editor" panel always sits in this
+  // same slot — only "results" mounts/unmounts — so toggling never remounts
+  // the CodeMirror editor (losing cursor position/undo history). "results"
+  // sizes itself from `useBottomPanelSize`'s plain remembered percentage
+  // (not `react-resizable-panels`' own `defaultLayout` persistence — see
+  // that hook's doc comment for why).
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ResizablePanelGroup orientation="vertical">
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="min-h-0 flex-1"
+        onLayoutChanged={onLayoutChanged}
+        defaultLayout={defaultLayout}
+      >
         <ResizablePanel
-          defaultSize="40%"
-          minSize="15%"
-          className="flex-col border-b"
+          id="top-panel"
+          minSize="30%"
+          className={cn("flex-col", bottomPanelOpen && "border-b")}
         >
-          {editor_pane}
+          <div className="min-h-0 flex-1">{editor_pane}</div>
         </ResizablePanel>
-
-        <ResizableHandle className="bg-background hover:bg-accent h-1!" />
+        <ResizableHandle className="bg-background hover:bg-accent h-0.5!" />
 
         <ResizablePanel
-          defaultSize="60%"
-          minSize="25%"
-          className="bg-background flex-col"
+          id="bottom-panel"
+          defaultSize={bottomDefaultSize}
+          minSize={10}
+          collapsible
+          collapsedSize={0}
+          className="min-h-0 flex-col"
+          panelRef={bottomPanelRef}
         >
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
@@ -861,6 +1066,8 @@ function SqlEditorBody({
               active_id={active_id}
               on_select={setActiveId}
               on_close={close_tab}
+              keep_all_tabs={keep_all_tabs}
+              on_toggle_keep_all_tabs={() => setKeepAllTabs((v) => !v)}
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {active === null ? (
@@ -879,8 +1086,11 @@ function SqlEditorBody({
               ) : active.result ? (
                 <SqlResults
                   conn_id={conn_id}
-                  tab_key={tab_key}
+                  tab_key={`${tab_key}\u0000${active.id}`}
                   result={active.result}
+                  sql={active.sql}
+                  database={target_database}
+                  on_refresh={() => void run_query(active.id, active.sql)}
                 />
               ) : null}
             </div>
@@ -891,15 +1101,57 @@ function SqlEditorBody({
   );
 }
 
+/** Splits a possibly schema-qualified table reference (`singleTableSelect`'s
+ *  own output shape) into the separate `table`/`schema` args `tableSchema`
+ *  expects. */
+function splitSchemaQualified(name: string): {
+  table: string;
+  schema?: string;
+} {
+  const dot = name.indexOf(".");
+  return dot < 0
+    ? { table: name }
+    : { schema: name.slice(0, dot), table: name.slice(dot + 1) };
+}
+
 function SqlResults({
   result,
   conn_id,
   tab_key,
+  sql,
+  database,
+  on_refresh,
 }: {
   result: QueryResult;
   conn_id: string;
   tab_key: string;
+  sql: string;
+  database?: string;
+  on_refresh: () => void;
 }) {
+  const [editable_source, setEditableSource] =
+    useState<QueryResultEditableSource | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new result invalidates the previous one's editability immediately; the real (async) detection follows below
+    setEditableSource(null);
+    if (!result.is_select) return;
+    const hit = singleTableSelect(sql);
+    if (!hit) return;
+    const { table, schema } = splitSchemaQualified(hit.table);
+    let cancelled = false;
+    void tableSchema(conn_id, table, database, schema)
+      .then((schema_result) => {
+        if (!cancelled) setEditableSource({ table, schema: schema_result });
+      })
+      .catch(() => {
+        // Not a real table (a view, a typo, …) — stays read-only, same as
+        // any other query the detector didn't recognize.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [result, sql, conn_id, database]);
+
   // Row count/elapsed time show in the action bar (via the sqlTabs handle's
   // `result` field) instead of here, matching where the regular table grid
   // shows the same info — the result tab strip's colored dot already covers
@@ -907,7 +1159,15 @@ function SqlResults({
   if (result.is_select)
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden border">
-        <QueryResultsGrid result={result} conn_id={conn_id} tab_key={tab_key} />
+        <QueryResultsGrid
+          result={result}
+          conn_id={conn_id}
+          tab_key={tab_key}
+          query_text={sql}
+          editable_source={editable_source}
+          database={database}
+          on_refresh={on_refresh}
+        />
       </div>
     );
 
@@ -991,7 +1251,20 @@ function MongoEditorBody({
   // used to only ever fetch the connection's OWN database once on mount,
   // silently offering the wrong database's collection names after a switch.
   const [collections, setCollections] = useState<string[]>([]);
-  const [zen, setZen] = useState(false);
+
+  const {
+    panelRef: bottomPanelRef,
+    defaultLayout,
+    onLayoutChanged,
+    defaultSize: bottomDefaultSize,
+    bottomPanelOpen,
+  } = useBottomPanelSize({
+    conn_id,
+    tab_key,
+    panelIds: ["top-panel", "bottom-panel"],
+    storage: localStorage,
+  });
+
   // Seed text handed over by other features (e.g. opening a picked .js file):
   // openMongoConsole(connId, database, text) stashes it under this tab's key;
   // read it once here. The store entry itself is removed when the tab closes
@@ -1130,17 +1403,42 @@ function MongoEditorBody({
     [patch, conn_id, db, sync_errors, on_modified, error_ranges.current],
   );
 
-  const add_tab = useCallback(
-    (text: string, range?: { from: number; to: number }) => {
+  // "New tab per run" (the result strip's leading toggle) — same semantics
+  // as the SQL console's: ON (default) always opens a fresh result tab, OFF
+  // reuses ONE tab across repeat single-statement runs instead of piling up
+  // a new one every time; a run that actually produces more than one
+  // statement still gets one tab each.
+  const [keep_all_tabs, setKeepAllTabs] = useState(true);
+  const reusable_entry_id = useRef<number | null>(null);
+  const run_in_tab = useCallback(
+    (
+      text: string,
+      range: { from: number; to: number } | undefined,
+      batch_len: number,
+    ) => {
+      if (!keep_all_tabs && batch_len === 1) {
+        // Nothing marked reusable yet (toggled off just now, or this is the
+        // very first run) — reuse whatever tab is already active instead of
+        // opening one throwaway tab first, so turning the toggle off takes
+        // effect on the very next run, not the one after.
+        const reuse_id = reusable_entry_id.current ?? active_id;
+        if (reuse_id !== null) {
+          reusable_entry_id.current = reuse_id;
+          setActiveId(reuse_id);
+          void run_query(reuse_id, text, range);
+          return;
+        }
+      }
       const id = ++next_id.current;
       setEntries((cur) => [
         ...cur,
         { id, command: text, result: null, running: true },
       ]);
       setActiveId(id);
+      if (!keep_all_tabs && batch_len === 1) reusable_entry_id.current = id;
       void run_query(id, text, range);
     },
-    [run_query],
+    [keep_all_tabs, run_query, active_id],
   );
 
   const run_all = useCallback(() => {
@@ -1155,24 +1453,28 @@ function MongoEditorBody({
     // Fresh batch — previous run's error markers no longer apply.
     error_ranges.current.clear();
     sync_errors();
-    // Each statement runs as its own result tab, exactly like the SQL editor.
-    for (const s of stmts) add_tab(s.text, { from: s.from, to: s.to });
+    for (const s of stmts) {
+      run_in_tab(s.text, { from: s.from, to: s.to }, stmts.length);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
-  }, [script_text, add_tab, sync_errors, error_ranges.current]);
+  }, [script_text, run_in_tab, sync_errors, error_ranges.current]);
 
   const run_target = useCallback(() => {
     const targets = editorRef.current?.getTargets() ?? [];
-    if (targets.length === 0) return;
+    const stmts = targets
+      .map((t) => ({ from: t.from, to: t.to, text: strip_comments(t.text) }))
+      .filter((s) => s.text);
+    if (stmts.length === 0) return;
     error_ranges.current.clear();
     sync_errors();
-    for (const t of targets) {
-      const cleaned = strip_comments(t.text);
-      if (cleaned) add_tab(cleaned, { from: t.from, to: t.to });
+    for (const s of stmts) {
+      run_in_tab(s.text, { from: s.from, to: s.to }, stmts.length);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
-  }, [add_tab, sync_errors, error_ranges.current]);
+  }, [run_in_tab, sync_errors, error_ranges.current]);
 
   const close_tab = useCallback((id: number) => {
+    if (reusable_entry_id.current === id) reusable_entry_id.current = null;
     setEntries((cur) => {
       const idx = cur.findIndex((e) => e.id === id);
       const nextList = cur.filter((e) => e.id !== id);
@@ -1232,7 +1534,9 @@ function MongoEditorBody({
 
   const strip_items: ResultTabSummary[] = entries.map((e) => ({
     id: e.id,
-    label: e.command.split("\n")[0].slice(0, 40),
+    label:
+      deriveMongoTabLabel(e.command, db) ??
+      e.command.split("\n")[0].slice(0, 40),
     running: e.running,
     has_error: !!e.result?.error,
   }));
@@ -1255,8 +1559,6 @@ function MongoEditorBody({
         is_dirty={is_dirty}
         on_save={() => void save_script()}
         on_open={() => void open_script_file()}
-        zen_enabled={zen}
-        on_toggle_zen={() => setZen((v) => !v)}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <QueryEditor
@@ -1277,33 +1579,45 @@ function MongoEditorBody({
     </div>
   );
 
-  // Zen mode: give the editor the full pane instead of splitting with the
-  // results section underneath it — same reasoning as SqlEditorBody's own
-  // "no tabs yet" full-height branch.
-  if (zen) {
-    return <div className="flex h-full min-h-0 flex-col">{editor_pane}</div>;
-  }
-
+  // Zen mode (bottom panel closed): "top-pannel" always sits in this same slot —
+  // only "results" mounts/unmounts — see the identical `SqlEditorBody` block
+  // above for why.
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ResizablePanelGroup orientation="vertical">
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="min-h-0 flex-1"
+        onLayoutChanged={onLayoutChanged}
+        defaultLayout={defaultLayout}
+      >
         <ResizablePanel
-          defaultSize="38%"
-          minSize="15%"
-          className="flex-col border-b"
+          id="top-panel"
+          minSize="30%"
+          className={cn("flex-col", bottomPanelOpen && "border-b")}
         >
-          {editor_pane}
+          <div className="min-h-0 flex-1">{editor_pane}</div>
+          {/* {zen && <BottomPanelDragHandle />} */}
         </ResizablePanel>
 
-        <ResizableHandle className="bg-background hover:bg-accent h-1!" />
+        <ResizableHandle className="bg-background hover:bg-accent h-0.5!" />
 
-        <ResizablePanel defaultSize="62%" minSize="25%" className="flex-col">
+        <ResizablePanel
+          id="bottom-panel"
+          defaultSize={bottomDefaultSize}
+          minSize={10}
+          collapsible
+          collapsedSize={0}
+          className="min-h-0 flex-col"
+          panelRef={bottomPanelRef}
+        >
           <div className="flex h-full min-h-0 flex-col">
             <ResultTabStrip
               items={strip_items}
               active_id={active_id}
               on_select={setActiveId}
               on_close={close_tab}
+              keep_all_tabs={keep_all_tabs}
+              on_toggle_keep_all_tabs={() => setKeepAllTabs((v) => !v)}
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {!active ? (
@@ -1319,7 +1633,9 @@ function MongoEditorBody({
                 <MongoResults
                   entry={active}
                   conn_id={conn_id}
-                  tab_key={tab_key}
+                  tab_key={`${tab_key}\u0000${active.id}`}
+                  database={db}
+                  on_refresh={() => void run_query(active.id, active.command)}
                 />
               ) : null}
             </div>
@@ -1334,12 +1650,38 @@ function MongoResults({
   entry,
   conn_id,
   tab_key,
+  database,
+  on_refresh,
 }: {
   entry: MongoEntry;
   conn_id: string;
   tab_key: string;
+  database: string;
+  on_refresh: () => void;
 }) {
+  const [editable_source, setEditableSource] =
+    useState<QueryResultEditableSource | null>(null);
   const result = entry.result!;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new result invalidates the previous one's editability immediately; the real (async) detection follows below
+    setEditableSource(null);
+    if (result.error || !result.is_select) return;
+    const hit = singleCollectionQuery(entry.command);
+    if (!hit) return;
+    let cancelled = false;
+    void tableSchema(conn_id, hit.table, database)
+      .then((schema) => {
+        if (!cancelled) setEditableSource({ table: hit.table, schema });
+      })
+      .catch(() => {
+        // Not a real collection (a typo, a view-like aggregation output, …)
+        // — stays read-only, same as any other command the detector missed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entry.command, result, conn_id, database]);
+
   if (result.error)
     return (
       <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm whitespace-pre-wrap">
@@ -1356,15 +1698,15 @@ function MongoResults({
   };
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      {result.message && (
-        <span className="text-muted-foreground shrink-0 p-2 text-xs">
-          {result.message}
-        </span>
-      )}
       <QueryResultsGrid
         result={query_result}
         conn_id={conn_id}
         tab_key={tab_key}
+        query_text={entry.command}
+        message={result.message ?? undefined}
+        editable_source={editable_source}
+        database={database}
+        on_refresh={on_refresh}
       />
     </div>
   );

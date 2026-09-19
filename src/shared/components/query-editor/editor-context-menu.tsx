@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import type { EditorView } from "@codemirror/view";
 import { selectAll } from "@codemirror/commands";
 import {
-  openSearchPanel,
   selectNextOccurrence,
   selectSelectionMatches,
 } from "@codemirror/search";
@@ -51,15 +50,16 @@ import {
 
 /** Static, display-only bindings for actions that aren't app-registered,
  *  remappable shortcuts (`shortcut-registry.ts`) — standard OS/CodeMirror
- *  conventions (copy/cut/paste, find, select-all) or a `@codemirror/search`
+ *  conventions (copy/cut/paste, select-all) or a `@codemirror/search`
  *  command whose bundled default key this app doesn't touch. Shown for the
- *  same reason the real bindings are: so the menu documents what fires it. */
+ *  same reason the real bindings are: so the menu documents what fires it.
+ *  Find/Replace's binding is app-registered (`editor.search`) instead —
+ *  passed in as `searchBinding`, not listed here. */
 const STATIC_BINDINGS = {
   copy: { key: "c", mod: true },
   cut: { key: "x", mod: true },
   paste: { key: "v", mod: true },
   addOccurrence: { key: "d", mod: true },
-  find: { key: "f", mod: true },
   selectAll: { key: "a", mod: true },
 } as const satisfies Record<string, ShortcutBinding>;
 
@@ -95,6 +95,9 @@ export function EditorContextMenu({
   pasteAsInBinding,
   delimitedListBinding,
   onOpenDelimitedList,
+  searchBinding,
+  onOpenSearch,
+  disabled,
 }: {
   children: ReactNode;
   /** Reads the live view lazily, at click time — never during render (a
@@ -105,6 +108,7 @@ export function EditorContextMenu({
   onRunTarget: () => void;
   onSave?: () => void;
   readOnly: boolean;
+  disabled:boolean
   runBinding: ShortcutBinding;
   runTargetBinding: ShortcutBinding;
   saveBinding: ShortcutBinding;
@@ -116,6 +120,10 @@ export function EditorContextMenu({
   pasteAsInBinding: ShortcutBinding;
   delimitedListBinding: ShortcutBinding;
   onOpenDelimitedList: () => void;
+  searchBinding: ShortcutBinding;
+  /** Opens `EditorSearchBar` — replaces `@codemirror/search`'s own
+   *  `openSearchPanel`, which this menu used to call directly. */
+  onOpenSearch: () => void;
 }) {
   const run = (command: (view: EditorView) => unknown) => () => {
     const view = getView();
@@ -148,7 +156,7 @@ export function EditorContextMenu({
   };
 
   return (
-    <ContextMenu>
+    <ContextMenu disabled={disabled}>
       <ContextMenuTrigger className="contents">{children}</ContextMenuTrigger>
       <ContextMenuContent className="min-w-64">
         <ContextMenuItem onSelect={onRun}>
@@ -171,10 +179,10 @@ export function EditorContextMenu({
         <ContextMenuSeparator />
         <ContextMenuSub>
           <ContextMenuSubTrigger>
-            <Copy className="size-3.5" />
+            <Copy className="size-3.5 mr-2" />
             Clipboard
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent>
+          <ContextMenuSubContent side="right">
             <ContextMenuItem onSelect={copy}>
               <Copy className="size-3.5" />
               Copy selection
@@ -247,10 +255,10 @@ export function EditorContextMenu({
           Select all occurrences
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={run(openSearchPanel)}>
+        <ContextMenuItem onSelect={onOpenSearch}>
           <Search className="size-3.5" />
-          Find/Replace
-          <Shortcut binding={STATIC_BINDINGS.find} />
+          Find and replace
+          <Shortcut binding={searchBinding} />
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={run(selectAll)}>

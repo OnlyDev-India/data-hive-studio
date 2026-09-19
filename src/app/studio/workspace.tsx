@@ -5,7 +5,6 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
@@ -58,11 +57,6 @@ const NewTableTab = lazy(() =>
     default: m.NewTableTab,
   })),
 );
-// Right-hand JSON inspector, only mounted when opened.
-const JsonViewer = lazy(() =>
-  import("@/features/inspector").then((m) => ({ default: m.JsonViewer })),
-);
-
 /** Floor on how long the sidebar's table-list "loading" state stays visible
  *  once triggered — see the reload effect below for why. */
 const MIN_TABLES_LOADING_MS = 350;
@@ -175,32 +169,6 @@ export default function Workspace({
   const leftPanelMode = useStudioStore((s) => s.leftPanelMode);
   const openLeftPanel = useStudioStore((s) => s.openLeftPanel);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
-  const rightSidebarOpen = useStudioStore((s) => s.rightSidebarOpen);
-  const rightSidebarWidth = useStudioStore((s) => s.rightSidebarWidth);
-  // The JSON viewer's own drag-resize handle lives inside its `motion.aside`
-  // (layoutId-based, for the "Open in dialog" morph) and mutates this node's
-  // width directly in lockstep during a live drag — same reason its aside
-  // does — so this slot's reserved space doesn't lag a beat behind the
-  // aside actually growing/shrinking. `jsonPanelInstant` mirrors its
-  // `instantSettle` so the one-render correction right after a drag ends
-  // applies here too, instead of animating from a stale width.
-  const jsonPanelRef = useRef<HTMLDivElement | null>(null);
-  const [jsonPanelInstant, setJsonPanelInstant] = useState(false);
-  // Mounted lazily on first open, then kept mounted for the rest of this
-  // workspace's lifetime — JsonViewer reads `rightSidebarOpen` itself and
-  // toggles its own internal AnimatePresence/motion.aside, rather than this
-  // component tearing the whole thing down and rebuilding it every close.
-  // (Rebuilding it broke the shared-layout ("Open in dialog") transition:
-  // reopening left the panel stuck at its exit-animation values since there
-  // was no longer a "from" element for framer to animate against.)
-  //
-  // Set during render, not an effect — React's documented pattern for
-  // deriving state from a prop/store value change (react.dev: "storing
-  // information from previous renders"). Safe from re-render loops: the
-  // `!jsonPanelMounted` guard means this can only ever fire once, the
-  // transition false→true.
-  const [jsonPanelMounted, setJsonPanelMounted] = useState(rightSidebarOpen);
-  if (rightSidebarOpen && !jsonPanelMounted) setJsonPanelMounted(true);
   const openActivityTab = useStudioStore((s) => s.openActivityTab);
   const setActivityDetail = useStudioStore((s) => s.setActivityDetail);
 
@@ -524,25 +492,6 @@ export default function Workspace({
               )}
             </div>
           </div>
-          {jsonPanelMounted && (
-            <EdgePanelSlot
-              open={rightSidebarOpen && !landing}
-              width={rightSidebarWidth}
-              side="right"
-              panelRef={jsonPanelRef}
-              transition={jsonPanelInstant ? { duration: 0 } : undefined}
-            >
-              <Suspense fallback={null}>
-                <JsonViewer
-                  conn_id={conn_id}
-                  tab_key={active ? tabKey(active) : null}
-                  landing={landing}
-                  panelRef={jsonPanelRef}
-                  onInstantChange={setJsonPanelInstant}
-                />
-              </Suspense>
-            </EdgePanelSlot>
-          )}
         </div>
       </div>
 
