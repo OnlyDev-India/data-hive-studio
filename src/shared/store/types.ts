@@ -229,6 +229,9 @@ export interface SqlTabHandleBase {
    *  never been saved — the tab strip shows this instead of the generic
    *  "SQL"/"NoSQL console" label once set. */
   file_name?: string | null;
+  /** Database currently selected in this SQL editor — names the tab
+   *  `sql@<database>` in the tab strip (see `tabLabel`). */
+  database?: string;
 }
 
 export type SqlTabHandle = SqlTabHandleBase;

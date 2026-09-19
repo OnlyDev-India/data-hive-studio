@@ -7,7 +7,7 @@ import {
   type PanelImperativeHandle,
 } from "react-resizable-panels";
 import { useStudioStore } from "../store";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Size (percent) the bottom panel opens at when its tab starts out open. */
 const OPEN_DEFAULT_SIZE = 25;
@@ -54,6 +54,12 @@ export function useBottomPanelSize({
     (s) => s.bottomPanelOpen[scope] ?? false,
   );
   const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
+  // For a tab that wants its own panel shown (a query editor when a run
+  // starts) rather than the user toggling it.
+  const openBottomPanel = useCallback(
+    () => setBottomPanelOpenFor(scope, true),
+    [setBottomPanelOpenFor, scope],
+  );
 
   // The size the panel falls back to when its group has no measurable size at
   // registration (a tab's portal slot still hidden or detached): the library
@@ -111,5 +117,6 @@ export function useBottomPanelSize({
     defaultSize,
     onLayoutChanged,
     bottomPanelOpen,
+    openBottomPanel,
   };
 }

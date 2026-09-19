@@ -259,7 +259,8 @@ export async function fetchSiblingTables(
         ),
       ),
     );
-    for (const r of results) if (r.status === "fulfilled") entries.push(...r.value);
+    for (const r of results)
+      if (r.status === "fulfilled") entries.push(...r.value);
     return entries;
   }
 
@@ -295,7 +296,8 @@ export async function fetchSiblingTables(
       ),
     ),
   );
-  for (const r of results) if (r.status === "fulfilled") entries.push(...r.value);
+  for (const r of results)
+    if (r.status === "fulfilled") entries.push(...r.value);
   return entries;
 }
 
@@ -417,7 +419,11 @@ export function buildOpenTabItems(): PaletteItem[] {
     const key = tabKey(tab);
     return {
       id: `tab:${key}`,
-      label: tabLabel(tab, s.seedFileNames[key]),
+      label: tabLabel(
+        tab,
+        s.sqlTabs[key]?.file_name ?? s.seedFileNames[key],
+        s.sqlTabs[key]?.database,
+      ),
       section: "Open tabs",
       icon: IconTypeMap[tab.kind],
       run: () => {
@@ -490,7 +496,8 @@ export async function resolveExactTable(
   const everywhere = await fetchSiblingTables(connId, isMongo);
   const hit = everywhere.find(
     (t) =>
-      t.name === bare_name && (!explicit_schema || t.schema === explicit_schema),
+      t.name === bare_name &&
+      (!explicit_schema || t.schema === explicit_schema),
   );
   if (hit) return hit;
 

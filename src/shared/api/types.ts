@@ -215,6 +215,19 @@ export interface QueryResult {
   is_select: boolean;
   error: string | null;
   elapsed_ms: number;
+  /** The user stopped this run (spec 0006). Not an error: rows already
+   *  streamed stay with the caller. Absent from an older server's reply. */
+  cancelled?: boolean;
+}
+
+/** How a Stop request ended: `stopped` (the run ended after the cancel),
+ *  `winding_down` (no confirmation within 3 seconds, the run was abandoned),
+ *  `not_running` (nothing to cancel: unknown, finished, or another
+ *  connection's run). */
+export type CancelState = "stopped" | "winding_down" | "not_running";
+
+export interface CancelOutcome {
+  state: CancelState;
 }
 
 export function prettyKind(kind: DbKind): string {

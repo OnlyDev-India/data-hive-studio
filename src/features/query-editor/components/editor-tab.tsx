@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Layers, Loader2, X } from "lucide-react";
+import { Layers, Loader2, Square, X } from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
 import { format as formatSql } from "sql-formatter";
 import { Badge } from "@/shared/components/ui/badge";
@@ -24,6 +24,8 @@ import {
 import { singleTableSelect } from "@/shared/components/query-editor/sql-editable";
 import { singleCollectionQuery } from "@/shared/components/query-editor/mongo-editable";
 import {
+  canCancelRun,
+  cancelRun,
   catalogOverview,
   listDatabases,
   listSchemaObjects,
@@ -54,6 +56,12 @@ import {
   substituteBindVariables,
 } from "../lib/bind-variables";
 import { compressSql } from "../lib/compress-sql";
+import {
+  looksLikeMongoWrite,
+  MONGO_WRITE_NOTE,
+  stoppedStatusLine,
+  WINDING_DOWN_NOTE,
+} from "../lib/stopped-status";
 
 /** A single failed-statement marker pushed to the editor via `setErrors`. */
 type ErrorRange = { from: number; to: number; message: string };
@@ -112,6 +120,8 @@ interface ResultTabSummary {
   label: string;
   running: boolean;
   has_error: boolean;
+  /** The user stopped this run: a neutral dot, not the error color. */
+  stopped?: boolean;
 }
 
 /** The result-tab strip: a colored status dot, a truncated label, and a
@@ -120,8 +130,10 @@ interface ResultTabSummary {
 /** The result-tab strip: a leading toggle for whether every run opens its
  *  own tab, then a row of pill-shaped tabs (status dot, truncated label,
  *  close button) — identical chrome for both SQL and Mongo, which otherwise
- *  differ in what a "result" even contains. */
-function ResultTabStrip({
+ *  differ in what a "result" even contains. Always rendered, even with no
+ *  tabs yet, so the panel is never a bare box and the toggle is reachable
+ *  before the first run. */
+export function ResultTabStrip({
   items,
   active_id,
   on_select,
@@ -138,7 +150,6 @@ function ResultTabStrip({
   keep_all_tabs: boolean;
   on_toggle_keep_all_tabs: () => void;
 }) {
-  if (items.length === 0) return null;
   return (
     <TooltipProvider delay={500}>
       <div className="bg-background flex shrink-0 items-center gap-1 px-1.5 py-1">
@@ -184,6 +195,8 @@ function ResultTabStrip({
             >
               {item.running ? (
                 <span className="bg-primary size-1.5 shrink-0 animate-pulse rounded-full" />
+              ) : item.stopped ? (
+                <span className="bg-muted-foreground size-1.5 shrink-0 rounded-full" />
               ) : item.has_error ? (
                 <span className="bg-destructive size-1.5 shrink-0 rounded-full" />
               ) : (
@@ -266,6 +279,59 @@ function useUnsavedQueryTracking(
   return { is_dirty, file_name, save, open };
 }
 
+/** What Stop needs to know about one result tab of either editor kind. */
+interface StoppableRun {
+  id: number;
+  running: boolean;
+  /** Set only when Stop can reach the run (see `canCancelRun`). */
+  run_id: string | null;
+  /** Stop was pressed and the database has not confirmed yet. */
+  stopping: boolean;
+}
+
+/** The toolbar's Stop for one editor: which runs it can end, whether Stop was
+ *  already pressed for all of them, and the handler. A run's own result
+ *  usually lands first and marks its tab stopped; the cancel outcome only
+ *  adds the "still winding down" note. `patch_run` must apply only while the
+ *  tab still belongs to `run_id`, so a late outcome never touches a newer run
+ *  in a reused tab. */
+function useStopRuns(
+  conn_id: string,
+  items: StoppableRun[],
+  patch_run: (
+    id: number,
+    run_id: string,
+    patch: { stopping?: boolean; winding_down?: boolean },
+  ) => void,
+) {
+  const stoppable = items.filter((t) => t.running && t.run_id);
+  const stop_all = useCallback(() => {
+    for (const t of stoppable) {
+      const run_id = t.run_id;
+      if (!run_id || t.stopping) continue;
+      patch_run(t.id, run_id, { stopping: true });
+      cancelRun(conn_id, run_id)
+        .then((outcome) => {
+          if (outcome.state === "winding_down")
+            patch_run(t.id, run_id, { winding_down: true });
+        })
+        .catch((e) => {
+          patch_run(t.id, run_id, { stopping: false });
+          useStudioStore.getState().pushNotification({
+            kind: "error",
+            title: "Could not stop the query",
+            detail: String(e),
+          });
+        });
+    }
+  }, [stoppable, conn_id, patch_run]);
+  return {
+    running_count: stoppable.length,
+    stop_pending: stoppable.every((t) => t.stopping),
+    stop_all,
+  };
+}
+
 // ---- SQL --------------------------------------------------------------
 
 interface SqlResultTab {
@@ -277,6 +343,18 @@ interface SqlResultTab {
    *  shown in the result's own Query view and used to detect whether it's a
    *  single-table SELECT eligible for editing. */
   sql: string;
+  /** Id of the run that produced (or is producing) `result`, set only when
+   *  Stop can reach it. Kept after the run ends so a late cancel outcome can
+   *  tell whether it still belongs to this tab's current run. */
+  run_id: string | null;
+  /** Stop was pressed and the database has not confirmed yet. */
+  stopping: boolean;
+  /** The user stopped this run: the tab shows Stopped (not an error) and
+   *  keeps the rows that had already arrived. */
+  stopped: boolean;
+  /** The database did not confirm the cancel within 3 seconds, so the tab
+   *  freed up anyway and it may still be winding the query down. */
+  winding_down: boolean;
 }
 
 /** Completion hints shared by EVERY SQL tab in the session, keyed by
@@ -615,6 +693,7 @@ function SqlEditorBody({
     onLayoutChanged,
     defaultSize: bottomDefaultSize,
     bottomPanelOpen,
+    openBottomPanel,
   } = useBottomPanelSize({
     conn_id,
     tab_key,
@@ -705,6 +784,10 @@ function SqlEditorBody({
         result: null,
         running: false,
         sql: "",
+        run_id: null,
+        stopping: false,
+        stopped: false,
+        winding_down: false,
       },
     ]);
     setActiveId(id);
@@ -714,14 +797,25 @@ function SqlEditorBody({
   const patch_tab = useCallback((id: number, patch: Partial<SqlResultTab>) => {
     setTabs((cur) => cur.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
+  // Like `patch_tab`, but only while the tab still belongs to `run_id`: a
+  // late Stop outcome must never touch a newer run in a reused tab.
+  const patch_run = useCallback(
+    (id: number, run_id: string, patch: Partial<SqlResultTab>) => {
+      setTabs((cur) =>
+        cur.map((t) =>
+          t.id === id && t.run_id === run_id ? { ...t, ...patch } : t,
+        ),
+      );
+    },
+    [],
+  );
 
-  // "New tab per run" (the result strip's leading toggle) — ON (default,
-  // matches this app's original behavior) always opens a fresh result tab.
-  // OFF reuses ONE tab across repeat single-statement runs instead of
-  // piling up a new one every time; a run that actually produces more than
+  // "New tab per run" (the result strip's leading toggle) — OFF (default)
+  // reuses ONE tab across repeat single-statement runs instead of piling up
+  // a new one every time; ON always opens a fresh result tab; a run that actually produces more than
   // one statement still gets one tab each — those are genuinely different
   // results, not reruns of the same query.
-  const [keep_all_tabs, setKeepAllTabs] = useState(true);
+  const [keep_all_tabs, setKeepAllTabs] = useState(false);
   const reusable_tab_id = useRef<number | null>(null);
   const resolve_tab_id = useCallback(
     (batch_len: number): number => {
@@ -759,7 +853,22 @@ function SqlEditorBody({
 
   const run_query = useCallback(
     async (id: number, query: string, range?: { from: number; to: number }) => {
-      patch_tab(id, { running: true, result: null, sql: query });
+      // Only runs Stop can reach get an id (see `canCancelRun`).
+      const run_id = canCancelRun(conn_id, conn?.kind)
+        ? crypto.randomUUID()
+        : null;
+      const run_started = performance.now();
+      // A run always shows its result, even if the panel was hidden.
+      openBottomPanel();
+      patch_tab(id, {
+        running: true,
+        result: null,
+        sql: query,
+        run_id,
+        stopping: false,
+        stopped: false,
+        winding_down: false,
+      });
       // Accumulate streamed rows; flush to the tab at most once per frame so
       // large results paint progressively without a render per batch.
       const acc: { cols: string[] | null; rows: (string | null)[][] } = {
@@ -794,6 +903,8 @@ function SqlEditorBody({
             }
           },
           target_database,
+          undefined,
+          run_id ?? undefined,
         );
       } catch (e) {
         res = {
@@ -806,6 +917,30 @@ function SqlEditorBody({
         };
       }
       if (raf) cancelAnimationFrame(raf);
+      if (res.cancelled) {
+        // The user stopped it: not an error, keep what had already arrived,
+        // and neither mark the range as a success nor as a failure. A stopped
+        // SQL write is rolled back by the database, so no `on_modified`.
+        patch_tab(id, {
+          running: false,
+          stopping: false,
+          stopped: true,
+          result: {
+            ...res,
+            columns: acc.cols ?? [],
+            rows: acc.rows,
+            is_select: acc.cols !== null,
+            // Measured here, from run start to the run resolving.
+            elapsed_ms: Math.round(performance.now() - run_started),
+          },
+        });
+        if (range) {
+          error_ranges.current.delete(id);
+          sync_errors();
+          editorRef.current?.markRunResult(null);
+        }
+        return;
+      }
       if (!res.is_select && !res.error) {
         on_modified?.();
         if (is_schema_ddl(query)) on_schema_modified?.();
@@ -813,6 +948,9 @@ function SqlEditorBody({
       // The resolved metadata is authoritative; pair it with accumulated rows.
       patch_tab(id, {
         running: false,
+        // Stop may have been pressed just as it finished (AC-16): the real
+        // result wins, so there is nothing left to stop.
+        stopping: false,
         result: res.is_select ? { ...res, rows: acc.rows } : res,
       });
       if (range) {
@@ -825,8 +963,10 @@ function SqlEditorBody({
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; the React Compiler's own preserve-manual-memoization rule requires `.current` specifically here, which exhaustive-deps then (correctly, in the general case) flags as not a valid dependency — a genuine conflict between the two rules, not a missing dependency
     [
+      openBottomPanel,
       patch_tab,
       conn_id,
+      conn?.kind,
       target_database,
       on_modified,
       on_schema_modified,
@@ -894,6 +1034,13 @@ function SqlEditorBody({
     confirm_if_dangerous,
   ]);
 
+  // Drives the toolbar's Run/Stop switch.
+  const { running_count, stop_pending, stop_all } = useStopRuns(
+    conn_id,
+    tabs,
+    patch_run,
+  );
+
   const active = tabs.find((t) => t.id === active_id) ?? null;
   // Rows/time for the action bar (no GridBridge for SQL results — they're
   // not paginated/editable) — null while running or on error, since there's
@@ -903,7 +1050,7 @@ function SqlEditorBody({
   const result = active?.result;
   const result_summary = useMemo(
     () =>
-      active && !active.running && result && !result.error
+      active && !active.running && !active.stopped && result && !result.error
         ? {
             rows: result.is_select ? result.rows.length : result.rows_affected,
             is_select: result.is_select,
@@ -939,9 +1086,10 @@ function SqlEditorBody({
       has_selection,
       result: result_summary,
       file_name,
+      database: database || own_database,
     });
-    // Re-registers whenever the dirty flag, filename, or active result
-    // flips; cleanup on unmount.
+    // Re-registers whenever the dirty flag, filename, database, or active
+    // result flips; cleanup on unmount.
     return () => clear_sql_tab(tab_key);
   }, [
     tab_key,
@@ -953,6 +1101,8 @@ function SqlEditorBody({
     run_target,
     has_selection,
     result_summary,
+    database,
+    own_database,
     set_sql_tab,
     clear_sql_tab,
   ]);
@@ -962,6 +1112,7 @@ function SqlEditorBody({
     label: deriveSqlTabLabel(t.sql, target_database) ?? t.label,
     running: t.running,
     has_error: !!t.result?.error,
+    stopped: t.stopped,
   }));
 
   const editor_pane = (
@@ -994,6 +1145,9 @@ function SqlEditorBody({
         has_text={sql_text.trim().length > 0}
         on_run_target={run_target}
         on_run_all={run_all}
+        running_count={running_count}
+        stop_pending={stop_pending}
+        on_stop_all={stop_all}
         db_kind={conn?.kind}
         database={supports_multi_db ? database : undefined}
         databases={supports_multi_db ? databases : undefined}
@@ -1072,7 +1226,7 @@ function SqlEditorBody({
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {active === null ? (
                 <div className="text-muted-foreground m-6 rounded-md border border-dashed p-10 text-center text-sm">
-                  Run a query to see results. Each run opens its own result tab.
+                  Run a query to see results.
                 </div>
               ) : active.running ? (
                 <div className="flex flex-col gap-2 pt-4">
@@ -1082,6 +1236,26 @@ function SqlEditorBody({
                       className="bg-muted h-8 animate-pulse rounded-md"
                     />
                   ))}
+                </div>
+              ) : active.stopped && active.result ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <StoppedNote
+                    elapsed_ms={active.result.elapsed_ms}
+                    rows_loaded={active.result.rows.length}
+                    winding_down={active.winding_down}
+                  />
+                  {active.result.is_select && (
+                    <div className="min-h-0 flex-1">
+                      <SqlResults
+                        conn_id={conn_id}
+                        tab_key={`${tab_key}\u0000${active.id}`}
+                        result={active.result}
+                        sql={active.sql}
+                        database={target_database}
+                        on_refresh={() => void run_query(active.id, active.sql)}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : active.result ? (
                 <SqlResults
@@ -1112,6 +1286,34 @@ function splitSchemaQualified(name: string): {
   return dot < 0
     ? { table: name }
     : { schema: name.slice(0, dot), table: name.slice(dot + 1) };
+}
+
+/** Neutral status line for a run the user stopped (never the error style):
+ *  time before the stop and how many rows had already arrived, plus the
+ *  "still winding down" note when the database never confirmed the cancel,
+ *  plus any engine specific `note` (the Mongo console's write warning). */
+function StoppedNote({
+  elapsed_ms,
+  rows_loaded,
+  winding_down,
+  note,
+}: {
+  elapsed_ms: number;
+  rows_loaded: number;
+  winding_down: boolean;
+  note?: string;
+}) {
+  return (
+    <div
+      role="status"
+      className="text-muted-foreground bg-muted/40 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-b px-3 py-1.5 text-xs"
+    >
+      <Square className="size-3 shrink-0" />
+      <span>{stoppedStatusLine(elapsed_ms, rows_loaded)}</span>
+      {winding_down && <span>· {WINDING_DOWN_NOTE}</span>}
+      {note && <span>· {note}</span>}
+    </div>
+  );
 }
 
 function SqlResults({
@@ -1194,6 +1396,12 @@ interface MongoEntry {
   command: string;
   result: MongoRunResult | null;
   running: boolean;
+  /** Same meaning as on `SqlResultTab`: the run's id (only when Stop can
+   *  reach it), the pending Stop, and how a stopped run ended. */
+  run_id: string | null;
+  stopping: boolean;
+  stopped: boolean;
+  winding_down: boolean;
 }
 
 /** Strip `//` comment lines — the console's commands are the real payload. */
@@ -1258,6 +1466,7 @@ function MongoEditorBody({
     onLayoutChanged,
     defaultSize: bottomDefaultSize,
     bottomPanelOpen,
+    openBottomPanel,
   } = useBottomPanelSize({
     conn_id,
     tab_key,
@@ -1353,17 +1562,71 @@ function MongoEditorBody({
   const patch = useCallback((id: number, p: Partial<MongoEntry>) => {
     setEntries((cur) => cur.map((e) => (e.id === id ? { ...e, ...p } : e)));
   }, []);
+  // Only while the entry still belongs to `run_id` (see `useStopRuns`).
+  const patch_run = useCallback(
+    (id: number, run_id: string, p: Partial<MongoEntry>) => {
+      setEntries((cur) =>
+        cur.map((e) =>
+          e.id === id && e.run_id === run_id ? { ...e, ...p } : e,
+        ),
+      );
+    },
+    [],
+  );
+  const conn_kind = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.kind,
+  );
 
   const run_query = useCallback(
     async (id: number, text: string, range?: { from: number; to: number }) => {
-      patch(id, { running: true, result: null });
+      // A run always shows its result, even if the panel was hidden.
+      openBottomPanel();
+      // Only runs Stop can reach get an id (see `canCancelRun`).
+      const run_id = canCancelRun(conn_id, conn_kind)
+        ? crypto.randomUUID()
+        : null;
+      const run_started = performance.now();
+      patch(id, {
+        running: true,
+        result: null,
+        run_id,
+        stopping: false,
+        stopped: false,
+        winding_down: false,
+      });
       const flag_error = (message: string) => {
         if (!range) return;
         error_ranges.current.set(id, { ...range, message });
         sync_errors();
       };
       try {
-        const res = await runMongo(conn_id, db, null, text);
+        const res = await runMongo(
+          conn_id,
+          db,
+          null,
+          text,
+          run_id ?? undefined,
+        );
+        if (res.cancelled) {
+          // The user stopped it: not an error and no success mark. MongoDB
+          // has no rollback, so a stopped write may have changed documents:
+          // refresh open grids for it.
+          patch(id, {
+            stopped: true,
+            result: {
+              ...res,
+              // Measured here, from run start to the run resolving.
+              elapsed_ms: Math.round(performance.now() - run_started),
+            },
+          });
+          if (range) {
+            error_ranges.current.delete(id);
+            sync_errors();
+            editorRef.current?.markRunResult(null);
+          }
+          if (looksLikeMongoWrite(text)) on_modified?.();
+          return;
+        }
         patch(id, { result: res });
         if (res.switch_db) setDb(res.switch_db);
         if (res.error) {
@@ -1396,19 +1659,28 @@ function MongoEditorBody({
         flag_error(message);
         if (range) editorRef.current?.markRunResult(null);
       } finally {
-        patch(id, { running: false });
+        patch(id, { running: false, stopping: false });
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
-    [patch, conn_id, db, sync_errors, on_modified, error_ranges.current],
+    [
+      openBottomPanel,
+      patch,
+      conn_id,
+      conn_kind,
+      db,
+      sync_errors,
+      on_modified,
+      error_ranges.current,
+    ],
   );
 
   // "New tab per run" (the result strip's leading toggle) — same semantics
-  // as the SQL console's: ON (default) always opens a fresh result tab, OFF
-  // reuses ONE tab across repeat single-statement runs instead of piling up
-  // a new one every time; a run that actually produces more than one
+  // as the SQL console's: OFF (default) reuses ONE tab across repeat
+  // single-statement runs instead of piling up a new one every time, ON
+  // always opens a fresh result tab; a run that actually produces more than one
   // statement still gets one tab each.
-  const [keep_all_tabs, setKeepAllTabs] = useState(true);
+  const [keep_all_tabs, setKeepAllTabs] = useState(false);
   const reusable_entry_id = useRef<number | null>(null);
   const run_in_tab = useCallback(
     (
@@ -1432,7 +1704,16 @@ function MongoEditorBody({
       const id = ++next_id.current;
       setEntries((cur) => [
         ...cur,
-        { id, command: text, result: null, running: true },
+        {
+          id,
+          command: text,
+          result: null,
+          running: true,
+          run_id: null,
+          stopping: false,
+          stopped: false,
+          winding_down: false,
+        },
       ]);
       setActiveId(id);
       if (!keep_all_tabs && batch_len === 1) reusable_entry_id.current = id;
@@ -1539,7 +1820,14 @@ function MongoEditorBody({
       e.command.split("\n")[0].slice(0, 40),
     running: e.running,
     has_error: !!e.result?.error,
+    stopped: e.stopped,
   }));
+
+  const { running_count, stop_pending, stop_all } = useStopRuns(
+    conn_id,
+    entries,
+    patch_run,
+  );
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
@@ -1549,6 +1837,9 @@ function MongoEditorBody({
         has_text={script_text.trim().length > 0}
         on_run_target={run_target}
         on_run_all={run_all}
+        running_count={running_count}
+        stop_pending={stop_pending}
+        on_stop_all={stop_all}
         db_kind="mongodb"
         database={db}
         databases={databases}
@@ -1622,13 +1913,19 @@ function MongoEditorBody({
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {!active ? (
                 <div className="text-muted-foreground m-4 rounded-md border border-dashed p-10 text-center text-sm">
-                  Run a command to see results. Each run opens its own result
-                  tab.
+                  Run a command to see results.
                 </div>
               ) : active.running ? (
                 <div className="flex h-full min-h-0 items-center justify-center p-3">
                   <Loader2 className="text-muted-foreground size-5 animate-spin" />
                 </div>
+              ) : active.stopped && active.result ? (
+                <StoppedNote
+                  elapsed_ms={active.result.elapsed_ms}
+                  rows_loaded={0}
+                  winding_down={active.winding_down}
+                  note={MONGO_WRITE_NOTE}
+                />
               ) : active.result ? (
                 <MongoResults
                   entry={active}

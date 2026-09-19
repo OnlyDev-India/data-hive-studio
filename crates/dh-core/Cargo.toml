@@ -9,6 +9,7 @@ serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 futures-util.workspace = true
+libsqlite3-sys.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 rust_decimal.workspace = true

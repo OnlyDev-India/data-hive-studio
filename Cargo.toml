@@ -17,6 +17,8 @@ sqlx = { version = "0.8", default-features = false, features = [
   "rust_decimal",
 ] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Same version sqlx-sqlite already resolves to, so no second SQLite copy is built. Direct dep only for `sqlite3_interrupt` (spec 0006).
+libsqlite3-sys = { version = "0.30.1", default-features = false }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rust_decimal = "1"

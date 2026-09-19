@@ -196,6 +196,10 @@ pub struct QueryResult {
     pub is_select: bool,
     pub error: Option<String>,
     pub elapsed_ms: u128,
+    /// The user stopped this run (spec 0006). Not an error: rows already
+    /// streamed stay with the caller. Absent from an older server's reply.
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

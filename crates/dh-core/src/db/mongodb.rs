@@ -6,13 +6,17 @@
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use bson::doc;
+use bson::{doc, Bson};
 use futures_util::TryStreamExt;
+use mongodb::action::Action;
+use mongodb::error::{ErrorKind, WriteFailure};
 use mongodb::options::ClientOptions;
 use mongodb::Client;
 use std::sync::Arc;
 
-use super::{BatchSink, DbAdapter, DbError, DbResult, OpOutcome, QueryChunk};
+use super::{
+    runs::Canceller, BatchSink, DbAdapter, DbError, DbResult, OpOutcome, QueryChunk, RunHandle,
+};
 use crate::api::{
     ColumnInfo, FieldKeyTruncation, FieldShape, FilterOp, GridFilterCond, IndexInfo, QueryOp,
     QueryResult, SchemaOp, TableInfo, TableSchema,
@@ -413,6 +417,86 @@ pub struct MongoAdapter {
     /// tunnel down out from under the client. `None` when this connection
     /// doesn't go through SSH.
     _ssh_tunnel: Option<crate::ssh_tunnel::LocalTunnel>,
+}
+
+// ---- Stop a running query (spec 0006) ----
+
+/// Server error codes a killed operation reports: `Interrupted` (what
+/// `killOp` produces) and `CursorKilled`.
+const MONGO_INTERRUPT_CODES: [i32; 2] = [11601, 237];
+/// How long one cancel attempt (`currentOp` then `killOp`) may take before it
+/// gives up; the run's 3 second confirm cap then frees the tab anyway.
+const MONGO_CANCEL_ATTEMPT_CAP: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// The run id as the `comment` every operation of the run carries, so
+/// `currentOp` can find them again. `None` for a run Stop cannot reach.
+fn run_comment(run: Option<&RunHandle>) -> Option<Bson> {
+    run.map(|r| Bson::String(r.run_id().to_string()))
+}
+
+/// A driver error becomes `Cancelled` only when the server interrupted the
+/// operation AND the user asked to stop this run; anything else stays the
+/// error it is (AC-13).
+fn mongo_err(e: mongodb::error::Error, run: Option<&RunHandle>) -> DbError {
+    if run.is_some_and(RunHandle::is_cancel_requested) && is_interrupt_error(&e) {
+        return DbError::Cancelled;
+    }
+    DbError::InvalidOperation(format!("mongo: {e}"))
+}
+
+fn is_interrupt_error(e: &mongodb::error::Error) -> bool {
+    let code = match e.kind.as_ref() {
+        ErrorKind::Command(ce) => Some(ce.code),
+        ErrorKind::Write(WriteFailure::WriteError(we)) => Some(we.code),
+        _ => None,
+    };
+    match code {
+        Some(c) => MONGO_INTERRUPT_CODES.contains(&c),
+        // Bulk shaped errors bury the code; the server's own words are stable.
+        None => e.to_string().to_lowercase().contains("operation was interrupted"),
+    }
+}
+
+/// The `currentOp` filter that finds a run's operations: the operation
+/// itself, or (for a getMore) the command that opened its cursor.
+fn current_op_filter(run_id: &str) -> bson::Document {
+    doc! { "$or": [
+        { "command.comment": run_id },
+        { "originatingCommand.comment": run_id },
+    ] }
+}
+
+/// Builds the run's canceller: find the run's operations through
+/// `$currentOp` (only this user's, so it needs no extra privilege) and
+/// `killOp` each. Any failure (typically a missing privilege) is logged and
+/// swallowed: the 3 second cap then frees the tab and the tab says the
+/// server may keep running it (AC-6).
+fn mongo_canceller(client: Client, run_id: String) -> Canceller {
+    Box::new(move || {
+        let client = client.clone();
+        let run_id = run_id.clone();
+        Box::pin(async move {
+            let attempt = async {
+                let admin = client.database("admin");
+                let pipeline = vec![
+                    doc! { "$currentOp": { "allUsers": false, "idleConnections": false } },
+                    doc! { "$match": current_op_filter(&run_id) },
+                ];
+                let mut cursor = admin.aggregate(pipeline).await?;
+                while let Some(op) = cursor.try_next().await? {
+                    if let Some(opid) = op.get("opid") {
+                        admin.run_command(doc! { "killOp": 1, "op": opid.clone() }).await?;
+                    }
+                }
+                Ok::<(), mongodb::error::Error>(())
+            };
+            match tokio::time::timeout(MONGO_CANCEL_ATTEMPT_CAP, attempt).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::warn!("mongo cancel attempt failed: {e}"),
+                Err(_) => log::warn!("mongo cancel attempt timed out"),
+            }
+        })
+    })
 }
 
 // ---- Console parser (Phase 3: find / aggregate / count / distinct + a small
@@ -1486,12 +1570,14 @@ impl MongoAdapter {
         &self,
         database: &str,
         plan: &super::mongo_sql::SelectPlan,
+        run: Option<&RunHandle>,
     ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>)> {
         let col = self
             .client
             .database(database)
             .collection::<bson::Document>(&plan.table);
         let mut opts = mongodb::options::FindOptions::builder().build();
+        opts.comment = run_comment(run);
         if let Some(cols) = &plan.columns {
             let mut proj = bson::Document::new();
             for c in cols {
@@ -1517,12 +1603,12 @@ impl MongoAdapter {
             .find(plan.filter.clone().unwrap_or_default())
             .with_options(opts)
             .await
-            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+            .map_err(|e| mongo_err(e, run))?;
         let mut docs: Vec<serde_json::Value> = Vec::new();
         while let Some(d) = cursor
             .try_next()
             .await
-            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+            .map_err(|e| mongo_err(e, run))?
         {
             docs.push(Self::document_to_json(d));
         }
@@ -1540,6 +1626,18 @@ impl MongoAdapter {
             Ok((cols.clone(), rows))
         } else {
             Ok(flatten_documents(&docs))
+        }
+    }
+
+    /// Arm Stop for a run before its first operation. Fails with `Cancelled`
+    /// when Stop already arrived, so nothing starts.
+    async fn arm_kill_op(&self, run: Option<&RunHandle>) -> DbResult<()> {
+        let Some(run) = run else { return Ok(()) };
+        let canceller = mongo_canceller(self.client.clone(), run.run_id().to_string());
+        if run.set_canceller(canceller).await {
+            Ok(())
+        } else {
+            Err(DbError::Cancelled)
         }
     }
 
@@ -1594,6 +1692,7 @@ impl MongoAdapter {
         db: &str,
         collection: Option<&str>,
         script: &str,
+        run: Option<&RunHandle>,
     ) -> DbResult<crate::api::MongoRunResult> {
         let start = std::time::Instant::now();
         let s = script.trim();
@@ -1640,7 +1739,7 @@ impl MongoAdapter {
             let names = col
                 .list_collection_names()
                 .await
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                .map_err(|e| mongo_err(e, run))?;
             return Ok(crate::api::MongoRunResult {
                 command: s.to_string(),
                 is_select: true,
@@ -1652,12 +1751,14 @@ impl MongoAdapter {
             });
         }
         if s.starts_with("db.") {
-            return self.run_db_call(db, s, start).await;
+            self.arm_kill_op(run).await?;
+            return self.run_db_call(db, s, start, run).await;
         }
         // Bare JSON: object → find (needs a collection), array → aggregate.
         if s.starts_with('{') || s.starts_with('[') {
             if let Some(coll) = collection {
-                return self.run_bare_json(db, coll, s, start).await;
+                self.arm_kill_op(run).await?;
+                return self.run_bare_json(db, coll, s, start, run).await;
             }
             return Ok(fail(
                 "A bare query needs a collection — use db.<collection>.find(<query>) instead"
@@ -1676,7 +1777,9 @@ impl MongoAdapter {
         db: &str,
         s: &str,
         start: std::time::Instant,
+        run: Option<&RunHandle>,
     ) -> DbResult<crate::api::MongoRunResult> {
+        let comment = run_comment(run);
         let Some(call) = parse_db_call(s) else {
             return Ok(crate::api::MongoRunResult {
                 error: Some(format!(
@@ -1705,6 +1808,7 @@ impl MongoAdapter {
                 let filter = parse_filter(&call.args)?;
                 let is_one = call.method == "findOne";
                 let mut opts = mongodb::options::FindOptions::builder().build();
+                opts.comment = comment.clone();
                 if let Some(sort) = &chain.sort {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(
                         &super::mongo_json::quote_bare_keys(sort),
@@ -1729,11 +1833,9 @@ impl MongoAdapter {
                     .find(filter.clone().unwrap_or_default())
             .with_options(opts)
                     .await
-                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    .map_err(|e| mongo_err(e, run))?;
                 let mut docs: Vec<serde_json::Value> = Vec::new();
-                while let Some(d) = cursor.try_next().await.map_err(|e| {
-                    DbError::InvalidOperation(format!("mongo: {e}"))
-                })? {
+                while let Some(d) = cursor.try_next().await.map_err(|e| mongo_err(e, run))? {
                     docs.push(Self::document_to_json(d));
                 }
                 let (columns, rows) = flatten_documents(&docs);
@@ -1756,8 +1858,9 @@ impl MongoAdapter {
                 let filter = parse_filter(&call.args)?;
                 let n = col
                     .count_documents(filter.clone().unwrap_or_default())
+                    .optional(comment.clone(), |a, c| a.comment(c))
                     .await
-                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    .map_err(|e| mongo_err(e, run))?;
                 Ok(crate::api::MongoRunResult {
                     command: command(),
                     columns: vec!["count".into()],
@@ -1784,8 +1887,9 @@ impl MongoAdapter {
                 };
                 let vals = col
                     .distinct(&field, filter.clone().unwrap_or_default())
+                    .optional(comment.clone(), |a, c| a.comment(c))
                     .await
-                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    .map_err(|e| mongo_err(e, run))?;
                 let docs: Vec<serde_json::Value> =
                     vals.into_iter().map(Self::bson_to_json).collect();
                 let rows = docs
@@ -1821,12 +1925,11 @@ impl MongoAdapter {
                     .collect::<DbResult<_>>()?;
                 let mut cursor = col
                     .aggregate(stages)
+                    .optional(comment.clone(), |a, c| a.comment(c))
                     .await
-                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    .map_err(|e| mongo_err(e, run))?;
                 let mut docs: Vec<serde_json::Value> = Vec::new();
-                while let Some(d) = cursor.try_next().await.map_err(|e| {
-                    DbError::InvalidOperation(format!("mongo: {e}"))
-                })? {
+                while let Some(d) = cursor.try_next().await.map_err(|e| mongo_err(e, run))? {
                     docs.push(Self::document_to_json(d));
                 }
                 let (columns, rows) = flatten_documents(&docs);
@@ -1844,8 +1947,9 @@ impl MongoAdapter {
                 let doc = parse_json_object(&call.args, "insertOne document")?;
                 let res = col
                     .insert_one(doc)
+                    .optional(comment.clone(), |a, c| a.comment(c))
                     .await
-                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    .map_err(|e| mongo_err(e, run))?;
                 let id = json_cell_string(&Self::bson_to_json(res.inserted_id))
                     .unwrap_or_default();
                 Ok(crate::api::MongoRunResult {
@@ -1863,8 +1967,9 @@ impl MongoAdapter {
                 }
                 let res = col
                     .insert_many(docs)
+                    .optional(comment.clone(), |a, c| a.comment(c))
                     .await
-                    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                    .map_err(|e| mongo_err(e, run))?;
                 let n = res.inserted_ids.len();
                 Ok(crate::api::MongoRunResult {
                     command: command(),
@@ -1888,11 +1993,11 @@ impl MongoAdapter {
                 };
                 let update = parse_json_object(update_arg, "update document")?;
                 let res = if call.method == "updateMany" {
-                    col.update_many(filter, update).await
+                    col.update_many(filter, update).optional(comment.clone(), |a, c| a.comment(c)).await
                 } else {
-                    col.update_one(filter, update).await
+                    col.update_one(filter, update).optional(comment.clone(), |a, c| a.comment(c)).await
                 }
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                .map_err(|e| mongo_err(e, run))?;
                 Ok(crate::api::MongoRunResult {
                     command: command(),
                     rows_affected: res.modified_count,
@@ -1907,11 +2012,11 @@ impl MongoAdapter {
             "deleteOne" | "deleteMany" => {
                 let filter = parse_filter(&call.args)?.unwrap_or_default();
                 let res = if call.method == "deleteMany" {
-                    col.delete_many(filter).await
+                    col.delete_many(filter).optional(comment.clone(), |a, c| a.comment(c)).await
                 } else {
-                    col.delete_one(filter).await
+                    col.delete_one(filter).optional(comment.clone(), |a, c| a.comment(c)).await
                 }
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                .map_err(|e| mongo_err(e, run))?;
                 Ok(crate::api::MongoRunResult {
                     command: command(),
                     rows_affected: res.deleted_count,
@@ -1938,7 +2043,9 @@ impl MongoAdapter {
         coll: &str,
         s: &str,
         start: std::time::Instant,
+        run: Option<&RunHandle>,
     ) -> DbResult<crate::api::MongoRunResult> {
+        let comment = run_comment(run);
         let col = self.client.database(db).collection::<bson::Document>(coll);
         let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
             .map_err(|e| DbError::InvalidOperation(format!("invalid JSON: {e}")))?;
@@ -1946,17 +2053,18 @@ impl MongoAdapter {
             let filter = bson::to_document(&v)
                 .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
             let mut opts = mongodb::options::FindOptions::builder().build();
+            opts.comment = comment.clone();
             opts.limit = Some(50);
             let mut cursor = col
                 .find(filter.clone())
                 .with_options(opts)
                 .await
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                .map_err(|e| mongo_err(e, run))?;
             let mut docs: Vec<serde_json::Value> = Vec::new();
             while let Some(d) = cursor
                 .try_next()
                 .await
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+                .map_err(|e| mongo_err(e, run))?
             {
                 docs.push(Self::document_to_json(d));
             }
@@ -1982,13 +2090,14 @@ impl MongoAdapter {
                 .collect::<DbResult<_>>()?;
             let mut cursor = col
                 .aggregate(stages)
+                    .optional(comment.clone(), |a, c| a.comment(c))
                 .await
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+                .map_err(|e| mongo_err(e, run))?;
             let mut docs: Vec<serde_json::Value> = Vec::new();
             while let Some(d) = cursor
                 .try_next()
                 .await
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
+                .map_err(|e| mongo_err(e, run))?
             {
                 docs.push(Self::document_to_json(d));
             }
@@ -2205,8 +2314,14 @@ impl DbAdapter for MongoAdapter {
         db: &str,
         collection: Option<&str>,
         script: &str,
+        run: Option<&RunHandle>,
     ) -> DbResult<crate::api::MongoRunResult> {
-        self.run_mongo_impl(db, collection, script).await
+        let res = self.run_mongo_impl(db, collection, script, run).await;
+        // Nothing left for a late Stop to reach once the run is over.
+        if let Some(run) = run {
+            run.finish().await;
+        }
+        res
     }
 
     async fn catalog_overview(&self) -> DbResult<super::CatalogOverview> {
@@ -2338,7 +2453,7 @@ impl DbAdapter for MongoAdapter {
         }
         let plan = super::mongo_sql::translate_select(sql)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
-        let (columns, rows) = self.run_select_plan(&db, &plan).await?;
+        let (columns, rows) = self.run_select_plan(&db, &plan, None).await?;
         Ok(QueryResult {
             columns,
             rows,
@@ -2346,6 +2461,7 @@ impl DbAdapter for MongoAdapter {
             is_select: true,
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
+            cancelled: false,
         })
     }
 
@@ -2410,6 +2526,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: true,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!("db.{table}.find({desc})")),
                 })
@@ -2437,6 +2554,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: true,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!("db.{table}.countDocuments({desc})")),
                 })
@@ -2457,6 +2575,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: true,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!("db.{table}.distinct(\"{column}\")")),
                 })
@@ -2492,6 +2611,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: false,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!(
                         "db.{table}.updateMany({desc}, {{$set: {{{column}: ...}}}})"
@@ -2528,6 +2648,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: false,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!(
                         "db.{table}.updateMany({}, {{$set: ...}})",
@@ -2553,6 +2674,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: false,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!(
                         "db.{table}.deleteMany({})",
@@ -2597,6 +2719,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: false,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!(
                         "db.{table}.insertOne({})",
@@ -2620,6 +2743,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: false,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!("db.{table}.drop()")),
                 })
@@ -2689,6 +2813,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: true,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!("db.{table}.find({})", filter_desc(&filter))),
                 })
@@ -2719,6 +2844,7 @@ impl DbAdapter for MongoAdapter {
                         is_select: true,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(format!("db.{table}.distinct(\"{column}\")")),
                 })
@@ -2733,6 +2859,7 @@ impl DbAdapter for MongoAdapter {
         database: Option<&str>,
         _schema: Option<&str>,
         sql: &str,
+        run: Option<&RunHandle>,
         on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult> {
         let db = database.map(str::to_string).unwrap_or_else(|| self.cur_database());
@@ -2744,7 +2871,13 @@ impl DbAdapter for MongoAdapter {
         }
         let plan = super::mongo_sql::translate_select(sql)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
-        let (columns, rows) = self.run_select_plan(&db, &plan).await?;
+        self.arm_kill_op(run).await?;
+        let planned = self.run_select_plan(&db, &plan, run).await;
+        // Nothing left for a late Stop to reach once the query is over.
+        if let Some(run) = run {
+            run.finish().await;
+        }
+        let (columns, rows) = planned?;
         on_batch(QueryChunk {
             columns: Some(columns.clone()),
             rows: Vec::new(),
@@ -2772,6 +2905,7 @@ impl DbAdapter for MongoAdapter {
             is_select: true,
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
+            cancelled: false,
         })
     }
 
@@ -3113,5 +3247,188 @@ mod tests {
         assert!(!"show dbs".starts_with("db."));
         assert!("db.users.find({})".starts_with("db."));
         assert!("{ \"a\": 1 }".starts_with('{'));
+    }
+
+    // ---- Stop a running query (spec 0006) ----
+
+    fn command_error(code: i32, message: &str) -> mongodb::error::Error {
+        let ce: mongodb::error::CommandError = bson::from_document(
+            doc! { "code": code, "codeName": "X", "errmsg": message, "topologyVersion": bson::Bson::Null },
+        )
+        .unwrap();
+        mongodb::error::Error::from(ErrorKind::Command(ce))
+    }
+
+    /// A run whose Stop was asked for: register after a cancel marker.
+    fn stop_requested_run(id: &str) -> super::super::runs::RunHandle {
+        futures_util::FutureExt::now_or_never(super::super::runs::cancel("t-mongo", id));
+        super::super::runs::register("t-mongo", id)
+    }
+
+    #[test]
+    fn a_killed_operation_is_stopped_only_when_stop_was_asked() {
+        let asked = stop_requested_run("run-mongo-asked");
+        let not_asked = super::super::runs::register("t-mongo", "run-mongo-not-asked");
+        let interrupted = || command_error(11601, "operation was interrupted");
+
+        assert!(matches!(mongo_err(interrupted(), Some(&asked)), DbError::Cancelled));
+        // Same server error, but nobody pressed Stop (a killOp from elsewhere,
+        // a maxTimeMS): it stays an error (AC-13).
+        assert!(matches!(mongo_err(interrupted(), Some(&not_asked)), DbError::InvalidOperation(_)));
+        assert!(matches!(mongo_err(interrupted(), None), DbError::InvalidOperation(_)));
+    }
+
+    #[test]
+    fn other_server_errors_stay_errors_even_after_stop() {
+        let asked = stop_requested_run("run-mongo-other");
+        // 13 = Unauthorized, 50 = MaxTimeMSExpired.
+        for code in [13, 50] {
+            let e = mongo_err(command_error(code, "nope"), Some(&asked));
+            assert!(matches!(e, DbError::InvalidOperation(_)), "code {code}");
+        }
+    }
+
+    #[test]
+    fn a_killed_cursor_counts_as_interrupted() {
+        let asked = stop_requested_run("run-mongo-cursor");
+        assert!(matches!(
+            mongo_err(command_error(237, "cursor killed"), Some(&asked)),
+            DbError::Cancelled
+        ));
+    }
+
+    #[test]
+    fn current_op_finds_the_run_by_its_comment() {
+        assert_eq!(
+            current_op_filter("run-1"),
+            doc! { "$or": [
+                { "command.comment": "run-1" },
+                { "originatingCommand.comment": "run-1" },
+            ] }
+        );
+    }
+
+    #[test]
+    fn every_run_operation_carries_the_run_id_as_its_comment() {
+        let run = super::super::runs::register("t-mongo", "run-mongo-comment");
+        assert_eq!(run_comment(Some(&run)), Some(Bson::String("run-mongo-comment".into())));
+        assert_eq!(run_comment(None), None);
+    }
+
+
+    /// The canceller must never hang or panic when the server can't be
+    /// reached or refuses (a missing `inprog`/`killop` privilege looks the
+    /// same to it): it gives up quietly and the run's 3 second cap frees the
+    /// tab (AC-6).
+    #[tokio::test]
+    async fn a_cancel_that_cannot_reach_the_server_gives_up_quietly() {
+        let client = Client::with_uri_str(
+            "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=200&connectTimeoutMS=200",
+        )
+        .await
+        .unwrap();
+        let canceller = mongo_canceller(client, "run-mongo-unreachable".into());
+        tokio::time::timeout(std::time::Duration::from_secs(3), canceller())
+            .await
+            .expect("a failed cancel attempt must return promptly");
+    }
+
+}
+
+
+/// Stop a running query (spec 0006) against a real MongoDB. All `#[ignore]`d:
+/// run with `DH_TEST_MONGO_URL=mongodb://127.0.0.1:27017 cargo test -p dh-core
+/// -- --ignored mongo_stop` (default URL below; JavaScript must be enabled
+/// on the server for the `$where` sleep used as the slow operation).
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+    use crate::db::runs;
+    use std::time::{Duration, Instant};
+
+    fn params() -> MongoParams {
+        let url = std::env::var("DH_TEST_MONGO_URL")
+            .unwrap_or_else(|_| "mongodb://127.0.0.1:27017".to_string());
+        let rest = url.strip_prefix("mongodb://").expect("a mongodb:// url");
+        let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
+        let (user, password) = auth.split_once(':').unwrap_or((auth, ""));
+        let (host, port) = hostport.split_once(':').unwrap_or((hostport, "27017"));
+        serde_json::from_value(serde_json::json!({
+            "host": host, "port": port.trim_end_matches('/').parse::<u16>().unwrap(),
+            "user": user, "password": password, "database": "dh_stop_test",
+        }))
+        .unwrap()
+    }
+
+    fn sink() -> impl FnMut(QueryChunk) -> DbResult<()> + Send {
+        |_chunk: QueryChunk| Ok(())
+    }
+
+    /// AC-3, AC-6: Stop kills the operation on the server (it is gone from
+    /// `$currentOp` and stops using the database), and the console runs the
+    /// next command right away.
+    #[tokio::test]
+    #[ignore = "requires a live MongoDB server, see DH_TEST_MONGO_URL"]
+    async fn mongo_stop_kills_the_operation_on_the_server() {
+        let a = MongoAdapter::connect(&params()).await.unwrap();
+        let coll = format!("stop_{}", uuid::Uuid::new_v4().simple());
+        a.run_mongo("dh_stop_test", None, &format!("db.{coll}.insertOne({{\"a\": 1}})"), None)
+            .await
+            .unwrap();
+
+        let run_id = format!("run-{coll}");
+        let run = runs::register("t-mongo-live", &run_id);
+        let stopper = {
+            let run_id = run_id.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                runs::cancel("t-mongo-live", &run_id).await
+            })
+        };
+        let started = Instant::now();
+        let res = a
+            .run_mongo(
+                "dh_stop_test",
+                None,
+                &format!("db.{coll}.find({{\"$where\": \"sleep(60000) || true\"}})"),
+                Some(&run),
+            )
+            .await;
+        assert!(matches!(res, Err(DbError::Cancelled)), "got {res:?}");
+        assert!(started.elapsed() < Duration::from_secs(5), "killOp should land fast");
+        assert_eq!(stopper.await.unwrap().state, runs::CancelState::Stopped);
+
+        // Gone from $currentOp, not merely ignored by the app.
+        let admin = a.client.database("admin");
+        let mut cursor = admin
+            .aggregate(vec![
+                doc! { "$currentOp": { "allUsers": false } },
+                doc! { "$match": current_op_filter(&run_id) },
+            ])
+            .await
+            .unwrap();
+        assert!(cursor.try_next().await.unwrap().is_none(), "the operation is still running");
+
+        let next = a
+            .run_mongo("dh_stop_test", None, &format!("db.{coll}.countDocuments({{}})"), None)
+            .await
+            .unwrap();
+        assert!(next.error.is_none());
+        a.run_mongo("dh_stop_test", None, &format!("db.{coll}.drop()"), None).await.unwrap();
+    }
+
+    /// A Stop that arrives before the command does: nothing runs (this is the
+    /// SQL editor's path, a SELECT translated to a find).
+    #[tokio::test]
+    #[ignore = "requires a live MongoDB server, see DH_TEST_MONGO_URL"]
+    async fn mongo_stop_before_start_never_runs() {
+        let a = MongoAdapter::connect(&params()).await.unwrap();
+        runs::cancel("t-mongo-live", "run-mongo-early").await;
+        let run = runs::register("t-mongo-live", "run-mongo-early");
+        let mut on_batch = sink();
+        let res = a
+            .run_sql_stream(Some("dh_stop_test"), None, "SELECT * FROM anything", Some(&run), &mut on_batch)
+            .await;
+        assert!(matches!(res, Err(DbError::Cancelled)), "got {res:?}");
     }
 }

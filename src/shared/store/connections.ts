@@ -2,7 +2,7 @@ import type { StoreApi } from "zustand";
 import { closeConnection } from "../api/connection";
 import type { ConnectionInfo } from "../api/types";
 import type { SavedConnParams, StudioStore } from "./types";
-import { stableConnKey } from "./workspace-persistence";
+import { stableConnKey, stampLegacySqlTabs } from "./workspace-persistence";
 
 type SetState = StoreApi<StudioStore>["setState"];
 
@@ -72,10 +72,11 @@ export function connectionActions(set: SetState) {
         // connect to the same target later starts fresh rather than
         // re-claiming stale state out from under the first tab.
         const key = stableConnKey(conn);
-        const pending = state.pendingWorkspaceRestore[key];
-        if (!pending) {
+        const saved = state.pendingWorkspaceRestore[key];
+        if (!saved) {
           return { open, recent, activeId: conn.id, view: "workspace" };
         }
+        const pending = stampLegacySqlTabs(saved, conn.id);
         const pendingWorkspaceRestore = { ...state.pendingWorkspaceRestore };
         delete pendingWorkspaceRestore[key];
         return {

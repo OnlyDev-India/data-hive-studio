@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import {
   ResizablePanel,
   ResizablePanelGroup,
@@ -46,17 +46,24 @@ afterEach(() => {
 });
 
 /** Mirrors `TablePane`/`MongoCollectionPane`: the hook lives in the pane, but
- *  the panel group only mounts once the schema has loaded (`ready`). */
+ *  the panel group only mounts once the schema has loaded (`ready`). The
+ *  "run" button stands in for a query editor opening its own panel. */
 function Pane({ ready }: { ready: boolean }) {
-  const { panelRef, defaultLayout, defaultSize, onLayoutChanged } =
-    useBottomPanelSize({
-      conn_id: CONN,
-      tab_key: TAB,
-      panelIds: ["top-panel", "bottom-panel"],
-      storage: localStorage,
-    });
+  const {
+    panelRef,
+    defaultLayout,
+    defaultSize,
+    onLayoutChanged,
+    openBottomPanel,
+  } = useBottomPanelSize({
+    conn_id: CONN,
+    tab_key: TAB,
+    panelIds: ["top-panel", "bottom-panel"],
+    storage: localStorage,
+  });
   return ready ? (
     <div style={{ height: 1000 }}>
+      <button onClick={openBottomPanel}>run</button>
       <ResizablePanelGroup
         orientation="vertical"
         defaultLayout={defaultLayout}
@@ -111,6 +118,16 @@ describe("useBottomPanelSize", () => {
     act(() => {
       rerender(<Pane ready />);
     });
+    expect(bottomGrow(container)).toBeGreaterThan(0);
+  });
+
+  it("opens this tab's panel when asked, e.g. when a query starts running", () => {
+    const { container, getByText } = render(<Pane ready />);
+    expect(bottomGrow(container)).toBe(0);
+    act(() => {
+      fireEvent.click(getByText("run"));
+    });
+    expect(useStudioStore.getState().bottomPanelOpen[SCOPE]).toBe(true);
     expect(bottomGrow(container)).toBeGreaterThan(0);
   });
 });

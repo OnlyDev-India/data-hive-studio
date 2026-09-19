@@ -9,7 +9,7 @@ import {
   serverUnsupported,
   webAuthFor,
 } from "./dispatch";
-import type { QueryOp, QueryResult } from "./types";
+import type { CancelOutcome, DbKind, QueryOp, QueryResult } from "./types";
 
 /** Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
  * Rejects (throws) when the statement fails.
@@ -45,6 +45,39 @@ export async function runSql(
       origin,
     },
   });
+}
+
+/** Engines whose runs the backend can stop so far (spec 0006). */
+const CANCELLABLE_KINDS: ReadonlySet<DbKind> = new Set([
+  "sqlite",
+  "postgres",
+  "mongodb",
+]);
+
+/** Whether the SQL editor can offer Stop for a run on this connection. Grows
+ *  engine by engine (spec 0006): team server and web connections have no
+ *  cancel route yet, so only local desktop connections qualify. */
+export function canCancelRun(
+  connId: string,
+  kind: DbKind | undefined,
+): boolean {
+  return (
+    !WEB &&
+    !isServerConn(connId) &&
+    kind !== undefined &&
+    CANCELLABLE_KINDS.has(kind)
+  );
+}
+
+/** Stop the editor run `runId` (the id passed to `runSqlStream`). Resolves
+ *  once the database confirms, or after 3 seconds with `winding_down`.
+ *  Cancelling a finished or unknown run resolves `not_running`, never throws. */
+export async function cancelRun(
+  connId: string,
+  runId: string,
+): Promise<CancelOutcome> {
+  serverUnsupported(connId);
+  return invoke<CancelOutcome>("cancel_run", { connId, runId });
 }
 
 /** Execute a single DML/DDL statement with bound `?` parameters.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
@@ -225,28 +225,36 @@ export function Landing() {
     }
   };
   const [opening, setOpening] = useState(false);
-  /** Path of a recent SQLite file prefilled into the form (single-click). */
+  /** SQLite file chosen with Browse, or prefilled from a saved/recent
+   *  connection (single-click). */
   const [sqlite_path, setSqlitePath] = useState<string | null>(null);
+  const [sqlite_name, setSqliteName] = useState("");
 
-  // Pick a file and open it right away — no second "Open" step.
-  const open_file_click = async () => {
-    if (opening) return;
+  // Browse only picks the file, so it can be saved without opening it.
+  const browse_sqlite_click = async () => {
     const file = await pickDatabaseFile();
-    if (!file) return;
-    setOpening(true);
-    try {
-      const conn = await openDatabasePath(file.path);
-      openConn(conn);
-    } catch (e) {
-      useStudioStore.getState().pushNotification({
-        kind: "error",
-        title: "Failed to open database",
-        detail: String(e),
-      });
-    } finally {
-      setOpening(false);
-    }
+    if (file) setSqlitePath(file.path);
   };
+
+  const open_sqlite = useCallback(
+    async (path: string) => {
+      if (opening) return;
+      setOpening(true);
+      try {
+        const conn = await openDatabasePath(path);
+        openConn(conn);
+      } catch (e) {
+        useStudioStore.getState().pushNotification({
+          kind: "error",
+          title: "Failed to open database",
+          detail: String(e),
+        });
+      } finally {
+        setOpening(false);
+      }
+    },
+    [opening, openConn],
+  );
 
   // ---- PostgreSQL connect form ----
   const PG_DEFAULTS: PgFormValues = {
@@ -752,6 +760,53 @@ export function Landing() {
     });
   };
 
+  const sqlite_display_name = () =>
+    sqlite_name.trim() || (sqlite_path?.split(/[/\\]/).pop() ?? "");
+
+  /** Full saved record for a SQLite file. There is no server, login or
+   *  tunnel, so the network fields are blank — `source_path` is what a
+   *  reopen uses. */
+  const sqlite_saved_params = (path: string) => ({
+    kind: "sqlite" as const,
+    host: "",
+    port: 0,
+    user: "",
+    password: "",
+    database: "",
+    source_path: path,
+  });
+
+  const save_sqlite_local = async () => {
+    if (!sqlite_path) return;
+    const name = sqlite_display_name();
+    const updating = editing?.source === "local";
+    try {
+      if (updating) {
+        await updateSavedLocal(
+          editing.oldName,
+          name,
+          sqlite_saved_params(sqlite_path),
+        );
+      } else {
+        await saveLocal(name, sqlite_saved_params(sqlite_path));
+      }
+      pushNotification({
+        kind: "success",
+        title: updating
+          ? "Updated saved SQLite connection"
+          : "Saved on this device",
+        detail: name,
+      });
+      if (updating) setEditing(null);
+    } catch (e) {
+      pushNotification({
+        kind: "error",
+        title: "Save failed",
+        detail: String(e),
+      });
+    }
+  };
+
   const update_server = async () => {
     if (editing?.source !== "server") return;
     setSavingTo(editing.remoteId);
@@ -975,7 +1030,13 @@ export function Landing() {
     want_connect.current = landing_prefill.connect;
     if (kind === "postgres" || kind === "mongodb" || kind === "documentdb") {
       want_kind.current = kind;
+    } else {
+      // SQLite opens straight from the prefill below; leaving a stale kind
+      // here would let the Postgres/Mongo auto-connect effects fire for it.
+      want_kind.current = null;
+      want_connect.current = false;
     }
+    const connect_now = landing_prefill.connect;
     // Consume immediately: navigating home and back must NOT replay this
     // (that used to auto-open a duplicate connection on every visit).
     clearLandingPrefill();
@@ -1024,6 +1085,8 @@ export function Landing() {
         setKind("sqlite");
         setFormTab("general");
         setSqlitePath(p.source_path ?? null);
+        setSqliteName(p.name ?? "");
+        if (connect_now && p.source_path) void open_sqlite(p.source_path);
       } else {
         const pgv = p;
         setKind("postgres");
@@ -1059,7 +1122,7 @@ export function Landing() {
         }));
       }
     });
-  }, [landing_prefill, clearLandingPrefill]);
+  }, [landing_prefill, clearLandingPrefill, open_sqlite]);
 
   // Runs after the prefilled values commit; fires the Connect flow so its
   // spinner/state drives from the form itself. The global connecting flags
@@ -1117,9 +1180,15 @@ export function Landing() {
               <DbTypeSelect value={kind} on_change={change_kind} />
               {kind === "sqlite" ? (
                 <SqlitePanel
-                  opening={opening}
-                  onOpen={() => void open_file_click()}
                   path={sqlite_path}
+                  name={sqlite_name}
+                  setName={setSqliteName}
+                  opening={opening}
+                  onBrowse={() => void browse_sqlite_click()}
+                  onOpen={() => sqlite_path && void open_sqlite(sqlite_path)}
+                  editing={editing !== null}
+                  onSaveLocal={() => void save_sqlite_local()}
+                  onCancelEdit={() => setEditing(null)}
                 />
               ) : kind === "mongodb" || kind === "documentdb" ? (
                 <MongoPanel

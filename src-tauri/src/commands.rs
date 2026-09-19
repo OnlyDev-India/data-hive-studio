@@ -199,17 +199,26 @@ forward_cmd! {
 
 /// Run a MongoDB console command (JSON find/aggregate or a shell-subset
 /// statement) against `database`. `collection` is the console's current
-/// collection, used only for bare JSON query/pipeline input.
+/// collection, used only for bare JSON query/pipeline input. `run_id` makes
+/// the run stoppable through `cancel_run`; a stopped run resolves with
+/// `cancelled: true` rather than an error.
 #[tauri::command]
 pub async fn run_mongo(
     conn_id: String,
     database: String,
     collection: Option<String>,
     script: String,
+    run_id: Option<String>,
 ) -> Result<MongoRunResult, String> {
-    crate::db::run_mongo(&conn_id, &database, collection.as_deref(), &script)
-        .await
-        .map_err(to_err)
+    crate::db::run_mongo(
+        &conn_id,
+        &database,
+        collection.as_deref(),
+        &script,
+        run_id.as_deref(),
+    )
+    .await
+    .map_err(to_err)
 }
 
 forward_cmd! {
@@ -400,22 +409,39 @@ pub async fn execute_op_stream(
 
 /// Streaming variant of [`run_sql`]: SELECT-shaped statements push row
 /// batches through the channel as they come back. The resolved result
-/// carries every field except rows.
+/// carries every field except rows. `run_id` (minted by the editor) makes the
+/// run stoppable through [`cancel_run`]; a stopped run resolves with
+/// `cancelled: true` rather than an error.
 #[tauri::command]
 pub async fn run_sql_stream(
     conn_id: String,
     database: Option<String>,
     schema: Option<String>,
     sql: String,
+    run_id: Option<String>,
     channel: tauri::ipc::Channel<QueryChunk>,
 ) -> Result<QueryResult, String> {
-    crate::db::run_sql_stream(&conn_id, database.as_deref(), schema.as_deref(), &sql, move |chunk| {
-        channel
-            .send(chunk)
-            .map_err(|e| crate::db::DbError::InvalidOperation(format!("ipc send failed: {e}")))
-    })
+    crate::db::run_sql_stream(
+        &conn_id,
+        database.as_deref(),
+        schema.as_deref(),
+        &sql,
+        run_id.as_deref(),
+        move |chunk| {
+            channel
+                .send(chunk)
+                .map_err(|e| crate::db::DbError::InvalidOperation(format!("ipc send failed: {e}")))
+        },
+    )
     .await
     .map_err(to_err)
+}
+
+/// Stop the editor run `run_id` on `conn_id`. Waits up to 3 seconds for the
+/// database to confirm; cancelling a finished or unknown run is not an error.
+#[tauri::command]
+pub async fn cancel_run(conn_id: String, run_id: String) -> Result<crate::db::CancelOutcome, String> {
+    Ok(crate::db::cancel_run(&conn_id, &run_id).await)
 }
 
 forward_cmd! {

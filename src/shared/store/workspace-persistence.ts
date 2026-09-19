@@ -1,6 +1,7 @@
 import type { ConnectionInfo } from "../api/types";
 import { loadWorkspaceState, saveWorkspaceState } from "../api/workspace-state";
 import { tabKey } from "./tab-utils";
+import type { PaneNode } from "./pane-layout";
 import type { SavedWorkspace, StudioStore } from "./types";
 
 /** Identity a connection's saved workspace is filed under — NEVER the
@@ -18,6 +19,49 @@ export function stableConnKey(
     return `sqlite:${conn.source_path}`;
   }
   return `${conn.kind}:${conn.name}`;
+}
+
+/** Give SQL tabs saved before their key carried a connection (`sql:0`) the
+ *  connection they're being restored into, so they stop sharing store
+ *  entries with another connection's same-numbered tab. Rewrites every place
+ *  the old key was stored: the tab list, the active tab, the pane layout and
+ *  the saved editor text. Returns `saved` itself when nothing needs it. */
+export function stampLegacySqlTabs(
+  saved: SavedWorkspace,
+  connId: string,
+): SavedWorkspace {
+  const renamed = new Map<string, string>();
+  const tabs = saved.workspace.tabs.map((tab) => {
+    if (tab.kind !== "sql" || tab.conn_id) return tab;
+    const stamped = { ...tab, conn_id: connId };
+    renamed.set(tabKey(tab), tabKey(stamped));
+    return stamped;
+  });
+  if (renamed.size === 0) return saved;
+
+  const rekey = (key: string) => renamed.get(key) ?? key;
+  const rekeyLayout = (node: PaneNode): PaneNode =>
+    node.type === "leaf"
+      ? {
+          ...node,
+          tabKeys: node.tabKeys.map(rekey),
+          activeTabKey: node.activeTabKey && rekey(node.activeTabKey),
+        }
+      : { ...node, children: node.children.map(rekeyLayout) };
+  const { active } = saved.workspace;
+  return {
+    workspace: {
+      ...saved.workspace,
+      tabs,
+      active:
+        active &&
+        (tabs.find((t) => tabKey(t) === rekey(tabKey(active))) ?? active),
+      layout: rekeyLayout(saved.workspace.layout),
+    },
+    sqlSeeds: Object.fromEntries(
+      Object.entries(saved.sqlSeeds).map(([k, v]) => [rekey(k), v]),
+    ),
+  };
 }
 
 interface WorkspaceSnapshotV1 {

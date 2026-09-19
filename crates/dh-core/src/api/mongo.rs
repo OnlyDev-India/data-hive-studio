@@ -37,4 +37,9 @@ pub struct MongoRunResult {
     /// Set by `use <db>` so the console updates its current-database context.
     pub switch_db: Option<String>,
     pub elapsed_ms: u128,
+    /// The user stopped this run (spec 0006). Not an error. Documents a
+    /// stopped write already changed stay changed (MongoDB has no rollback
+    /// here). Absent from an older server's reply.
+    #[serde(default)]
+    pub cancelled: bool,
 }

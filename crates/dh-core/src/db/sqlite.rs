@@ -6,10 +6,11 @@
 //! byte-for-byte.
 
 use std::path::PathBuf;
+use std::ptr::NonNull;
 use std::time::Instant;
 
 use futures_util::TryStreamExt;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool};
 use sqlx::{Column, Connection, Executor, Row, Statement, Value, ValueRef};
 
 use crate::api::{
@@ -19,12 +20,78 @@ use crate::api::{
 
 use std::sync::Arc;
 
-use super::{BatchSink, BuiltQuery, DbAdapter, DbError, DbResult};
+use super::{BatchSink, BuiltQuery, DbAdapter, DbError, DbResult, RunHandle};
 use async_trait::async_trait;
 
 /// Rows per streamed IPC chunk. Big enough to amortize channel overhead,
 /// small enough that the first paint lands almost immediately.
 const STREAM_BATCH_ROWS: usize = 256;
+
+/// SQLite's `SQLITE_INTERRUPT` result code, what a statement returns after
+/// `sqlite3_interrupt`.
+const SQLITE_INTERRUPT_CODE: &str = "9";
+
+/// A run's connection handle, kept so Stop can interrupt its statement from
+/// another thread.
+#[derive(Clone, Copy)]
+struct InterruptHandle(NonNull<libsqlite3_sys::sqlite3>);
+
+// SAFETY: `sqlite3_interrupt` is documented as safe to call from any thread
+// while the connection is open. The pointer is only ever used through the
+// run registry's canceller, which is dropped (`RunHandle::finish`) before the
+// run's connection returns to the pool, so it never outlives the connection.
+unsafe impl Send for InterruptHandle {}
+unsafe impl Sync for InterruptHandle {}
+
+impl InterruptHandle {
+    fn interrupt(self) {
+        // SAFETY: see the impl-level note above.
+        unsafe { libsqlite3_sys::sqlite3_interrupt(self.0.as_ptr()) }
+    }
+}
+
+/// Arm Stop for a run: register an interrupt for its connection. Fails with
+/// `Cancelled` when Stop already arrived, so the statement never starts.
+async fn arm_interrupt(conn: &mut SqliteConnection, run: Option<&RunHandle>) -> DbResult<()> {
+    let Some(run) = run else { return Ok(()) };
+    let handle = InterruptHandle(
+        conn.lock_handle().await.map_err(DbError::SqlEngine)?.as_raw_handle(),
+    );
+    let armed = run
+        .set_canceller(Box::new(move || {
+            handle.interrupt();
+            Box::pin(std::future::ready(()))
+        }))
+        .await;
+    if armed {
+        Ok(())
+    } else {
+        Err(DbError::Cancelled)
+    }
+}
+
+/// An engine error becomes `Cancelled` only when it is an interrupt AND the
+/// user asked to stop this run; any other interrupt-shaped or engine error
+/// stays the error it is.
+fn run_error(e: sqlx::Error, run: Option<&RunHandle>) -> DbError {
+    let interrupted = e
+        .as_database_error()
+        .and_then(|d| d.code())
+        .is_some_and(|c| c == SQLITE_INTERRUPT_CODE);
+    if interrupted && run.is_some_and(RunHandle::is_cancel_requested) {
+        DbError::Cancelled
+    } else {
+        DbError::SqlEngine(e)
+    }
+}
+
+/// Unregister the run's canceller. Called BEFORE the run's connection goes
+/// back to the pool, so a late Stop can never interrupt a later query.
+async fn release_run(run: Option<&RunHandle>) {
+    if let Some(run) = run {
+        run.finish().await;
+    }
+}
 
 pub struct SqliteAdapter {
     pool: SqlitePool,
@@ -203,7 +270,7 @@ impl SqliteAdapter {
         (timing, String::new())
     }
 
-    pub async fn run_sql(&self, sql: &str) -> DbResult<QueryResult> {
+    pub async fn run_sql(&self, sql: &str, run: Option<&RunHandle>) -> DbResult<QueryResult> {
         let start = Instant::now();
         let trimmed = sql.trim();
 
@@ -218,21 +285,11 @@ impl SqliteAdapter {
 
         let result = if is_query {
             let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
-            let prepared = conn.prepare(trimmed).await.map_err(DbError::SqlEngine)?;
-            let columns: Vec<String> =
-                prepared.columns().iter().map(|c| c.name().to_string()).collect();
-            drop(prepared);
+            arm_interrupt(&mut conn, run).await?;
+            let fetched = fetch_all_on(&mut conn, trimmed, run).await;
+            release_run(run).await;
             drop(conn);
-
-            let fetched = sqlx::query(trimmed).fetch_all(&self.pool).await.map_err(DbError::SqlEngine)?;
-            let mut rows = Vec::with_capacity(fetched.len());
-            for row in fetched {
-                let mut cells = Vec::with_capacity(columns.len());
-                for i in 0..columns.len() {
-                    cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
-                }
-                rows.push(cells);
-            }
+            let (columns, rows) = fetched?;
             QueryResult {
                 columns,
                 rows,
@@ -240,9 +297,15 @@ impl SqliteAdapter {
                 is_select: true,
                 error: None,
                 elapsed_ms: start.elapsed().as_millis(),
+                cancelled: false,
             }
         } else {
-            let res = sqlx::query(trimmed).execute(&self.pool).await.map_err(DbError::SqlEngine)?;
+            let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
+            arm_interrupt(&mut conn, run).await?;
+            let executed = sqlx::query(trimmed).execute(&mut *conn).await;
+            release_run(run).await;
+            drop(conn);
+            let res = executed.map_err(|e| run_error(e, run))?;
             QueryResult {
                 columns: Vec::new(),
                 rows: Vec::new(),
@@ -250,6 +313,7 @@ impl SqliteAdapter {
                 is_select: false,
                 error: None,
                 elapsed_ms: start.elapsed().as_millis(),
+                cancelled: false,
             }
         };
         Ok(result)
@@ -297,6 +361,7 @@ impl SqliteAdapter {
             is_select: true,
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
+            cancelled: false,
         })
     }
 
@@ -309,41 +374,17 @@ impl SqliteAdapter {
         &self,
         sql: &str,
         params: &[Option<String>],
-        mut on_batch: impl FnMut(QueryChunk) -> DbResult<()>,
+        run: Option<&RunHandle>,
+        on_batch: impl FnMut(QueryChunk) -> DbResult<()>,
     ) -> DbResult<(Vec<String>, usize)> {
-        // Prepare once up front to learn the column names (same trick as
-        // run_sql_params), then stream with a freshly bound query.
+        // ONE connection for the whole read: the interrupt Stop sends is
+        // aimed at this connection, so prepare and fetch must share it.
         let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
-        let prepared = conn.prepare(sql).await.map_err(DbError::SqlEngine)?;
-        let columns: Vec<String> =
-            prepared.columns().iter().map(|c| c.name().to_string()).collect();
-        drop(prepared);
+        arm_interrupt(&mut conn, run).await?;
+        let streamed = stream_select(&mut conn, sql, params, run, on_batch).await;
+        release_run(run).await;
         drop(conn);
-
-        on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
-
-        let mut q = sqlx::query(sql);
-        for p in params {
-            q = q.bind(p);
-        }
-        let mut stream = q.fetch(&self.pool);
-        let mut batch: Vec<Vec<Option<String>>> = Vec::with_capacity(STREAM_BATCH_ROWS);
-        let mut total = 0usize;
-        while let Some(row) = stream.try_next().await.map_err(DbError::SqlEngine)? {
-            let mut cells = Vec::with_capacity(columns.len());
-            for i in 0..columns.len() {
-                cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
-            }
-            batch.push(cells);
-            total += 1;
-            if batch.len() >= STREAM_BATCH_ROWS {
-                on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
-            }
-        }
-        if !batch.is_empty() {
-            on_batch(QueryChunk { columns: None, rows: batch })?;
-        }
-        Ok((columns, total))
+        streamed
     }
 
     /// Streaming variant of [`Self::execute_op`] for reads: row batches are
@@ -361,7 +402,7 @@ impl SqliteAdapter {
         match op {
             QueryOp::Select { .. } | QueryOp::Count { .. } | QueryOp::SelectDistinct { .. } => {
                 let (columns, _total) =
-                    self.run_select_stream(&q.sql, &q.params, on_batch).await?;
+                    self.run_select_stream(&q.sql, &q.params, None, on_batch).await?;
                 Ok(super::OpOutcome {
                     result: QueryResult {
                         columns,
@@ -370,6 +411,7 @@ impl SqliteAdapter {
                         is_select: true,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql: Some(super::inline_placeholders(&q.sql, &q.params, false) + ";"),
                 })
@@ -384,6 +426,7 @@ impl SqliteAdapter {
     pub async fn run_sql_stream(
         &self,
         sql: &str,
+        run: Option<&RunHandle>,
         on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult> {
         let trimmed = sql.trim();
@@ -394,10 +437,10 @@ impl SqliteAdapter {
             .to_ascii_lowercase();
         let is_query = matches!(first_word.as_str(), "select" | "pragma" | "explain" | "with");
         if !is_query {
-            return self.run_sql(trimmed).await;
+            return self.run_sql(trimmed, run).await;
         }
         let start = Instant::now();
-        let (columns, _total) = self.run_select_stream(trimmed, &[], on_batch).await?;
+        let (columns, _total) = self.run_select_stream(trimmed, &[], run, on_batch).await?;
         Ok(QueryResult {
             columns,
             rows: Vec::new(),
@@ -405,6 +448,7 @@ impl SqliteAdapter {
             is_select: true,
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
+            cancelled: false,
         })
     }
 
@@ -532,6 +576,7 @@ impl SqliteAdapter {
                         is_select: false,
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
+                        cancelled: false,
                     },
                     sql,
                 })
@@ -1045,6 +1090,67 @@ fn temp_path(name: &str) -> DbResult<PathBuf> {
         .collect::<String>();
     let path = dir.join(format!("{}-{}.db", safe, uuid::Uuid::new_v4()));
     Ok(path)
+}
+
+/// Prepare `sql` and read every row on `conn`. Used by the non-streaming
+/// run path; the connection is the caller's so Stop can reach it.
+async fn fetch_all_on(
+    conn: &mut SqliteConnection,
+    sql: &str,
+    run: Option<&RunHandle>,
+) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>)> {
+    let prepared = conn.prepare(sql).await.map_err(|e| run_error(e, run))?;
+    let columns: Vec<String> = prepared.columns().iter().map(|c| c.name().to_string()).collect();
+    drop(prepared);
+    let fetched = sqlx::query(sql).fetch_all(&mut *conn).await.map_err(|e| run_error(e, run))?;
+    let mut rows = Vec::with_capacity(fetched.len());
+    for row in fetched {
+        let mut cells = Vec::with_capacity(columns.len());
+        for i in 0..columns.len() {
+            cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
+        }
+        rows.push(cells);
+    }
+    Ok((columns, rows))
+}
+
+/// Prepare once up front to learn the column names (same trick as
+/// `run_sql_params`), then stream rows off `conn` in fixed size batches.
+async fn stream_select(
+    conn: &mut SqliteConnection,
+    sql: &str,
+    params: &[Option<String>],
+    run: Option<&RunHandle>,
+    mut on_batch: impl FnMut(QueryChunk) -> DbResult<()>,
+) -> DbResult<(Vec<String>, usize)> {
+    let prepared = conn.prepare(sql).await.map_err(|e| run_error(e, run))?;
+    let columns: Vec<String> = prepared.columns().iter().map(|c| c.name().to_string()).collect();
+    drop(prepared);
+
+    on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
+
+    let mut q = sqlx::query(sql);
+    for p in params {
+        q = q.bind(p);
+    }
+    let mut stream = q.fetch(&mut *conn);
+    let mut batch: Vec<Vec<Option<String>>> = Vec::with_capacity(STREAM_BATCH_ROWS);
+    let mut total = 0usize;
+    while let Some(row) = stream.try_next().await.map_err(|e| run_error(e, run))? {
+        let mut cells = Vec::with_capacity(columns.len());
+        for i in 0..columns.len() {
+            cells.push(cell_to_string(row.try_get_raw(i).map_err(DbError::SqlEngine)?));
+        }
+        batch.push(cells);
+        total += 1;
+        if batch.len() >= STREAM_BATCH_ROWS {
+            on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
+        }
+    }
+    if !batch.is_empty() {
+        on_batch(QueryChunk { columns: None, rows: batch })?;
+    }
+    Ok((columns, total))
 }
 
 fn cell_to_string(v: sqlx::sqlite::SqliteValueRef<'_>) -> Option<String> {
@@ -1693,6 +1799,102 @@ mod tests {
             vec!["archived", "archived", "done"]
         );
     }
+
+    // ---- Stop a running query (spec 0006) ----
+
+    /// A statement that spends its whole time in ONE step (an aggregate
+    /// before the first row), so only a real interrupt can end it early.
+    const HEAVY_SELECT: &str = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 2000000000) SELECT count(*), sum(x) FROM c";
+
+    fn sink() -> impl FnMut(QueryChunk) -> DbResult<()> + Send {
+        |_chunk: QueryChunk| Ok(())
+    }
+
+    #[tokio::test]
+    async fn stop_interrupts_a_heavy_single_step_and_frees_the_connection() {
+        let a = test_adapter().await;
+        let run = super::super::runs::register("t-sqlite", "run-sqlite-heavy");
+        let stopper = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            super::super::runs::cancel("t-sqlite", "run-sqlite-heavy").await
+        });
+        let started = Instant::now();
+        let mut on_batch = sink();
+        let res = a.run_sql_stream(HEAVY_SELECT, Some(&run), &mut on_batch).await;
+        assert!(matches!(res, Err(DbError::Cancelled)), "got {res:?}");
+        assert!(started.elapsed().as_secs() < 3, "the interrupt should land fast");
+        let outcome = stopper.await.unwrap();
+        assert_eq!(outcome.state, super::super::runs::CancelState::Stopped);
+        // The connection is usable again right away (AC-2).
+        let r = a.run_sql("SELECT 1", None).await.unwrap();
+        assert_eq!(r.rows, vec![vec![Some("1".to_string())]]);
+    }
+
+    #[tokio::test]
+    async fn stopped_write_leaves_no_partial_change() {
+        let a = test_adapter().await;
+        a.run_sql("CREATE TABLE t (a INTEGER)", None).await.unwrap();
+        a.run_sql("INSERT INTO t VALUES (7)", None).await.unwrap();
+        let run = super::super::runs::register("t-sqlite", "run-sqlite-write");
+        let stopper = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            super::super::runs::cancel("t-sqlite", "run-sqlite-write").await
+        });
+        let update = format!(
+            "UPDATE t SET a = (WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 2000000000) SELECT count(*) FROM c)"
+        );
+        let res = a.run_sql(&update, Some(&run)).await;
+        assert!(matches!(res, Err(DbError::Cancelled)), "got {res:?}");
+        stopper.await.unwrap();
+        let r = a.run_sql("SELECT a FROM t", None).await.unwrap();
+        assert_eq!(r.rows, vec![vec![Some("7".to_string())]]);
+    }
+
+    #[tokio::test]
+    async fn a_run_cancelled_before_it_starts_never_runs() {
+        let a = test_adapter().await;
+        // Stop arrives before the command does: it leaves a marker.
+        super::super::runs::cancel("t-sqlite", "run-sqlite-early").await;
+        let run = super::super::runs::register("t-sqlite", "run-sqlite-early");
+        let mut on_batch = sink();
+        let res = a.run_sql_stream(HEAVY_SELECT, Some(&run), &mut on_batch).await;
+        assert!(matches!(res, Err(DbError::Cancelled)), "got {res:?}");
+    }
+
+    /// A genuine `SQLITE_INTERRUPT` error, raised by interrupting a heavy
+    /// statement directly on its connection (no run registry involved).
+    async fn interrupted_error(a: &SqliteAdapter) -> sqlx::Error {
+        let mut conn = a.pool.acquire().await.unwrap();
+        let handle = InterruptHandle(conn.lock_handle().await.unwrap().as_raw_handle());
+        let interrupter = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            handle.interrupt();
+        });
+        let outcome = sqlx::query(HEAVY_SELECT).fetch_all(&mut *conn).await;
+        interrupter.join().unwrap();
+        match outcome {
+            Ok(_) => panic!("the heavy statement should have been interrupted"),
+            Err(e) => e,
+        }
+    }
+
+    /// AC-13: an interrupt nobody asked for is an ordinary error; the same
+    /// interrupt after Stop is `Cancelled`.
+    #[tokio::test]
+    async fn interrupt_only_counts_as_stopped_when_stop_was_asked() {
+        let a = test_adapter().await;
+
+        let not_asked = super::super::runs::register("t-sqlite", "run-sqlite-not-asked");
+        let err = interrupted_error(&a).await;
+        assert!(matches!(run_error(err, Some(&not_asked)), DbError::SqlEngine(_)));
+
+        // Stop for this id arrives first (marker), so the run starts flagged.
+        super::super::runs::cancel("t-sqlite", "run-sqlite-asked").await;
+        let asked = super::super::runs::register("t-sqlite", "run-sqlite-asked");
+        let err = interrupted_error(&a).await;
+        assert!(matches!(run_error(err, Some(&asked)), DbError::Cancelled));
+    }
+
 }
 
 #[cfg(test)]
@@ -1853,7 +2055,7 @@ impl DbAdapter for SqliteAdapter {
         _schema: Option<&str>,
         sql: &str,
     ) -> DbResult<QueryResult> {
-        SqliteAdapter::run_sql(self, sql).await
+        SqliteAdapter::run_sql(self, sql, None).await
     }
     async fn execute_params(
         &self,
@@ -1893,9 +2095,10 @@ impl DbAdapter for SqliteAdapter {
         _database: Option<&str>,
         _schema: Option<&str>,
         sql: &str,
+        run: Option<&RunHandle>,
         mut on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult> {
-        SqliteAdapter::run_sql_stream(self, sql, &mut on_batch).await
+        SqliteAdapter::run_sql_stream(self, sql, run, &mut on_batch).await
     }
     async fn apply_schema_ops_batch(
         &self,

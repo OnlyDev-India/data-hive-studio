@@ -12,6 +12,9 @@ export function DragGhost() {
   const file_name = useStudioStore((s) =>
     dragTab ? s.sqlTabs[tabKey(dragTab.tab)]?.file_name : undefined,
   );
+  const database = useStudioStore((s) =>
+    dragTab ? s.sqlTabs[tabKey(dragTab.tab)]?.database : undefined,
+  );
   if (!dragTab || !dragPointer) return null;
   return createPortal(
     <div
@@ -19,7 +22,9 @@ export function DragGhost() {
       style={{ left: dragPointer.x, top: dragPointer.y }}
     >
       {IconTypeMap[dragTab.tab.kind]}
-      <span className="truncate">{tabLabel(dragTab.tab, file_name)}</span>
+      <span className="truncate">
+        {tabLabel(dragTab.tab, file_name, database)}
+      </span>
     </div>,
     document.body,
   );

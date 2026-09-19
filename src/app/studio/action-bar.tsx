@@ -102,7 +102,7 @@ export function ActionBar() {
             <>
               {IconTypeMap[active.kind]}
               <span className="text-foreground/80 max-w-40 truncate font-medium">
-                {tabLabel(active)}
+                {tabLabel(active, sqlConsole?.file_name, sqlConsole?.database)}
               </span>
               {bridge && (
                 <>
