@@ -17,6 +17,24 @@ mod secret_file;
 pub mod servers;
 pub mod workspace_state;
 
+/// Opens or closes the inspector on the focused window (falling back to
+/// "main"). Lives here rather than in the frontend so it still works when the
+/// webview rendered nothing.
+fn toggle_devtools(app: &tauri::AppHandle) {
+  let window = app
+    .webview_windows()
+    .into_values()
+    .find(|w| w.is_focused().unwrap_or(false))
+    .or_else(|| app.get_webview_window("main"));
+  if let Some(window) = window {
+    if window.is_devtools_open() {
+      window.close_devtools();
+    } else {
+      window.open_devtools();
+    }
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -40,6 +58,10 @@ pub fn run() {
         .build(),
     )
     .on_menu_event(|app_handle, event| {
+      if event.id().as_ref() == app_menu::TOGGLE_DEVTOOLS_ID {
+        toggle_devtools(app_handle);
+        return;
+      }
       use tauri::Emitter;
       let _ = app_handle.emit("menu-action", event.id().as_ref());
     })
