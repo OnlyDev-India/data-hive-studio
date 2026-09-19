@@ -46,9 +46,22 @@ export default defineConfig(({ mode }) => ({
         // whole app. Pinning React into its own vendor chunk (no app-code
         // back-reference) guarantees it's independent of any app chunk's
         // internal load order.
+        //
+        // Same failure, second instance: lucide-react's `createLucideIcon`
+        // was auto-placed in the shared "preload-helper" chunk, which also
+        // holds Vite's preload helper — and that helper imports back into
+        // "api". That closed a cycle (preload-helper → api → query-editor →
+        // preload-helper) whose entry-driven evaluation order ran
+        // query-editor's top-level `createLucideIcon(...)` calls before
+        // preload-helper had initialized ("TypeError: Fe is not a function"
+        // in release builds only). Pinning lucide into its own leaf chunk
+        // (no app-code import) removes it from any such cycle.
         manualChunks(id) {
           if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) {
             return "react-vendor";
+          }
+          if (/node_modules\/lucide-react\//.test(id)) {
+            return "lucide-vendor";
           }
         },
       },
