@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  connGuardOf,
   serversFetchCredentials,
   srvConnId,
   canManageOrg,
@@ -33,7 +34,8 @@ import {
 } from "@/shared/components/ui/context-menu";
 import { useStudioStore } from "@/shared/store";
 import type { SavedConnParams } from "@/shared/store";
-import type { DbKind } from "@/shared/api";
+import type { ConnGuard, DbKind } from "@/shared/api";
+import { ConnFlags } from "@/shared/components/env-chip";
 import { DBIcons } from "@/shared/components/icons/types";
 
 /** Collapsible sidebar section. An OPEN section stretches to fill all
@@ -210,6 +212,8 @@ export function HomeView({
       kind: DbKind;
       source: string;
       connect_title: string;
+      /** Read only flag and environment label, for the chip and lock. */
+      guard?: ConnGuard;
       on_click: () => void;
       on_double_click: () => void;
     }[] = [];
@@ -226,6 +230,7 @@ export function HomeView({
           kind,
           source: "local",
           connect_title: "Double-click to connect",
+          guard: connGuardOf(params),
           on_click: () => request_prefill(kind, { ...params }),
           on_double_click: () => request_prefill(kind, { ...params }, true),
         });
@@ -323,6 +328,7 @@ export function HomeView({
                   >
                     {DBIcon && <DBIcon className="size-4 shrink-0" />}
                     <span className="truncate font-medium">{entry.label}</span>
+                    {entry.guard && <ConnFlags conn={entry.guard} />}
                     <span className="text-muted-foreground text-3xs ml-auto shrink-0 uppercase">
                       {entry.source}
                     </span>
@@ -537,6 +543,7 @@ export function HomeView({
                 >
                   <DBIcon className="text-muted-foreground size-4 shrink-0" />
                   <span className="truncate font-medium">{name}</span>
+                  <ConnFlags conn={params} />
                   <span className="ml-auto flex shrink-0 items-center gap-1">
                     <span
                       aria-label={`Delete ${name}`}
@@ -677,6 +684,7 @@ export function HomeView({
                           password: "",
                           database: "",
                           source_path: conn.source_path,
+                          ...connGuardOf(conn),
                         });
                       } else {
                         void reopenRecent(conn);
@@ -702,6 +710,7 @@ export function HomeView({
                   >
                     <DBIcon className="text-muted-foreground size-4 shrink-0" />
                     <span className="truncate font-medium">{conn.name}</span>
+                    <ConnFlags conn={conn} />
                   </Button>
                 </li>
               );

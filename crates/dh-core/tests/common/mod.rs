@@ -8,7 +8,7 @@ use dh_core::api::DbKind;
 /// registry `conn_id`. Each call gets its own isolated database.
 pub async fn temp_sqlite_conn() -> String {
     let name = format!("dh-core-test-{}", uuid::Uuid::new_v4());
-    let info = dh_core::db::open_database(&DbKind::Sqlite, &name, None)
+    let info = dh_core::db::open_database(&DbKind::Sqlite, &name, None, Default::default())
         .await
         .expect("open temp sqlite connection");
     info.id

@@ -10,6 +10,8 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import { GuardFields } from "./guard-fields";
+import { applyGuardPatch } from "../lib/guard-form";
 import {
   Select,
   SelectContent,
@@ -56,6 +58,14 @@ export interface PgFormValues {
   /** Max lifetime of a pooled connection regardless of activity, in seconds
    *  (blank = default 1800, i.e. 30 minutes). */
   max_lifetime_secs: string;
+  /** Refuse every write from this app on this connection (spec 0007). */
+  read_only: boolean;
+  /** Environment name shown as a chip: "", a preset, or custom text. */
+  env_label: string;
+  /** Palette key for a custom environment's colour, else "". */
+  env_color: string;
+  /** Ask before every write, even without a Production label. */
+  confirm_writes: boolean;
   ssh_host: string;
   ssh_port: string;
   ssh_user: string;
@@ -70,7 +80,7 @@ export interface PgFormValues {
 export interface PgPanelProps {
   // Form fields
   form: PgFormValues;
-  setField: (key: keyof PgFormValues, value: string) => void;
+  setField: (key: keyof PgFormValues, value: string | boolean) => void;
   // Which section tab (General/SSH/SSL) is active — owned by the parent so
   // the tab bar itself can render above the card, where the old
   // per-database-type tabs used to live.
@@ -211,6 +221,11 @@ export function PgPanel({
             placeholder="connection name (optional)"
             value={form.name}
             onChange={(e) => setField("name", e.target.value)}
+          />
+          <GuardFields
+            idPrefix="pg"
+            value={form}
+            onChange={(patch) => applyGuardPatch(setField, patch)}
           />
         </div>
       )}

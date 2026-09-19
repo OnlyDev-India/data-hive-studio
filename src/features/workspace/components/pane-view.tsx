@@ -126,6 +126,7 @@ function LeafPaneView({
 }: PaneViewSharedProps & { node: Extract<PaneNode, { type: "leaf" }> }) {
   const selectTab = useStudioStore((s) => s.selectTab);
   const splitPane = useStudioStore((s) => s.splitPane);
+  const conn_info = useStudioStore((s) => s.open.find((c) => c.id === connId));
   const wrapper_ref = useRef<HTMLDivElement | null>(null);
   const is_focused = node.id === focusedPaneId;
 
@@ -165,6 +166,7 @@ function LeafPaneView({
       <TabBar
         paneId={node.id}
         is_mongo={is_mongo}
+        conn={conn_info}
         tabs={tabs}
         active={active}
         dirty_keys={dirty_keys}

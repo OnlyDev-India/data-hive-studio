@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { SqlitePanel } from "../sqlite-panel";
+import { EMPTY_GUARD_FORM } from "../../lib/guard-form";
 
 afterEach(cleanup);
 
@@ -11,6 +12,8 @@ function panel(overrides: Partial<Parameters<typeof SqlitePanel>[0]> = {}) {
     path: null as string | null,
     name: "",
     setName: vi.fn(),
+    guard: EMPTY_GUARD_FORM,
+    setGuard: vi.fn(),
     opening: false,
     onBrowse: vi.fn(),
     onOpen: vi.fn(),
@@ -67,5 +70,27 @@ describe("SqlitePanel", () => {
     const p = panel({ path: "/data/app.db" });
     await userEvent.type(screen.getByPlaceholderText(/connection name/i), "x");
     expect(p.setName).toHaveBeenCalledWith("x");
+  });
+
+  it("shows the Read only switch off by default and reports a toggle", async () => {
+    const p = panel({ path: "/data/app.db" });
+    const toggle = screen.getByRole("switch", { name: /read only/i });
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(toggle);
+    expect(p.setGuard).toHaveBeenCalledWith({ read_only: true });
+  });
+
+  it("shows a read only file with the switch on", () => {
+    panel({
+      path: "/data/app.db",
+      guard: { ...EMPTY_GUARD_FORM, read_only: true },
+    });
+    expect(screen.getByRole("switch", { name: /read only/i })).toBeChecked();
+  });
+
+  it("says the honest limit of read only", () => {
+    panel();
+    expect(screen.getByText(/read only grants/i)).toBeInTheDocument();
   });
 });

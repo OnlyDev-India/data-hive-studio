@@ -17,6 +17,10 @@ function sameConnectionTarget(
   recentParams: Record<string, SavedConnParams>,
 ): boolean {
   if (a.kind !== b.kind) return false;
+  // A read only session and a writable one to the same database are not the
+  // same connection: collapsing them would leave you on the old session and
+  // silently drop the flag you just turned on (or off).
+  if (!!a.read_only !== !!b.read_only) return false;
   if (a.kind === "sqlite") {
     // Only a real file on disk can collide; two freshly-created in-memory
     // databases (no source_path yet) are legitimately distinct.

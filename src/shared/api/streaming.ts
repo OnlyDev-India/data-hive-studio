@@ -1,6 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { WEB } from "./web";
-import { isServerConn } from "./dispatch";
+import { hinted, isServerConn } from "./dispatch";
 import { executeOp, runSql } from "./query";
 import type { QueryOp, QueryResult } from "./types";
 
@@ -50,13 +50,16 @@ export async function executeOpStream(
     emitAsChunk(res, onChunk);
     return res;
   }
-  return invoke<QueryResult>("execute_op_stream", {
+  return hinted(
     connId,
-    database,
-    schema,
-    op,
-    channel: makeChannel(onChunk),
-  });
+    invoke<QueryResult>("execute_op_stream", {
+      connId,
+      database,
+      schema,
+      op,
+      channel: makeChannel(onChunk),
+    }),
+  );
 }
 
 /** Streaming variant of {@link runSql}: SELECT-shaped statements push row
@@ -81,12 +84,15 @@ export async function runSqlStream(
     emitAsChunk(res, onChunk);
     return res;
   }
-  return invoke<QueryResult>("run_sql_stream", {
+  return hinted(
     connId,
-    database,
-    schema,
-    sql,
-    runId,
-    channel: makeChannel(onChunk),
-  });
+    invoke<QueryResult>("run_sql_stream", {
+      connId,
+      database,
+      schema,
+      sql,
+      runId,
+      channel: makeChannel(onChunk),
+    }),
+  );
 }

@@ -18,6 +18,8 @@ import {
 } from "@/shared/components/ui/context-menu";
 import { IconTypeMap, type IconType } from "@/shared/components/icons/types";
 
+const READ_ONLY_TITLE = "Read only connection: this change is refused";
+
 /** One table/view/matview/collection row — used for both the connection's
  *  own active database AND any sibling database/schema, with whichever
  *  actions the caller can actually target for that row (all optional but
@@ -28,6 +30,7 @@ export function TableListItem({
   is_mongo = false,
   is_selected,
   disabled,
+  read_only = false,
   on_select,
   on_open,
   on_view_structure,
@@ -42,6 +45,9 @@ export function TableListItem({
   is_mongo?: boolean;
   is_selected?: boolean;
   disabled?: boolean;
+  /** The connection is read only (spec 0007): the items that change data or
+   *  schema are disabled, with the reason as a tooltip. */
+  read_only?: boolean;
   on_select?: () => void;
   on_open: () => void;
   on_view_structure?: () => void;
@@ -103,14 +109,22 @@ export function TableListItem({
           </ContextMenuItem>
         )}
         {on_duplicate && (
-          <ContextMenuItem onSelect={on_duplicate} disabled={disabled}>
+          <ContextMenuItem
+            onSelect={on_duplicate}
+            disabled={disabled || read_only}
+            title={read_only ? READ_ONLY_TITLE : undefined}
+          >
             <CopyPlus className="text-muted-foreground size-4" />
             Duplicate {noun}
           </ContextMenuItem>
         )}
         {(kind === "matview" || kind === "materialized_view") &&
           on_refresh_matview && (
-            <ContextMenuItem onSelect={on_refresh_matview}>
+            <ContextMenuItem
+              onSelect={on_refresh_matview}
+              disabled={read_only}
+              title={read_only ? READ_ONLY_TITLE : undefined}
+            >
               <RefreshCw className="text-muted-foreground size-4" />
               Refresh materialized view
             </ContextMenuItem>
@@ -118,7 +132,12 @@ export function TableListItem({
         {on_drop && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onSelect={on_drop}>
+            <ContextMenuItem
+              variant="destructive"
+              onSelect={on_drop}
+              disabled={read_only}
+              title={read_only ? READ_ONLY_TITLE : undefined}
+            >
               <Trash2 className="size-4" />
               Drop {noun}…
             </ContextMenuItem>

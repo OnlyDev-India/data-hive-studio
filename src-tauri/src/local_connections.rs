@@ -15,6 +15,7 @@
 //! keychain entry (delete old, create new) inside `update_local_connection`
 //! rather than introducing a separate stable id.
 
+use crate::api::ConnGuard;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tauri::Manager;
@@ -90,6 +91,11 @@ pub struct LocalConnMeta {
     pub ssh_host_key_fingerprint: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
+    /// Read only flag and environment label (spec 0007). A connection saved
+    /// before this existed has none of the four keys and loads as not read
+    /// only, no label.
+    #[serde(flatten)]
+    pub guard: ConnGuard,
 }
 
 /// Payload for creating/editing a saved connection.
@@ -157,10 +163,16 @@ pub struct LocalConnInput {
     pub ssh_key_passphrase: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
+    #[serde(flatten)]
+    pub guard: ConnGuard,
 }
 
-fn meta_from_input(input: &LocalConnInput) -> LocalConnMeta {
-    LocalConnMeta {
+/// The saved record for `input`. Fails (before anything is written) when the
+/// environment label or colour is not valid, so a bad value never reaches
+/// the saved file (spec 0007).
+fn meta_from_input(input: &LocalConnInput) -> Result<LocalConnMeta, String> {
+    let guard = input.guard.clone().normalized()?;
+    Ok(LocalConnMeta {
         name: input.name.clone(),
         kind: input.kind.clone(),
         host: input.host.clone(),
@@ -189,7 +201,8 @@ fn meta_from_input(input: &LocalConnInput) -> LocalConnMeta {
         ssh_key_file: input.ssh_key_file.clone(),
         ssh_host_key_fingerprint: input.ssh_host_key_fingerprint.clone(),
         source_path: input.source_path.clone(),
-    }
+        guard,
+    })
 }
 
 fn connections_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -365,7 +378,7 @@ pub fn save_local_connection(
         .password
         .clone()
         .ok_or_else(|| "password is required to save a new connection".to_string())?;
-    let meta = meta_from_input(&input);
+    let meta = meta_from_input(&input)?;
     save_password(&app, &meta.name, &password)?;
     if input.ssh_host.is_some() {
         save_ssh_secrets(
@@ -393,7 +406,7 @@ pub fn update_local_connection(
     if !map.contains_key(&old_name) {
         return Err("connection not found".into());
     }
-    let meta = meta_from_input(&input);
+    let meta = meta_from_input(&input)?;
     let renamed = old_name != meta.name;
     match &input.password {
         Some(pw) => {
@@ -485,7 +498,11 @@ pub fn migrate_local_connections(
         let Some(password) = input.password.as_deref() else {
             continue;
         };
-        let meta = meta_from_input(&input);
+        // Entries from before labels existed carry no guard, so this only
+        // skips an entry whose label or colour is invalid.
+        let Ok(meta) = meta_from_input(&input) else {
+            continue;
+        };
         save_password(&app, &meta.name, password)?;
         map.insert(meta.name.clone(), meta);
         migrated += 1;

@@ -49,14 +49,6 @@ pub struct Gateway {
     opening: AsyncMutex<()>,
 }
 
-/// Read ops are allowed under readonly access; everything else needs readwrite.
-fn op_is_read(op: &QueryOp) -> bool {
-    matches!(
-        op,
-        QueryOp::Select { .. } | QueryOp::Count { .. } | QueryOp::SelectDistinct { .. }
-    )
-}
-
 /// Coarse action label for the audit trail.
 fn op_action(op: &QueryOp) -> &'static str {
     match op {
@@ -239,7 +231,7 @@ impl Gateway {
         schema: Option<&str>,
         op: &QueryOp,
     ) -> Result<QueryResult, String> {
-        let (_, org_id) = self.authorize(ctx, conn_id, !op_is_read(op)).await?;
+        let (_, org_id) = self.authorize(ctx, conn_id, !op.is_read()).await?;
         let outcome = self
             .adapter(conn_id)
             .await?

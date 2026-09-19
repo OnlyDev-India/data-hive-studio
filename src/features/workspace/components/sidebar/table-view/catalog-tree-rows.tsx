@@ -234,6 +234,7 @@ export function LazyTableRows({
   selected_name,
   on_select,
   disabled,
+  read_only,
 }: {
   state:
     | "loading"
@@ -254,6 +255,8 @@ export function LazyTableRows({
   selected_name?: string | null;
   on_select?: (name: string) => void;
   disabled?: boolean;
+  /** Read only connection (spec 0007): write items are disabled. */
+  read_only?: boolean;
 }) {
   const pad = depthPadding(depth);
   // The owning TreeToggleRow's chevron is the loading indicator now.
@@ -275,6 +278,7 @@ export function LazyTableRows({
             is_mongo={is_mongo}
             is_selected={selected_name === obj.name}
             disabled={disabled}
+            read_only={read_only}
             on_select={on_select && (() => on_select(obj.name))}
             on_open={() => on_open(obj.name)}
             on_view_structure={

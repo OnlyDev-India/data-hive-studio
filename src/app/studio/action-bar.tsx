@@ -4,6 +4,7 @@ import { cn } from "@/shared/lib/utils";
 import { prettyKind } from "@/shared/api";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { ConnFlags } from "@/shared/components/env-chip";
 import {
   useActiveConnection,
   usePaneMode,
@@ -86,6 +87,7 @@ export function ActionBar() {
           <span className="text-foreground/80 max-w-40 truncate font-medium">
             {conn ? conn.name : "No connection"}
           </span>
+          {conn && <ConnFlags conn={conn} />}
           {conn && (
             <span className="text-3xs shrink-0 tracking-wide uppercase">
               {prettyKind(conn.kind)}
@@ -161,15 +163,20 @@ export function ActionBar() {
             {newTable && (
               <ActionBarTooltip
                 label={
-                  newTable.valid
-                    ? "Create table"
-                    : "Fix the table definition first"
+                  conn?.read_only
+                    ? // Spec 0007: a read only connection cannot create.
+                      "Read only connection: schema changes are refused"
+                    : newTable.valid
+                      ? "Create table"
+                      : "Fix the table definition first"
                 }
               >
                 <Button
                   size="sm"
                   className="h-6 px-2 text-xs"
-                  disabled={newTable.creating || !newTable.valid}
+                  disabled={
+                    newTable.creating || !newTable.valid || !!conn?.read_only
+                  }
                   onClick={() => newTable.create()}
                 >
                   {newTable.creating ? (

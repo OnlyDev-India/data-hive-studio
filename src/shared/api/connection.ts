@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WEB } from "./web";
-import { dedupe, dispatchDbCall, serverUnsupported } from "./dispatch";
+import { dedupe, dispatchDbCall, hinted, serverUnsupported } from "./dispatch";
 import type {
   ActivityEntry,
   CatalogOverview,
+  ConnGuard,
   ConnectionInfo,
   FieldShape,
   RoleDetail,
@@ -23,9 +24,14 @@ export async function openDatabase(
 }
 
 /** Open an existing database directly from its file path. Changes persist to
- * that file automatically. */
-export async function openDatabasePath(path: string): Promise<ConnectionInfo> {
-  return invoke("open_database_path", { path });
+ * that file automatically. `guard`: the read only flag and environment label
+ * (spec 0007); omitted opens a normal, writable connection. A read only file
+ * is opened with the read only flag, so nothing can write to it. */
+export async function openDatabasePath(
+  path: string,
+  guard?: ConnGuard,
+): Promise<ConnectionInfo> {
+  return invoke("open_database_path", { path, guard });
 }
 
 /** Remember the real file a connection should save to (set after the first
@@ -63,7 +69,7 @@ export interface SshConnectParams {
 }
 
 /** List tables and views in the database. */
-export interface PgConnectParams {
+export interface PgConnectParams extends ConnGuard {
   host: string;
   port: number;
   user: string;
@@ -95,7 +101,7 @@ export async function connectPostgres(
 }
 
 /** Parameters for connecting to a MongoDB server. */
-export interface MongoConnectParams {
+export interface MongoConnectParams extends ConnGuard {
   host: string;
   port: number;
   user: string;
@@ -444,7 +450,7 @@ export async function createPgDatabase(
   name: string,
 ): Promise<void> {
   serverUnsupported(connId);
-  return invoke("create_pg_database", { connId, name });
+  return hinted(connId, invoke("create_pg_database", { connId, name }));
 }
 
 /** Drop a database on the same server (Postgres). */
@@ -453,7 +459,7 @@ export async function dropPgDatabase(
   name: string,
 ): Promise<void> {
   serverUnsupported(connId);
-  return invoke("drop_pg_database", { connId, name });
+  return hinted(connId, invoke("drop_pg_database", { connId, name }));
 }
 
 /** Create a schema in the active catalog (Postgres). */
@@ -462,7 +468,7 @@ export async function createPgSchema(
   name: string,
 ): Promise<void> {
   serverUnsupported(connId);
-  return invoke("create_pg_schema", { connId, name });
+  return hinted(connId, invoke("create_pg_schema", { connId, name }));
 }
 
 /** Create a collection in the active database (MongoDB). */
@@ -491,7 +497,7 @@ export async function dropPgSchema(
   cascade: boolean,
 ): Promise<void> {
   serverUnsupported(connId);
-  return invoke("drop_pg_schema", { connId, name, cascade });
+  return hinted(connId, invoke("drop_pg_schema", { connId, name, cascade }));
 }
 
 /** Refresh a materialized view (Postgres). `database`/`schema`: omitted =
@@ -503,7 +509,10 @@ export async function refreshMatview(
   schema?: string,
 ): Promise<void> {
   serverUnsupported(connId);
-  return invoke("refresh_matview", { connId, database, schema, name });
+  return hinted(
+    connId,
+    invoke("refresh_matview", { connId, database, schema, name }),
+  );
 }
 
 /** The schema unqualified operations currently target (Postgres). */

@@ -25,6 +25,8 @@ import {
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
 import { cn } from "@/shared/lib/utils";
+import { ConnFlags } from "@/shared/components/env-chip";
+import { envColorKey, type ConnGuard } from "@/shared/api";
 import {
   tabEquals,
   tabKey,
@@ -44,6 +46,10 @@ interface TabBarProps {
    *  SQL editor/table creation stay visible regardless of kind (Mongo is
    *  full-featured, not SQL-restricted — see the SQL-on-Mongo work). */
   is_mongo: boolean;
+  /** The connection these tabs belong to: its environment chip and lock lead
+   *  the strip, and each tab takes a thin edge in the environment colour
+   *  (spec 0007). Absent or plain → the strip looks as it always did. */
+  conn?: ConnGuard | null;
   tabs: StudioTab[];
   active: StudioTab | null;
   /** Keys of tabs holding unapplied work — shown as a dot until hovered. */
@@ -70,6 +76,7 @@ interface TabBarProps {
 export function TabBar({
   paneId,
   is_mongo,
+  conn,
   tabs,
   active,
   dirty_keys,
@@ -140,11 +147,20 @@ export function TabBar({
         if (shouldSuppressTabClick()) e.stopPropagation();
       }}
     >
+      {conn && (
+        <ConnFlags
+          conn={conn}
+          // Not a tab: no `data-tab-key`, so the strip's pointer handling
+          // and drag hit-testing skip it.
+          className="mr-0.5"
+        />
+      )}
       {tabs.map((tab, idx) => {
         const key = tabKey(tab);
         return (
           <TabItem
             key={key}
+            env_color={conn ? envColorKey(conn) : null}
             pane_id={paneId}
             tab={tab}
             index={idx}
@@ -220,6 +236,7 @@ export function TabBar({
 function TabItem({
   pane_id,
   tab,
+  env_color,
   index,
   total,
   active,
@@ -234,6 +251,8 @@ function TabItem({
 }: {
   pane_id: string;
   tab: StudioTab;
+  /** Palette key of the connection's environment label, if it has one. */
+  env_color: string | null;
   /** Strip position of this tab (0-based) and the total tab count. */
   index: number;
   total: number;
@@ -264,6 +283,11 @@ function TabItem({
             data-tab-key={key}
             data-tab-index={index}
             data-tab-pane={pane_id}
+            style={
+              env_color
+                ? { boxShadow: `inset 0 2px 0 var(--env-${env_color})` }
+                : undefined
+            }
             onClick={() => on_select(tab)}
             className={cn(
               "relative flex max-w-[16rem] min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-b-2 px-2.5 py-1.5 text-sm whitespace-nowrap select-none",

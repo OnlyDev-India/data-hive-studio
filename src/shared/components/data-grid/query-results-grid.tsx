@@ -62,6 +62,11 @@ export function QueryResultsGrid({
   const [view, setView] = useState<ResultView>("result");
 
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
+  // A read only connection (spec 0007) never offers editing, whatever the
+  // query returned.
+  const read_only = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.read_only ?? false,
+  );
   const json_scope = `${conn_id}\u0000${tab_key}`;
   const sync_json = useCallback(
     (row: JsonRow) => setJsonRow(json_scope, { ...row, kind: "sql" }),
@@ -86,6 +91,7 @@ export function QueryResultsGrid({
   // present in what the query returned — see `QueryResultEditableSource`'s
   // own doc comment.
   const editable =
+    !read_only &&
     !!editable_source &&
     !!on_refresh &&
     pk_columns.length > 0 &&
@@ -95,7 +101,9 @@ export function QueryResultsGrid({
     if (!editable_source) {
       // No declared types for a plain read-only result — fine, cells stay
       // read-only either way.
-      return Object.fromEntries(result.columns.map((c) => [c, "text" as CellKind]));
+      return Object.fromEntries(
+        result.columns.map((c) => [c, "text" as CellKind]),
+      );
     }
     return Object.fromEntries(
       editable_source.schema.columns.map((c) => [

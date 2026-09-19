@@ -1,5 +1,6 @@
 import type {
   ActivityEntry,
+  ConnGuard,
   ConnectionInfo,
   ExportPayload,
   QueryOp,
@@ -61,6 +62,9 @@ export interface GridBridge {
    *  every row touched by the selection, not just a fully-selected one). */
   selected_cell_count: number;
   editable: boolean;
+  /** The connection is read only (spec 0007), which is why `editable` is
+   *  false: the action bar says so on the write buttons it disables. */
+  read_only?: boolean;
   /** The table/collection name this grid is showing. */
   table: string;
   /** Buffer `value` (or NULL) into every currently-selected cell — the
@@ -258,7 +262,7 @@ export interface StudioNotification {
 
 // Connection parameters for one saved connection (PostgreSQL or MongoDB)
 // persisted in localStorage so double-click reconnect works across restarts.
-export interface SavedConnParams {
+export interface SavedConnParams extends ConnGuard {
   /** Optional display name (saved/pinned connections). */
   name?: string;
   /** Which database kind this connection reopens. "documentdb" is stored

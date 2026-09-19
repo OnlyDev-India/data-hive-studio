@@ -71,6 +71,29 @@
   --gutter: oklch(0.965 0 0);
   --sidebar-header: oklch(0.985 0 0);
 
+  /* Environment label colours (spec 0007): a connection's chip is `--env-<key>`
+   * with text in `--env-<key>-fg`. Production is red, Staging amber and
+   * Development green; a custom label picks any of the 8 keys. Text on every
+   * chip is 4.5:1 or better in both themes. Keep the key list in step with
+   * `ENV_COLORS` in src/shared/api/env.ts and `ENV_COLOR_KEYS` in
+   * crates/dh-core/src/api/common.rs. */
+  --env-red: oklch(0.5 0.19 27);
+  --env-red-fg: oklch(0.99 0 0);
+  --env-orange: oklch(0.55 0.14 50);
+  --env-orange-fg: oklch(0.99 0 0);
+  --env-amber: oklch(0.83 0.15 85);
+  --env-amber-fg: oklch(0.2 0.03 60);
+  --env-green: oklch(0.5 0.11 150);
+  --env-green-fg: oklch(0.99 0 0);
+  --env-teal: oklch(0.5 0.075 195);
+  --env-teal-fg: oklch(0.99 0 0);
+  --env-blue: oklch(0.5 0.16 255);
+  --env-blue-fg: oklch(0.99 0 0);
+  --env-purple: oklch(0.5 0.19 300);
+  --env-purple-fg: oklch(0.99 0 0);
+  --env-grey: oklch(0.48 0.01 285);
+  --env-grey-fg: oklch(0.99 0 0);
+
   /* Runtime-overridable indirection for `--font-sans` below — same pattern
    * `--color-primary: var(--primary)` uses for accent colors, so
    * font.ts's applyFont() can override this on <html> without a rebuild. */
@@ -138,6 +161,25 @@
   --editor-toolbar: oklch(0.215 0.005 285);
   --gutter: oklch(0.205 0.004 285);
   --sidebar-header: oklch(0.215 0.005 285);
+
+  /* Environment label colours, dark theme: a little lighter so the chip
+   * stands off the dark surface, text still 4.5:1 or better. */
+  --env-red: oklch(0.56 0.19 27);
+  --env-red-fg: oklch(0.99 0 0);
+  --env-orange: oklch(0.56 0.14 50);
+  --env-orange-fg: oklch(0.99 0 0);
+  --env-amber: oklch(0.78 0.14 85);
+  --env-amber-fg: oklch(0.2 0.03 60);
+  --env-green: oklch(0.54 0.11 150);
+  --env-green-fg: oklch(0.99 0 0);
+  --env-teal: oklch(0.54 0.075 195);
+  --env-teal-fg: oklch(0.99 0 0);
+  --env-blue: oklch(0.55 0.16 255);
+  --env-blue-fg: oklch(0.99 0 0);
+  --env-purple: oklch(0.56 0.19 300);
+  --env-purple-fg: oklch(0.99 0 0);
+  --env-grey: oklch(0.54 0.01 285);
+  --env-grey-fg: oklch(0.99 0 0);
 }
 
 @theme inline {

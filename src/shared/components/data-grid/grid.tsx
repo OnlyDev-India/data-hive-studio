@@ -207,6 +207,12 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const setGridBridge = useStudioStore((s) => s.setGridBridge);
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
+  // A read only connection (spec 0007) opens the grid not editable: no staged
+  // edits, no add, clone or delete row. The backend refuses those writes too,
+  // this just says so up front.
+  const read_only = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.read_only ?? false,
+  );
   const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
   // The JSON viewer shows the ACTIVE tab's row; publishing under this scope
   // (connection + tab) keeps one tab's selection from leaking into another.
@@ -248,23 +254,27 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         col_types: Object.fromEntries(
           schema.columns.map((c) => [c.name, c.data_type]),
         ),
-        on_edit: row.is_pending
-          ? (col, value) => on_pending_edit(row.row_number, col, value)
-          : (col, value) => {
-              const real = row.row_number - 1;
-              const key = `${col}\u0000${real}`;
-              const local = real - page * page_size;
-              const original =
-                result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
-              const norm = (v: string | null) =>
-                v === null || v === "" ? "" : v;
-              setDirtyCells((cur) => {
-                const next = new Map(cur);
-                if (norm(value) === norm(original)) next.delete(key);
-                else next.set(key, value);
-                return next;
-              });
-            },
+        // No write-back hook on a read only connection, which is what makes
+        // the JSON viewer read only too.
+        on_edit: read_only
+          ? undefined
+          : row.is_pending
+            ? (col, value) => on_pending_edit(row.row_number, col, value)
+            : (col, value) => {
+                const real = row.row_number - 1;
+                const key = `${col}\u0000${real}`;
+                const local = real - page * page_size;
+                const original =
+                  result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
+                const norm = (v: string | null) =>
+                  v === null || v === "" ? "" : v;
+                setDirtyCells((cur) => {
+                  const next = new Map(cur);
+                  if (norm(value) === norm(original)) next.delete(key);
+                  else next.set(key, value);
+                  return next;
+                });
+              },
       });
     },
     [
@@ -276,6 +286,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       page_size,
       setJsonRow,
       on_pending_edit,
+      read_only,
     ],
   );
   const open_json = useCallback(
@@ -290,7 +301,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // Editing is enabled for real tables; Postgres views/matviews open
   // read-only. Updates/deletes target rows by primary key when one exists,
   // else by their full original contents.
-  const editable = (schema.kind || "table") === "table";
+  const editable = (schema.kind || "table") === "table" && !read_only;
 
   // Columns the database will want to assign itself: primary keys plus columns
   // covered by a UNIQUE index. Cloned drafts leave these empty so inserting
@@ -350,7 +361,14 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       return;
     }
     let cancelled = false;
-    const PREFERRED = ["name", "title", "label", "display_name", "username", "email"];
+    const PREFERRED = [
+      "name",
+      "title",
+      "label",
+      "display_name",
+      "username",
+      "email",
+    ];
     void (async () => {
       const entries = await Promise.all(
         fk_table_names.map(async (t) => {
@@ -958,7 +976,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     on_modified: () => {}, // edits are buffered; nothing to reload on editor close
     on_set_null: set_null,
     on_delete_row: delete_row,
-    on_clone_row: clone_into_pending,
+    on_clone_row: read_only ? undefined : clone_into_pending,
     pending_rows: pending,
     on_pending_edit,
     on_remove_pending: remove_pending,
@@ -1149,6 +1167,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       toggle_column_visibility: ctl.toggle_column_visibility,
       reorder_column: ctl.reorder_column,
       editable: editable && !show_loading,
+      read_only,
       loading: show_loading,
       elapsed_ms: result?.elapsed_ms ?? null,
       pending_exists:
@@ -1192,6 +1211,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       page,
       page_size,
       editable,
+      read_only,
       show_loading,
       do_delete,
       refresh,

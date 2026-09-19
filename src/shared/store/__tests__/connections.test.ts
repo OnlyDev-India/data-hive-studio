@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const { closeConnection } = vi.hoisted(() => ({
+  closeConnection: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../../api/connection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/connection")>()),
+  closeConnection,
+}));
+
 import { useStudioStore } from "../store";
 import type { ConnectionInfo } from "../../api/types";
 
@@ -47,5 +56,52 @@ describe("closeConn", () => {
 
     expect(useStudioStore.getState().open).toHaveLength(1);
     expect(useStudioStore.getState().leftPanelMode).toBe("activity");
+  });
+});
+
+describe("openConn, same database twice", () => {
+  const pg = (id: string, read_only?: boolean): ConnectionInfo => ({
+    id,
+    name: "orders",
+    kind: "postgres",
+    source_path: null,
+    read_only,
+  });
+  const params = {
+    kind: "postgres" as const,
+    host: "db.example",
+    port: 5432,
+    user: "app",
+    password: "",
+    database: "orders",
+  };
+
+  beforeEach(() => {
+    closeConnection.mockClear();
+    useStudioStore.setState({
+      open: [],
+      recent: [],
+      activeId: null,
+      workspaces: {},
+      recentParams: { p1: params, p2: params },
+    });
+  });
+
+  it("reuses the open session when the read only flag matches", () => {
+    useStudioStore.getState().openConn(pg("p1"));
+    useStudioStore.getState().openConn(pg("p2"));
+
+    expect(useStudioStore.getState().open.map((c) => c.id)).toEqual(["p1"]);
+    expect(closeConnection).toHaveBeenCalledWith("p2");
+  });
+
+  it("keeps a read only session apart from a writable one", () => {
+    useStudioStore.getState().openConn(pg("p1"));
+    useStudioStore.getState().openConn(pg("p2", true));
+
+    const open = useStudioStore.getState().open;
+    expect(open.map((c) => c.id)).toEqual(["p2", "p1"]);
+    expect(open[0].read_only).toBe(true);
+    expect(closeConnection).not.toHaveBeenCalled();
   });
 });

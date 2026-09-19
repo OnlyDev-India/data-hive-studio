@@ -26,7 +26,8 @@ export function summarizeUnappliedWork(
     );
   const nt = s.newTables[key];
   if (nt?.has_draft) parts.push("table definition");
-  if (include_queries && s.sqlTabs[key]?.is_dirty) parts.push("unsaved queries");
+  if (include_queries && s.sqlTabs[key]?.is_dirty)
+    parts.push("unsaved queries");
   return parts;
 }
 
@@ -41,6 +42,22 @@ export function listUnappliedWork(
       const parts = summarizeUnappliedWork(s, tabKey(tab));
       if (parts.length > 0) out.push({ label: tabLabel(tab), parts });
     }
+  }
+  return out;
+}
+
+/** The same, for one connection's tabs, with unsaved query text included:
+ *  what a reconnect of just that connection would throw away (spec 0007). */
+export function listUnappliedWorkFor(
+  s: UnappliedWorkState & Pick<StudioStore, "workspaces">,
+  connId: string,
+): { label: string; parts: string[] }[] {
+  const out: { label: string; parts: string[] }[] = [];
+  for (const tab of s.workspaces[connId]?.tabs ?? []) {
+    const parts = summarizeUnappliedWork(s, tabKey(tab), {
+      include_queries: true,
+    });
+    if (parts.length > 0) out.push({ label: tabLabel(tab), parts });
   }
   return out;
 }
