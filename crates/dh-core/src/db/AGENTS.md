@@ -11,10 +11,13 @@ rows round-trip through the same text-editing UI as SQL rows.
 
 | File | Owns |
 |---|---|
-| `mod.rs` | `DbAdapter` trait (one impl per backend), shared result/error types |
-| `sqlite.rs` / `postgres.rs` / `mongodb.rs` | Per-backend `DbAdapter` implementations |
-| `mongo_json.rs` | MQL extended-JSON parser (`parse`) and renderer (`render`) for BSON documents |
-| `mongo_sql.rs` | Translates SQL-shaped queries into Mongo `find`/`aggregate` calls |
+| `mod.rs` | The front door: `mod` and `pub use` lines only, so every `db::` path stays stable |
+| `types.rs`, `adapter.rs` | Result and error types, and the `DbAdapter` trait (one impl per backend) with its default method bodies |
+| `registry.rs`, `activity_log.rs` | The connection registry, and the activity log helpers |
+| `catalog.rs`, `documents.rs`, `query.rs`, `ddl.rs` | Free functions that look up a connection and call its adapter, grouped by job |
+| `sqlite/`, `postgres/`, `mongodb/` | Per backend `DbAdapter` implementations, each a folder of topic files with the same names for the same job (`params`, `connect`, `catalog`, `query`, `edit`, `ddl`, `cancel`, `adapter`, `tests`) |
+| `mongo_json/` | MQL extended JSON parser (`parse`) and renderer (`render`) for BSON documents |
+| `mongo_sql/` | Translates SQL shaped queries into Mongo `find`/`aggregate` calls |
 
 ## Conventions
 
@@ -29,6 +32,10 @@ rows round-trip through the same text-editing UI as SQL rows.
 - `mongo_json::render` must stay a lossless round-trip of what `parse` accepts: a value
   parsed from a BSON constructor call (`ObjectId(...)`, `ISODate(...)`, `NumberLong(...)`,
   etc.) must render back to that same constructor form, not degrade to a plain string/number.
+
+- For Postgres and MongoDB, `adapter.rs` holds `impl DbAdapter` as one line calls into inherent
+  methods in the topic files (SQLite delegates the same way), so a new trait method needs a
+  wrapper in `adapter.rs` plus the method itself in a topic file.
 
 ## Gotchas
 
