@@ -34,6 +34,20 @@ fn toggle_devtools(app: &tauri::AppHandle) {
   }
 }
 
+/// View → Toggle Developer Tools from the custom Windows/Linux title bar (the
+/// macOS native menu handles the same item in `on_menu_event` below).
+#[tauri::command]
+fn toggle_devtools_window(app: tauri::AppHandle) {
+  toggle_devtools(&app);
+}
+
+/// File → Quit from the custom title bar. The window's own close button only
+/// closes that one window; this exits the whole app like the native Quit item.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+  app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -193,6 +207,8 @@ pub fn run() {
       updater::updater_install_and_restart,
       #[cfg(target_os = "macos")]
       app_menu::set_menu_context,
+      toggle_devtools_window,
+      quit_app,
       workspace_state::load_workspace_state,
       workspace_state::save_workspace_state,
       workspace_state::clear_workspace_state,

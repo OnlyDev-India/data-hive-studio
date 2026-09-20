@@ -6,6 +6,10 @@
 //! macOS app menu, About) reuses `tauri::menu`'s own predefined items
 //! instead of reinventing them — same items `Menu::default()` would build.
 //!
+//! Windows/Linux have no native menu: their custom title bar draws the same
+//! menus from `src/app/studio/menu-schema.ts`. Add an item here and mirror it
+//! there (`menu-schema.test.ts` fails on a custom id missing from the schema).
+//!
 //! Deliberately no accelerator on anything that already has an in-app
 //! keyboard shortcut (`Cmd+P`/`Cmd+Shift+P` for the command palette, etc.)
 //! — a native accelerator AND a JS-level `useShortcuts` binding on the same

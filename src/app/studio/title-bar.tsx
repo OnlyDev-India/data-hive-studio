@@ -36,6 +36,11 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { TITLE_BAR_MENUS } from "./menu-schema";
+import {
+  editTargetForFocus,
+  rememberEditTarget,
+  TITLE_BAR_ATTR,
+} from "./edit-actions";
 import { handleMenuAction } from "./native-menu";
 import { DBIcons } from "@/shared/components/icons/types";
 
@@ -386,7 +391,10 @@ function WindowsLinuxTitleBar() {
   };
 
   return (
-    <div className="bg-background flex h-9 shrink-0 items-stretch border-b text-sm select-none">
+    <div
+      {...{ [TITLE_BAR_ATTR]: "" }}
+      className="bg-background flex h-9 shrink-0 items-stretch border-b text-sm select-none"
+    >
       {/* Section 1 — menu */}
       <div className="flex items-center gap-0.5 px-1">
         {TITLE_BAR_MENUS.map((menu) => (
@@ -396,12 +404,22 @@ function WindowsLinuxTitleBar() {
                 <button
                   type="button"
                   className="hover:bg-muted rounded px-2 py-1.5 text-xs font-medium outline-none"
+                  // Before the click moves focus onto this button: the Edit
+                  // items need to know which field the user was in.
+                  onMouseDown={rememberEditTarget}
+                  onKeyDown={rememberEditTarget}
                 >
                   {menu.label}
                 </button>
               }
             />
-            <DropdownMenuContent align="start" className={"w-full"}>
+            <DropdownMenuContent
+              align="start"
+              className={"w-full"}
+              finalFocus={
+                menu.actsOnFocusedField ? editTargetForFocus : undefined
+              }
+            >
               {menu.items.map((item, i) => {
                 if ("separator" in item)
                   return <DropdownMenuSeparator key={i} />;
