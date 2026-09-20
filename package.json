@@ -23,7 +23,7 @@
     "server:reset-admin": "cargo run -p dh-server -- reset-admin",
     "docker:server": "docker build -f crates/dh-server/Dockerfile -t dh-server .",
     "test": "cargo test -p dh-core",
-    "format": "prettier --write ."
+    "format": "prettier --write src"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
