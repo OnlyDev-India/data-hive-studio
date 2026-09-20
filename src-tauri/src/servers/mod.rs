@@ -14,12 +14,14 @@ mod session;
 mod proxy;
 mod connections;
 mod orgs;
+mod access;
 
 pub use profiles::*;
 pub use session::*;
 pub use proxy::*;
 pub use connections::*;
 pub use orgs::*;
+pub use access::*;
 
 use dh_core::server::client::MeResult;
 use dh_core::server::profiles::ServerProfile;

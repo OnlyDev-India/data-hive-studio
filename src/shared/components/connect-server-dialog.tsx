@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { Building2, Cloud, Loader2, Plus, TicketCheck } from "lucide-react";
+import {
+  Building2,
+  Cloud,
+  KeyRound,
+  Loader2,
+  Plus,
+  TicketCheck,
+} from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -22,6 +29,12 @@ import {
   type Organization,
   type ServerProfileView,
 } from "@/shared/api/server-admin";
+import {
+  claimErrorMessage,
+  claimNeedsNewSignIn,
+  refusalMessage,
+  serversClaim,
+} from "@/shared/api/server-claim";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Continue with Google",
@@ -65,7 +78,11 @@ interface ConnectServerFormProps {
  *      (`servers_oauth_login`); web does a full-page redirect through
  *      `/auth/{provider}/start` (see `webOAuthStartUrl`) and never reaches
  *      step 2 in THIS component — WebGate itself catches the return trip
- *      (`?token=` on reload) and renders `OrgPickerStep` directly.
+ *      (`?token=`, `?ticket=` or `?error=` on reload) and renders
+ *      `OrgPickerStep` or `ClaimServerStep` directly. A server closed to
+ *      strangers can refuse the sign in (shown here as a plain message), or
+ *      have no owner yet, which adds a claim step (`ClaimServerStep`) where
+ *      the setup code from the server log is entered.
  *   2. Pick (or create, or join via invite code) an organization, then
  *      persist the profile.
  */
@@ -83,6 +100,9 @@ export function ConnectServerForm({
     token: string;
     me: MeResult;
   } | null>(null);
+  const [claim, setClaim] = useState<{ url: string; ticket: string } | null>(
+    null,
+  );
   const [providers, setProviders] = useState<string[] | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -233,12 +253,32 @@ export function ConnectServerForm({
       const base = url.trim();
       if (!base) throw new Error("Enter a server URL first");
       const result = await serversOAuthLogin(base, provider);
-      setSession({ url: base, token: result.token, me: result.me });
+      if (result.kind === "signed_in") {
+        setSession({ url: base, token: result.token, me: result.me });
+      } else if (result.kind === "claim") {
+        setClaim({ url: base, ticket: result.ticket });
+      } else {
+        setFormError(refusalMessage(result.error, result.email));
+      }
     } catch (e) {
       setFormError(String(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  if (claim) {
+    return (
+      <ClaimServerStep
+        url={claim.url}
+        ticket={claim.ticket}
+        onClaimed={(r) => {
+          setClaim(null);
+          setSession({ url: claim.url, token: r.token, me: r.me });
+        }}
+        onCancel={() => setClaim(null)}
+      />
+    );
   }
 
   if (session) {
@@ -351,6 +391,99 @@ export function ConnectServerForm({
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * Claim step for a server that has no owner yet. The person just signed in
+ * (that is the ticket); entering the setup code the server printed in its log
+ * makes them the owner. Exported so WebGate can render it directly for the web
+ * OAuth-callback landing.
+ */
+export function ClaimServerStep({
+  url,
+  ticket,
+  onClaimed,
+  onCancel,
+}: {
+  url: string;
+  ticket: string;
+  onClaimed: (result: { token: string; me: MeResult }) => void;
+  /** Back out to the sign in buttons (also the only way forward when the
+   *  ticket has expired or someone else claimed first). */
+  onCancel: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stuck, setStuck] = useState(false);
+
+  async function submit() {
+    if (busy || !code.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onClaimed(await serversClaim(url, ticket, code.trim()));
+    } catch (e) {
+      setError(claimErrorMessage(e));
+      setStuck(claimNeedsNewSignIn(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <div className="flex items-start gap-2.5">
+        <KeyRound className="text-primary mt-0.5 size-4 shrink-0" />
+        <div>
+          <p className="text-sm font-medium">This server has no owner yet</p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Enter the setup code printed in the server log to become its owner.
+            After that, only people you invite can sign in.
+          </p>
+        </div>
+      </div>
+      <FormError message={error} />
+      <div className="grid gap-1.5">
+        <Label htmlFor="claim-code">Setup code</Label>
+        <Input
+          id="claim-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="ABCD-EFGH-JKLM-NPQR-STUV"
+          className="font-mono"
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          autoFocus
+          disabled={stuck}
+        />
+      </div>
+      <div className="flex gap-2">
+        {stuck ? (
+          <Button type="button" onClick={onCancel}>
+            Sign in again
+          </Button>
+        ) : (
+          <>
+            <Button type="submit" disabled={busy || !code.trim()}>
+              {busy && <Loader2 className="mr-1 size-4 animate-spin" />}
+              Claim server
+            </Button>
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Back
+            </Button>
+          </>
+        )}
+      </div>
+    </form>
   );
 }
 

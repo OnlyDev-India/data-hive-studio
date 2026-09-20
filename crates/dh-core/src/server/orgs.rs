@@ -409,7 +409,7 @@ mod tests {
     use super::*;
 
     async fn user(store: &Store, email: &str) -> String {
-        store.user_upsert_oauth("google", email, email, email, None).await.unwrap().id
+        crate::server::store::test_user(store, email, crate::server::auth::ServerRole::Member).await.id
     }
 
     #[tokio::test]

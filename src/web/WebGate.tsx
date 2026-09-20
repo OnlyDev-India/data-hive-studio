@@ -17,6 +17,13 @@ import {
   type Organization,
 } from "@/shared/api/server-admin";
 import {
+  parseSignInReturn,
+  refusalMessage,
+  stripSignInParams,
+  type SignInReturn,
+} from "@/shared/api/server-claim";
+import {
+  ClaimServerStep,
   ConnectServerForm,
   OrgPickerStep,
   type ConnectResult,
@@ -27,28 +34,28 @@ interface GateProps {
   children: React.ReactNode;
 }
 
-type GateState = "connecting" | "login" | "org-pick" | "ready";
+type GateState = "connecting" | "login" | "claim" | "org-pick" | "ready";
 
 const LAST_KEY = "dh.web.last";
 const CONNECT_TIMEOUT_MS = 10_000;
 
-/** Recover an OAuth callback's `?token=` from the current URL (appended by
- *  `router.rs::auth_callback` after a `/auth/{provider}/start` round trip —
- *  see `webOAuthStartUrl`), stripping it from the address bar immediately so
- *  a refresh doesn't try to redeem it again. */
-function takePendingToken(): string | null {
+/** Recover how an OAuth callback ended from the current URL: `?token=`
+ *  (signed in), `?ticket=` (this server needs its owner to claim it) or
+ *  `?error=&email=` (refused). Appended by `router/auth.rs::auth_callback`
+ *  after a `/auth/{provider}/start` round trip — see `webOAuthStartUrl`. The
+ *  parameters are stripped from the address bar immediately so a refresh
+ *  doesn't try to use them again. */
+function takeSignInReturn(): SignInReturn | null {
   if (!WEB || typeof window === "undefined") return null;
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("token");
-  if (!token) return null;
-  params.delete("token");
-  const rest = params.toString();
+  const found = parseSignInReturn(window.location.search);
+  if (!found) return null;
+  const rest = stripSignInParams(window.location.search);
   window.history.replaceState(
     {},
     "",
     window.location.pathname + (rest ? `?${rest}` : ""),
   );
-  return token;
+  return found;
 }
 
 export function WebGate({ children }: GateProps) {
@@ -58,13 +65,26 @@ export function WebGate({ children }: GateProps) {
   const [last_id] = useState<string | null>(() =>
     WEB ? localStorage.getItem(LAST_KEY) : null,
   );
-  const [pending_token] = useState<string | null>(() => takePendingToken());
+  const [sign_in_return] = useState<SignInReturn | null>(() =>
+    takeSignInReturn(),
+  );
+  const pending_token =
+    sign_in_return?.kind === "token" ? sign_in_return.token : null;
+  const claim_ticket =
+    sign_in_return?.kind === "ticket" ? sign_in_return.ticket : null;
   const [state, setState] = useState<GateState>(() => {
     if (!WEB) return "ready";
     if (pending_token) return "org-pick";
+    if (claim_ticket) return "claim";
+    // Refused: show why on the sign in form, not a silent reconnect.
+    if (sign_in_return) return "login";
     return stored.length === 0 ? "login" : "connecting";
   });
-  const [gate_error, setGateError] = useState<string | null>(null);
+  const [gate_error, setGateError] = useState<string | null>(() =>
+    sign_in_return?.kind === "refused"
+      ? refusalMessage(sign_in_return.error, sign_in_return.email)
+      : null,
+  );
   const [oauth_session, setOAuthSession] = useState<{
     url: string;
     token: string;
@@ -207,6 +227,22 @@ export function WebGate({ children }: GateProps) {
                   </Button>
                 </div>
               </>
+            ) : state === "claim" && claim_ticket ? (
+              <div className="mt-4">
+                <ClaimServerStep
+                  url={apiUrl()}
+                  ticket={claim_ticket}
+                  onClaimed={(r) => {
+                    setOAuthSession({
+                      url: apiUrl(),
+                      token: r.token,
+                      me: r.me,
+                    });
+                    setState("org-pick");
+                  }}
+                  onCancel={() => setState("login")}
+                />
+              </div>
             ) : state === "org-pick" ? (
               oauth_session ? (
                 <div className="mt-4">

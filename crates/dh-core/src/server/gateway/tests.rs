@@ -1,7 +1,8 @@
 use super::*;
 use crate::server::orgs::OrgRole;
 use crate::server::vault::ConnInput;
-use crate::server::store::test_store;
+use crate::server::auth::ServerRole;
+use crate::server::store::{test_store, test_user};
 
 fn input() -> ConnInput {
     ConnInput {
@@ -43,20 +44,20 @@ async fn owner_and_org(store: &Store) -> (AuthCtx, String) {
     // with its own owner) in one run, and `users.email` is UNIQUE.
     let sub = format!("owner-{}", uuid::Uuid::new_v4());
     let email = format!("{sub}@x.com");
-    let user = store.user_upsert_oauth("google", &sub, &email, "Owner", None).await.unwrap();
+    let user = test_user(store, &email, ServerRole::Member).await;
     let org = store.org_create("Acme", &user.id).await.unwrap();
-    (AuthCtx { user_id: user.id, email, name: "Owner".into() }, org.id)
+    (user.ctx(), org.id)
 }
 
 async fn member_of(store: &Store, org_id: &str, role: OrgRole) -> AuthCtx {
     let sub = format!("member-{}", uuid::Uuid::new_v4());
     let email = format!("{sub}@x.com");
-    let user = store.user_upsert_oauth("google", &sub, &email, "Member", None).await.unwrap();
+    let user = test_user(store, &email, ServerRole::Member).await;
     let owner = store.org_members(org_id).await.unwrap();
     let owner_id = owner.iter().find(|m| m.role == OrgRole::Owner).unwrap().user_id.clone();
     let invite = store.invite_create(org_id, role, &owner_id, None, None).await.unwrap();
     store.invite_redeem(&invite.code, &user.id).await.unwrap();
-    AuthCtx { user_id: user.id, email, name: "Member".into() }
+    user.ctx()
 }
 
 #[tokio::test]

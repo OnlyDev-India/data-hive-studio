@@ -106,6 +106,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use crate::server::auth::ServerRole;
     use crate::server::orgs::OrgRole;
     use crate::server::vault::ConnInput;
 
@@ -113,9 +114,9 @@ mod tests {
     #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn grant_override_lifecycle() {
         let store = crate::server::store::test_store().await;
-        let owner = store.user_upsert_oauth("google", "o", "o@x.com", "Owner", None).await.unwrap();
+        let owner = crate::server::store::test_user(&store, "o@x.com", ServerRole::Owner).await;
         let org = store.org_create("Acme", &owner.id).await.unwrap();
-        let member = store.user_upsert_oauth("google", "m", "m@x.com", "Member", None).await.unwrap();
+        let member = crate::server::store::test_user(&store, "m@x.com", ServerRole::Member).await;
         let invite = store.invite_create(&org.id, OrgRole::Member, &owner.id, None, None).await.unwrap();
         store.invite_redeem(&invite.code, &member.id).await.unwrap();
 

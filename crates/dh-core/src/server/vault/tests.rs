@@ -40,7 +40,7 @@ fn input(name: &str, pw: &str) -> ConnInput {
 
 /// Sets up a store with one org + one user, returning `(store, org_id, user_id)`.
 async fn org_and_user(store: &Store) -> (String, String) {
-    let user = store.user_upsert_oauth("google", "sub-1", "a@x.com", "Alice", None).await.unwrap();
+    let user = crate::server::store::test_user(store, "a@x.com", crate::server::auth::ServerRole::Member).await;
     let org = store.org_create("Acme", &user.id).await.unwrap();
     (org.id, user.id)
 }

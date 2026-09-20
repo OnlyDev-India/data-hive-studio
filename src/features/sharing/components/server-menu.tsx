@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Cloud, LogOut, Plug, Plus, Trash2 } from "lucide-react";
+import { Cloud, LogOut, Plug, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -27,15 +27,18 @@ import {
   friendlyConnectError,
   type ServerProfileView,
 } from "@/shared/api/client";
+import { canInvite } from "@/shared/api/server-access";
 import { useStudioStore } from "@/shared/store";
 import {
   ConnectServerForm,
   type ConnectResult,
 } from "@/shared/components/connect-server-dialog";
+import { ServerAccessDialog } from "./server-access-dialog";
 
 export function ServerMenu() {
   const [profiles, setProfiles] = useState<ServerProfileView[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [accessFor, setAccessFor] = useState<string | null>(null);
   const serverSessions = useStudioStore((s) => s.serverSessions);
   const connectServer = useStudioStore((s) => s.connectServer);
   const disconnectServer = useStudioStore((s) => s.disconnectServer);
@@ -141,12 +144,32 @@ export function ServerMenu() {
               );
             })}
           </DropdownMenuGroup>
+          {profiles
+            .filter((p) => {
+              const me = serverSessions[p.id]?.me;
+              return me && canInvite(me);
+            })
+            .map((p) => (
+              <DropdownMenuItem key={p.id} onClick={() => setAccessFor(p.id)}>
+                <ShieldCheck className="size-3.5" /> Server access · {p.name}
+              </DropdownMenuItem>
+            ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setAddOpen(true)}>
             <Plus className="size-3.5" /> Add server…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {accessFor && serverSessions[accessFor] && (
+        <ServerAccessDialog
+          open
+          onOpenChange={(v) => !v && setAccessFor(null)}
+          profileId={accessFor}
+          serverName={serverSessions[accessFor].profile.name}
+          me={serverSessions[accessFor].me}
+        />
+      )}
 
       <AddServerDialog
         open={addOpen}

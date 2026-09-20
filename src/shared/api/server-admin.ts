@@ -24,10 +24,16 @@ export interface MeOrg extends Organization {
   role: OrgRole;
 }
 
+/** A person's role on the whole server (not in an org). */
+export type ServerRole = "owner" | "admin" | "member";
+
 export interface MeResult {
   user_id: string;
   email: string;
   name: string;
+  server_role: ServerRole;
+  /** Only ever true for an admin an owner switched it on for. */
+  can_manage_roles: boolean;
   orgs: MeOrg[];
 }
 
@@ -129,12 +135,20 @@ export function serversOAuthProviders(url: string): Promise<string[]> {
   return invoke("servers_oauth_providers", { url });
 }
 
-/** Desktop only: run a full OAuth round trip and return the session token +
- *  identity/org list. Does not persist anything. */
+/** How a desktop sign in ended: signed in, the server has no owner yet (a
+ *  claim ticket to send with the setup code, see `serversClaim`), or refused
+ *  (a code for `refusalMessage`, and the person's own email). */
+export type OAuthLoginOutcome =
+  | { kind: "signed_in"; token: string; me: MeResult }
+  | { kind: "claim"; ticket: string }
+  | { kind: "refused"; error: string; email: string };
+
+/** Desktop only: run a full OAuth round trip. A signed in result carries the
+ *  session token + identity/org list. Does not persist anything. */
 export function serversOAuthLogin(
   url: string,
   provider: string,
-): Promise<{ token: string; me: MeResult }> {
+): Promise<OAuthLoginOutcome> {
   return invoke("servers_oauth_login", { url, provider });
 }
 
