@@ -34,6 +34,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     default: { key: "p", mod: true, shift: true },
   },
   {
+    id: "grid.reload",
+    label: "Reload table data",
+    default: { key: "r", mod: true },
+  },
+  {
     id: "editor.run",
     label: "Run query",
     default: { key: "Enter", mod: true },
@@ -172,21 +177,19 @@ export function toCodeMirrorKey(b: ShortcutBinding): string {
 export function formatBinding(
   b: ShortcutBinding,
   isMac: boolean = IS_MAC,
-): string {
+): string[] {
   if (isMac) {
     return [
       b.mod ? "⌘" : "",
       b.alt ? "⌥" : "",
       b.shift ? "⇧" : "",
       keyGlyph(b.key, true),
-    ].join("");
+    ].filter(Boolean);
   }
   return [
     b.mod ? "Ctrl" : "",
     b.alt ? "Alt" : "",
     b.shift ? "Shift" : "",
     keyGlyph(b.key, false),
-  ]
-    .filter(Boolean)
-    .join("+");
+  ].filter(Boolean);
 }

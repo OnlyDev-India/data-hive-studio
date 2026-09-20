@@ -129,6 +129,7 @@ function ToolbarButton({
             aria-label={label}
             className={cn(
               "size-6",
+              `hover:${TOOLBAR_ICON_COLORS[color]}`,
               TOOLBAR_ICON_COLORS[color],
               active && ACTIVE_BG[color],
             )}

@@ -276,7 +276,12 @@ export function CommandPalette() {
       case "commands":
         return buildCommandItems({ mode: theme.mode, setMode: theme.setMode });
       case "schema-open":
-        return buildSchemaOpenItems(tables, tablesLoading, rest, siblings_pending);
+        return buildSchemaOpenItems(
+          tables,
+          tablesLoading,
+          rest,
+          siblings_pending,
+        );
       case "tables-only":
         return buildTableItems(tables, tablesLoading, rest, siblings_pending);
       case "connections-only":

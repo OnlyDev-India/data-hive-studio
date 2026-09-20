@@ -148,13 +148,15 @@ export function SchemaActionBar({
       </>
     ),
   ];
-  const compact = usePaneCompactWidth(pane_ref, buttons.length);
+  const compact = usePaneCompactWidth(pane_ref, buttons.length, 720, 25);
 
   return (
     <TooltipProvider delay={500}>
       {write_confirm.dialog}
       <div className="flex min-w-0 flex-1 shrink-0 items-center gap-1">
+        <div className="bg-border mx-1 h-4 w-px" />
         <div className="flex min-w-0 flex-1 items-center gap-1" />
+        <div className="bg-border mx-1 h-4 w-px" />
         {buttons.map((btn, idx) => (
           <Fragment key={idx}>
             {btn({ compact: compact[idx] })}

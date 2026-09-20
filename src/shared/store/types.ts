@@ -49,9 +49,18 @@ export const DEFAULT_PALETTE_KEYWORDS: PaletteKeywords = {
 export interface GridBridge {
   rows: number;
   total: number;
-  /** True while the page query (count + rows) is in flight — the action bar
-   *  spins/disables Refresh and the grid blocks edits. */
+  /** True while the COUNT behind `total` is still running. It is not part of
+   *  `loading`: the rows can be on screen well before the count lands, so the
+   *  status bar shows an ellipsis for the total instead of a stale 0. */
+  total_pending?: boolean;
+  /** True while the page rows are in flight — the action bar spins/disables
+   *  Refresh and the grid blocks edits. */
   loading: boolean;
+  /** Gives up on the page fetch in flight: the grid stops waiting, shows its
+   *  "stopped" empty state, and drops whatever the database sends back. Only
+   *  the table grid provides it. It does not cancel the statement on the
+   *  server, which finishes on its own. */
+  stop?: () => void;
   total_pages: number;
   page: number;
   set_page: (p: number) => void;

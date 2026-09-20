@@ -108,7 +108,7 @@ export function EditorContextMenu({
   onRunTarget: () => void;
   onSave?: () => void;
   readOnly: boolean;
-  disabled:boolean
+  disabled: boolean;
   runBinding: ShortcutBinding;
   runTargetBinding: ShortcutBinding;
   saveBinding: ShortcutBinding;
@@ -179,7 +179,7 @@ export function EditorContextMenu({
         <ContextMenuSeparator />
         <ContextMenuSub>
           <ContextMenuSubTrigger>
-            <Copy className="size-3.5 mr-2" />
+            <Copy className="mr-2 size-3.5" />
             Clipboard
           </ContextMenuSubTrigger>
           <ContextMenuSubContent side="right">

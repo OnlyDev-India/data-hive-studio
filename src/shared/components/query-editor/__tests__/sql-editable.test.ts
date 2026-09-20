@@ -29,9 +29,9 @@ describe("singleTableSelect", () => {
   });
 
   it("accepts a table alias in FROM (doesn't affect column identity)", () => {
-    expect(singleTableSelect("SELECT id FROM users u WHERE u.id = 1")).toEqual(
-      { table: "users" },
-    );
+    expect(singleTableSelect("SELECT id FROM users u WHERE u.id = 1")).toEqual({
+      table: "users",
+    });
   });
 
   it("rejects a JOIN", () => {

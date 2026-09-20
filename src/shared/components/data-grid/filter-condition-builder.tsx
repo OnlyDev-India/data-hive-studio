@@ -150,7 +150,13 @@ export function FilterConditionBuilder({
   on_set_conjunction,
   on_clear,
 }: FilterConditionBuilderProps) {
-  const [column, setColumn] = useState(columns[0]?.name ?? "");
+  // The column list can arrive after this mounts (the table's structure is
+  // fetched behind its rows), so the pick falls back to the first column
+  // instead of freezing whatever was there on the first render.
+  const [picked_column, setColumn] = useState("");
+  const column = columns.some((c) => c.name === picked_column)
+    ? picked_column
+    : (columns[0]?.name ?? "");
   const [op, setOp] = useState<FilterOp>("eq");
   const [value, setValue] = useState("");
   const [conjunction, setConjunction] = useState<"AND" | "OR">("AND");

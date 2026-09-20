@@ -12,7 +12,9 @@ const NATIVE_FIND = /^\s*db\.([A-Za-z_$][\w$]*)\.(find|findOne)\s*\(/;
  *  text, translated by the backend's own narrower single-table grammar, so
  *  anything `singleTableSelect` accepts is safe to reuse here too). Returns
  *  the collection name on success, `null` otherwise. */
-export function singleCollectionQuery(command: string): { table: string } | null {
+export function singleCollectionQuery(
+  command: string,
+): { table: string } | null {
   const native = NATIVE_FIND.exec(command);
   if (native) return { table: native[1] };
   return singleTableSelect(command);

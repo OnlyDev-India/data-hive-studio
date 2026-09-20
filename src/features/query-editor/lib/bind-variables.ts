@@ -6,7 +6,8 @@ import { maskStringsAndComments } from "@/shared/lib/utils";
  *  value by, and in Postgres it collides with the jsonb key-existence
  *  operators (`?`, `?|`, `?&`) — too ambiguous to scan for reliably in
  *  already-written SQL text. */
-const BIND_VAR_RE = /(?<!:):([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const BIND_VAR_RE =
+  /(?<!:):([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 interface Occurrence {
   start: number;
@@ -24,7 +25,11 @@ function findOccurrences(text: string): Occurrence[] {
   const re = new RegExp(BIND_VAR_RE);
   let m: RegExpExecArray | null;
   while ((m = re.exec(masked))) {
-    out.push({ start: m.index, end: m.index + m[0].length, name: m[1] ?? m[2] });
+    out.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      name: m[1] ?? m[2],
+    });
   }
   return out;
 }
@@ -70,7 +75,10 @@ export function substituteBindVariables(
   for (let i = occurrences.length - 1; i >= 0; i--) {
     const occ = occurrences[i];
     if (!(occ.name in values)) continue;
-    out = out.slice(0, occ.start) + sqlLiteral(values[occ.name]) + out.slice(occ.end);
+    out =
+      out.slice(0, occ.start) +
+      sqlLiteral(values[occ.name]) +
+      out.slice(occ.end);
   }
   return out;
 }

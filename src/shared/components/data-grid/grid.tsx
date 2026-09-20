@@ -17,6 +17,7 @@ import {
 } from "@/shared/api";
 import { useStudioStore, type GridBridge, type JsonRow } from "@/shared/store";
 import { GridBody } from "./grid-body";
+import { GridLoadState } from "./grid-load-state";
 import { GridProvider } from "./grid-context";
 import type { PendingChange } from "./grid-context";
 import { useGridController } from "./grid-controller";
@@ -53,7 +54,10 @@ export interface GridHandle {
 interface GridProps {
   conn_id: string;
   table: string;
-  schema: TableSchema;
+  /** `null` while the table's structure is still being fetched: the rows are
+   *  fetched and shown without it (their columns come from the query), and
+   *  editing stays off until it arrives. */
+  schema: TableSchema | null;
   revision: number;
   tab_key: string;
   filters: GridFilter[];
@@ -108,6 +112,28 @@ export function sql_literal(v: string | null): string {
 const EMPTY_ROWS: (string | null)[][] = [];
 const EMPTY_COLUMNS: string[] = [];
 
+// The column that labels a referenced table's rows in an FK cell. Working it
+// out costs a full `tableSchema` per referenced table (seven catalog queries
+// on Postgres) and the answer only changes when that table's columns do, so
+// it is kept for a few minutes instead of being re-fetched on every table
+// open — `tableSchema`'s own dedupe only merges calls made within 300 ms.
+const FK_LABEL_COL_TTL_MS = 5 * 60 * 1000;
+const fk_label_col_cache = new Map<
+  string,
+  { col: string | null; at: number }
+>();
+
+// Stand-in for a table structure that has not arrived yet: every value the
+// grid derives from the schema (keys, types, FKs) comes out empty. Module
+// level so its identity is stable across renders.
+const NO_SCHEMA: TableSchema = {
+  kind: "table",
+  columns: [],
+  foreign_keys: [],
+  indexes: [],
+  triggers: [],
+};
+
 // Double-quoted identifier (works for SQLite and Postgres alike).
 export function sql_ident(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
@@ -128,7 +154,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   {
     conn_id,
     table,
-    schema,
+    schema: schema_prop,
     revision,
     tab_key,
     filters,
@@ -145,6 +171,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   },
   ref,
 ) {
+  const schema = schema_prop ?? NO_SCHEMA;
   const [page, setPage] = useState(0);
   const [page_size, setPageSize] = useState(50);
   const [local_rev, setLocalRev] = useState(0);
@@ -153,7 +180,18 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   /** Last fetched total + the fetch identity it belongs to — lets page flips
    *  and sorts skip the COUNT round trip entirely. */
   const count_cache = useRef<{ key: string; total: number } | null>(null);
+  /** The COUNT runs alongside the page but is NOT part of `loading`: on a
+   *  big Mongo collection or a remote Postgres it can outlast the rows by
+   *  many seconds, and the grid must not look busy once the rows are up. */
+  const [count_pending, setCountPending] = useState(false);
   const [loading, setLoading] = useState(true);
+  /** How the last page fetch ended when it produced no rows: the user gave up
+   *  on it (`stopped`), or the query failed (`load_error`). Either leaves the
+   *  grid on an empty state that offers a reload. */
+  const [stopped, setStopped] = useState(false);
+  const [load_error, setLoadError] = useState<string | null>(null);
+  /** Gives up on the fetch in flight; set by the fetch effect. */
+  const stop_fetch = useRef<(() => void) | null>(null);
   const [op_running, setOpRunning] = useState(false);
   /** External busy signal (e.g. a schema Apply is in flight) — treated the
    *  same as a data fetch: overlay + edit lock. */
@@ -301,7 +339,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // Editing is enabled for real tables; Postgres views/matviews open
   // read-only. Updates/deletes target rows by primary key when one exists,
   // else by their full original contents.
-  const editable = (schema.kind || "table") === "table" && !read_only;
+  // Nothing is editable until the structure is known: without the primary key
+  // an edit would have to match rows by their whole contents.
+  const editable =
+    schema_prop !== null && (schema.kind || "table") === "table" && !read_only;
 
   // Columns the database will want to assign itself: primary keys plus columns
   // covered by a UNIQUE index. Cloned drafts leave these empty so inserting
@@ -372,6 +413,16 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     void (async () => {
       const entries = await Promise.all(
         fk_table_names.map(async (t) => {
+          const cache_key = [
+            conn_id,
+            database ?? "",
+            schema_name ?? "",
+            t,
+          ].join("\u0000");
+          const cached = fk_label_col_cache.get(cache_key);
+          if (cached && Date.now() - cached.at < FK_LABEL_COL_TTL_MS) {
+            return [t, cached.col] as const;
+          }
           try {
             const s = await tableSchema(conn_id, t, database, schema_name);
             const pk = new Set(
@@ -381,7 +432,9 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
             const preferred = non_pk.find((c) =>
               PREFERRED.includes(c.name.toLowerCase()),
             );
-            return [t, (preferred ?? non_pk[0])?.name ?? null] as const;
+            const col = (preferred ?? non_pk[0])?.name ?? null;
+            fk_label_col_cache.set(cache_key, { col, at: Date.now() });
+            return [t, col] as const;
           } catch {
             return [t, null] as const;
           }
@@ -1017,6 +1070,20 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         elapsed_ms: 0,
       });
     };
+    // Stop: abandon this fetch. Its rows and count are dropped when they
+    // arrive (`cancelled`), the grid goes back to an empty "stopped" state.
+    // The statements themselves are not cancelled on the server.
+    const give_up = () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      setResult(null);
+      setLoading(false);
+      setCountPending(false);
+      setStopped(true);
+    };
+    stop_fetch.current = give_up;
     void (async () => {
       try {
         // The total only changes with data/filters/schema — NOT with paging
@@ -1025,6 +1092,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         // Every run of this effect IS a fetch — flag it so the refresh button
         // spins, the overlay blocks edits, and the action bar reflects it.
         setLoading(true);
+        setStopped(false);
+        setLoadError(null);
         const count_key = JSON.stringify([
           conn_id,
           table,
@@ -1034,52 +1103,70 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           local_rev,
         ]);
         const need_count = count_cache.current?.key !== count_key;
-        const [pageMeta, totalRes] = await Promise.all([
-          executeOpStream(
+        // Started first so it overlaps the page fetch, but deliberately not
+        // awaited: `loading` ends when the ROWS are ready, and the total
+        // fills in whenever the count lands. A failed count leaves the
+        // previous total (the rows still show) instead of discarding the page.
+        if (need_count) {
+          setCountPending(true);
+          void executeOp(
             conn_id,
             {
-              kind: "select",
+              kind: "count",
               table,
               filters,
               custom_where: user_where,
-              order_by: wire_order_by(ctl.sort_keys),
-              limit: page_size,
-              offset,
-            },
-            (chunk) => {
-              if (chunk.columns) acc.cols = chunk.columns;
-              if (chunk.rows.length > 0) {
-                acc.rows.push(...chunk.rows);
-                if (!raf) raf = requestAnimationFrame(flush);
-              }
             },
             database,
             schema_name,
-          ),
-          need_count
-            ? executeOp(
-                conn_id,
-                {
-                  kind: "count",
-                  table,
-                  filters,
-                  custom_where: user_where,
-                },
-                database,
-                schema_name,
-              )
-            : Promise.resolve(null),
-        ]);
+          )
+            .then((totalRes) => {
+              if (cancelled) return;
+              const next_total = Number(totalRes.rows?.[0]?.[0]) || 0;
+              count_cache.current = { key: count_key, total: next_total };
+              setTotal(next_total);
+            })
+            .catch(() => {})
+            .finally(() => {
+              if (!cancelled) setCountPending(false);
+            });
+        } else {
+          setCountPending(false);
+        }
+        const pageMeta = await executeOpStream(
+          conn_id,
+          {
+            kind: "select",
+            table,
+            filters,
+            custom_where: user_where,
+            order_by: wire_order_by(ctl.sort_keys),
+            limit: page_size,
+            offset,
+          },
+          (chunk) => {
+            if (chunk.columns) acc.cols = chunk.columns;
+            if (chunk.rows.length > 0) {
+              acc.rows.push(...chunk.rows);
+              if (!raf) raf = requestAnimationFrame(flush);
+            }
+          },
+          database,
+          schema_name,
+        );
         if (raf) cancelAnimationFrame(raf);
         raf = 0;
         if (cancelled) return;
         // The resolved metadata is authoritative (columns/elapsed); pair it
         // with the accumulated rows.
         setResult({ ...pageMeta, rows: acc.rows });
-        if (totalRes) {
-          const next_total = Number(totalRes.rows?.[0]?.[0]) || 0;
-          count_cache.current = { key: count_key, total: next_total };
-          setTotal(next_total);
+      } catch (e) {
+        // A failed page (bad WHERE, dropped connection) used to leave a blank
+        // grid with nothing said. Drop the previous page too: it belongs to
+        // a different filter/sort/page than the one that just failed.
+        if (!cancelled) {
+          setResult(null);
+          setLoadError(String(e));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -1088,6 +1175,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     return () => {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
+      if (stop_fetch.current === give_up) stop_fetch.current = null;
     };
   }, [
     conn_id,
@@ -1151,6 +1239,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     () => ({
       rows: result?.rows.length ?? 0,
       total,
+      total_pending: count_pending,
       total_pages,
       page,
       set_page: setPage,
@@ -1169,6 +1258,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       editable: editable && !show_loading,
       read_only,
       loading: show_loading,
+      // Only the page fetch can be given up on, not a write in flight.
+      stop: () => stop_fetch.current?.(),
       elapsed_ms: result?.elapsed_ms ?? null,
       pending_exists:
         pending.length > 0 || dirty_cells.size > 0 || deleted_rows.size > 0,
@@ -1207,6 +1298,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     [
       result,
       total,
+      count_pending,
       total_pages,
       page,
       page_size,
@@ -1283,7 +1375,16 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       <div className="relative min-h-0 flex-1 border" data-selectable>
         {/* Spinners for both first load and refetch live in table-pane's
           overlay; this box just keeps its height so nothing jumps. */}
-        {!result ? null : (
+        {!result ? (
+          !show_loading &&
+          (stopped || load_error !== null) && (
+            <GridLoadState
+              kind={stopped ? "stopped" : "error"}
+              error={load_error}
+              on_reload={bridge.refresh}
+            />
+          )
+        ) : (
           <GridProvider
             value={{
               ...ctl,

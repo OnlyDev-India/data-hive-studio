@@ -64,6 +64,8 @@ const ONE_BUTTON_MIN_SHRINK = 30;
 export function usePaneCompactWidth(
   ref: RefObject<HTMLElement | null>,
   noOfElements: number,
+  paneCompactBelowPx: number = PANE_COMPACT_BELOW_PX,
+  oneButtonMinShrink: number = ONE_BUTTON_MIN_SHRINK,
 ) {
   const [compact, setCompact] = useState(Array(noOfElements).fill(false));
   useEffect(() => {
@@ -83,7 +85,7 @@ export function usePaneCompactWidth(
           const new_compact = prev.map(
             (_, index) =>
               entry.contentRect.width <
-              PANE_COMPACT_BELOW_PX - index * ONE_BUTTON_MIN_SHRINK,
+              paneCompactBelowPx - index * oneButtonMinShrink,
           );
           return new_compact;
         });
@@ -207,40 +209,16 @@ export function GridActionBar({
       />
     ),
     (props) => (
-      <GridToolbarButton
-        icon={bridge.loading ? Loader2 : Check}
-        label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
-        className={cn("bg-primary hover:bg-primary/70 rounded-r-none")}
-        iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
-        disabled={!bridge.pending_exists || bridge.loading}
-        onClick={() => setApplyChanges(bridge.get_pending_changes())}
-        {...props}
-      />
-    ),
-  ];
-  const compact = usePaneCompactWidth(pane_ref, buttons.length);
-
-  return (
-    <TooltipProvider delay={500}>
-      <div className="flex min-w-0 flex-1 shrink-0 items-center gap-1">
-        <div className="bg-border mx-1 h-4 w-px" />
-
-        {filter_bar ? (
-          <FilterBar {...filter_bar} />
-        ) : (
-          <div className="flex-1" />
-        )}
-
-        <div className="bg-border mx-1 h-4 w-px" />
-        {/* Icon cluster first, then add/delete, then the pending-changes
-         *  commit group last — same left-to-right rhythm as a typical
-         *  DB-client grid toolbar (icons, row actions, commit/rollback). */}
-        {buttons.map((btn, idx) => (
-          <Fragment key={idx}>
-            {btn({ compact: compact[idx] })}
-            {idx === 4 && <div className="bg-border mx-1 h-4 w-px" />}
-          </Fragment>
-        ))}
+      <>
+        <GridToolbarButton
+          icon={bridge.loading ? Loader2 : Check}
+          label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
+          className={cn("bg-primary hover:bg-primary/70 rounded-r-none")}
+          iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
+          disabled={!bridge.pending_exists || bridge.loading}
+          onClick={() => setApplyChanges(bridge.get_pending_changes())}
+          {...props}
+        />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -280,6 +258,32 @@ export function GridActionBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </>
+    ),
+  ];
+  const compact = usePaneCompactWidth(pane_ref, buttons.length);
+
+  return (
+    <TooltipProvider delay={500}>
+      <div className="flex min-w-0 flex-1 shrink-0 items-center gap-1">
+        <div className="bg-border mx-1 h-4 w-px" />
+
+        {filter_bar ? (
+          <FilterBar {...filter_bar} />
+        ) : (
+          <div className="flex-1" />
+        )}
+
+        <div className="bg-border mx-1 h-4 w-px" />
+        {/* Icon cluster first, then add/delete, then the pending-changes
+         *  commit group last — same left-to-right rhythm as a typical
+         *  DB-client grid toolbar (icons, row actions, commit/rollback). */}
+        {buttons.map((btn, idx) => (
+          <Fragment key={idx}>
+            {btn({ compact: compact[idx] })}
+            {idx === 4 && <div className="bg-border mx-1 h-4 w-px" />}
+          </Fragment>
+        ))}
       </div>
       {apply_changes && (
         <ApplyChangesDialog

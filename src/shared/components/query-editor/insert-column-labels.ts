@@ -168,7 +168,8 @@ const insertColumnLabelsTheme = EditorView.baseTheme({
     fontStyle: "italic",
     whiteSpace: "nowrap",
     color: "var(--muted-foreground)",
-    backgroundColor: "color-mix(in srgb, var(--muted-foreground) 15%, transparent)",
+    backgroundColor:
+      "color-mix(in srgb, var(--muted-foreground) 15%, transparent)",
     userSelect: "none",
     pointerEvents: "none",
   },

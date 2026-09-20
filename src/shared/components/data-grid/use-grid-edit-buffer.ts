@@ -41,8 +41,15 @@ export function useGridEditBuffer(opts: {
   result: QueryResult;
   on_refresh: () => void;
 }) {
-  const { conn_id, table, database, schema_name, pk_columns, result, on_refresh } =
-    opts;
+  const {
+    conn_id,
+    table,
+    database,
+    schema_name,
+    pk_columns,
+    result,
+    on_refresh,
+  } = opts;
 
   // The rows actually shown — starts as `result.rows` and gets patched in
   // place by a successful Apply, same as `Grid`'s own `result` state. Resyncs
@@ -386,7 +393,9 @@ export function useGridEditBuffer(opts: {
     for (const real of deleted_rows) {
       const match_row = pk_match(real + pending.length);
       if (!match_row) continue;
-      stmts.push(`DELETE FROM ${sql_ident(table)}\nWHERE ${where_of(match_row)};`);
+      stmts.push(
+        `DELETE FROM ${sql_ident(table)}\nWHERE ${where_of(match_row)};`,
+      );
     }
     return stmts.length > 0 ? stmts.join("\n\n") : null;
   }, [result.columns, pending, dirty_cells, deleted_rows, pk_match, table]);

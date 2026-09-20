@@ -33,7 +33,10 @@ export function FieldsTree({
       </div>
       {error ? (
         <div className="flex items-center gap-2 px-3 py-3 text-sm">
-          <AlertCircle className="text-destructive size-4 shrink-0" aria-hidden />
+          <AlertCircle
+            className="text-destructive size-4 shrink-0"
+            aria-hidden
+          />
           <span className="text-destructive">
             Could not load fields: {error}
           </span>
@@ -78,7 +81,9 @@ function FieldRow({ field, depth }: { field: FieldShape; depth: number }) {
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            aria-label={open ? `Collapse ${field.name}` : `Expand ${field.name}`}
+            aria-label={
+              open ? `Collapse ${field.name}` : `Expand ${field.name}`
+            }
             className="text-muted-foreground hover:text-foreground shrink-0"
           >
             {open ? (
@@ -99,7 +104,9 @@ function FieldRow({ field, depth }: { field: FieldShape; depth: number }) {
           {field.empty ? " (empty)" : ""}
         </span>
         {field.optional && <Badge variant="outline">optional</Badge>}
-        {hidden_count > 0 && <Badge variant="muted">+{hidden_count} more</Badge>}
+        {hidden_count > 0 && (
+          <Badge variant="muted">+{hidden_count} more</Badge>
+        )}
         {field.depth_truncated && <Badge variant="muted">depth limit</Badge>}
       </div>
       {has_children && open && (

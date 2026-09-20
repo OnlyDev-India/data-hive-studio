@@ -4,7 +4,7 @@ import {
   CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { schemaCompletions } from "../sql-completions";
+import { schemaCompletions, sqlLanguageSupport } from "../sql-completions";
 
 function ctxFor(doc: string, pos = doc.length) {
   const state = EditorState.create({ doc });
@@ -145,4 +145,39 @@ describe("schemaCompletions", () => {
     expect(labels).not.toContain("name");
     expect(labels).not.toContain("email");
   });
+});
+
+describe("sqlLanguageSupport keyword case", () => {
+  /** Labels of every keyword suggestion for the typed prefix `sel`. */
+  function keywordLabels(keyword_case: "preserve" | "upper" | "lower") {
+    const doc = "sel";
+    const state = EditorState.create({
+      doc,
+      extensions: [sqlLanguageSupport(keyword_case, undefined, [])],
+    });
+    const ctx = new CompletionContext(state, doc.length, true);
+    return state
+      .languageDataAt<(c: CompletionContext) => CompletionResult | null>(
+        "autocomplete",
+        doc.length,
+      )
+      .flatMap((source) => source(ctx)?.options ?? [])
+      .filter((o) => o.type === "keyword")
+      .map((o) => o.label);
+  }
+
+  it("suggests upper-case keywords when the setting is upper", () => {
+    const labels = keywordLabels("upper");
+    expect(labels).toContain("SELECT");
+    expect(labels).not.toContain("select");
+  });
+
+  it.each(["lower", "preserve"] as const)(
+    "keeps lower-case keywords for %s",
+    (keyword_case) => {
+      const labels = keywordLabels(keyword_case);
+      expect(labels).toContain("select");
+      expect(labels).not.toContain("SELECT");
+    },
+  );
 });

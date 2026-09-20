@@ -122,7 +122,28 @@ export function TablePane({
 
   const combined_rev = revision + refresh_rev;
 
+  // Each surface is built the first time its tab is shown and then stays
+  // mounted (the grid keeps its rows and scroll, the schema editor its
+  // drafts). Opening straight on Schema therefore never runs the data query.
+  // Adjusted during render, React's pattern for state derived from a prop.
+  const [data_opened, setDataOpened] = useState(mode === "data");
+  if (mode === "data" && !data_opened) setDataOpened(true);
+  const [schema_opened, setSchemaOpened] = useState(mode === "schema");
+  if (mode === "schema" && !schema_opened) setSchemaOpened(true);
+
+  // The table's structure is seven catalog queries and the rows only need
+  // one: fetching it first left the grid blank for the whole schema round
+  // trip, and the burst of new connections could time the pool out. So it
+  // waits until the first page of rows has settled (loaded or failed), unless
+  // the Schema tab is what is showing, which needs it right away.
+  const [data_settled, setDataSettled] = useState(false);
+  if (!data_settled && data_opened && gridBridge && !gridBridge.loading) {
+    setDataSettled(true);
+  }
+  const schema_wanted = mode === "schema" || data_settled;
+
   useEffect(() => {
+    if (!schema_wanted) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -141,7 +162,15 @@ export function TablePane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, revision, refresh_rev, database, db_schema]);
+  }, [
+    conn_id,
+    table,
+    revision,
+    refresh_rev,
+    database,
+    db_schema,
+    schema_wanted,
+  ]);
 
   // Bounded distinct values for enum/bool columns (dropdown editors + filters).
   // Booleans are special-cased: their domain is FIXED (true/false), so on
@@ -258,25 +287,37 @@ export function TablePane({
     setCustomWhere("");
   };
 
+  // The filter bar's column list: the table's structure once it is here (with
+  // real types), else the column names of the rows already on screen.
+  const result_columns = gridBridge?.all_columns;
+  const filter_columns = useMemo(
+    () =>
+      schema
+        ? schema.columns.map((c) => ({
+            name: c.name,
+            data_type: c.data_type,
+          }))
+        : (result_columns ?? []).map((name) => ({ name, data_type: "" })),
+    [schema, result_columns],
+  );
+
   // Measured from this pane's own root — not GridActionBar's own rendered
   // width, which shrinks the instant it collapses (see that file's doc
   // comment for why that would permanently lock in "too narrow").
   const pane_ref = useRef<HTMLDivElement>(null);
 
-  // One continuous elapsed-time origin for the whole loading span (schema
-  // fetch through the grid's own query), and the overlay stays mounted
-  // continuously across it. Schema resolving and the grid publishing its
-  // own loading state to the store happen one render apart (the grid
-  // mounts and reads its initial `loading: true`, but only an *effect*
-  // pushes that into `gridBridges` — a moment after commit) — without the
-  // grace delay below, `is_loading` would visit `false` for that one
-  // render, unmounting/remounting the overlay and resetting its timer.
-  // Scoped to whichever mode is actually showing: the Data tab cares about
-  // the grid's own fetch, not a schema-apply running on the Schema tab
-  // (and vice versa) — both still need the initial schema fetch (`!schema`)
-  // first, since neither Grid nor SchemaTab can render without it.
+  // One continuous elapsed-time origin for the whole loading span, and the
+  // overlay stays mounted continuously across it. The grid mounts and reads
+  // its initial `loading: true`, but only an *effect* pushes that into
+  // `gridBridges` — a moment after commit, hence the `!gridBridge` term:
+  // without it, and the grace delay below, `is_loading` would visit `false`
+  // for that one render, unmounting/remounting the overlay and resetting its
+  // timer. Scoped to whichever mode is showing: the Data tab waits on the
+  // grid's own fetch only (the structure loads after it, in the background),
+  // the Schema tab on the structure and a schema Apply.
   const is_loading =
-    mode === "data" ? !schema || grid_loading : !schema || schema_busy;
+    !failed &&
+    (mode === "data" ? !gridBridge || grid_loading : !schema || schema_busy);
   const [loading_start, setLoadingStart] = useState<number | null>(null);
   useEffect(() => {
     if (is_loading) {
@@ -314,24 +355,20 @@ export function TablePane({
               bridge={gridBridge}
               conn_id={conn_id}
               pane_ref={pane_ref}
-              filter_bar={
-                schema
-                  ? {
-                      columns: schema.columns.map((c) => ({
-                        name: c.name,
-                        data_type: c.data_type,
-                      })),
-                      distinct,
-                      filters,
-                      custom_where,
-                      on_add: add_filter,
-                      on_remove: remove_filter,
-                      on_set_conjunction: set_filter_conjunction,
-                      on_clear: clear_filters,
-                      on_custom_where: setCustomWhere,
-                    }
-                  : undefined
-              }
+              // Usable before the structure arrives: the rows' own column
+              // names stand in for it (untyped, so text filters), and the
+              // raw WHERE box never needed columns at all.
+              filter_bar={{
+                columns: filter_columns,
+                distinct,
+                filters,
+                custom_where,
+                on_add: add_filter,
+                on_remove: remove_filter,
+                on_set_conjunction: set_filter_conjunction,
+                on_clear: clear_filters,
+                on_custom_where: setCustomWhere,
+              }}
               bulk_edit={
                 schema
                   ? {
@@ -357,110 +394,147 @@ export function TablePane({
         </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {failed ? (
-          <div className="flex flex-col items-center gap-2 px-3 py-8 text-center">
-            <p className="text-destructive text-sm">
-              Failed to load schema for “{table}”.
-            </p>
-            {fail_error && (
-              <pre className="border-destructive/30 bg-destructive/5 text-destructive max-w-lg overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap">
-                {fail_error}
-              </pre>
-            )}
-          </div>
-        ) : (
-          schema && (
-            <>
-              {/* Both surfaces stay mounted (hidden while inactive): the grid
-                keeps its rows/scroll when you visit Schema, and Schema keeps
-                its drafts. Revisions still refresh data in the background. */}
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col",
-                  mode === "data" ? "flex" : "hidden",
-                )}
-              >
-                {/* `Grid` always sits in this same ResizablePanelGroup/
-                    ResizablePanel slot regardless of `bottomPanelOpen` —
-                    only the JSON panel+handle mount/unmount — so toggling it
-                    never remounts the grid (losing scroll position, buffered
-                    edits, etc.). The JSON panel's OWN size, though, is a
-                    plain `defaultSize` literal fed from `useBottomPanelSize`
-                    (not `react-resizable-panels`' own `defaultLayout`
-                    persistence) — see that hook's doc comment for why. */}
-                <ResizablePanelGroup
-                  orientation="vertical"
-                  className="min-h-0 flex-1"
-                  onLayoutChanged={onLayoutChanged}
-                  defaultLayout={defaultLayout}
-                >
-                  <ResizablePanel
-                    id="top-panel"
-                    minSize="30%"
-                    className={cn("flex-col", bottomPanelOpen && "border-b")}
-                  >
-                    <Grid
-                      conn_id={conn_id}
-                      table={table}
-                      schema={schema}
-                      revision={combined_rev}
-                      tab_key={tab_key}
-                      filters={filters}
-                      custom_where={custom_where}
-                      distinct={distinct}
-                      props_busy={schema_busy}
-                      on_refresh={bump_refresh}
-                      on_open_reference={on_open_reference}
-                      database={database}
-                      schema_name={db_schema}
-                      on_column_filter={set_column_filter}
-                    />
-                  </ResizablePanel>
-                  <ResizableHandle className="bg-background hover:bg-accent h-0.5!" />
-
-                  <ResizablePanel
-                    id="bottom-panel"
-                    defaultSize={bottomDefaultSize}
-                    minSize={0}
-                    collapsible
-                    collapsedSize={0}
-                    className="min-h-0 flex-col"
-                    panelRef={bottomPanelRef}
-                  >
-                    <JsonViewer conn_id={conn_id} tab_key={tab_key} />
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-              </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1",
-                  mode === "schema" && is_table ? "flex flex-col" : "hidden",
-                )}
-              >
-                <Suspense fallback={<SchemaFallback />}>
-                  <SchemaTab
-                    conn_id={conn_id}
-                    table={table}
-                    store_key={tab_key}
-                    on_modified={on_modified}
-                    on_applied={() => setMode("data")}
-                    database={database}
-                    schema_name={db_schema}
-                  />
-                </Suspense>
-              </div>
-            </>
-          )
+        {failed && (
+          <SchemaLoadError
+            table={table}
+            error={fail_error}
+            // Under the Data tab the rows are still usable, so the message
+            // sits above them instead of replacing them.
+            compact={mode === "data"}
+          />
         )}
-        {/* Covers the whole loading span, not just the grid's own fetch —
-            without `!schema`/`schema_busy` here, opening a tab showed
-            nothing at all during the initial schema fetch (before Grid
-            even mounts and publishes its own bridge), then the overlay
-            would suddenly pop in once the grid's own query started. */}
+        {/* Both surfaces stay mounted once built (hidden while inactive): the
+            grid keeps its rows/scroll when you visit Schema, and Schema keeps
+            its drafts. Revisions still refresh data in the background. */}
+        {data_opened && (
+          <div
+            className={cn(
+              "min-h-0 flex-1 flex-col",
+              mode === "data" ? "flex" : "hidden",
+            )}
+          >
+            {/* `Grid` always sits in this same ResizablePanelGroup/
+                ResizablePanel slot regardless of `bottomPanelOpen` —
+                only the JSON panel+handle mount/unmount — so toggling it
+                never remounts the grid (losing scroll position, buffered
+                edits, etc.). The JSON panel's OWN size, though, is a
+                plain `defaultSize` literal fed from `useBottomPanelSize`
+                (not `react-resizable-panels`' own `defaultLayout`
+                persistence) — see that hook's doc comment for why. */}
+            <ResizablePanelGroup
+              orientation="vertical"
+              className="min-h-0 flex-1"
+              onLayoutChanged={onLayoutChanged}
+              defaultLayout={defaultLayout}
+            >
+              <ResizablePanel
+                id="top-panel"
+                minSize="30%"
+                className={cn("flex-col", bottomPanelOpen && "border-b")}
+              >
+                <Grid
+                  conn_id={conn_id}
+                  table={table}
+                  schema={schema}
+                  revision={combined_rev}
+                  tab_key={tab_key}
+                  filters={filters}
+                  custom_where={custom_where}
+                  distinct={distinct}
+                  props_busy={schema_busy}
+                  on_refresh={bump_refresh}
+                  on_open_reference={on_open_reference}
+                  database={database}
+                  schema_name={db_schema}
+                  on_column_filter={set_column_filter}
+                />
+              </ResizablePanel>
+              <ResizableHandle className="bg-background hover:bg-accent h-0.5!" />
+
+              <ResizablePanel
+                id="bottom-panel"
+                defaultSize={bottomDefaultSize}
+                minSize={0}
+                collapsible
+                collapsedSize={0}
+                className="min-h-0 flex-col"
+                panelRef={bottomPanelRef}
+              >
+                <JsonViewer conn_id={conn_id} tab_key={tab_key} />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+        )}
+        {schema_opened && schema && (
+          <div
+            className={cn(
+              "min-h-0 flex-1",
+              mode === "schema" && is_table ? "flex flex-col" : "hidden",
+            )}
+          >
+            <Suspense fallback={<SchemaFallback />}>
+              <SchemaTab
+                conn_id={conn_id}
+                table={table}
+                store_key={tab_key}
+                on_modified={on_modified}
+                on_applied={() => setMode("data")}
+                database={database}
+                schema_name={db_schema}
+                initial_schema={schema}
+              />
+            </Suspense>
+          </div>
+        )}
+        {/* Covers the whole loading span, including the moment before the
+            grid has published its own bridge. */}
         {loading_start !== null && (
-          <QueryLoadingOverlay startedAt={loading_start} />
+          <QueryLoadingOverlay
+            startedAt={loading_start}
+            // Only the rows fetch can be given up on; the Schema tab's wait
+            // (structure, an Apply in flight) has nothing to stop.
+            onStop={mode === "data" ? gridBridge?.stop : undefined}
+          />
         )}
       </div>
+    </div>
+  );
+}
+
+function SchemaLoadError({
+  table,
+  error,
+  compact,
+}: {
+  table: string;
+  error: string | null;
+  compact: boolean;
+}) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex flex-col gap-2",
+        compact
+          ? "border-destructive/30 bg-destructive/5 shrink-0 border-b px-3 py-1.5"
+          : "items-center px-3 py-8 text-center",
+      )}
+    >
+      <p className="text-destructive text-sm">
+        {compact
+          ? `Couldn't load the structure of “${table}”, so editing is off.`
+          : `Failed to load schema for “${table}”.`}
+      </p>
+      {error && (
+        <pre
+          className={cn(
+            "border-destructive/30 bg-destructive/5 text-destructive overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap",
+            compact ? "max-h-20 overflow-y-auto" : "max-w-lg",
+          )}
+        >
+          {error}
+        </pre>
+      )}
     </div>
   );
 }

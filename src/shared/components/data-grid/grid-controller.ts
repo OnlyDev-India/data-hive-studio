@@ -216,9 +216,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
         });
       }
     }
-    const base = client_sort
-      ? sortRows(real, columns, sort_keys)
-      : real;
+    const base = client_sort ? sortRows(real, columns, sort_keys) : real;
     return pending_rows && pending_rows.length > 0
       ? [...pending_rows.map((p) => p.values), ...base]
       : base;
@@ -445,9 +443,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   useEffect(() => {
     if (!col_drag) return;
     const on_move = (e: MouseEvent) => {
-      setColDrag((cur) =>
-        cur ? { ...cur, x: e.clientX, y: e.clientY } : cur,
-      );
+      setColDrag((cur) => (cur ? { ...cur, x: e.clientX, y: e.clientY } : cur));
       // Hit-test by cursor position instead of relying on each header
       // cell's own `onMouseEnter` (same technique `use-tab-drag.ts` uses
       // for its own drag) — a live reorder moves the dragged column's DOM
