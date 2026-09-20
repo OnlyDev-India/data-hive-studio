@@ -9,9 +9,9 @@ describe("findBindVariables", () => {
   });
 
   it("finds ${name} placeholders", () => {
-    expect(
-      findBindVariables(["SELECT * FROM t WHERE id = ${id}"]),
-    ).toEqual(["id"]);
+    expect(findBindVariables(["SELECT * FROM t WHERE id = ${id}"])).toEqual([
+      "id",
+    ]);
   });
 
   it("dedupes a name repeated across statements, keeping first-seen order", () => {
@@ -60,9 +60,9 @@ describe("substituteBindVariables", () => {
   });
 
   it("substitutes ${name} the same way", () => {
-    expect(
-      substituteBindVariables("WHERE id = ${id}", { id: "5" }),
-    ).toBe("WHERE id = 5");
+    expect(substituteBindVariables("WHERE id = ${id}", { id: "5" })).toBe(
+      "WHERE id = 5",
+    );
   });
 
   it("leaves a name missing from values untouched", () => {

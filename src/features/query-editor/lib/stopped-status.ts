@@ -22,12 +22,14 @@ export function stoppedStatusLine(
 
 /** Extra note shown next to the status line: the database did not confirm
  *  the cancel within 3 seconds, so the tab freed up anyway (AC-9). */
-export const WINDING_DOWN_NOTE = "Stopped, the database is still winding it down";
+export const WINDING_DOWN_NOTE =
+  "Stopped, the database is still winding it down";
 
 /** Extra note for a stopped MongoDB console run: MongoDB has no rollback
  *  here, so anything a stopped write already changed stays changed. Shown on
  *  every stopped console run (spec 0006, AC-8). */
-export const MONGO_WRITE_NOTE = "Documents already changed by a write stay changed";
+export const MONGO_WRITE_NOTE =
+  "Documents already changed by a write stay changed";
 
 /** Whether a console command may write (insert, update, delete, replace,
  *  findOneAnd..., bulkWrite, index or collection changes). A stopped one can

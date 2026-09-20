@@ -31,7 +31,9 @@ describe("stoppedStatusLine", () => {
   });
 
   it("says so when nothing had arrived yet", () => {
-    expect(stoppedStatusLine(850, 0)).toBe("Stopped after 850ms, no rows loaded");
+    expect(stoppedStatusLine(850, 0)).toBe(
+      "Stopped after 850ms, no rows loaded",
+    );
   });
 
   it("uses the singular for one row", () => {
@@ -56,7 +58,7 @@ describe("looksLikeMongoWrite", () => {
       "db.users.findOneAndUpdate({}, {})",
       "db.users.bulkWrite([])",
       "db.users.drop()",
-      'db.users . replaceOne({}, {})',
+      "db.users . replaceOne({}, {})",
     ]) {
       expect(looksLikeMongoWrite(cmd), cmd).toBe(true);
     }

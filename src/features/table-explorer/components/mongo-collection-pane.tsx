@@ -94,7 +94,25 @@ export function MongoCollectionPane({
   // up in the Indexes panel) — bumping this re-runs the fetch below.
   const reload_schema = useCallback(() => setSchemaRev((r) => r + 1), []);
 
+  // Each surface is built the first time its tab is shown, then stays mounted.
+  // Opening straight on Schema therefore never runs the data query. Adjusted
+  // during render, React's pattern for state derived from a prop.
+  const [data_opened, setDataOpened] = useState(mode === "data");
+  if (mode === "data" && !data_opened) setDataOpened(true);
+  const [schema_opened, setSchemaOpened] = useState(mode === "schema");
+  if (mode === "schema" && !schema_opened) setSchemaOpened(true);
+
+  // The structure (a document sample plus the index list) waits until the
+  // first page of documents has settled, loaded or failed, so the grid isn't
+  // blank for its round trips. The Schema tab needs it at once.
+  const [data_settled, setDataSettled] = useState(false);
+  if (!data_settled && data_opened && gridBridge && !gridBridge.loading) {
+    setDataSettled(true);
+  }
+  const schema_wanted = mode === "schema" || data_settled;
+
   useEffect(() => {
+    if (!schema_wanted) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -113,7 +131,7 @@ export function MongoCollectionPane({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, collection, schema_rev, database]);
+  }, [conn_id, collection, schema_rev, database, schema_wanted]);
 
   useEffect(() => {
     if (mode !== "schema") return;
@@ -170,10 +188,15 @@ export function MongoCollectionPane({
     });
   };
 
-  const columns: FilterColumn[] = (schema?.columns ?? []).map((c) => ({
-    name: c.name,
-    data_type: c.data_type,
-  }));
+  // Usable before the structure arrives: the documents' own field names stand
+  // in for it (untyped), and the raw query box never needed columns at all.
+  const result_columns = gridBridge?.all_columns;
+  const columns: FilterColumn[] = schema
+    ? schema.columns.map((c) => ({
+        name: c.name,
+        data_type: c.data_type,
+      }))
+    : (result_columns ?? []).map((name) => ({ name, data_type: "" }));
 
   // Measured from this pane's own root — not GridActionBar's own rendered
   // width, which shrinks the instant it collapses (see that file's doc
@@ -181,22 +204,19 @@ export function MongoCollectionPane({
   const pane_ref = useRef<HTMLDivElement>(null);
   // const compact_toolbar = usePaneCompactWidth(pane_ref);
 
-  // One continuous elapsed-time origin for the whole loading span (schema
-  // fetch through the grid's own query), and the overlay stays mounted
-  // continuously across it. Schema resolving and the grid publishing its
-  // own loading state to the store happen one render apart (the grid
-  // mounts and reads its initial `loading: true`, but only an *effect*
-  // pushes that into `gridBridges` — a moment after commit) — without the
-  // grace delay below, `is_loading` would visit `false` for that one
-  // render, unmounting/remounting the overlay and resetting its timer.
-  // Scoped to whichever mode is actually showing: the Data tab cares about
-  // the grid's own fetch, not a schema-apply running on the Schema tab
-  // (and vice versa) — both still need the initial schema fetch (`!schema`)
-  // first, since neither Grid nor SchemaTab can render without it.
+  // One continuous elapsed-time origin for the whole loading span, and the
+  // overlay stays mounted continuously across it. The grid mounts and reads
+  // its initial `loading: true`, but only an *effect* pushes that into
+  // `gridBridges` — a moment after commit, hence the `!gridBridge` term:
+  // without it, and the grace delay below, `is_loading` would visit `false`
+  // for that one render, unmounting/remounting the overlay and resetting its
+  // timer. Scoped to whichever mode is showing: the Data tab waits on the
+  // grid's own fetch only (the structure loads after it), the Schema tab on
+  // the structure and a schema Apply.
   const is_loading =
     !failed &&
     (mode === "data"
-      ? !schema || !!gridBridge?.loading
+      ? !gridBridge || !!gridBridge.loading
       : !schema || !!schemaEdit?.busy);
   const [loading_start, setLoadingStart] = useState<number | null>(null);
   useEffect(() => {
@@ -252,106 +272,122 @@ export function MongoCollectionPane({
         </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {failed ? (
-          <div className="flex flex-col items-center gap-2 px-3 py-8 text-center">
+        {failed && (
+          <div
+            role="alert"
+            className={cn(
+              "flex flex-col gap-2",
+              mode === "data"
+                ? "border-destructive/30 bg-destructive/5 shrink-0 border-b px-3 py-1.5"
+                : "items-center px-3 py-8 text-center",
+            )}
+          >
             <p className="text-destructive flex items-center gap-2 text-sm">
-              <AlertCircle className="h-4 w-4" /> Failed to load collection “
-              {collection}”.
+              <AlertCircle className="h-4 w-4" />
+              {mode === "data"
+                ? `Couldn’t load the structure of “${collection}”, so editing is off.`
+                : `Failed to load collection “${collection}”.`}
             </p>
             {fail_error && (
-              <pre className="border-destructive/30 bg-destructive/5 text-destructive max-w-lg overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap">
+              <pre
+                className={cn(
+                  "border-destructive/30 bg-destructive/5 text-destructive overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap",
+                  mode === "data" ? "max-h-20 overflow-y-auto" : "max-w-lg",
+                )}
+              >
                 {fail_error}
               </pre>
             )}
           </div>
-        ) : (
-          schema && (
-            <>
-              {/* Both surfaces stay mounted (hidden while inactive), same as
-                  the SQL TablePane: the grid keeps its rows/scroll and never
-                  refetches on a mode switch, and the schema editor keeps its
-                  drafts. */}
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col",
-                  mode === "data" ? "flex" : "hidden",
-                )}
-              >
-                {/* `Grid` always sits in this same ResizablePanelGroup/
-                    ResizablePanel slot regardless of `bottomPanelOpen` — see
-                    the identical note in `table-pane.tsx` for why. */}
-                <ResizablePanelGroup
-                  orientation="vertical"
-                  className="min-h-0 flex-1"
-                  defaultLayout={defaultLayout}
-                  onLayoutChanged={onLayoutChanged}
-                >
-                  <ResizablePanel
-                    id="top-panel"
-                    minSize="30%"
-                    className={cn("flex-col", bottomPanelOpen && "border-b")}
-                  >
-                    <Grid
-                      conn_id={conn_id}
-                      table={collection}
-                      schema={schema}
-                      revision={refresh_rev}
-                      tab_key={tab_key}
-                      filters={filters}
-                      custom_where={custom_where}
-                      distinct={{}}
-                      on_refresh={refresh_data_only}
-                      kind="mongo"
-                      database={database}
-                      on_column_filter={set_column_filter}
-                    />
-                  </ResizablePanel>
-                  <ResizableHandle className="bg-background hover:bg-accent h-1!" />
-                  <ResizablePanel
-                    id="bottom-panel"
-                    defaultSize={bottomDefaultSize}
-                    minSize={10}
-                    collapsible
-                    collapsedSize={0}
-                    className="min-h-0 flex-col"
-                    panelRef={bottomPanelRef}
-                  >
-                    <JsonViewer conn_id={conn_id} tab_key={tab_key} />
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-              </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1",
-                  mode === "schema" ? "flex flex-col" : "hidden",
-                )}
-              >
-                <MongoSchemaView
-                  conn_id={conn_id}
-                  database={database}
-                  tab_key={tab_key}
-                  collection={collection}
-                  schema={schema}
-                  field_tree={field_tree}
-                  field_tree_loading={field_tree_loading}
-                  field_tree_error={field_tree_error}
-                  on_index_applied={() => {
-                    reload_schema();
-                    on_modified();
-                  }}
-                  on_dropped={on_modified}
-                />
-              </div>
-            </>
-          )
         )}
-        {/* Covers the whole loading span, not just the grid's own fetch —
-            `!schema` alone used to show a plain spinner during the initial
-            schema fetch, then swap to the fancier QueryLoadingOverlay once
-            the grid mounted and started its own query; one overlay for the
-            whole span avoids that visible style-swap flicker. */}
+        {/* Both surfaces stay mounted once built (hidden while inactive), same
+            as the SQL TablePane: the grid keeps its rows/scroll and never
+            refetches on a mode switch, and the schema editor keeps its
+            drafts. */}
+        {data_opened && (
+          <div
+            className={cn(
+              "min-h-0 flex-1 flex-col",
+              mode === "data" ? "flex" : "hidden",
+            )}
+          >
+            {/* `Grid` always sits in this same ResizablePanelGroup/
+                ResizablePanel slot regardless of `bottomPanelOpen` — see
+                the identical note in `table-pane.tsx` for why. */}
+            <ResizablePanelGroup
+              orientation="vertical"
+              className="min-h-0 flex-1"
+              defaultLayout={defaultLayout}
+              onLayoutChanged={onLayoutChanged}
+            >
+              <ResizablePanel
+                id="top-panel"
+                minSize="30%"
+                className={cn("flex-col", bottomPanelOpen && "border-b")}
+              >
+                <Grid
+                  conn_id={conn_id}
+                  table={collection}
+                  schema={schema}
+                  revision={refresh_rev}
+                  tab_key={tab_key}
+                  filters={filters}
+                  custom_where={custom_where}
+                  distinct={{}}
+                  on_refresh={refresh_data_only}
+                  kind="mongo"
+                  database={database}
+                  on_column_filter={set_column_filter}
+                />
+              </ResizablePanel>
+              <ResizableHandle className="bg-background hover:bg-accent h-1!" />
+              <ResizablePanel
+                id="bottom-panel"
+                defaultSize={bottomDefaultSize}
+                minSize={10}
+                collapsible
+                collapsedSize={0}
+                className="min-h-0 flex-col"
+                panelRef={bottomPanelRef}
+              >
+                <JsonViewer conn_id={conn_id} tab_key={tab_key} />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+        )}
+        {schema_opened && schema && (
+          <div
+            className={cn(
+              "min-h-0 flex-1",
+              mode === "schema" ? "flex flex-col" : "hidden",
+            )}
+          >
+            <MongoSchemaView
+              conn_id={conn_id}
+              database={database}
+              tab_key={tab_key}
+              collection={collection}
+              schema={schema}
+              field_tree={field_tree}
+              field_tree_loading={field_tree_loading}
+              field_tree_error={field_tree_error}
+              on_index_applied={() => {
+                reload_schema();
+                on_modified();
+              }}
+              on_dropped={on_modified}
+            />
+          </div>
+        )}
+        {/* One overlay for the whole span, including the moment before the
+            grid has published its own bridge, so its style never swaps. */}
         {loading_start !== null && (
-          <QueryLoadingOverlay startedAt={loading_start} />
+          <QueryLoadingOverlay
+            startedAt={loading_start}
+            // Only the documents fetch can be given up on; the Schema tab's
+            // wait has nothing to stop.
+            onStop={mode === "data" ? gridBridge?.stop : undefined}
+          />
         )}
       </div>
     </div>

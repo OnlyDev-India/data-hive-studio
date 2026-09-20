@@ -86,7 +86,11 @@ export function rowToObject(
 }
 
 /** Compare two cell values for one sort key (NULLs last, numeric-aware). */
-function compareCells(av: string | null, bv: string | null, asc: boolean): number {
+function compareCells(
+  av: string | null,
+  bv: string | null,
+  asc: boolean,
+): number {
   if (av === null && bv === null) return 0;
   if (av === null) return 1;
   if (bv === null) return -1;

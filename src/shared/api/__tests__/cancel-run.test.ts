@@ -133,7 +133,14 @@ describe("runSqlStream run id", () => {
     const invoke = await tauriInvoke();
     invoke.mockResolvedValueOnce(stoppedResult);
 
-    await runSqlStream("local-1", "select 1", undefined, "shop", "public", "run-7");
+    await runSqlStream(
+      "local-1",
+      "select 1",
+      undefined,
+      "shop",
+      "public",
+      "run-7",
+    );
 
     expect(invoke).toHaveBeenCalledWith(
       "run_sql_stream",
@@ -170,9 +177,19 @@ describe("runSqlStream run id", () => {
     });
     const seen: unknown[] = [];
 
-    const res = await runSqlStream("local-1", "select n", (c) => seen.push(c), undefined, undefined, "run-7");
+    const res = await runSqlStream(
+      "local-1",
+      "select n",
+      (c) => seen.push(c),
+      undefined,
+      undefined,
+      "run-7",
+    );
 
-    expect(seen).toEqual([{ columns: ["n"], rows: [] }, { rows: [["1"], ["2"]] }]);
+    expect(seen).toEqual([
+      { columns: ["n"], rows: [] },
+      { rows: [["1"], ["2"]] },
+    ]);
     expect(res.cancelled).toBe(true);
     expect(res.error).toBeNull();
   });
@@ -182,7 +199,14 @@ describe("runSqlStream run id", () => {
     const invoke = await tauriInvoke();
     invoke.mockResolvedValueOnce({ ...stoppedResult, cancelled: false });
 
-    await runSqlStream("srv:p1:c1", "select 1", undefined, undefined, undefined, "run-7");
+    await runSqlStream(
+      "srv:p1:c1",
+      "select 1",
+      undefined,
+      undefined,
+      undefined,
+      "run-7",
+    );
 
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke.mock.calls[0][0]).toBe("server_run_sql");
@@ -206,7 +230,13 @@ describe("runMongo run id", () => {
     const invoke = await tauriInvoke();
     invoke.mockResolvedValueOnce({ cancelled: true });
 
-    const res = await runMongo("local-1", "shop", "users", "db.users.find({})", "run-9");
+    const res = await runMongo(
+      "local-1",
+      "shop",
+      "users",
+      "db.users.find({})",
+      "run-9",
+    );
 
     expect(invoke).toHaveBeenCalledWith("run_mongo", {
       connId: "local-1",

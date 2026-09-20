@@ -54,6 +54,10 @@ interface SchemaTabProps {
    *  see `open_object` in tables-view.tsx). */
   database?: string;
   schema_name?: string;
+  /** The structure the pane already fetched. It is used as-is for the first
+   *  load, so opening the Schema tab doesn't run the same catalog queries a
+   *  second time; Refresh and a post Apply reload still fetch a fresh one. */
+  initial_schema?: TableSchema | null;
 }
 
 export function SchemaTab({
@@ -64,12 +68,23 @@ export function SchemaTab({
   on_applied,
   database,
   schema_name,
+  initial_schema,
 }: SchemaTabProps) {
-  const [schema, setSchema] = useState<TableSchema | null>(null);
+  const [schema, setSchema] = useState<TableSchema | null>(
+    initial_schema ?? null,
+  );
   const [load_error, setLoadError] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
+  // Only the first load, for the table it was fetched for, can be served by
+  // the pane's copy; a later Refresh or post Apply reload bumps `rev`, and a
+  // different table or database changes the key, so both read the database.
+  const target_key = [conn_id, database ?? "", schema_name ?? "", table].join(
+    "\u0000",
+  );
+  const seeded_for = useRef(initial_schema != null ? target_key : null);
 
   useEffect(() => {
+    if (rev === 0 && seeded_for.current === target_key) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -88,7 +103,7 @@ export function SchemaTab({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, table, rev, database, schema_name]);
+  }, [conn_id, table, rev, database, schema_name, target_key]);
 
   if (schema === null) {
     return (

@@ -565,7 +565,8 @@ export function describe_schema_changes(
       },
     });
   }
-  if (column_rows.length) sections.push({ entity: "column", rows: column_rows });
+  if (column_rows.length)
+    sections.push({ entity: "column", rows: column_rows });
 
   const index_rows: DdlNamedRow[] = [];
   const dropped_idx = new Set<string>();

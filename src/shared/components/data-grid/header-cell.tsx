@@ -290,7 +290,7 @@ export function HeaderCell({
           ))}
         {is_sorted && sort_index !== null && sort_count > 1 && (
           <span
-            className="text-muted-foreground bg-muted -ml-0.5 shrink-0 rounded-full px-1 text-3xs leading-4 tabular-nums"
+            className="text-muted-foreground bg-muted text-3xs -ml-0.5 shrink-0 rounded-full px-1 leading-4 tabular-nums"
             title={`Sort priority ${sort_index + 1} of ${sort_count}`}
           >
             {sort_index + 1}

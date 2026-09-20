@@ -1,4 +1,8 @@
-import { StateField, type EditorState, type Extension } from "@codemirror/state";
+import {
+  StateField,
+  type EditorState,
+  type Extension,
+} from "@codemirror/state";
 import { EditorView, showTooltip, type Tooltip } from "@codemirror/view";
 import { maskStringsAndComments } from "@/shared/lib/utils";
 import { SQL_SIGNATURES, type FnSignature } from "./sql-signatures";

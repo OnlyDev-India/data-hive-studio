@@ -116,7 +116,10 @@ describe("stampLegacySqlTabs", () => {
 });
 
 describe("stampLegacySqlTabs edge cases", () => {
-  function leaf(keys: string[], active: string | null): WorkspaceTabs["layout"] {
+  function leaf(
+    keys: string[],
+    active: string | null,
+  ): WorkspaceTabs["layout"] {
     return { type: "leaf", id: "l", tabKeys: keys, activeTabKey: active };
   }
   function workspace(
@@ -124,7 +127,12 @@ describe("stampLegacySqlTabs edge cases", () => {
     active: StudioTab | null,
     layout: WorkspaceTabs["layout"],
   ): WorkspaceTabs {
-    return { tabs, active, layout, focusedPaneId: "l" } as unknown as WorkspaceTabs;
+    return {
+      tabs,
+      active,
+      layout,
+      focusedPaneId: "l",
+    } as unknown as WorkspaceTabs;
   }
 
   it("keeps a non SQL active tab active and untouched", () => {
@@ -189,7 +197,11 @@ describe("stampLegacySqlTabs edge cases", () => {
   it("does not change the saved object it was given", () => {
     const legacy: StudioTab = { kind: "sql", id: 0 };
     const saved: SavedWorkspace = {
-      workspace: workspace([legacy], legacy, leaf([tabKey(legacy)], tabKey(legacy))),
+      workspace: workspace(
+        [legacy],
+        legacy,
+        leaf([tabKey(legacy)], tabKey(legacy)),
+      ),
       sqlSeeds: { "sql:0": "select 1" },
     };
 

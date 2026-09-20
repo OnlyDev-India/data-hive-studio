@@ -22,6 +22,8 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { ExportMenu } from "@/features/data-export";
 import { NotificationBell } from "@/features/notifications";
+import { WEB } from "@/shared/api/web";
+import { useAppShortcut, useShortcuts } from "@/shared/hooks/use-shortcut";
 import { formatQueryPreview } from "./query-preview";
 import { IconTypeMap } from "@/shared/components/icons/types";
 
@@ -41,6 +43,21 @@ export function ActionBar() {
   );
   const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
+  // Reload the active table's rows. Lives here because this is the one place
+  // that knows which tab's grid is showing. Not on the web build, where the
+  // same keys reload the whole page (see studio.tsx's leave confirm).
+  const reload_binding = useAppShortcut("grid.reload");
+  useShortcuts(
+    [
+      {
+        ...reload_binding,
+        handler: () => {
+          if (bridge && !bridge.loading) bridge.refresh();
+        },
+      },
+    ],
+    { enabled: !WEB && !!bridge && paneMode === "data", capture: true },
+  );
   // New-table tab registers its create action under its tab key — the button
   // shows only while a NEW-TABLE tab is active, enabled only when valid.
   const newTable = useStudioStore((s) =>
@@ -114,7 +131,8 @@ export function ActionBar() {
                     </span>
                   )}
                   <span className="text-muted-foreground/80 shrink-0">
-                    {bridge.rows} of {bridge.total} rows
+                    {bridge.rows} of {bridge.total_pending ? "…" : bridge.total}{" "}
+                    rows
                   </span>
                   {query_preview && (
                     <code

@@ -46,9 +46,9 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
 | 16  | ER diagram                                  | Slice 16 | planned     |
 | 17  | Streaming results for Postgres and MongoDB  | Slice 17 | planned     |
-| 18  | Split large backend files                   | Slice 18 | in-progress |
-| 19  | Owner claim and invite only accounts        | Slice 19 | planned     |
-| 20  | Short lived sessions and devices            | Slice 20 | planned     |
+| 18 | Split large backend files | Slice 18 | done |
+| 19 | Owner claim and invite only accounts | Slice 19 | in-progress |
+| 20 | Short lived sessions and devices | Slice 20 | in-progress |
 | 21  | Orgs, members and email bound invites       | Slice 21 | planned     |
 | 22  | Connection roles and grants with expiry     | Slice 22 | planned     |
 | 23  | Groups                                      | Slice 23 | planned     |
@@ -434,9 +434,7 @@ code in `crates/dh-core/src/db/postgres.rs`, `crates/dh-core/src/db/mongodb.rs`
 
 ## Slice 18: Split large backend files
 
-
-
-### 18. Split large backend files · in-progress · Alpha
+### 18. Split large backend files · done · Alpha
 
 Several backend files have grown very large and each mixes many jobs. The database adapters are the biggest: `mongodb.rs` is about 3400 lines, `postgres.rs` about 3000, `sqlite.rs` about 2100, and `db/mod.rs` about 1400. Past them, a second group sits at 500 to 1000 lines: the team server files (`router.rs`, `vault.rs`, `gateway.rs`, `client.rs`, `orgs.rs`), the native shell files (`servers.rs`, `commands.rs`, `local_connections.rs`), the shared core files (`ssh_tunnel.rs`, `api/common.rs`), and the helpers inside the db folder (`mongo_json.rs`, `mongo_sql.rs`, `runs.rs`). Restructure each one into its own folder of smaller files grouped by job (for an adapter: connecting, running queries, schema work, row edits; for the server: routes grouped by area), so no single file is huge and a change lands in a small, obvious place. This is a move only refactor: behaviour does not change. Run it after slices 10, 11 and 12 land, since they are still editing the db files and splitting first would cause heavy merge conflicts. Slices 19 to 27 then rework the server files inside the smaller layout. The design pass settles the size line that makes a file worth splitting, where to cut each one, whether `db/mod.rs` is included, how the public paths other crates import and the Tauri command names the frontend calls stay unchanged, and whether it lands as one pass or as a few commits by area.
 **Done when:** no large backend file is left as one big file (each is a folder of focused files), every existing backend test still passes unchanged, and no code outside the files being split needed a change to keep compiling, including the Tauri commands the frontend calls.
@@ -446,39 +444,57 @@ code in `crates/dh-core/src`, `src-tauri/src`
 - [x] Design it (spec): `/architect split large backend files`
 - [ ] Build it: `/develop split large backend files`
   - [ ] Gate and baseline: slices 10, 11 and 12 merged, fresh branch, saved test lists and size report (waits for those slices, and the spec recommends landing before slice 17) — satisfies AC-4, AC-9
-  - [ ] Pilots: Postgres adapter and the Tauri commands, proving the thin trait wrapper, test placement and the handler paths — satisfies AC-1, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8
-  - [ ] Rest of the adapters and the shared core: MongoDB, SQLite, `db/mod.rs`, `mongo_json`, `mongo_sql`, `api/common` — satisfies AC-1, AC-3, AC-5, AC-6, AC-7, AC-8
-  - [ ] Team server and the rest of the native shell: `router`, `gateway`, `vault`, `client`, `servers`, `local_connections` — satisfies AC-1, AC-3, AC-5, AC-7
-  - [ ] Final gate and after merge: size report empty, test lists match, workspace compiles, then `/sync` for the AGENTS.md updates — satisfies AC-1, AC-2, AC-3, AC-4, AC-9, AC-10
-- [ ] Verify it: `/check verify split large backend files`
+  - [x] Pilots: Postgres adapter and the Tauri commands, proving the thin trait wrapper, test placement and the handler paths — satisfies AC-1, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8
+  - [x] Rest of the adapters and the shared core: MongoDB, SQLite, `db/mod.rs`, `mongo_json`, `mongo_sql`, `api/common` — satisfies AC-1, AC-3, AC-5, AC-6, AC-7, AC-8
+  - [x] Team server and the rest of the native shell: `router`, `gateway`, `vault`, `client`, `servers`, `local_connections` — satisfies AC-1, AC-3, AC-5, AC-7
+  - [x] Final gate and after merge: size report empty, test lists match, workspace compiles, then `/sync` for the AGENTS.md updates — satisfies AC-1, AC-2, AC-3, AC-4, AC-9, AC-10
+- [x] Verify it: `/check verify split large backend files`
 
 
 
 ## Slice 19: Owner claim and invite only accounts
 
-
-
-### 19. Owner claim and invite only accounts · needs a decision · GA
+### 19. Owner claim and invite only accounts · in-progress · GA
 
 This starts the team server access rebuild (slices 19 to 27), a fresh start with no migration from the current server, aimed at small self hosted teams first. Today anyone who can reach a new server and sign in with Google or GitHub gets an account. Make a new server start closed: a one time setup code printed in the server log lets the first person claim the server owner role, and after that only invited people get an account. The same person signing in through Google and through GitHub with the same verified email becomes one account (today the second sign in fails, because email must be unique). The design pass settles the account shape, how the server keeps versioned schema changes (today it only creates tables if missing), and what happens with an email a provider has not verified.
 **Done when:** a fresh server refuses every sign in until the first person enters the setup code, a stranger who signs in later without an invite gets no account, and one verified email used through Google and GitHub lands in a single account.
+spec [0010](../specs/0010-owner-claim-invite-only-accounts/index.md)
 code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/store.rs`, `crates/dh-server/src/main.rs`
 
-- [ ] Design it (spec): `/architect owner claim and invite only accounts`
+- [x] Design it (spec): `/architect owner claim and invite only accounts`
+- [ ] Build it: `/develop owner claim and invite only accounts`
+  - [ ] Migrations and the old database guard: numbered sqlx migrations, baseline schema with accounts, identities, settings and invites, refusal of a database the old server made — satisfies AC-11
+  - [ ] Closed server and claim, on the server, desktop and web: verified email at both providers, sign in decision, setup code, claim ticket and claim, return address check, claim step and refusal messages — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-7, AC-10, AC-12
+  - [ ] Invites: invite by email, join on first sign in, refresh and revoke, Server access page Invites section, audit rows — satisfies AC-6, AC-8, AC-12, AC-13
+  - [ ] Roles: accounts list, role changes, the can manage roles switch, last owner guard, People section — satisfies AC-9, AC-12, AC-13
+  - [ ] Close out: main.rs and compose env docs, 500 line check, all tests green — satisfies AC-11, AC-12, AC-13
+- [ ] Verify it: `/check verify owner claim and invite only accounts`
+- [ ] Test it: `/test owner claim and invite only accounts`
+- [ ] Review it (fresh model): `/check review owner claim and invite only accounts`
+- [ ] Document it: `/document owner claim and invite only accounts`
 
 
 
 ## Slice 20: Short lived sessions and devices
 
-
-
-### 20. Short lived sessions and devices · needs a decision · GA
+### 20. Short lived sessions and devices · in-progress · GA
 
 Sessions are one 30 day token today, and it travels in a URL back to the desktop app. Replace it with a short token that renews quietly, one session per device. People see their devices and can sign out one or all of them, and the server owner can end every session of a person. This covers both the desktop app and the web UI the server serves. The design pass settles how the token is handed to the desktop app safely, how renewal stays safe if a token is stolen, and where the web page keeps it.
 **Done when:** a signed in desktop app and web page keep working past the short token life without signing in again, signing out one device leaves the others alone, sign out everywhere ends every session, and an expired or revoked token is refused.
+spec [0010](../specs/0010-short-lived-sessions-and-devices/index.md)
 code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/router.rs`, `src-tauri/src/servers.rs`
 
-- [ ] Design it (spec): `/architect short lived sessions and devices`
+- [x] Design it (spec): `/architect short lived sessions and devices`
+- [ ] Build it: `/develop short lived sessions and devices`
+  - [ ] Thin thread, desktop: the three tables, code and PKCE handoff, `next` allowlist, short token and plain rotating renewal, `ServerClient` renewing quietly, desktop token kept in Rust per server, old tokens dropped — satisfies AC-1, AC-3, AC-4, AC-5, AC-13, AC-14, AC-17, AC-19
+  - [ ] Hardened renewal: row lock, 30 second replay, reuse detection, idle and 90 day expiry, lazy cleanup, cap of 25 devices — satisfies AC-6, AC-7, AC-8
+  - [ ] Sign out and devices on the server: sign out this device, list and end devices, sign out everywhere, owner ends a person's sessions, audit events — satisfies AC-9, AC-10, AC-11, AC-12, AC-18 (the owner check comes from slice 19)
+  - [ ] Desktop screens: signed out state, Sign in again, Sign out, Remove signs out, My devices dialog — satisfies AC-11, AC-14, AC-15, AC-16
+  - [ ] Web and close out: HttpOnly cookie, in memory short token with renewal across tabs, sign in on the code flow, `localStorage` scrub, My devices on the web, `no-store`, startup warning, upgrade notes — satisfies AC-2, AC-4, AC-13, AC-16, AC-17, AC-19
+- [ ] Verify it: `/check verify short lived sessions and devices`
+- [ ] Test it: `/test short lived sessions and devices`
+- [ ] Review it (fresh model): `/check review short lived sessions and devices`
+- [ ] Document it: `/document short lived sessions and devices`
 
 
 
@@ -595,6 +611,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Access requests with approval**: a member asks for time limited access to a connection and an admin approves it, building on grant expiry (slice 22) · from the team server access rebuild · needs a decision
 - **Schema and table level permissions**: rules narrower than one connection, such as one schema only. Slice 22 leaves room in the access model but enforces per connection only · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/gateway.rs`
 - **Email and password, magic link and Microsoft sign in**: more ways to sign in than Google and GitHub · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/auth.rs`
+- **Owner button to end a person's sessions**: slice 20 ships the route, the store call and the Tauri command that let the server owner end every session of a person (spec 0010), but no screen calls it. Add the button on the members or suspend screen that slices 19, 21 or 26 build · from spec 0010 · code in `src/features/sharing/components/members-panel.tsx`
 
 
 

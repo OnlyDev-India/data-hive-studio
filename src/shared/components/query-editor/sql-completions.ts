@@ -4,7 +4,27 @@ import type {
   CompletionResult,
   CompletionSource,
 } from "@codemirror/autocomplete";
+import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
 import { statementRanges } from "@/shared/lib/utils";
+
+/** lang-sql's SQLite support (highlighting + built-in keyword/schema
+ * completion). Keyword suggestions, and so the text inserted on accept, are
+ * upper-case only for the "upper" keyword case setting: lang-sql always
+ * emits its dictionary lower-case, so "lower" needs nothing extra, and
+ * "preserve" has no existing text to preserve in a suggestion list — it
+ * keeps the lower-case default. */
+export function sqlLanguageSupport(
+  keyword_case: "preserve" | "upper" | "lower",
+  schema: Record<string, Completion[]> | undefined,
+  tables: Completion[],
+) {
+  return sqlLang({
+    dialect: SQLiteDialect,
+    schema,
+    tables,
+    upperCaseKeywords: keyword_case === "upper",
+  });
+}
 
 /** The `;`-delimited statement containing `pos` — falls back to the last
  * statement so a trailing/partial one (still being typed, no `;` yet) is

@@ -135,14 +135,10 @@ describe("sortRows", () => {
       ["1", "c"],
     ];
     expect(
-      sortRows(rows, columns, [{ column: "id", asc: true }]).map(
-        (r) => r[0],
-      ),
+      sortRows(rows, columns, [{ column: "id", asc: true }]).map((r) => r[0]),
     ).toEqual(["1", "2", "10"]);
     expect(
-      sortRows(rows, columns, [{ column: "id", asc: false }]).map(
-        (r) => r[0],
-      ),
+      sortRows(rows, columns, [{ column: "id", asc: false }]).map((r) => r[0]),
     ).toEqual(["10", "2", "1"]);
   });
 
@@ -153,9 +149,7 @@ describe("sortRows", () => {
       ["x", "bob"],
     ];
     expect(
-      sortRows(rows, columns, [{ column: "name", asc: true }]).map(
-        (r) => r[1],
-      ),
+      sortRows(rows, columns, [{ column: "name", asc: true }]).map((r) => r[1]),
     ).toEqual(["alice", "bob", "charlie"]);
   });
 
@@ -166,14 +160,10 @@ describe("sortRows", () => {
       ["3", "c"],
     ];
     expect(
-      sortRows(rows, columns, [{ column: "id", asc: true }]).map(
-        (r) => r[0],
-      ),
+      sortRows(rows, columns, [{ column: "id", asc: true }]).map((r) => r[0]),
     ).toEqual(["1", "3", null]);
     expect(
-      sortRows(rows, columns, [{ column: "id", asc: false }]).map(
-        (r) => r[0],
-      ),
+      sortRows(rows, columns, [{ column: "id", asc: false }]).map((r) => r[0]),
     ).toEqual(["3", "1", null]);
   });
 

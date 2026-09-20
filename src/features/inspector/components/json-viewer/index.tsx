@@ -440,7 +440,7 @@ export function JsonViewer({
       {jsonRow && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent
-            className="flex h-[80vh] w-[min(760px,92vw)] max-w-[92vw] min-w-0 flex-col gap-0 overflow-hidden p-0"
+            className="flex h-[80vh] min-w-[65%] flex-col gap-0 overflow-hidden p-0"
             hideCloseButton
           >
             <DialogTitle className="sr-only">Row JSON</DialogTitle>

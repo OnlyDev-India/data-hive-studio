@@ -575,17 +575,15 @@ export function mongoFieldTree(
   database: string,
   collection: string,
 ): Promise<FieldShape[]> {
-  return dedupe(
-    `field-tree:${connId} ${database} ${collection}`,
-    () =>
-      dispatchDbCall<FieldShape[]>(connId, {
-        httpMethod: "GET",
-        httpPath: (id) =>
-          `/v1/c/${encodeURIComponent(id)}/mongo/field-tree/${encodeURIComponent(collection)}?database=${encodeURIComponent(database)}`,
-        serverCmd: "server_mongo_field_tree",
-        localCmd: "mongo_field_tree",
-        args: { connId, database, collection },
-      }),
+  return dedupe(`field-tree:${connId} ${database} ${collection}`, () =>
+    dispatchDbCall<FieldShape[]>(connId, {
+      httpMethod: "GET",
+      httpPath: (id) =>
+        `/v1/c/${encodeURIComponent(id)}/mongo/field-tree/${encodeURIComponent(collection)}?database=${encodeURIComponent(database)}`,
+      serverCmd: "server_mongo_field_tree",
+      localCmd: "mongo_field_tree",
+      args: { connId, database, collection },
+    }),
   );
 }
 
