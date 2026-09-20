@@ -459,15 +459,15 @@ code in `crates/dh-core/src`, `src-tauri/src`
 This starts the team server access rebuild (slices 19 to 27), a fresh start with no migration from the current server, aimed at small self hosted teams first. Today anyone who can reach a new server and sign in with Google or GitHub gets an account. Make a new server start closed: a one time setup code printed in the server log lets the first person claim the server owner role, and after that only invited people get an account. The same person signing in through Google and through GitHub with the same verified email becomes one account (today the second sign in fails, because email must be unique). The design pass settles the account shape, how the server keeps versioned schema changes (today it only creates tables if missing), and what happens with an email a provider has not verified.
 **Done when:** a fresh server refuses every sign in until the first person enters the setup code, a stranger who signs in later without an invite gets no account, and one verified email used through Google and GitHub lands in a single account.
 spec [0010](../specs/0010-owner-claim-invite-only-accounts/index.md)
-code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/store.rs`, `crates/dh-server/src/main.rs`
+code in `crates/dh-core/src/server/auth/`, `crates/dh-core/src/server/store.rs`, `crates/dh-core/migrations/`, `crates/dh-core/src/server/router/`, `crates/dh-server/src/main.rs`, `src-tauri/src/servers/`, `src/features/sharing/components/`, `src/shared/api/server-claim.ts`
 
 - [x] Design it (spec): `/architect owner claim and invite only accounts`
-- [ ] Build it: `/develop owner claim and invite only accounts`
-  - [ ] Migrations and the old database guard: numbered sqlx migrations, baseline schema with accounts, identities, settings and invites, refusal of a database the old server made — satisfies AC-11
-  - [ ] Closed server and claim, on the server, desktop and web: verified email at both providers, sign in decision, setup code, claim ticket and claim, return address check, claim step and refusal messages — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-7, AC-10, AC-12
-  - [ ] Invites: invite by email, join on first sign in, refresh and revoke, Server access page Invites section, audit rows — satisfies AC-6, AC-8, AC-12, AC-13
-  - [ ] Roles: accounts list, role changes, the can manage roles switch, last owner guard, People section — satisfies AC-9, AC-12, AC-13
-  - [ ] Close out: main.rs and compose env docs, 500 line check, all tests green — satisfies AC-11, AC-12, AC-13
+- [x] Build it: `/develop owner claim and invite only accounts`
+  - [x] Migrations and the old database guard: numbered sqlx migrations, baseline schema with accounts, identities, settings and invites, refusal of a database the old server made — satisfies AC-11
+  - [x] Closed server and claim, on the server, desktop and web: verified email at both providers, sign in decision, setup code, claim ticket and claim, return address check, claim step and refusal messages — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-7, AC-10, AC-12
+  - [x] Invites: invite by email, join on first sign in, refresh and revoke, Server access page Invites section, audit rows — satisfies AC-6, AC-8, AC-12, AC-13
+  - [x] Roles: accounts list, role changes, the can manage roles switch, last owner guard, People section — satisfies AC-9, AC-12, AC-13
+  - [x] Close out: main.rs and compose env docs, 500 line check, all tests green — satisfies AC-11, AC-12, AC-13
 - [ ] Verify it: `/check verify owner claim and invite only accounts`
 - [ ] Test it: `/test owner claim and invite only accounts`
 - [ ] Review it (fresh model): `/check review owner claim and invite only accounts`

@@ -58,6 +58,18 @@ services:
       # GITHUB_CLIENT_ID: <id>
       # GITHUB_CLIENT_SECRET: <secret>
       #
+      # A new server is closed: nobody can sign in until its owner claims it.
+      # The setup code is printed in this container's log at every start while
+      # the server is unclaimed (`docker compose logs server`). Sign in, then
+      # enter the code. After that only people an owner or admin invites can
+      # get an account. Point DH_DATABASE_URL at an EMPTY database: a database
+      # made by an older dh-server is refused at start and left untouched.
+      #
+      # Only needed when the Web UI is hosted on a different origin than this
+      # API (VITE_SERVER_URL). Comma separated origins allowed to receive the
+      # sign-in redirect. DH_PUBLIC_URL's origin and loopback are always allowed.
+      # DH_ALLOWED_ORIGINS: https://app.example.com
+      #
       # 64-char hex master key for connection-password encryption; if
       # unset, one is generated into /data on first run and persisted
       # there via the dh-data volume.

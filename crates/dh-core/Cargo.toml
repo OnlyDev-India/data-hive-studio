@@ -7,7 +7,7 @@ description = "Shared core for dh-studio: database adapters (SQLite, PostgreSQL,
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
+sqlx = { workspace = true, features = ["macros"] }
 futures-util.workspace = true
 libsqlite3-sys.workspace = true
 uuid.workspace = true

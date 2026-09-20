@@ -1,6 +1,8 @@
 //! Server state store — PostgreSQL only (`DH_DATABASE_URL` / `DATABASE_URL`).
-//! Holds users, sessions, organizations, org membership + invites, the
-//! connection vault, connection-grant overrides, and the audit log.
+//! Holds users and their provider identities, the claim state and server
+//! invites, sessions, organizations, org membership + invites, the connection
+//! vault, connection-grant overrides, and the audit log. The schema is built
+//! by the numbered files in `crates/dh-core/migrations/`.
 //!
 //! SQLite is deliberately not supported here: this schema is inherently a
 //! hosted, multi-tenant model (organizations, OAuth sessions), and Vercel
@@ -51,14 +53,32 @@ impl Store {
         Ok(store)
     }
 
+    /// Refuse an old-server database, then apply any new numbered migrations.
+    /// sqlx takes a Postgres advisory lock while migrating, so several server
+    /// copies starting at once do not clash.
     async fn migrate(&self) -> Result<(), sqlx::Error> {
-        // `sqlx::query()` prepares via Postgres's extended protocol, which
-        // rejects multiple ;-separated commands in one string ("cannot
-        // insert multiple commands into a prepared statement") — `raw_sql`
-        // uses the simple query protocol instead, which Postgres allows
-        // multi-statement for. DDL only, never user input, so no bind
-        // parameters are needed here anyway.
-        sqlx::raw_sql(PG_DDL).execute(&self.pool).await?;
+        self.guard_old_database().await?;
+        MIGRATOR.run(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The server before migrations had a `users.oauth_provider` column and
+    /// no `_sqlx_migrations` table. Migrating over it would fail half way, so
+    /// stop with a message first and leave the database untouched.
+    async fn guard_old_database(&self) -> Result<(), sqlx::Error> {
+        let old: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = current_schema()
+                              AND table_name = 'users' AND column_name = 'oauth_provider')
+                AND NOT EXISTS (SELECT 1 FROM information_schema.tables
+                                WHERE table_schema = current_schema()
+                                  AND table_name = '_sqlx_migrations')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if old {
+            return Err(sqlx::Error::Configuration(OLD_DATABASE_MESSAGE.into()));
+        }
         Ok(())
     }
 
@@ -89,6 +109,19 @@ impl Store {
         .await
         .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// Append an audit entry with no org, for an actor that has no `AuthCtx`
+    /// yet (the claimer, a person accepting an invite). Best-effort like
+    /// [`Store::audit`].
+    pub async fn audit_user(
+        &self,
+        user_id: &str,
+        action: &str,
+        target: &str,
+        detail: Option<&str>,
+    ) -> Result<(), String> {
+        audit_in(&self.pool, user_id, action, target, detail).await.map_err(|e| e.to_string())
     }
 
     pub async fn audit_recent(&self, org_id: &str, limit: i64) -> Result<Vec<AuditEntry>, String> {
@@ -126,105 +159,40 @@ pub struct AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
-//  PostgreSQL DDL
+//  Migrations
 // ---------------------------------------------------------------------------
 
-const PG_DDL: &str = r#"
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    avatar_url TEXT,
-    oauth_provider TEXT NOT NULL,
-    oauth_subject TEXT NOT NULL,
-    created_ms BIGINT NOT NULL,
-    UNIQUE (oauth_provider, oauth_subject)
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_ms BIGINT NOT NULL,
-    expires_ms BIGINT NOT NULL,
-    last_used_ms BIGINT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE,
-    created_ms BIGINT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS org_members (
-    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('owner','admin','member','viewer')),
-    joined_ms BIGINT NOT NULL,
-    PRIMARY KEY (org_id, user_id)
-);
-CREATE TABLE IF NOT EXISTS org_invites (
-    code TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('owner','admin','member','viewer')),
-    created_by TEXT NOT NULL REFERENCES users(id),
-    max_uses INTEGER,
-    uses_count INTEGER NOT NULL DEFAULT 0,
-    expires_ms BIGINT,
-    created_ms BIGINT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS connections (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'postgres',
-    host TEXT NOT NULL,
-    port INTEGER NOT NULL DEFAULT 5432,
-    "user" TEXT NOT NULL,
-    password_enc BYTEA NOT NULL,
-    database TEXT NOT NULL,
-    ssl_mode TEXT,
-    auth_db TEXT,
-    srv INTEGER NOT NULL DEFAULT 0,
-    tls INTEGER NOT NULL DEFAULT 0,
-    ssl_ca_file TEXT,
-    ssl_client_cert_file TEXT,
-    ssl_client_key_file TEXT,
-    retry_writes INTEGER NOT NULL DEFAULT 0,
-    replica_set TEXT,
-    pool_max INTEGER,
-    pool_min INTEGER,
-    connect_timeout_secs INTEGER,
-    idle_timeout_secs INTEGER,
-    max_lifetime_secs INTEGER,
-    server_selection_timeout_secs INTEGER,
-    ssh_host TEXT,
-    ssh_port INTEGER,
-    ssh_user TEXT,
-    ssh_auth_mode TEXT,
-    ssh_key_file TEXT,
-    ssh_host_key_fingerprint TEXT,
-    ssh_secrets_enc BYTEA,
-    created_by TEXT NOT NULL REFERENCES users(id),
-    created_ms BIGINT NOT NULL,
-    updated_ms BIGINT NOT NULL,
-    archived INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS connection_grants (
-    conn_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    can_read INTEGER NOT NULL DEFAULT 0,
-    can_update INTEGER NOT NULL DEFAULT 0,
-    can_delete INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (conn_id, user_id)
-);
-CREATE TABLE IF NOT EXISTS audit (
-    id BIGSERIAL PRIMARY KEY,
-    ts_ms BIGINT NOT NULL,
-    org_id TEXT,
-    user_id TEXT,
-    action TEXT NOT NULL,
-    target TEXT NOT NULL,
-    detail TEXT
-);
-"#;
+/// Numbered schema changes. An applied file is never edited: add a new one.
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+const OLD_DATABASE_MESSAGE: &str = "this database was made by an older dh-server that had no versioned schema. \
+This version cannot upgrade it and has left it untouched. Point DH_DATABASE_URL at an empty database, \
+or keep running the older dh-server against this one.";
+
+/// Audit insert usable on the pool or inside a transaction, so a trusted
+/// action and its audit row can commit together.
+pub(crate) async fn audit_in<'e, E>(
+    exec: E,
+    user_id: &str,
+    action: &str,
+    target: &str,
+    detail: Option<&str>,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        "INSERT INTO audit (ts_ms, org_id, user_id, action, target, detail) VALUES ($1,NULL,$2,$3,$4,$5)",
+    )
+    .bind(now_ms())
+    .bind(user_id)
+    .bind(action)
+    .bind(target)
+    .bind(detail)
+    .execute(exec)
+    .await?;
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 //  Tests
@@ -252,20 +220,30 @@ fn test_pg_url() -> String {
 /// used to give each test automatically.
 #[cfg(test)]
 pub(crate) async fn test_store() -> Store {
+    let store = Store { pool: test_pool_in(&new_test_schema().await).await, master_key: test_key() };
+    store.migrate().await.expect("migrate test schema");
+    store
+}
+
+/// Create a fresh, empty, randomly named schema and return its name.
+#[cfg(test)]
+async fn new_test_schema() -> String {
     let schema = format!("test_{}", hex::encode(rand::random::<[u8; 8]>()));
-    let url = test_pg_url();
+    let admin_pool = sqlx::PgPool::connect(&test_pg_url()).await.expect("connect for schema setup");
+    sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
+        .execute(&admin_pool)
+        .await
+        .expect("create test schema");
+    admin_pool.close().await;
+    schema
+}
 
-    {
-        let admin_pool = sqlx::PgPool::connect(&url).await.expect("connect for schema setup");
-        sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
-            .execute(&admin_pool)
-            .await
-            .expect("create test schema");
-        admin_pool.close().await;
-    }
-
+/// A pool whose every connection uses `schema` as its `search_path`. Two
+/// pools on one schema stand in for two server copies on one database.
+#[cfg(test)]
+async fn test_pool_in(schema: &str) -> sqlx::PgPool {
     let search_path_sql = format!("SET search_path TO {schema}");
-    let pool = sqlx::postgres::PgPoolOptions::new()
+    sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .after_connect(move |conn, _meta| {
             let sql = search_path_sql.clone();
@@ -274,11 +252,93 @@ pub(crate) async fn test_store() -> Store {
                 Ok(())
             })
         })
-        .connect(&url)
+        .connect(&test_pg_url())
         .await
-        .expect("connect test pool");
+        .expect("connect test pool")
+}
 
-    let store = Store { pool, master_key: test_key() };
-    store.migrate().await.expect("migrate test schema");
-    store
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn table_exists(pool: &sqlx::PgPool, name: &str) -> bool {
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables
+                            WHERE table_schema = current_schema() AND table_name = $1)",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
+    async fn old_server_database_is_refused_and_left_untouched() {
+        let pool = test_pool_in(&new_test_schema().await).await;
+        // The shape the server had before migrations: oauth columns on users.
+        sqlx::query("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, oauth_provider TEXT, oauth_subject TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO users VALUES ('u1','a@x.com','google','s1')").execute(&pool).await.unwrap();
+        let store = Store { pool: pool.clone(), master_key: test_key() };
+
+        let err = store.migrate().await.unwrap_err().to_string();
+        assert!(err.contains("older dh-server"), "clear message, got: {err}");
+        assert!(!table_exists(&pool, "_sqlx_migrations").await, "no migration was started");
+        assert!(!table_exists(&pool, "identities").await, "no new table was made");
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE oauth_provider='google'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(n, 1, "the old data is intact");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database — see server::store::test_store"]
+    async fn new_database_is_built_once_even_when_copies_start_together() {
+        let schema = new_test_schema().await;
+        let a = Store { pool: test_pool_in(&schema).await, master_key: test_key() };
+        let b = Store { pool: test_pool_in(&schema).await, master_key: test_key() };
+        let (ra, rb) = tokio::join!(a.migrate(), b.migrate());
+        ra.expect("first copy migrates");
+        rb.expect("second copy migrates");
+
+        let applied = || async { sqlx::query_scalar::<_, i64>("SELECT count(*) FROM _sqlx_migrations").fetch_one(&a.pool).await.unwrap() };
+        assert_eq!(applied().await, 1);
+        // A restart applies nothing new, and the seeded settings row is still one row.
+        a.migrate().await.expect("restart");
+        assert_eq!(applied().await, 1);
+        let settings: i64 = sqlx::query_scalar("SELECT count(*) FROM server_settings").fetch_one(&a.pool).await.unwrap();
+        assert_eq!(settings, 1);
+        for t in ["users", "identities", "server_settings", "server_invites", "sessions", "organizations", "audit"] {
+            assert!(table_exists(&a.pool, t).await, "{t} exists");
+        }
+    }
+}
+
+/// Insert a user and a Google identity (subject = email) directly, skipping
+/// the sign in decision, so a test can start from any server state.
+#[cfg(test)]
+pub(crate) async fn test_user(store: &Store, email: &str, role: crate::server::auth::ServerRole) -> crate::server::auth::User {
+    let id = uuid::Uuid::new_v4().to_string();
+    let ts = now_ms();
+    sqlx::query("INSERT INTO users (id, email, name, server_role, created_ms) VALUES ($1,$2,$3,$4,$5)")
+        .bind(&id)
+        .bind(email)
+        .bind(email)
+        .bind(role.as_str())
+        .bind(ts)
+        .execute(&store.pool)
+        .await
+        .expect("insert test user");
+    sqlx::query("INSERT INTO identities (provider, subject, user_id, created_ms) VALUES ('google',$1,$2,$3)")
+        .bind(email)
+        .bind(&id)
+        .bind(ts)
+        .execute(&store.pool)
+        .await
+        .expect("insert test identity");
+    store.user_get(&id).await.expect("load test user").expect("test user exists")
 }

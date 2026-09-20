@@ -215,6 +215,7 @@ pub fn run() {
       servers::servers_list,
       servers::servers_oauth_providers,
       servers::servers_oauth_login,
+      servers::servers_claim,
       servers::servers_reuse_session,
       servers::servers_org_create_new,
       servers::servers_org_redeem_invite_new,
@@ -260,6 +261,12 @@ pub fn run() {
       servers::servers_grants_list,
       servers::servers_grant_set,
       servers::servers_grant_revoke,
+      servers::servers_access_invites_list,
+      servers::servers_access_invite_create,
+      servers::servers_access_invite_revoke,
+      servers::servers_access_accounts_list,
+      servers::servers_access_set_role,
+      servers::servers_access_set_manage_roles,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

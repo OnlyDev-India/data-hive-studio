@@ -4,7 +4,9 @@
 //! call — see `gateway.rs`/`orgs.rs`.
 
 use axum::response::IntoResponse;
+mod access;
 mod auth;
+mod redirect;
 mod orgs;
 mod connections;
 mod browse;
@@ -40,7 +42,8 @@ use axum::routing::{delete, get, post, put};
 use axum::Router;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use self::auth::{auth_callback, auth_providers, auth_start, logout, me};
+use self::access::{server_account_manage_roles, server_account_role, server_accounts_list, server_invites_create, server_invites_list, server_invites_revoke};
+use self::auth::{auth_callback, auth_claim, auth_providers, auth_start, logout, me};
 use self::browse::{conn_catalog, conn_databases, conn_disconnect_database, conn_extensions, conn_get_active_schema, conn_mongo_field_tree, conn_role_details, conn_roles, conn_schema, conn_schema_objects, conn_schemas, conn_schemas_in, conn_set_active_schema, conn_tables};
 use self::connections::{conn_close, conn_credentials, create_conn, delete_conn, list_grants, org_connections, revoke_grant, set_grant, update_connection};
 use self::query::{conn_duplicate, conn_op, conn_schema_ops, conn_sql};
@@ -66,8 +69,14 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/auth/providers", get(auth_providers))
         .route("/auth/{provider}/start", get(auth_start))
         .route("/auth/{provider}/callback", get(auth_callback))
+        .route("/auth/claim", post(auth_claim))
         .route("/v1/me", get(me))
         .route("/v1/auth/logout", post(logout))
+        .route("/v1/server/invites", get(server_invites_list).post(server_invites_create))
+        .route("/v1/server/invites/{id}", delete(server_invites_revoke))
+        .route("/v1/server/accounts", get(server_accounts_list))
+        .route("/v1/server/accounts/{user_id}/role", put(server_account_role))
+        .route("/v1/server/accounts/{user_id}/manage-roles", put(server_account_manage_roles))
         .route("/v1/orgs", get(list_orgs).post(create_org))
         .route("/v1/orgs/{org_id}/members", get(list_members))
         .route(

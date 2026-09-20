@@ -1,20 +1,18 @@
 use axum::response::IntoResponse;
-use crate::server::auth::AuthCtx;
+use crate::server::auth::{AuthCtx, ClaimError, ClaimTicket, ProfileOutcome, Refusal, SignIn, VerifiedProfile};
 use crate::server::orgs::OrgRole;
+use crate::server::store::now_ms;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Redirect, Response};
 use axum::Json;
+use super::redirect::{next_allowed_env, public_base_url, with_query};
 use super::{AppState, Auth, err_res};
 
 // ---------------------------------------------------------------------------
 //  OAuth
 // ---------------------------------------------------------------------------
 const STATE_COOKIE: &str = "dh_oauth_state";
-
-fn public_base_url() -> String {
-    std::env::var("DH_PUBLIC_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string())
-}
 
 fn read_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
@@ -37,15 +35,20 @@ pub(super) async fn auth_providers() -> Json<Vec<&'static str>> {
 }
 
 /// Redirects to the provider's consent screen. `?next=<url>` is where the
-/// browser lands after a successful login (the session token is appended as
-/// a `token=` query param — not a `#` fragment, since desktop's `next` is a
+/// browser lands afterward, with `token=` (signed in), `ticket=` (this server
+/// still needs its owner to claim it) or `error=<code>&email=<email>` (refused)
+/// added as query params — not a `#` fragment, since desktop's `next` is a
 /// plain local-loopback HTTP listener and fragments are never sent to a
-/// server); omit it to get the session token back as plain JSON from the
-/// callback instead (useful for headless/manual testing).
+/// server. `next` must be a loopback address or an allowed origin (see
+/// `redirect.rs`). Omit it to get the same three outcomes back as JSON from
+/// the callback instead (useful for headless/manual testing).
 pub(super) async fn auth_start(Path(provider): Path<String>, Query(q): Query<StartQuery>) -> Response {
     let Some(cfg) = crate::server::auth::provider_config(&provider) else {
         return (StatusCode::NOT_FOUND, format!("OAuth provider '{provider}' is not configured")).into_response();
     };
+    if q.next.as_deref().is_some_and(|n| !n.is_empty() && !next_allowed_env(n)) {
+        return (StatusCode::BAD_REQUEST, "next is not an allowed return address").into_response();
+    }
     let csrf = hex::encode(rand::random::<[u8; 16]>());
     let redirect_uri = format!("{}/auth/{}/callback", public_base_url(), provider);
     let Some(url) =
@@ -80,6 +83,42 @@ pub(super) struct CallbackQuery {
     pub(super) state: String,
 }
 
+/// What the callback ends in. Sent as a redirect to `next`, or as JSON when
+/// there is no `next`.
+enum Outcome {
+    Token { token: String, user: crate::server::auth::User },
+    Ticket(String),
+    Refused { code: &'static str, email: String },
+}
+
+fn finish(next: &str, outcome: Outcome) -> Response {
+    let mut resp = if next.is_empty() {
+        match outcome {
+            Outcome::Token { token, user } => Json(serde_json::json!({ "token": token, "user": user })).into_response(),
+            Outcome::Ticket(ticket) => Json(serde_json::json!({ "ticket": ticket })).into_response(),
+            Outcome::Refused { code, email } => {
+                (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": code, "email": email }))).into_response()
+            }
+        }
+    } else {
+        let pairs: Vec<(&str, &str)> = match &outcome {
+            Outcome::Token { token, .. } => vec![("token", token)],
+            Outcome::Ticket(ticket) => vec![("ticket", ticket)],
+            Outcome::Refused { code, email } => vec![("error", code), ("email", email)],
+        };
+        match with_query(next, &pairs) {
+            Some(url) => Redirect::temporary(&url).into_response(),
+            None => return (StatusCode::BAD_REQUEST, "malformed return address").into_response(),
+        }
+    };
+    // Clear the state cookie now that it's been used.
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        format!("{STATE_COOKIE}=; Max-Age=0; Path=/").parse().unwrap(),
+    );
+    resp
+}
+
 pub(super) async fn auth_callback(
     State(gw): State<AppState>,
     Path(provider): Path<String>,
@@ -95,42 +134,70 @@ pub(super) async fn auth_callback(
     if csrf != q.state {
         return (StatusCode::BAD_REQUEST, "oauth state mismatch").into_response();
     }
+    // Checked again here: the cookie is the browser's, so it is not trusted
+    // just because start accepted it.
+    if !next.is_empty() && !next_allowed_env(next) {
+        return (StatusCode::BAD_REQUEST, "next is not an allowed return address").into_response();
+    }
     let Some(cfg) = crate::server::auth::provider_config(&provider) else {
         return (StatusCode::NOT_FOUND, format!("OAuth provider '{provider}' is not configured")).into_response();
     };
     let redirect_uri = format!("{}/auth/{}/callback", public_base_url(), provider);
-    let profile = match crate::server::auth::exchange_code(&provider, &cfg, &q.code, &redirect_uri).await {
-        Ok(p) => p,
+    let outcome = match crate::server::auth::exchange_code(&provider, &cfg, &q.code, &redirect_uri).await {
+        Ok(o) => o,
         Err(e) => return (StatusCode::BAD_GATEWAY, format!("oauth exchange failed: {e}")).into_response(),
     };
-    if profile.email.is_empty() {
-        return (StatusCode::BAD_GATEWAY, "provider did not return an email address").into_response();
+    let email_for_log = match &outcome {
+        ProfileOutcome::Verified(p) => p.email.clone(),
+        ProfileOutcome::Unverified { email } => email.clone().unwrap_or_default(),
+    };
+    match gw.store.sign_in(outcome).await {
+        Ok(SignIn::User(user)) => match gw.store.session_create(&user.id).await {
+            Ok(token) => finish(next, Outcome::Token { token, user }),
+            Err(e) => err_res(e),
+        },
+        Ok(SignIn::Ticket(profile)) => ticket_outcome(&gw, next, &profile),
+        Ok(SignIn::Refused { refusal, email }) => refused(next, &provider, refusal, email.unwrap_or(email_for_log)),
+        Err(e) => err_res(e),
     }
-    let user = match gw
-        .store
-        .user_upsert_oauth(&provider, &profile.subject, &profile.email, &profile.name, profile.avatar_url.as_deref())
-        .await
-    {
-        Ok(u) => u,
-        Err(e) => return err_res(e),
-    };
-    let token = match gw.store.session_create(&user.id).await {
-        Ok(t) => t,
-        Err(e) => return err_res(e),
-    };
+}
 
-    let mut resp = if next.is_empty() {
-        Json(serde_json::json!({ "token": token, "user": user })).into_response()
-    } else {
-        let sep = if next.contains('?') { "&" } else { "?" };
-        Redirect::temporary(&format!("{next}{sep}token={token}")).into_response()
+fn ticket_outcome(gw: &AppState, next: &str, profile: &VerifiedProfile) -> Response {
+    match ClaimTicket::seal(profile, &gw.store.master_key, now_ms()) {
+        Ok(ticket) => finish(next, Outcome::Ticket(ticket)),
+        Err(e) => err_res(e),
+    }
+}
+
+/// A refused sign in only prints a log line: nothing is written to the
+/// database, and the person is told their own email and the reason.
+fn refused(next: &str, provider: &str, refusal: Refusal, email: String) -> Response {
+    eprintln!("sign in refused: {} (provider {provider}, email {email:?})", refusal.code());
+    finish(next, Outcome::Refused { code: refusal.code(), email })
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct ClaimBody {
+    ticket: String,
+    code: String,
+}
+
+/// Claim a new server: the ticket from a sign in plus the setup code from the
+/// server log. Needs no token, the ticket and code are the proof.
+pub(super) async fn auth_claim(State(gw): State<AppState>, Json(body): Json<ClaimBody>) -> Response {
+    let err = |status: StatusCode, e: &ClaimError| {
+        (status, Json(serde_json::json!({ "error": e.code() }))).into_response()
     };
-    // Clear the state cookie now that it's been used.
-    resp.headers_mut().insert(
-        header::SET_COOKIE,
-        format!("{STATE_COOKIE}=; Max-Age=0; Path=/").parse().unwrap(),
-    );
-    resp
+    match gw.store.claim(&body.ticket, &body.code).await {
+        Ok(user) => match gw.store.session_create(&user.id).await {
+            Ok(token) => Json(serde_json::json!({ "token": token, "user": user })).into_response(),
+            Err(e) => err_res(e),
+        },
+        Err(e @ ClaimError::TicketInvalid) => err(StatusCode::BAD_REQUEST, &e),
+        Err(e @ ClaimError::CodeInvalid) => err(StatusCode::FORBIDDEN, &e),
+        Err(e @ ClaimError::AlreadyClaimed) => err(StatusCode::CONFLICT, &e),
+        Err(ClaimError::Other(e)) => err_res(e),
+    }
 }
 
 pub(super) async fn logout(State(gw): State<AppState>, headers: HeaderMap) -> Response {

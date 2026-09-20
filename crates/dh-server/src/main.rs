@@ -27,6 +27,12 @@
 //!                    to build the OAuth redirect_uri (default
 //!                    http://127.0.0.1:8080 — must be set correctly in any
 //!                    real deployment or OAuth callbacks will fail).
+//!   DH_ALLOWED_ORIGINS   optional, comma separated origins that may receive the
+//!                    sign-in redirect (the session token or claim ticket is
+//!                    appended to it). Needed only when the Web UI is hosted on
+//!                    a different origin than this API (`VITE_SERVER_URL`). The
+//!                    origin of DH_PUBLIC_URL and loopback addresses (the
+//!                    desktop app) are always allowed.
 //!   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID /
 //!   GITHUB_CLIENT_SECRET   OAuth app credentials — sign-in with a provider
 //!                    is unavailable until its pair is set.
@@ -35,6 +41,15 @@
 //! or GitHub — see `dh_core::server::auth`), holding a Bearer session token.
 //! Users create/join Organizations and share connections within them —
 //! there is no more admin-minted opaque-token model.
+//!
+//! A new server is closed. It has no owner, prints a setup code in this log
+//! at every start, and refuses to make any account until the first person
+//! signs in and enters that code. After that, only people whose verified
+//! email an owner or admin invited can get an account. Claim it promptly, and
+//! do not share the log of an unclaimed server: the code is derived from the
+//! master key, so it is the same at every start until the server is claimed.
+//! The database is built by numbered migrations; a database made by an older
+//! dh-server is refused at start and left untouched (use an empty database).
 
 use dh_core::server::gateway::Gateway;
 use dh_core::server::router::build_router;
@@ -56,8 +71,38 @@ async fn main() {
         );
     let master_key = load_or_create_master_key(&data_dir);
 
-    let store = Store::open(StoreConfig { master_key, pg_url }).await.expect("open store");
+    let store = match Store::open(StoreConfig { master_key, pg_url }).await {
+        Ok(store) => store,
+        Err(e) => {
+            // `expect` would print a debug dump; the refusal of an old
+            // database is a message an operator has to be able to read.
+            eprintln!("error: could not open the server database: {e}");
+            std::process::exit(1);
+        }
+    };
+    print_setup_banner(&store).await;
     serve(store).await;
+}
+
+/// While the server has no owner, print the setup code. Printed at every
+/// start, so an operator who missed it can restart and read it again.
+async fn print_setup_banner(store: &Store) {
+    match store.is_claimed().await {
+        Ok(false) => {
+            let bar = "=".repeat(68);
+            println!("{bar}");
+            println!(" This server has no owner yet, and nobody can sign in until it is claimed.");
+            println!(" Sign in from the DH Studio desktop app or the web page, then enter:");
+            println!();
+            println!("     {}", store.setup_code());
+            println!();
+            println!(" The code stops working once the server is claimed. Claim it promptly,");
+            println!(" and do not share the log of an unclaimed server.");
+            println!("{bar}");
+        }
+        Ok(true) => {}
+        Err(e) => eprintln!("warning: could not read the claim state: {e}"),
+    }
 }
 
 async fn serve(store: Store) {
