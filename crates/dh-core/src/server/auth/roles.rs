@@ -155,6 +155,7 @@ mod tests {
     fn ctx(role: ServerRole, switch: bool) -> AuthCtx {
         AuthCtx {
             user_id: "actor".into(),
+            session_id: String::new(),
             email: "actor@x.com".into(),
             name: "A".into(),
             server_role: role,

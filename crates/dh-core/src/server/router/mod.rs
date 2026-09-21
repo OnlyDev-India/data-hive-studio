@@ -1,12 +1,13 @@
 //! REST API for the dh-studio server. Every `/v1/...` route requires a
-//! Bearer session token except the OAuth entry points themselves
-//! (`/auth/...`, which establish one). Org membership/role is enforced per
+//! Bearer access token except the sign in entry points themselves
+//! (`/auth/...`, which establish or renew a session). Org membership/role is enforced per
 //! call — see `gateway.rs`/`orgs.rs`.
 
 use axum::response::IntoResponse;
 mod access;
 mod auth;
 mod redirect;
+mod session;
 mod orgs;
 mod connections;
 mod browse;
@@ -14,6 +15,7 @@ mod query;
 mod mongo;
 
 pub use connections::GrantBody;
+pub use redirect::insecure_public_url_warning;
 pub use browse::{
     TargetQuery,
     FieldTreeQuery,
@@ -43,7 +45,8 @@ use axum::Router;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use self::access::{server_account_manage_roles, server_account_role, server_accounts_list, server_invites_create, server_invites_list, server_invites_revoke};
-use self::auth::{auth_callback, auth_claim, auth_providers, auth_start, logout, me};
+use self::auth::{auth_callback, auth_claim, auth_providers, auth_start, me};
+use self::session::{auth_exchange, auth_refresh, logout, my_session_end, my_sessions, my_sessions_end_all, owner_end_sessions, unauthorized};
 use self::browse::{conn_catalog, conn_databases, conn_disconnect_database, conn_extensions, conn_get_active_schema, conn_mongo_field_tree, conn_role_details, conn_roles, conn_schema, conn_schema_objects, conn_schemas, conn_schemas_in, conn_set_active_schema, conn_tables};
 use self::connections::{conn_close, conn_credentials, create_conn, delete_conn, list_grants, org_connections, revoke_grant, set_grant, update_connection};
 use self::query::{conn_duplicate, conn_op, conn_schema_ops, conn_sql};
@@ -70,8 +73,13 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/auth/{provider}/start", get(auth_start))
         .route("/auth/{provider}/callback", get(auth_callback))
         .route("/auth/claim", post(auth_claim))
+        .route("/auth/exchange", post(auth_exchange))
+        .route("/auth/refresh", post(auth_refresh))
         .route("/v1/me", get(me))
         .route("/v1/auth/logout", post(logout))
+        .route("/v1/me/sessions", get(my_sessions).delete(my_sessions_end_all))
+        .route("/v1/me/sessions/{id}", delete(my_session_end))
+        .route("/v1/admin/users/{user_id}/sessions", delete(owner_end_sessions))
         .route("/v1/server/invites", get(server_invites_list).post(server_invites_create))
         .route("/v1/server/invites/{id}", delete(server_invites_revoke))
         .route("/v1/server/accounts", get(server_accounts_list))
@@ -137,7 +145,7 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .with_state(gateway)
 }
 
-/// Bearer session-token extractor; resolves to an [`AuthCtx`] or 401.
+/// Bearer access-token extractor; resolves to an [`AuthCtx`] or 401.
 struct Auth(AuthCtx);
 
 impl FromRequestParts<Arc<Gateway>> for Auth {
@@ -151,9 +159,9 @@ impl FromRequestParts<Arc<Gateway>> for Auth {
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|h| h.to_str().ok())
             .unwrap_or("");
-        match state.store.verify_session(token).await {
+        match state.store.verify_access(token).await {
             Some(ctx) => Ok(Auth(ctx)),
-            None => Err((StatusCode::UNAUTHORIZED, "invalid, missing, or expired session").into_response()),
+            None => Err(unauthorized()),
         }
     }
 }

@@ -24,23 +24,36 @@
 //!   DH_STATIC_DIR    optional directory of the built Web UI served at /
 //!   DH_READ_ONLY     set to "1" to disable server-managed CRUD operations
 //!   DH_PUBLIC_URL    this server's own externally-reachable base URL, used
-//!                    to build the OAuth redirect_uri (default
+//!                    to build the OAuth redirect_uri and as the one origin the
+//!                    Web UI may return to after sign in (default
 //!                    http://127.0.0.1:8080 — must be set correctly in any
-//!                    real deployment or OAuth callbacks will fail).
-//!   DH_ALLOWED_ORIGINS   optional, comma separated origins that may receive the
-//!                    sign-in redirect (the session token or claim ticket is
-//!                    appended to it). Needed only when the Web UI is hosted on
-//!                    a different origin than this API (`VITE_SERVER_URL`). The
-//!                    origin of DH_PUBLIC_URL and loopback addresses (the
-//!                    desktop app) are always allowed.
+//!                    real deployment or OAuth callbacks will fail). Set it to
+//!                    the https address in production: the Web UI's renewal
+//!                    cookie is only marked Secure then, and the server logs a
+//!                    warning at start when it is plain http on a network
+//!                    address. The desktop app's loopback address is always
+//!                    allowed as a return address.
 //!   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID /
 //!   GITHUB_CLIENT_SECRET   OAuth app credentials — sign-in with a provider
 //!                    is unavailable until its pair is set.
 //!
 //! Identity model: every caller is a real user, signed in via OAuth (Google
-//! or GitHub — see `dh_core::server::auth`), holding a Bearer session token.
+//! or GitHub — see `dh_core::server::auth`), holding a device session: a 15
+//! minute access token (`dha_`, sent as a Bearer token) that renews from a
+//! renewal token (`dhr_`) which changes on every use. There is one session per
+//! device, people can see and end their own, and the server owner can end every
+//! session of a person. The sign in redirect carries only a one time login code
+//! (never a token), which the app trades with a secret only it knows. The Web UI
+//! keeps its renewal token in an HttpOnly cookie, so it must be served from the
+//! same origin as this API (this server, or a proxy in front of both).
 //! Users create/join Organizations and share connections within them —
 //! there is no more admin-minted opaque-token model.
+//!
+//! Upgrading from a server that used the single 30 day session token: run the
+//! new server, the new Web UI build and the new desktop app together. The old
+//! `sessions` table is dropped, so every person signs in once on each device
+//! (saved servers and orgs stay). An old desktop app fails to sign in to a new
+//! server, and a new app shows "This server needs updating" against an old one.
 //!
 //! A new server is closed. It has no owner, prints a setup code in this log
 //! at every start, and refuses to make any account until the first person
@@ -113,6 +126,12 @@ async fn serve(store: Store) {
         Ok(port) if !port.is_empty() => format!("0.0.0.0:{port}"),
         _ => env_or("DH_BIND", "0.0.0.0:8080"),
     };
+
+    if let Some(warning) =
+        dh_core::server::router::insecure_public_url_warning(&env_or("DH_PUBLIC_URL", "http://127.0.0.1:8080"))
+    {
+        println!("{warning}");
+    }
 
     let configured: Vec<&str> = ["google", "github"]
         .into_iter()

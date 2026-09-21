@@ -49,7 +49,7 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 18 | Split large backend files | Slice 18 | done |
 | 19 | Owner claim and invite only accounts | Slice 19 | in-progress |
 | 20 | Short lived sessions and devices | Slice 20 | in-progress |
-| 21  | Orgs, members and email bound invites       | Slice 21 | planned     |
+| 21  | Orgs, members and email bound invites       | Slice 21 | in-progress |
 | 22  | Connection roles and grants with expiry     | Slice 22 | planned     |
 | 23  | Groups                                      | Slice 23 | planned     |
 | 24  | Proxy only shared connections               | Slice 24 | planned     |
@@ -482,15 +482,15 @@ code in `crates/dh-core/src/server/auth/`, `crates/dh-core/src/server/store.rs`,
 Sessions are one 30 day token today, and it travels in a URL back to the desktop app. Replace it with a short token that renews quietly, one session per device. People see their devices and can sign out one or all of them, and the server owner can end every session of a person. This covers both the desktop app and the web UI the server serves. The design pass settles how the token is handed to the desktop app safely, how renewal stays safe if a token is stolen, and where the web page keeps it.
 **Done when:** a signed in desktop app and web page keep working past the short token life without signing in again, signing out one device leaves the others alone, sign out everywhere ends every session, and an expired or revoked token is refused.
 spec [0010](../specs/0010-short-lived-sessions-and-devices/index.md)
-code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/router.rs`, `src-tauri/src/servers.rs`
+code in `crates/dh-core/src/server/auth/`, `crates/dh-core/src/server/router/`, `crates/dh-core/src/server/client/`, `crates/dh-core/migrations/`, `src-tauri/src/servers/`, `src/shared/api/web-session.ts`, `src/features/sharing/components/`
 
 - [x] Design it (spec): `/architect short lived sessions and devices`
-- [ ] Build it: `/develop short lived sessions and devices`
-  - [ ] Thin thread, desktop: the three tables, code and PKCE handoff, `next` allowlist, short token and plain rotating renewal, `ServerClient` renewing quietly, desktop token kept in Rust per server, old tokens dropped — satisfies AC-1, AC-3, AC-4, AC-5, AC-13, AC-14, AC-17, AC-19
-  - [ ] Hardened renewal: row lock, 30 second replay, reuse detection, idle and 90 day expiry, lazy cleanup, cap of 25 devices — satisfies AC-6, AC-7, AC-8
-  - [ ] Sign out and devices on the server: sign out this device, list and end devices, sign out everywhere, owner ends a person's sessions, audit events — satisfies AC-9, AC-10, AC-11, AC-12, AC-18 (the owner check comes from slice 19)
-  - [ ] Desktop screens: signed out state, Sign in again, Sign out, Remove signs out, My devices dialog — satisfies AC-11, AC-14, AC-15, AC-16
-  - [ ] Web and close out: HttpOnly cookie, in memory short token with renewal across tabs, sign in on the code flow, `localStorage` scrub, My devices on the web, `no-store`, startup warning, upgrade notes — satisfies AC-2, AC-4, AC-13, AC-16, AC-17, AC-19
+- [x] Build it: `/develop short lived sessions and devices`
+  - [x] Thin thread, desktop: the three tables, code and PKCE handoff, `next` allowlist, short token and plain rotating renewal, `ServerClient` renewing quietly, desktop token kept in Rust per server, old tokens dropped — satisfies AC-1, AC-3, AC-4, AC-5, AC-13, AC-14, AC-17, AC-19
+  - [x] Hardened renewal: row lock, 30 second replay, reuse detection, idle and 90 day expiry, lazy cleanup, cap of 25 devices — satisfies AC-6, AC-7, AC-8
+  - [x] Sign out and devices on the server: sign out this device, list and end devices, sign out everywhere, owner ends a person's sessions, audit events — satisfies AC-9, AC-10, AC-11, AC-12, AC-18 (the owner check comes from slice 19)
+  - [x] Desktop screens: signed out state, Sign in again, Sign out, Remove signs out, My devices dialog — satisfies AC-11, AC-14, AC-15, AC-16
+  - [x] Web and close out: HttpOnly cookie, in memory short token with renewal across tabs, sign in on the code flow, `localStorage` scrub, My devices on the web, `no-store`, startup warning, upgrade notes — satisfies AC-2, AC-4, AC-13, AC-16, AC-17, AC-19
 - [ ] Verify it: `/check verify short lived sessions and devices`
 - [ ] Test it: `/test short lived sessions and devices`
 - [ ] Review it (fresh model): `/check review short lived sessions and devices`
@@ -502,13 +502,24 @@ code in `crates/dh-core/src/server/auth.rs`, `crates/dh-core/src/server/router.r
 
 
 
-### 21. Orgs, members and email bound invites · needs a decision · GA
+### 21. Orgs, members and email bound invites · in-progress · GA
 
 Only the server owner creates organizations, and one person can belong to several. Org roles (owner, admin, member) only control people and settings, never database data (that moves to connection roles in slice 22, so today's viewer role goes away). Owners and admins invite by email, bound to that address, or make an optional shareable link with a use limit and an expiry. Removing someone ends their access to that org's connections at once, and the last owner guard stays. The design pass settles the invite delivery (the server may not be able to send email) and how the current invite screens change.
 **Done when:** the server owner creates an org and invites a person by email, only that email can redeem the invite, a shareable link stops working after its limit or expiry, removing a person cuts their access at once, and the last owner cannot be removed or demoted.
+spec [0011](../specs/0011-orgs-members-and-email-bound-invites/index.md)
 code in `crates/dh-core/src/server/orgs.rs`, `src/features/sharing`
 
-- [ ] Design it (spec): `/architect orgs members and email bound invites`
+- [x] Design it (spec): `/architect orgs members and email bound invites`
+- [ ] Build it: `/develop orgs members and email bound invites`
+  - [ ] Migration `0003` and the viewer role clean up, in Rust and TypeScript — satisfies AC-12
+  - [ ] Who can create orgs, on the server, desktop and web: the per admin switch, the one org limit, the owner's org list, New organization gating — satisfies AC-1, AC-2, AC-3, AC-13, AC-14
+  - [ ] Email invite to accept: org invites, first sign in joining every open invite, pending invites, accept and decline, Copy message and Email, picker and Invitations menu — satisfies AC-4, AC-5, AC-6, AC-7, AC-13, AC-14
+  - [ ] Members: admin limits, the locked last owner guard, removal that clears grants and unused invites, leave, the no longer has access state — satisfies AC-9, AC-10, AC-11, AC-13, AC-14
+  - [ ] Shareable link and close out: bounded member only links, redeem route move, web `?join=`, file splits under 500 lines, all tests green — satisfies AC-8, AC-12, AC-13, AC-14
+- [ ] Verify it: `/check verify orgs members and email bound invites`
+- [ ] Test it: `/test orgs members and email bound invites`
+- [ ] Review it (fresh model): `/check review orgs members and email bound invites`
+- [ ] Document it: `/document orgs members and email bound invites`
 
 
 
@@ -611,6 +622,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Access requests with approval**: a member asks for time limited access to a connection and an admin approves it, building on grant expiry (slice 22) · from the team server access rebuild · needs a decision
 - **Schema and table level permissions**: rules narrower than one connection, such as one schema only. Slice 22 leaves room in the access model but enforces per connection only · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/gateway.rs`
 - **Email and password, magic link and Microsoft sign in**: more ways to sign in than Google and GitHub · from the team server access rebuild · needs a decision · GA · code in `crates/dh-core/src/server/auth.rs`
+- **Rename and delete an organization**: slice 21 only creates orgs. Rename is cheap, delete cascades to every connection, grant and audit row, so it needs its own confirm and audit rules · from spec 0011 · code in `crates/dh-core/src/server/orgs.rs`
+- **Email delivery of invites and more than one org per admin**: slice 21 sends no email (the inviter copies a message or opens a mail app) and lets an admin with the create switch make one org. Optional SMTP delivery and a quota above one belong with the hosted service work · from spec 0011 · needs a decision · code in `crates/dh-core/src/server/orgs.rs`
 - **Owner button to end a person's sessions**: slice 20 ships the route, the store call and the Tauri command that let the server owner end every session of a person (spec 0010), but no screen calls it. Add the button on the members or suspend screen that slices 19, 21 or 26 build · from spec 0010 · code in `src/features/sharing/components/members-panel.tsx`
 
 

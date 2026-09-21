@@ -17,6 +17,7 @@ import {
   webAddServer,
   deriveServerId,
 } from "@/shared/api/web";
+import { makePkce, rememberVerifier } from "@/shared/api/web-session";
 import {
   serversList,
   serversOAuthProviders,
@@ -36,7 +37,7 @@ import {
   serversClaim,
 } from "@/shared/api/server-claim";
 
-const PROVIDER_LABELS: Record<string, string> = {
+export const PROVIDER_LABELS: Record<string, string> = {
   google: "Continue with Google",
   github: "Continue with GitHub",
 };
@@ -44,7 +45,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 /** Inline error banner — errors surface here rather than as a toast
  *  notification, since this form always renders inside a modal dialog and
  *  the notification stack renders behind it. */
-function FormError({ message }: { message: string | null | undefined }) {
+export function FormError({ message }: { message: string | null | undefined }) {
   if (!message) return null;
   return (
     <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
@@ -78,7 +79,7 @@ interface ConnectServerFormProps {
  *      (`servers_oauth_login`); web does a full-page redirect through
  *      `/auth/{provider}/start` (see `webOAuthStartUrl`) and never reaches
  *      step 2 in THIS component — WebGate itself catches the return trip
- *      (`?token=`, `?ticket=` or `?error=` on reload) and renders
+ *      (`?code=`, `?ticket=` or `?error=` on reload) and renders
  *      `OrgPickerStep` or `ClaimServerStep` directly. A server closed to
  *      strangers can refuse the sign in (shown here as a plain message), or
  *      have no owner yet, which adds a claim step (`ClaimServerStep`) where
@@ -95,9 +96,10 @@ export function ConnectServerForm({
   const [saved, setSaved] = useState<ServerProfileView[]>([]);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  // The session itself is never held here: on desktop it stays in Rust, on the
+  // web in `web-session.ts`. This is only who signed in, and to which server.
   const [session, setSession] = useState<{
     url: string;
-    token: string;
     me: MeResult;
   } | null>(null);
   const [claim, setClaim] = useState<{ url: string; ticket: string } | null>(
@@ -145,7 +147,7 @@ export function ConnectServerForm({
       .then((existing) => {
         if (cancelled) return;
         if (existing) {
-          setSession({ url: apiUrl(), token: existing.token, me: existing.me });
+          setSession({ url: apiUrl(), me: existing.me });
           return;
         }
         return serversOAuthProviders(apiUrl()).then(
@@ -195,7 +197,7 @@ export function ConnectServerForm({
           "That sign-in has expired — add this server again to renew it.",
         );
       }
-      setSession({ url: base, token: existing.token, me: existing.me });
+      setSession({ url: base, me: existing.me });
     } catch (e) {
       setFormError(String(e));
     } finally {
@@ -203,10 +205,7 @@ export function ConnectServerForm({
     }
   }
 
-  async function persist(
-    org: Organization,
-    sess: { url: string; token: string },
-  ) {
+  async function persist(org: Organization, sess: { url: string }) {
     setBusy(true);
     setFormError(null);
     try {
@@ -216,18 +215,12 @@ export function ConnectServerForm({
         webAddServer({
           id,
           url: sess.url,
-          token: sess.token,
           name: org.name,
           org_id: org.id,
         });
         profileId = id;
       } else {
-        const saved = await serversSaveProfile(
-          org.name,
-          sess.url,
-          sess.token,
-          org.id,
-        );
+        const saved = await serversSaveProfile(org.name, sess.url, org.id);
         profileId = saved.id;
       }
       on_connect({ profileId });
@@ -244,9 +237,17 @@ export function ConnectServerForm({
     setFormError(null);
     try {
       if (WEB) {
-        const base = apiUrl();
+        // The verifier is a secret only this tab knows; the server gets its
+        // hash now and the verifier itself only when the login code that
+        // comes back in the address is traded (see WebGate).
+        const { verifier, challenge } = await makePkce();
+        rememberVerifier(verifier);
         window.location.assign(
-          webOAuthStartUrl(base, provider, window.location.href.split("?")[0]),
+          webOAuthStartUrl(
+            provider,
+            window.location.origin + window.location.pathname,
+            challenge,
+          ),
         );
         return; // page navigates away — nothing left to do here
       }
@@ -254,7 +255,7 @@ export function ConnectServerForm({
       if (!base) throw new Error("Enter a server URL first");
       const result = await serversOAuthLogin(base, provider);
       if (result.kind === "signed_in") {
-        setSession({ url: base, token: result.token, me: result.me });
+        setSession({ url: base, me: result.me });
       } else if (result.kind === "claim") {
         setClaim({ url: base, ticket: result.ticket });
       } else {
@@ -274,7 +275,7 @@ export function ConnectServerForm({
         ticket={claim.ticket}
         onClaimed={(r) => {
           setClaim(null);
-          setSession({ url: claim.url, token: r.token, me: r.me });
+          setSession({ url: claim.url, me: r.me });
         }}
         onCancel={() => setClaim(null)}
       />
@@ -286,7 +287,6 @@ export function ConnectServerForm({
       <OrgPickerStep
         me={session.me}
         url={session.url}
-        token={session.token}
         busy={busy}
         error={display_error}
         onSelect={(org) => void persist(org, session)}
@@ -408,7 +408,7 @@ export function ClaimServerStep({
 }: {
   url: string;
   ticket: string;
-  onClaimed: (result: { token: string; me: MeResult }) => void;
+  onClaimed: (result: { me: MeResult }) => void;
   /** Back out to the sign in buttons (also the only way forward when the
    *  ticket has expired or someone else claimed first). */
   onCancel: () => void;
@@ -496,14 +496,12 @@ export function ClaimServerStep({
 export function OrgPickerStep({
   me,
   url,
-  token,
   busy,
   error: externalError,
   onSelect,
 }: {
   me: MeResult;
   url: string;
-  token: string;
   busy: boolean;
   /** Error from a caller-owned step after `onSelect` (e.g. persisting the
    *  profile) — shown alongside this component's own errors. */
@@ -525,7 +523,7 @@ export function OrgPickerStep({
     setLocalBusy(true);
     setLocalError(null);
     try {
-      onSelect(await serversOrgCreateNew(url, token, name.trim()));
+      onSelect(await serversOrgCreateNew(url, name.trim()));
     } catch (e) {
       setLocalError(String(e));
     } finally {
@@ -538,7 +536,7 @@ export function OrgPickerStep({
     setLocalBusy(true);
     setLocalError(null);
     try {
-      onSelect(await serversOrgRedeemInviteNew(url, token, code.trim()));
+      onSelect(await serversOrgRedeemInviteNew(url, code.trim()));
     } catch (e) {
       setLocalError(String(e));
     } finally {

@@ -65,7 +65,7 @@ export function Studio() {
         const [, profileId, remoteId] = parts;
         if (!profileId || !remoteId) continue;
         try {
-          serversReleaseConnection(profileId, remoteId);
+          serversReleaseConnection(remoteId);
         } catch {
           /* best-effort on unload */
         }

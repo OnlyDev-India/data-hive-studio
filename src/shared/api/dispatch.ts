@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { WEB, wcall, webServerConfig, apiUrl } from "./web";
+import { WEB, wcall } from "./web";
 import { withReadOnlyHint } from "./read-only";
 
 // ---- Server (team) connection id helpers -----------------------------------
@@ -29,15 +29,6 @@ export function remoteOf(connId: string): string {
 /** Profile id embedded in a namespaced server connection id. */
 export function profileOf(connId: string): string {
   return connId.split(":")[1] ?? "";
-}
-
-/** Resolve the { url, token } for a server profile — used by every WEB-mode
- *  function that needs per-server auth. Falls back to the primary server. */
-export function webAuthFor(profileId: string): { url: string; token: string } {
-  const cfg = webServerConfig(profileId);
-  if (cfg) return { url: cfg.url.replace(/\/+$/, ""), token: cfg.token };
-  // Legacy single-server fallback.
-  return { url: apiUrl(), token: "" };
 }
 
 /** Team-server connections do not support local-only operations. */
@@ -91,13 +82,11 @@ function dispatchRaw<T>(
   opts: Parameters<typeof dispatchDbCall>[1],
 ): Promise<T> {
   if (WEB && isServerConn(connId)) {
-    const { url, token } = webAuthFor(profileOf(connId));
     return wcall<T>(
       opts.httpMethod,
       opts.httpPath(remoteOf(connId)),
       opts.httpBody,
-      url,
-      token || undefined,
+      true,
     );
   }
   if (WEB)

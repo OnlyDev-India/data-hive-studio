@@ -39,7 +39,7 @@ describe("ClaimServerStep", () => {
   });
 
   it("sends the ticket with the typed code and hands back the owner's session", async () => {
-    api.serversClaim.mockResolvedValue({ token: "dhs_t", me: ME });
+    api.serversClaim.mockResolvedValue({ me: ME });
     const { onClaimed } = setup();
     await userEvent.type(
       screen.getByLabelText("Setup code"),
@@ -52,7 +52,7 @@ describe("ClaimServerStep", () => {
       "ticket-1",
       "abcd-efgh-jklm-npqr-stuv",
     );
-    expect(onClaimed).toHaveBeenCalledWith({ token: "dhs_t", me: ME });
+    expect(onClaimed).toHaveBeenCalledWith({ me: ME });
   });
 
   it("keeps the form for a wrong code so it can be retyped", async () => {

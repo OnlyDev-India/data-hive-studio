@@ -1,5 +1,7 @@
 use axum::response::IntoResponse;
-use crate::server::auth::{AuthCtx, ClaimError, ClaimTicket, ProfileOutcome, Refusal, SignIn, VerifiedProfile};
+use crate::server::auth::{
+    valid_challenge, AuthCtx, ClaimError, ClaimTicket, ProfileOutcome, Refusal, SignIn, VerifiedProfile,
+};
 use crate::server::orgs::OrgRole;
 use crate::server::store::now_ms;
 use axum::extract::{Path, Query, State};
@@ -7,6 +9,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Redirect, Response};
 use axum::Json;
 use super::redirect::{next_allowed_env, public_base_url, with_query};
+use super::session::{device_from, session_error, token_response};
 use super::{AppState, Auth, err_res};
 
 // ---------------------------------------------------------------------------
@@ -14,7 +17,7 @@ use super::{AppState, Auth, err_res};
 // ---------------------------------------------------------------------------
 const STATE_COOKIE: &str = "dh_oauth_state";
 
-fn read_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(super) fn read_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     raw.split(';').find_map(|pair| {
         let (k, v) = pair.trim().split_once('=')?;
@@ -34,20 +37,25 @@ pub(super) async fn auth_providers() -> Json<Vec<&'static str>> {
     )
 }
 
-/// Redirects to the provider's consent screen. `?next=<url>` is where the
-/// browser lands afterward, with `token=` (signed in), `ticket=` (this server
-/// still needs its owner to claim it) or `error=<code>&email=<email>` (refused)
-/// added as query params — not a `#` fragment, since desktop's `next` is a
-/// plain local-loopback HTTP listener and fragments are never sent to a
-/// server. `next` must be a loopback address or an allowed origin (see
-/// `redirect.rs`). Omit it to get the same three outcomes back as JSON from
-/// the callback instead (useful for headless/manual testing).
+/// Redirects to the provider's consent screen. `next` is where the browser
+/// lands afterward, with `code=` (signed in: a one time login code the client
+/// trades at `/auth/exchange`), `ticket=` (this server still needs its owner to
+/// claim it) or `error=<code>&email=<email>` (refused) added as query params,
+/// never a token and not a `#` fragment (desktop's `next` is a plain local
+/// loopback listener, and fragments are never sent to a server). `next` must be
+/// the desktop loopback callback or a path on this server's own origin (see
+/// `redirect.rs`), and `code_challenge` is the client's PKCE S256 challenge.
 pub(super) async fn auth_start(Path(provider): Path<String>, Query(q): Query<StartQuery>) -> Response {
     let Some(cfg) = crate::server::auth::provider_config(&provider) else {
         return (StatusCode::NOT_FOUND, format!("OAuth provider '{provider}' is not configured")).into_response();
     };
-    if q.next.as_deref().is_some_and(|n| !n.is_empty() && !next_allowed_env(n)) {
+    let next = q.next.as_deref().unwrap_or("");
+    if !next_allowed_env(next) {
         return (StatusCode::BAD_REQUEST, "next is not an allowed return address").into_response();
+    }
+    let challenge = q.code_challenge.as_deref().unwrap_or("");
+    if !valid_challenge(challenge) {
+        return (StatusCode::BAD_REQUEST, "code_challenge must be a PKCE S256 challenge").into_response();
     }
     let csrf = hex::encode(rand::random::<[u8; 16]>());
     let redirect_uri = format!("{}/auth/{}/callback", public_base_url(), provider);
@@ -56,11 +64,12 @@ pub(super) async fn auth_start(Path(provider): Path<String>, Query(q): Query<Sta
     else {
         return (StatusCode::NOT_FOUND, "unknown provider").into_response();
     };
-    // Cookie value carries both the CSRF check value and where to send the
-    // browser afterward — kept together so this stays fully stateless
-    // (no server-side "pending login" storage, which matters on serverless
-    // hosts where nothing survives between the two requests otherwise).
-    let cookie_value = format!("{csrf}:{}", q.next.as_deref().unwrap_or(""));
+    // The cookie value carries the CSRF check value, the PKCE challenge and
+    // where to send the browser afterward, kept together so this stays fully
+    // stateless (no server-side "pending login" storage, which matters on
+    // serverless hosts where nothing survives between the two requests). The
+    // first two never contain a colon, so `next` is everything after them.
+    let cookie_value = format!("{csrf}:{challenge}:{next}");
     let mut resp = Redirect::temporary(&url).into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
@@ -75,6 +84,8 @@ pub(super) async fn auth_start(Path(provider): Path<String>, Query(q): Query<Sta
 pub(super) struct StartQuery {
     #[serde(default)]
     next: Option<String>,
+    #[serde(default)]
+    code_challenge: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -83,34 +94,23 @@ pub(super) struct CallbackQuery {
     pub(super) state: String,
 }
 
-/// What the callback ends in. Sent as a redirect to `next`, or as JSON when
-/// there is no `next`.
+/// What the callback ends in, sent as a redirect to `next`.
 enum Outcome {
-    Token { token: String, user: crate::server::auth::User },
+    Code(String),
     Ticket(String),
     Refused { code: &'static str, email: String },
 }
 
 fn finish(next: &str, outcome: Outcome) -> Response {
-    let mut resp = if next.is_empty() {
-        match outcome {
-            Outcome::Token { token, user } => Json(serde_json::json!({ "token": token, "user": user })).into_response(),
-            Outcome::Ticket(ticket) => Json(serde_json::json!({ "ticket": ticket })).into_response(),
-            Outcome::Refused { code, email } => {
-                (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": code, "email": email }))).into_response()
-            }
-        }
-    } else {
-        let pairs: Vec<(&str, &str)> = match &outcome {
-            Outcome::Token { token, .. } => vec![("token", token)],
-            Outcome::Ticket(ticket) => vec![("ticket", ticket)],
-            Outcome::Refused { code, email } => vec![("error", code), ("email", email)],
-        };
-        match with_query(next, &pairs) {
-            Some(url) => Redirect::temporary(&url).into_response(),
-            None => return (StatusCode::BAD_REQUEST, "malformed return address").into_response(),
-        }
+    let pairs: Vec<(&str, &str)> = match &outcome {
+        Outcome::Code(code) => vec![("code", code)],
+        Outcome::Ticket(ticket) => vec![("ticket", ticket)],
+        Outcome::Refused { code, email } => vec![("error", code), ("email", email)],
     };
+    let Some(url) = with_query(next, &pairs) else {
+        return (StatusCode::BAD_REQUEST, "malformed return address").into_response();
+    };
+    let mut resp = Redirect::temporary(&url).into_response();
     // Clear the state cookie now that it's been used.
     resp.headers_mut().insert(
         header::SET_COOKIE,
@@ -128,15 +128,16 @@ pub(super) async fn auth_callback(
     let Some(cookie) = read_cookie(&headers, STATE_COOKIE) else {
         return (StatusCode::BAD_REQUEST, "missing oauth state cookie").into_response();
     };
-    let Some((csrf, next)) = cookie.split_once(':') else {
+    let mut parts = cookie.splitn(3, ':');
+    let (Some(csrf), Some(challenge), Some(next)) = (parts.next(), parts.next(), parts.next()) else {
         return (StatusCode::BAD_REQUEST, "malformed oauth state cookie").into_response();
     };
     if csrf != q.state {
         return (StatusCode::BAD_REQUEST, "oauth state mismatch").into_response();
     }
     // Checked again here: the cookie is the browser's, so it is not trusted
-    // just because start accepted it.
-    if !next.is_empty() && !next_allowed_env(next) {
+    // just because start accepted it. No code is issued for anything else.
+    if !next_allowed_env(next) || !valid_challenge(challenge) {
         return (StatusCode::BAD_REQUEST, "next is not an allowed return address").into_response();
     }
     let Some(cfg) = crate::server::auth::provider_config(&provider) else {
@@ -152,8 +153,8 @@ pub(super) async fn auth_callback(
         ProfileOutcome::Unverified { email } => email.clone().unwrap_or_default(),
     };
     match gw.store.sign_in(outcome).await {
-        Ok(SignIn::User(user)) => match gw.store.session_create(&user.id).await {
-            Ok(token) => finish(next, Outcome::Token { token, user }),
+        Ok(SignIn::User(user)) => match gw.store.login_code_create(&user.id, challenge).await {
+            Ok(code) => finish(next, Outcome::Code(code)),
             Err(e) => err_res(e),
         },
         Ok(SignIn::Ticket(profile)) => ticket_outcome(&gw, next, &profile),
@@ -180,31 +181,34 @@ fn refused(next: &str, provider: &str, refusal: Refusal, email: String) -> Respo
 pub(super) struct ClaimBody {
     ticket: String,
     code: String,
+    device_id: String,
+    platform: String,
+    #[serde(default)]
+    device_name: Option<String>,
 }
 
 /// Claim a new server: the ticket from a sign in plus the setup code from the
-/// server log. Needs no token, the ticket and code are the proof.
-pub(super) async fn auth_claim(State(gw): State<AppState>, Json(body): Json<ClaimBody>) -> Response {
+/// server log. Needs no token, the ticket and code are the proof. The claimer
+/// signs in the way anyone does: the answer is the same as `/auth/exchange`.
+/// It is a direct request from the client, so no token is ever in a URL and no
+/// PKCE step is needed.
+pub(super) async fn auth_claim(State(gw): State<AppState>, headers: HeaderMap, Json(body): Json<ClaimBody>) -> Response {
+    let device = match device_from(&headers, &body.device_id, &body.platform, body.device_name.as_deref()) {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
     let err = |status: StatusCode, e: &ClaimError| {
         (status, Json(serde_json::json!({ "error": e.code() }))).into_response()
     };
     match gw.store.claim(&body.ticket, &body.code).await {
-        Ok(user) => match gw.store.session_create(&user.id).await {
-            Ok(token) => Json(serde_json::json!({ "token": token, "user": user })).into_response(),
-            Err(e) => err_res(e),
+        Ok(user) => match gw.store.session_start(&user.id, &device).await {
+            Ok(issued) => token_response(&gw, issued, device.platform).await,
+            Err(e) => session_error(e),
         },
         Err(e @ ClaimError::TicketInvalid) => err(StatusCode::BAD_REQUEST, &e),
         Err(e @ ClaimError::CodeInvalid) => err(StatusCode::FORBIDDEN, &e),
         Err(e @ ClaimError::AlreadyClaimed) => err(StatusCode::CONFLICT, &e),
         Err(ClaimError::Other(e)) => err_res(e),
-    }
-}
-
-pub(super) async fn logout(State(gw): State<AppState>, headers: HeaderMap) -> Response {
-    let token = headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()).unwrap_or("");
-    match gw.store.session_revoke(token).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => err_res(e),
     }
 }
 

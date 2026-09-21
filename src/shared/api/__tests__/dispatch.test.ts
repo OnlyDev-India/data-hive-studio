@@ -12,11 +12,6 @@ async function loadDispatch(web: boolean) {
   vi.doMock("../web", () => ({
     WEB: web,
     wcall: vi.fn().mockResolvedValue({ mocked: "http-result" }),
-    webServerConfig: vi.fn().mockReturnValue({
-      url: "https://team.example",
-      token: "tok123",
-    }),
-    apiUrl: vi.fn().mockReturnValue(""),
   }));
   return import("../dispatch");
 }
@@ -97,17 +92,18 @@ describe("dispatchDbCall", () => {
     expect(invoke).toHaveBeenCalledWith("server_list_tables", { connId: "x" });
   });
 
-  it("web + server connection: goes over HTTP with per-server auth", async () => {
+  it("web + server connection: goes over HTTP with the session's token", async () => {
     const dispatch = await loadDispatch(true);
     const web = await import("../web");
 
     const result = await dispatch.dispatchDbCall("srv:p1:c1", opts());
+    // The last argument asks the transport to attach the session's access
+    // token (and renew it); the page never handles a token itself.
     expect(web.wcall).toHaveBeenCalledWith(
       "GET",
       "/v1/c/c1/tables",
       undefined,
-      "https://team.example",
-      "tok123",
+      true,
     );
     expect(result).toEqual({ mocked: "http-result" });
   });

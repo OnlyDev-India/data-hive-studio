@@ -50,7 +50,7 @@ pub fn normalize_setup_code(input: &str) -> String {
 }
 
 /// Compare without stopping at the first difference.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(super) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

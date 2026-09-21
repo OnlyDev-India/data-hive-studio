@@ -27,7 +27,8 @@ vi.mock("@/shared/api/workspace-state", () => ({
   saveWorkspaceState: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { ServerAccessDialog } from "../server-access-dialog";
+import { AccessInvitesSection } from "../access-invites-section";
+import { AccessPeopleSection } from "../access-people-section";
 
 const me = (
   server_role: MeResult["server_role"],
@@ -65,16 +66,12 @@ const account = (over: Partial<ServerAccount>): ServerAccount => ({
   ...over,
 });
 
-function open(caller: MeResult) {
-  return render(
-    <ServerAccessDialog
-      open
-      onOpenChange={() => {}}
-      profileId="p1"
-      serverName="Acme server"
-      me={caller}
-    />,
-  );
+function invites() {
+  return render(<AccessInvitesSection profileId="p1" />);
+}
+
+function people(caller: MeResult) {
+  return render(<AccessPeopleSection profileId="p1" me={caller} />);
 }
 
 beforeEach(() => {
@@ -98,42 +95,10 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("who sees what", () => {
-  it("shows an owner Invites and People", async () => {
-    open(me("owner"));
-    expect(screen.getByRole("tab", { name: "Invites" })).toBeVisible();
-    expect(screen.getByRole("tab", { name: "People" })).toBeVisible();
-    expect(
-      screen.queryByText(/Managing people is off/),
-    ).not.toBeInTheDocument();
-  });
-
-  it("shows an admin without the switch only Invites, and says why", () => {
-    open(me("admin", false));
-    expect(screen.getByRole("tab", { name: "Invites" })).toBeVisible();
-    expect(
-      screen.queryByRole("tab", { name: "People" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText(/Managing people is off/)).toBeVisible();
-  });
-
-  it("shows an admin with the switch on People too", () => {
-    open(me("admin", true));
-    expect(screen.getByRole("tab", { name: "People" })).toBeVisible();
-  });
-
-  it("shows a member nothing", () => {
-    const { container } = open(me("member"));
-    expect(container).toBeEmptyDOMElement();
-    expect(screen.queryByText("Server access")).not.toBeInTheDocument();
-    expect(api.serverInvitesList).not.toHaveBeenCalled();
-  });
-});
-
-describe("Invites", () => {
+describe("Server invites", () => {
   it("creates an invite for the typed email with the 7 day default", async () => {
     api.serverInviteCreate.mockResolvedValue(invite({}));
-    open(me("owner"));
+    invites();
     await userEvent.type(
       screen.getByLabelText("Email to invite"),
       " New@X.com ",
@@ -162,7 +127,7 @@ describe("Invites", () => {
       }),
     ]);
     api.serverInviteRevoke.mockResolvedValue(undefined);
-    open(me("admin"));
+    invites();
     expect(await screen.findByText("open@x.com")).toBeVisible();
     expect(screen.getByText("expired")).toBeVisible();
     expect(screen.getByText("used")).toBeVisible();
@@ -183,15 +148,12 @@ describe("Invites", () => {
   });
 });
 
-describe("People", () => {
-  async function peopleTab() {
-    await userEvent.click(screen.getByRole("tab", { name: "People" }));
-    return screen.findByText("boss@x.com");
-  }
+describe("Server accounts", () => {
+  const peopleLoaded = () => screen.findByText("boss@x.com");
 
   it("gives an owner a role select on every row and the switch on admins", async () => {
-    open(me("owner"));
-    await peopleTab();
+    people(me("owner"));
+    await peopleLoaded();
     for (const email of ["boss@x.com", "admin@x.com", "mem@x.com"]) {
       expect(screen.getByLabelText(`Role for ${email}`)).toBeVisible();
     }
@@ -207,8 +169,8 @@ describe("People", () => {
   });
 
   it("keeps an owner row read only for an admin with the switch, and offers no switch", async () => {
-    open(me("admin", true));
-    await peopleTab();
+    people(me("admin", true));
+    await peopleLoaded();
     // The owner row shows a plain badge, not a select.
     expect(
       screen.queryByLabelText("Role for boss@x.com"),

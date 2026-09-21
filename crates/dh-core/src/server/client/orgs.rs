@@ -12,10 +12,6 @@ impl ServerClient {
         self.get("/v1/me").await
     }
 
-    pub async fn logout(&self) -> Result<(), String> {
-        self.empty(reqwest::Method::POST, "/v1/auth/logout").await
-    }
-
     pub async fn list_orgs(&self) -> Result<Vec<(Organization, OrgRole)>, String> {
         #[derive(serde::Deserialize)]
         struct Row {
