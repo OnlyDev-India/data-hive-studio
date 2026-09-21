@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  OLD_SERVER_MESSAGE,
   claimErrorMessage,
   claimNeedsNewSignIn,
   parseSignInReturn,
@@ -8,10 +9,10 @@ import {
 } from "../server-claim";
 
 describe("parseSignInReturn", () => {
-  it("reads each of the three outcomes", () => {
-    expect(parseSignInReturn("?token=dhs_abc")).toEqual({
-      kind: "token",
-      token: "dhs_abc",
+  it("reads each of the outcomes", () => {
+    expect(parseSignInReturn("?code=dhc_abc")).toEqual({
+      kind: "code",
+      code: "dhc_abc",
     });
     expect(parseSignInReturn("?ticket=00ff")).toEqual({
       kind: "ticket",
@@ -20,6 +21,12 @@ describe("parseSignInReturn", () => {
     expect(parseSignInReturn("?error=not_invited&email=a%2Bb%40x.com")).toEqual(
       { kind: "refused", error: "not_invited", email: "a+b@x.com" },
     );
+  });
+
+  it("treats a token instead of a code as a server that needs updating (AC-19)", () => {
+    // Nothing from that answer is read out: no token is returned to the page.
+    expect(parseSignInReturn("?token=dhs_abc")).toEqual({ kind: "old_server" });
+    expect(parseSignInReturn("?token=")).toBeNull();
   });
 
   it("keeps a refusal with no email at all", () => {
@@ -38,9 +45,9 @@ describe("parseSignInReturn", () => {
 
 describe("stripSignInParams", () => {
   it("removes only the sign in parameters", () => {
-    expect(stripSignInParams("?tab=2&token=t&error=x&email=e&ticket=k")).toBe(
-      "tab=2",
-    );
+    expect(
+      stripSignInParams("?tab=2&code=c&token=t&error=x&email=e&ticket=k"),
+    ).toBe("tab=2");
     expect(stripSignInParams("?ticket=k")).toBe("");
   });
 });
@@ -89,5 +96,13 @@ describe("claim errors", () => {
     expect(claimNeedsNewSignIn("ticket_invalid")).toBe(true);
     expect(claimNeedsNewSignIn(new Error("already_claimed"))).toBe(true);
     expect(claimNeedsNewSignIn("code_invalid")).toBe(false);
+  });
+});
+
+describe("OLD_SERVER_MESSAGE", () => {
+  it("says the server needs updating", () => {
+    expect(OLD_SERVER_MESSAGE).toBe(
+      "This server needs updating to work with this version of DH Studio",
+    );
   });
 });

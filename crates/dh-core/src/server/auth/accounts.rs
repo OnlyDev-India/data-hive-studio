@@ -340,7 +340,7 @@ mod tests {
         let out = store.sign_in(ProfileOutcome::Verified(profile("google", "g1", "a@x.com"))).await.unwrap();
         assert!(matches!(out, SignIn::Ticket(_)));
         let users: i64 = sqlx::query_scalar("SELECT count(*) FROM users").fetch_one(&store.pool).await.unwrap();
-        let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions").fetch_one(&store.pool).await.unwrap();
+        let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM device_sessions").fetch_one(&store.pool).await.unwrap();
         assert_eq!((users, sessions), (0, 0));
     }
 

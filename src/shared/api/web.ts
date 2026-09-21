@@ -1,26 +1,24 @@
 /**
  * Browser-build transport for the hosted Web UI.
  *
- * In web mode there is no Tauri IPC: every call goes to the deployed
- * dh-server over REST using an OAuth session token (`dhs_…`), obtained via
- * a full-page redirect through `/auth/{provider}/start` — see
- * `webOAuthStartUrl` and `src/web/WebGate.tsx`, which catches the callback
- * (`?token=…` on this same page) since there's no Tauri loopback listener
- * to do it out of process. The server holds all connection credentials, so
- * the browser never sees secrets.
+ * In web mode there is no Tauri IPC: every call goes to the dh-server that
+ * serves this page, over REST, with a short lived access token (`dha_…`) kept
+ * in page memory (`web-session.ts`). Signing in is a full-page redirect through
+ * `/auth/{provider}/start` that comes back with a one time `?code=`, which
+ * `src/web/WebGate.tsx` trades for a session, since there's no Tauri loopback
+ * listener to do it out of process. The renewal token is an HttpOnly cookie
+ * the page cannot read. The server holds all connection credentials, so the
+ * browser never sees secrets.
  *
- * Multiple servers/orgs are supported: each saved profile has its own URL,
- * org id, and session token, stored under the `dh.web.servers` key as a
- * Record<profileId, config>. A user can be signed in to the same server
- * under several orgs at once — each is its own profile.
+ * The web page is same origin only: requests always go to the server that
+ * served it (or, in development, through vite's `/v1` and `/auth` proxy).
  *
- * The default server URL is fixed at build/deploy time:
- *   - production: the app is served BY the dh-server, so requests are
- *     same-origin relative (`VITE_SERVER_URL` unset → '').
- *   - custom deployments / local dev: set VITE_SERVER_URL (dev can also just
- *     rely on vite's `/v1` proxy → http://localhost:8080).
+ * Multiple orgs are supported: each saved profile has its own org id, stored
+ * under the `dh.web.servers` key as a Record<profileId, config>. There is one
+ * session for the origin, shared by every profile, and no token is stored.
  */
 import type { QueryResult } from "./types";
+import { webAccessToken, webRenew } from "./web-session";
 
 export const WEB = !(
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -33,8 +31,6 @@ export const WEB = !(
 export interface WebServerConfig {
   id: string;
   url: string;
-  /** OAuth session token (`dhs_…`). */
-  token: string;
   name: string;
   /** Which organization on that server this profile targets. */
   org_id: string;
@@ -53,6 +49,27 @@ function readServers(): Record<string, WebServerConfig> {
     return {};
   }
   return repairBrokenIds(servers);
+}
+
+/** Older builds saved a session token next to each profile. Those tokens no
+ *  longer work, and a token at rest is only a liability, so delete the field.
+ *  Runs when this module loads in the browser (see the bottom of the file). */
+export function scrubLegacyTokens(): void {
+  try {
+    const raw = localStorage.getItem(SERVERS_KEY);
+    if (!raw) return;
+    const servers = JSON.parse(raw) as Record<string, Record<string, unknown>>;
+    let changed = false;
+    for (const cfg of Object.values(servers)) {
+      if (cfg && typeof cfg === "object" && "token" in cfg) {
+        delete cfg.token;
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem(SERVERS_KEY, JSON.stringify(servers));
+  } catch {
+    // storage unavailable or unreadable: nothing to scrub
+  }
 }
 
 /** One-time self-heal for entries an older build could save with a broken
@@ -119,16 +136,14 @@ export function webRemoveServer(profileId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-//  Default server URL (build-time or same-origin)
+//  The server: always the origin that served this page
 // ---------------------------------------------------------------------------
 
+/** The web page talks only to the server that served it, so this is always
+ *  the empty (same origin) base. It used to follow `VITE_SERVER_URL`; a page
+ *  can no longer be pointed at another origin (spec 0010, AC-17). */
 export function apiUrl(): string {
-  return (
-    (import.meta.env.VITE_SERVER_URL as string | undefined)?.replace(
-      /\/+$/,
-      "",
-    ) ?? ""
-  );
+  return "";
 }
 
 export function slugifyUrl(url: string): string {
@@ -153,65 +168,71 @@ export function deriveServerId(url: string, org_id: string): string {
 //  OAuth sign-in (web build — full-page redirect, no loopback listener)
 // ---------------------------------------------------------------------------
 
-function normalizeBase(url: string): string {
-  const t = url.trim().replace(/\/+$/, "");
-  if (!t) return t;
-  return t.startsWith("http") ? t : `https://${t}`;
-}
-
 /** URL to send the browser to for `provider`'s OAuth consent screen. The
- *  server redirects back to `next` with the session token appended as a
- *  `token=` query param once sign-in completes (see `router.rs::auth_callback`). */
+ *  server redirects back to `next` (a path on this origin) with a one time
+ *  `code=` query param once sign-in completes (see `router/auth.rs`).
+ *  `challenge` is the PKCE hash of a secret this page keeps in
+ *  `sessionStorage`, so the code is useless to anyone who only sees the
+ *  address. */
 export function webOAuthStartUrl(
-  base: string,
   provider: string,
   next: string,
+  challenge: string,
 ): string {
-  const b = normalizeBase(base);
-  return `${b}/auth/${provider}/start?next=${encodeURIComponent(next)}`;
+  return `/auth/${provider}/start?next=${encodeURIComponent(next)}&code_challenge=${encodeURIComponent(challenge)}`;
 }
 
 // ---------------------------------------------------------------------------
-//  Authenticated fetch — supports per-server URL + token
+//  Fetch — sends the session's access token, renews it, retries once
 // ---------------------------------------------------------------------------
 
-/** Authenticated fetch against a dh-server. Defaults to the primary server. */
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+/** Send one request. With `authed`, the call carries the access token
+ *  (renewed first when it is about to expire), and a 401 renews once and
+ *  retries once, so a token the server ended early is picked up without the
+ *  person noticing. Without it (`/auth/providers`) nothing is attached. */
+async function send(
+  method: Method,
+  path: string,
+  body: unknown,
+  authed: boolean,
+): Promise<Response> {
+  const go = (token?: string) =>
+    fetch(path, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  if (!authed) return go();
+  const token = await webAccessToken();
+  const res = await go(token);
+  if (res.status !== 401) return res;
+  return go(await webRenew(token));
+}
+
+/** Fetch JSON from the server that served this page. */
 export async function wcall<T>(
-  method: "GET" | "POST" | "PUT" | "DELETE",
+  method: Method,
   path: string,
   body?: unknown,
-  serverUrl?: string,
-  token?: string,
+  authed = false,
 ): Promise<T> {
-  const base = serverUrl ?? apiUrl();
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const res = await send(method, path, body, authed);
   if (!res.ok) throw new Error(await errorText(res));
   return (await res.json()) as T;
 }
 
 export async function wcallEmpty(
-  method: "GET" | "POST" | "PUT" | "DELETE",
+  method: Method,
   path: string,
   body?: unknown,
-  serverUrl?: string,
-  token?: string,
+  authed = false,
 ): Promise<void> {
-  const base = serverUrl ?? apiUrl();
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const res = await send(method, path, body, authed);
   if (!res.ok) throw new Error(await errorText(res));
 }
 
@@ -229,10 +250,12 @@ async function errorText(res: Response): Promise<string> {
     case 404:
       return `${res.status} ${url} — endpoint missing on the server (same cause as 405: server binary predates this UI).`;
     case 401:
-      return `${res.status} ${url} — session invalid/expired. Sign in again.`;
+      return `${res.status} ${url} — signed out. Sign in again.`;
     default:
       return `HTTP ${res.status} ${url}`;
   }
 }
 
 export type { QueryResult };
+
+if (WEB && typeof localStorage !== "undefined") scrubLegacyTokens();

@@ -1,25 +1,25 @@
-use dh_core::server::client::ServerClient;
 use dh_core::server::orgs::{OrgInvite, OrgMember, OrgRole, Organization};
 use dh_core::server::profiles::client_for;
+use super::sessions::client_for_url;
 
-/// Create a brand-new organization using a token from a just-completed
-/// `servers_oauth_login` that isn't saved as a profile yet (e.g. the user
-/// has no orgs and needs to make their first one before there's anything
-/// to save).
+/// Create a brand-new organization on a server the app just signed in to (via
+/// `servers_oauth_login`) that isn't saved as a profile yet, e.g. the user has
+/// no orgs and needs to make their first one before there's anything to save.
+/// The session is the one Rust holds for `url`.
 #[tauri::command]
-pub async fn servers_org_create_new(url: String, token: String, name: String) -> Result<Organization, String> {
-    ServerClient::new(&url, &token).create_org(&name).await
+pub async fn servers_org_create_new(app: tauri::AppHandle, url: String, name: String) -> Result<Organization, String> {
+    client_for_url(&app, &url).create_org(&name).await
 }
 
-/// Redeem an invite code using a not-yet-saved OAuth token — same
-/// reasoning as `servers_org_create_new`.
+/// Redeem an invite code on a not-yet-saved server, same reasoning as
+/// `servers_org_create_new`.
 #[tauri::command]
 pub async fn servers_org_redeem_invite_new(
+    app: tauri::AppHandle,
     url: String,
-    token: String,
     code: String,
 ) -> Result<Organization, String> {
-    ServerClient::new(&url, &token).redeem_invite(&code).await
+    client_for_url(&app, &url).redeem_invite(&code).await
 }
 
 // ---- Organizations ------------------------------------------------------

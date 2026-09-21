@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer};
 use crate::server::auth::{AccessError, InviteWrite, ServerRole};
 use super::{AppState, Auth, err_res};
 
-fn access_err(e: AccessError) -> Response {
+pub(super) fn access_err(e: AccessError) -> Response {
     match e {
         AccessError::BadRequest(m) => (StatusCode::BAD_REQUEST, m).into_response(),
         AccessError::Forbidden => (StatusCode::FORBIDDEN, "forbidden").into_response(),

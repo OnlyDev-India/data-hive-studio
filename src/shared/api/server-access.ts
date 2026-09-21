@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WEB, wcall, wcallEmpty } from "./web";
-import { webAuthFor } from "./dispatch";
 import type { MeResult, ServerRole } from "./server-admin";
 
 // Server access: who may join this server, and with what server role. The
@@ -42,14 +41,7 @@ export const DEFAULT_INVITE_EXPIRY_DAYS = 7;
 
 export function serverInvitesList(profileId: string): Promise<ServerInvite[]> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
-    return wcall(
-      "GET",
-      "/v1/server/invites",
-      undefined,
-      url,
-      token || undefined,
-    );
+    return wcall("GET", "/v1/server/invites", undefined, true);
   }
   return invoke("servers_access_invites_list", { profileId });
 }
@@ -62,13 +54,11 @@ export function serverInviteCreate(
   expiresDays: InviteExpiryDays,
 ): Promise<ServerInvite> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall(
       "POST",
       "/v1/server/invites",
       { email, expires_days: expiresDays },
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_access_invite_create", {
@@ -83,13 +73,11 @@ export function serverInviteRevoke(
   inviteId: string,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "DELETE",
       `/v1/server/invites/${encodeURIComponent(inviteId)}`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_access_invite_revoke", { profileId, inviteId });
@@ -99,14 +87,7 @@ export function serverAccountsList(
   profileId: string,
 ): Promise<ServerAccount[]> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
-    return wcall(
-      "GET",
-      "/v1/server/accounts",
-      undefined,
-      url,
-      token || undefined,
-    );
+    return wcall("GET", "/v1/server/accounts", undefined, true);
   }
   return invoke("servers_access_accounts_list", { profileId });
 }
@@ -117,13 +98,11 @@ export function serverAccountSetRole(
   role: ServerRole,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "PUT",
       `/v1/server/accounts/${encodeURIComponent(userId)}/role`,
       { role },
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_access_set_role", { profileId, userId, role });
@@ -135,13 +114,11 @@ export function serverAccountSetManageRoles(
   enabled: boolean,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "PUT",
       `/v1/server/accounts/${encodeURIComponent(userId)}/manage-roles`,
       { enabled },
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_access_set_manage_roles", {

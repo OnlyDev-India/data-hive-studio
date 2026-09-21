@@ -15,7 +15,10 @@
 # Postgres service.
 
 # ---- build stage -----------------------------------------------------------
-FROM rust:1-slim AS build
+# Same Debian release as the runtime stage below: the binary links the build
+# stage's glibc, so a newer build image (`rust:1-slim` now tracks trixie)
+# fails to start on bookworm with "GLIBC_2.xx not found".
+FROM rust:1-slim-bookworm AS build
 WORKDIR /src
 
 # Dependency layer: cache crates between builds. src-tauri is a workspace

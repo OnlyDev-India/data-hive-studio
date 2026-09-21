@@ -3,12 +3,13 @@ import {
   WEB,
   wcall,
   wcallEmpty,
-  apiUrl,
   webListServers,
   webServerConfig,
   webRemoveServer,
 } from "./web";
-import { remoteOf, webAuthFor } from "./dispatch";
+import { isSignedOut, webRestoreSession } from "./web-session";
+import { webSignOut } from "./server-sessions";
+import { remoteOf } from "./dispatch";
 import type { SharedDbKind } from "./types";
 
 export type OrgRole = "viewer" | "member" | "admin" | "owner";
@@ -59,6 +60,9 @@ export interface ServerProfileView {
   url: string;
   org_id: string;
   connected: boolean;
+  /** False when the app holds no session for this server (a renewal was
+   *  refused, or the person signed out): offer Sign in again. */
+  signed_in: boolean;
 }
 
 export interface ServerConn {
@@ -116,21 +120,17 @@ export interface ServerSession {
 // ---- OAuth sign-in + profile persistence -----------------------------------
 //
 // Desktop opens the system browser and catches the callback on a local
-// loopback listener (`servers_oauth_login` in src-tauri/src/servers.rs); web
-// just redirects the whole page (`webOAuthStartUrl`, handled in WebGate on
-// the way back in). Either way this module never sees a password — only the
-// resulting session token.
+// loopback listener (`servers_oauth_login` in src-tauri/src/servers/session.rs);
+// web just redirects the whole page (`webOAuthStartUrl`, handled in WebGate on
+// the way back in). Either way this module never sees a password, and never a
+// token: the desktop session lives in Rust, and the web session in
+// `web-session.ts` (memory plus an HttpOnly cookie).
 
 /** Which OAuth providers `url` has credentials configured for — lets the
  *  sign-in form show only the buttons that will actually work. */
 export function serversOAuthProviders(url: string): Promise<string[]> {
   if (WEB) {
-    return wcall<string[]>(
-      "GET",
-      "/auth/providers",
-      undefined,
-      url || apiUrl(),
-    );
+    return wcall<string[]>("GET", "/auth/providers", undefined);
   }
   return invoke("servers_oauth_providers", { url });
 }
@@ -139,12 +139,13 @@ export function serversOAuthProviders(url: string): Promise<string[]> {
  *  claim ticket to send with the setup code, see `serversClaim`), or refused
  *  (a code for `refusalMessage`, and the person's own email). */
 export type OAuthLoginOutcome =
-  | { kind: "signed_in"; token: string; me: MeResult }
+  | { kind: "signed_in"; me: MeResult }
   | { kind: "claim"; ticket: string }
   | { kind: "refused"; error: string; email: string };
 
 /** Desktop only: run a full OAuth round trip. A signed in result carries the
- *  session token + identity/org list. Does not persist anything. */
+ *  identity + org list; the session itself stays in Rust. Does not save a
+ *  profile. */
 export function serversOAuthLogin(
   url: string,
   provider: string,
@@ -152,59 +153,39 @@ export function serversOAuthLogin(
   return invoke("servers_oauth_login", { url, provider });
 }
 
-/** Look for a still-usable session this app already holds for `url` — any
- *  previously saved profile pointed at the same server, since a session
- *  token isn't org-scoped (any org's token works for every org on that
- *  server). Lets "add another org on a server I've already signed in to"
+/** Look for a still-usable session this app already holds for `url` (one per
+ *  server, shared by every saved profile on it, since a session isn't
+ *  org-scoped). Lets "add another org on a server I've already signed in to"
  *  skip a fresh OAuth round trip. Never throws — `null` means "nothing
  *  usable, fall back to a normal sign-in". */
 export async function serversReuseSession(
   url: string,
-): Promise<{ token: string; me: MeResult } | null> {
+): Promise<{ me: MeResult } | null> {
   if (WEB) {
-    const target = (url || apiUrl()).replace(/\/+$/, "");
-    for (const cfg of webListServers()) {
-      if (cfg.url !== target) continue;
-      try {
-        const me = await wcall<MeResult>(
-          "GET",
-          "/v1/me",
-          undefined,
-          cfg.url,
-          cfg.token,
-        );
-        return { token: cfg.token, me };
-      } catch {
-        // stale/expired session — try the next matching profile, if any
-      }
+    try {
+      if (!(await webRestoreSession())) return null;
+      return { me: await wcall<MeResult>("GET", "/v1/me", undefined, true) };
+    } catch {
+      return null;
     }
-    return null;
   }
   return invoke("servers_reuse_session", { url });
 }
 
-/** Create a brand-new organization using a not-yet-saved OAuth session. */
+/** Create a brand-new organization on the server the person just signed in to. */
 export function serversOrgCreateNew(
   url: string,
-  token: string,
   name: string,
 ): Promise<Organization> {
   if (WEB) {
-    return wcall<Organization>(
-      "POST",
-      "/v1/orgs",
-      { name },
-      url || apiUrl(),
-      token,
-    );
+    return wcall<Organization>("POST", "/v1/orgs", { name }, true);
   }
-  return invoke("servers_org_create_new", { url, token, name });
+  return invoke("servers_org_create_new", { url, name });
 }
 
-/** Redeem a shareable invite code using a not-yet-saved OAuth session. */
+/** Redeem a shareable invite code on the server the person just signed in to. */
 export function serversOrgRedeemInviteNew(
   url: string,
-  token: string,
   code: string,
 ): Promise<Organization> {
   if (WEB) {
@@ -212,64 +193,54 @@ export function serversOrgRedeemInviteNew(
       "POST",
       `/v1/invites/${encodeURIComponent(code)}/redeem`,
       undefined,
-      url || apiUrl(),
-      token,
+      true,
     );
   }
-  return invoke("servers_org_redeem_invite_new", { url, token, code });
+  return invoke("servers_org_redeem_invite_new", { url, code });
 }
 
-/** Desktop only: persist a profile (keychain token + servers.json) for a
- *  server the user has OAuth-signed-in to and chosen an org on. Web instead
- *  calls `webAddServer` directly (see `connect-server-dialog.tsx`) — there's
- *  no Tauri process to hold a keychain entry for it. */
+/** Desktop only: persist a profile (servers.json) for a server the user has
+ *  OAuth-signed-in to and chosen an org on. The profile carries no token: it
+ *  finds the session by its server address. Web instead calls `webAddServer`
+ *  directly (see `connect-server-dialog.tsx`). */
 export function serversSaveProfile(
   name: string,
   url: string,
-  token: string,
   org_id: string,
 ): Promise<{ id: string; name: string; url: string; org_id: string }> {
-  return invoke("servers_save_profile", { name, url, token, orgId: org_id });
+  return invoke("servers_save_profile", { name, url, orgId: org_id });
 }
 
-export function serversList(): Promise<ServerProfileView[]> {
+export async function serversList(): Promise<ServerProfileView[]> {
   if (WEB) {
-    return Promise.all(
-      webListServers().map(async (s) => {
-        try {
-          await wcall<MeResult>(
-            "GET",
-            "/v1/me",
-            undefined,
-            s.url,
-            s.token || undefined,
-          );
-          return {
-            id: s.id,
-            name: s.name,
-            url: s.url,
-            org_id: s.org_id,
-            connected: true,
-          };
-        } catch {
-          return {
-            id: s.id,
-            name: s.name,
-            url: s.url,
-            org_id: s.org_id,
-            connected: false,
-          };
-        }
-      }),
-    );
+    // One session for the whole origin, so one check covers every profile.
+    let signed_in = true;
+    let connected = false;
+    try {
+      signed_in = await webRestoreSession();
+      connected = signed_in;
+    } catch {
+      // Unreachable server: unknown, so not shown as signed out.
+    }
+    return webListServers().map((s) => ({
+      id: s.id,
+      name: s.name,
+      url: s.url,
+      org_id: s.org_id,
+      connected,
+      signed_in,
+    }));
   }
   return invoke("servers_list");
 }
 
-export function serversRemove(profileId: string): Promise<void> {
+/** Remove a saved profile. When it was the last one for its server, the
+ *  session there ends too. */
+export async function serversRemove(profileId: string): Promise<void> {
   if (WEB) {
     webRemoveServer(profileId);
-    return Promise.resolve();
+    if (webListServers().length === 0) await webSignOut();
+    return;
   }
   return invoke("servers_remove", { profileId });
 }
@@ -279,27 +250,22 @@ export function serversConnect(profileId: string): Promise<ServerSession> {
     const cfg = webServerConfig(profileId);
     if (!cfg) return Promise.reject(new Error("server profile not found"));
     return Promise.all([
-      wcall<MeResult>(
-        "GET",
-        "/v1/me",
-        undefined,
-        cfg.url,
-        cfg.token || undefined,
-      ),
+      wcall<MeResult>("GET", "/v1/me", undefined, true),
       wcall<ServerConn[]>(
         "GET",
         `/v1/orgs/${encodeURIComponent(cfg.org_id)}/connections`,
         undefined,
-        cfg.url,
-        cfg.token || undefined,
+        true,
       ),
     ])
       .catch((e: unknown) => {
-        // Network-level failure (unreachable host, CORS block) — fetch throws a
-        // bare TypeError with no context. Give the user the target URL + cause.
+        // Signed out is its own answer, not a connection problem.
+        if (isSignedOut(e)) throw e;
+        // Network-level failure (unreachable host) — fetch throws a bare
+        // TypeError with no context. Give the user the cause.
         const detail =
           e instanceof TypeError
-            ? `cannot reach ${cfg.url || "(same origin)"} — check the URL/port, and that this server runs the CURRENT build (older builds lack CORS)`
+            ? "cannot reach the server that served this page — check that it is running"
             : String(e);
         throw new Error(
           `Connect failed for "${profileId.slice(0, 12)}": ${detail}`,
@@ -384,13 +350,11 @@ export function serversCreateConnection(
   input: ServerConnInput,
 ): Promise<unknown> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall<unknown>(
       "POST",
       `/v1/orgs/${encodeURIComponent(orgId)}/connections`,
       input,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_create_connection", { profileId, orgId, input });
@@ -403,13 +367,11 @@ export function serversUpdateConnection(
   input: ServerConnInput,
 ): Promise<unknown> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall<unknown>(
       "PUT",
       `/v1/connections/${encodeURIComponent(remoteOf(connId))}`,
       input,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_update_connection", { profileId, connId, input });
@@ -423,13 +385,11 @@ export function serversDeleteConnection(
   connId: string,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "DELETE",
       `/v1/connections/${encodeURIComponent(connId)}`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_delete_connection", { profileId, connId });
@@ -455,13 +415,11 @@ export function serversFetchCredentials(
   connId: string,
 ): Promise<ServerCredentials> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall<ServerCredentials>(
       "GET",
       `/v1/connections/${encodeURIComponent(remoteOf(connId))}/credentials`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_fetch_credentials", { profileId, connId });
@@ -470,18 +428,13 @@ export function serversFetchCredentials(
 /** Release (close) a server-side connection pool. Web clients call this on
  *  page unload so the server frees resources immediately instead of waiting
  *  for the idle timeout. */
-export function serversReleaseConnection(
-  profileId: string,
-  connId: string,
-): Promise<void> {
+export function serversReleaseConnection(connId: string): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "POST",
       `/v1/c/${encodeURIComponent(remoteOf(connId))}/close`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return Promise.resolve();
@@ -522,13 +475,11 @@ export function serversOrgMembers(
   orgId: string,
 ): Promise<OrgMember[]> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall(
       "GET",
       `/v1/orgs/${encodeURIComponent(orgId)}/members`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_members", { profileId, orgId });
@@ -541,13 +492,11 @@ export function serversOrgSetMemberRole(
   role: OrgRole,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "PUT",
       `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
       { role },
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_set_member_role", {
@@ -564,13 +513,11 @@ export function serversOrgRemoveMember(
   userId: string,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "DELETE",
       `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_remove_member", { profileId, orgId, userId });
@@ -581,13 +528,11 @@ export function serversOrgInvitesList(
   orgId: string,
 ): Promise<OrgInvite[]> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall(
       "GET",
       `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_invites_list", { profileId, orgId });
@@ -601,13 +546,11 @@ export function serversOrgInviteCreate(
   expiresMs: number | null,
 ): Promise<OrgInvite> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall(
       "POST",
       `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
       { role, max_uses: maxUses, expires_ms: expiresMs },
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_invite_create", {
@@ -625,13 +568,11 @@ export function serversOrgInviteRevoke(
   code: string,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "DELETE",
       `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(code)}`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_invite_revoke", { profileId, orgId, code });
@@ -643,13 +584,11 @@ export function serversOrgAudit(
   limit = 100,
 ): Promise<AuditEntry[]> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall(
       "GET",
       `/v1/orgs/${encodeURIComponent(orgId)}/audit?limit=${limit}`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_org_audit", { profileId, orgId, limit });
@@ -671,13 +610,11 @@ export function serversGrantsList(
   connId: string,
 ): Promise<Grant[]> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcall(
       "GET",
       `/v1/orgs/${encodeURIComponent(orgId)}/connections/${encodeURIComponent(connId)}/grants`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_grants_list", { profileId, orgId, connId });
@@ -693,13 +630,11 @@ export function serversGrantSet(
   can_delete: boolean,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "PUT",
       `/v1/orgs/${encodeURIComponent(orgId)}/connections/${encodeURIComponent(connId)}/grants/${encodeURIComponent(userId)}`,
       { can_read, can_update, can_delete },
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_grant_set", {
@@ -720,29 +655,22 @@ export function serversGrantRevoke(
   userId: string,
 ): Promise<void> {
   if (WEB) {
-    const { url, token } = webAuthFor(profileId);
     return wcallEmpty(
       "DELETE",
       `/v1/orgs/${encodeURIComponent(orgId)}/connections/${encodeURIComponent(connId)}/grants/${encodeURIComponent(userId)}`,
       undefined,
-      url,
-      token || undefined,
+      true,
     );
   }
   return invoke("servers_grant_revoke", { profileId, orgId, connId, userId });
 }
 
-/** Turn a raw connect-failure string into something a user can act on.
- *  Both `router.rs`'s `Auth` extractor (desktop, via the Tauri client) and
- *  `web.ts`'s `errorText` (web, via fetch) surface an expired/invalid
- *  session as text containing "invalid" and "session" — recognize that
- *  shape specifically instead of showing the raw "401 ... invalid,
- *  missing, or expired session" string with no indication of what to do
- *  about it. */
+/** Turn a connect failure into something a user can act on. A refused
+ *  renewal (`signed_out`, from the Tauri client or the web session) is not a
+ *  connection problem: the answer is to sign in again. */
 export function friendlyConnectError(name: string, e: unknown): string {
-  const raw = String(e);
-  if (/invalid.*session|session.*expired/i.test(raw)) {
-    return `Your sign-in for "${name}" has expired. Remove and re-add this server to sign in again.`;
+  if (isSignedOut(e)) {
+    return `You're signed out of "${name}". Choose Sign in again from the Team servers menu.`;
   }
-  return `Couldn't connect to "${name}": ${raw}`;
+  return `Couldn't connect to "${name}": ${String(e)}`;
 }

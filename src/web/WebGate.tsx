@@ -10,6 +10,11 @@ import {
   webListServers,
   type WebServerConfig,
 } from "@/shared/api/web";
+import {
+  SIGNED_OUT_EVENT,
+  isSignedOut,
+  webExchange,
+} from "@/shared/api/web-session";
 import { useStudioStore } from "@/shared/store";
 import {
   friendlyConnectError,
@@ -17,6 +22,7 @@ import {
   type Organization,
 } from "@/shared/api/server-admin";
 import {
+  OLD_SERVER_MESSAGE,
   parseSignInReturn,
   refusalMessage,
   stripSignInParams,
@@ -39,23 +45,29 @@ type GateState = "connecting" | "login" | "claim" | "org-pick" | "ready";
 const LAST_KEY = "dh.web.last";
 const CONNECT_TIMEOUT_MS = 10_000;
 
-/** Recover how an OAuth callback ended from the current URL: `?token=`
- *  (signed in), `?ticket=` (this server needs its owner to claim it) or
- *  `?error=&email=` (refused). Appended by `router/auth.rs::auth_callback`
- *  after a `/auth/{provider}/start` round trip — see `webOAuthStartUrl`. The
- *  parameters are stripped from the address bar immediately so a refresh
- *  doesn't try to use them again. */
-function takeSignInReturn(): SignInReturn | null {
+/** Recover how an OAuth callback ended from the current URL: `?code=` (signed
+ *  in: a one time login code, traded for a session below), `?ticket=` (this
+ *  server needs its owner to claim it) or `?error=&email=` (refused). Appended
+ *  by `router/auth.rs::auth_callback` after a `/auth/{provider}/start` round
+ *  trip — see `webOAuthStartUrl`. A `?token=` means a server from before
+ *  device sessions: nothing from it is used or kept. This only reads the
+ *  address: `App` mounts the gate inside a `Suspense` whose child is still
+ *  loading, so React throws the first render's state away and runs this again.
+ *  Erasing the parameters here would leave that second run with nothing. */
+function readSignInReturn(): SignInReturn | null {
   if (!WEB || typeof window === "undefined") return null;
-  const found = parseSignInReturn(window.location.search);
-  if (!found) return null;
+  return parseSignInReturn(window.location.search);
+}
+
+/** Remove the sign in parameters from the address bar so a refresh doesn't
+ *  try to use them again. Runs once the gate has really mounted. */
+function clearSignInParams(): void {
   const rest = stripSignInParams(window.location.search);
   window.history.replaceState(
     {},
     "",
     window.location.pathname + (rest ? `?${rest}` : ""),
   );
-  return found;
 }
 
 export function WebGate({ children }: GateProps) {
@@ -66,59 +78,77 @@ export function WebGate({ children }: GateProps) {
     WEB ? localStorage.getItem(LAST_KEY) : null,
   );
   const [sign_in_return] = useState<SignInReturn | null>(() =>
-    takeSignInReturn(),
+    readSignInReturn(),
   );
-  const pending_token =
-    sign_in_return?.kind === "token" ? sign_in_return.token : null;
+  const pending_code =
+    sign_in_return?.kind === "code" ? sign_in_return.code : null;
   const claim_ticket =
     sign_in_return?.kind === "ticket" ? sign_in_return.ticket : null;
   const [state, setState] = useState<GateState>(() => {
     if (!WEB) return "ready";
-    if (pending_token) return "org-pick";
+    if (pending_code) return "org-pick";
     if (claim_ticket) return "claim";
     // Refused: show why on the sign in form, not a silent reconnect.
     if (sign_in_return) return "login";
     return stored.length === 0 ? "login" : "connecting";
   });
-  const [gate_error, setGateError] = useState<string | null>(() =>
-    sign_in_return?.kind === "refused"
-      ? refusalMessage(sign_in_return.error, sign_in_return.email)
-      : null,
-  );
+  const [gate_error, setGateError] = useState<string | null>(() => {
+    if (sign_in_return?.kind === "refused")
+      return refusalMessage(sign_in_return.error, sign_in_return.email);
+    if (sign_in_return?.kind === "old_server") return OLD_SERVER_MESSAGE;
+    return null;
+  });
   const [oauth_session, setOAuthSession] = useState<{
     url: string;
-    token: string;
     me: MeResult;
   } | null>(null);
+  const exchanging = useRef(false);
   const [org_busy, setOrgBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Resolve the pending OAuth token (if any) into an identity + org list.
   useEffect(() => {
-    if (!WEB || !pending_token || state !== "org-pick") return;
-    let cancelled = false;
+    if (sign_in_return) clearSignInParams();
+  }, [sign_in_return]);
+
+  // Trade the login code (if any) for a session, then resolve it into an
+  // identity + org list. Runs once even when React runs effects twice: the code
+  // and the verifier can each be used only once.
+  useEffect(() => {
+    if (!WEB || !pending_code || exchanging.current) return;
+    exchanging.current = true;
     void (async () => {
       const url = apiUrl();
       try {
-        const me = await wcall<MeResult>(
-          "GET",
-          "/v1/me",
-          undefined,
-          url,
-          pending_token,
-        );
-        if (!cancelled) setOAuthSession({ url, token: pending_token, me });
-      } catch (e) {
-        if (!cancelled) {
-          setGateError(`Sign-in failed: ${String(e)}`);
-          setState("login");
+        await webExchange(pending_code);
+        const me = await wcall<MeResult>("GET", "/v1/me", undefined, true);
+        const target = stored.find((s) => s.id === last_id) ?? stored[0];
+        if (target && me.orgs.some((o) => o.id === target.org_id)) {
+          // Signing in again keeps the profile and its org: no org picker.
+          await useStudioStore.getState().connectServer(target.id);
+          localStorage.setItem(LAST_KEY, target.id);
+          setState("ready");
+          return;
         }
+        setOAuthSession({ url, me });
+      } catch (e) {
+        setGateError(`Sign-in failed: ${String(e)}`);
+        setState("login");
       }
     })();
-    return () => {
-      cancelled = true;
+  }, [pending_code, stored, last_id]);
+
+  // A session that was working has ended (signed out here, in another tab, or
+  // on another device): show the sign in dialog again.
+  useEffect(() => {
+    if (!WEB) return;
+    const onSignedOut = () => {
+      setOAuthSession(null);
+      setGateError("You've been signed out. Sign in to continue.");
+      setState("login");
     };
-  }, [pending_token, state]);
+    window.addEventListener(SIGNED_OUT_EVENT, onSignedOut);
+    return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut);
+  }, []);
 
   // Track the last active profile so localStorage stays current.
   useEffect(() => {
@@ -157,7 +187,9 @@ export function WebGate({ children }: GateProps) {
         if (!cancelled) setState("ready");
       } catch (e) {
         if (!cancelled) {
-          setGateError(friendlyConnectError(target.name || target.url, e));
+          // Not signed in here: the sign in buttons are the answer, no error.
+          if (!isSignedOut(e))
+            setGateError(friendlyConnectError(target.name || target.url, e));
           setState("login");
         }
       }
@@ -190,7 +222,6 @@ export function WebGate({ children }: GateProps) {
     webAddServer({
       id,
       url: oauth_session.url,
-      token: oauth_session.token,
       name: org.name,
       org_id: org.id,
     });
@@ -233,11 +264,7 @@ export function WebGate({ children }: GateProps) {
                   url={apiUrl()}
                   ticket={claim_ticket}
                   onClaimed={(r) => {
-                    setOAuthSession({
-                      url: apiUrl(),
-                      token: r.token,
-                      me: r.me,
-                    });
+                    setOAuthSession({ url: apiUrl(), me: r.me });
                     setState("org-pick");
                   }}
                   onCancel={() => setState("login")}
@@ -249,7 +276,6 @@ export function WebGate({ children }: GateProps) {
                   <OrgPickerStep
                     me={oauth_session.me}
                     url={oauth_session.url}
-                    token={oauth_session.token}
                     busy={org_busy}
                     error={gate_error}
                     onSelect={handle_org_select}

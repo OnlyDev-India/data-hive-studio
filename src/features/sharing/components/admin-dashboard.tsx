@@ -10,11 +10,15 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { cn } from "@/shared/lib/utils";
 import type { AuditEntry } from "@/shared/api/server-admin";
+import { canInvite, canManageAccounts } from "@/shared/api/server-access";
 import type { OrgInvite, OrgMember, Tab } from "./types";
 import { TABS } from "./types";
 import { MembersPanel } from "./members-panel";
 import { InvitesPanel } from "./invites-panel";
 import { CreateInviteForm } from "./create-invite-panel";
+import { MyDevicesPanel } from "./my-devices-panel";
+import { AccessInvitesSection } from "./access-invites-section";
+import { AccessPeopleSection } from "./access-people-section";
 
 export function AdminDashboard({
   profileId,
@@ -29,6 +33,15 @@ export function AdminDashboard({
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const disconnectServer = useStudioStore((s) => s.disconnectServer);
+  const serverName = useStudioStore(
+    (s) => s.serverSessions[profileId]?.profile.name ?? "",
+  );
+  const me = useStudioStore((s) => s.serverSessions[profileId]?.me);
+  // Server level invites and accounts sit under Invites and Members, for
+  // server owners and admins; the server refuses anyone else.
+  const show_server_invites = me !== undefined && canInvite(me);
+  const show_server_people = me !== undefined && canManageAccounts(me);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -56,6 +69,18 @@ export function AdminDashboard({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount
     void refresh();
   }, [refresh]);
+
+  /** This device's session on the server ended (its own row, or Sign out
+   *  everywhere): every profile on that server shares it, so drop them all. */
+  async function afterSignedOut() {
+    const { serverSessions } = useStudioStore.getState();
+    const url = serverSessions[profileId]?.profile.url;
+    for (const [id, sess] of Object.entries(serverSessions)) {
+      if (id === profileId || (url && sess.profile.url === url)) {
+        await disconnectServer(id);
+      }
+    }
+  }
 
   const filtered_members = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -120,28 +145,77 @@ export function AdminDashboard({
             </Button>
           </div>
         )}
-        {loading ? (
+        {tab === "devices" ? (
+          <MyDevicesPanel
+            profileId={profileId}
+            serverName={serverName}
+            onSignedOut={() => void afterSignedOut()}
+          />
+        ) : loading ? (
           <p className="text-muted-foreground py-4 text-sm">Loading…</p>
         ) : tab === "members" ? (
-          <MembersPanel
-            members={filtered_members}
-            profileId={profileId}
-            orgId={orgId}
-            onChanged={() => void refresh()}
-          />
+          <div className="space-y-8">
+            <section className="space-y-3">
+              {show_server_invites && (
+                <SectionHeading
+                  title="Organization members"
+                  hint="Who belongs to this organization and their role in it."
+                />
+              )}
+              <MembersPanel
+                members={filtered_members}
+                profileId={profileId}
+                orgId={orgId}
+                onChanged={() => void refresh()}
+              />
+            </section>
+            {show_server_invites && (
+              <section className="space-y-3 border-t pt-6">
+                <SectionHeading
+                  title="Server accounts"
+                  hint={`Everyone with an account on ${serverName} and their server role.`}
+                />
+                {show_server_people && me ? (
+                  <AccessPeopleSection profileId={profileId} me={me} />
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    Managing people is off for your account. Ask a server owner
+                    to turn on “Can manage roles” for you.
+                  </p>
+                )}
+              </section>
+            )}
+          </div>
         ) : tab === "invites" ? (
-          <div className="space-y-6">
-            <CreateInviteForm
-              profileId={profileId}
-              orgId={orgId}
-              on_created={() => void refresh()}
-            />
-            <InvitesPanel
-              invites={invites}
-              profileId={profileId}
-              orgId={orgId}
-              onRefresh={() => void refresh()}
-            />
+          <div className="space-y-8">
+            <section className="space-y-6">
+              {show_server_invites && (
+                <SectionHeading
+                  title="Organization invite codes"
+                  hint="A code that joins this organization with a role."
+                />
+              )}
+              <CreateInviteForm
+                profileId={profileId}
+                orgId={orgId}
+                on_created={() => void refresh()}
+              />
+              <InvitesPanel
+                invites={invites}
+                profileId={profileId}
+                orgId={orgId}
+                onRefresh={() => void refresh()}
+              />
+            </section>
+            {show_server_invites && (
+              <section className="space-y-3 border-t pt-6">
+                <SectionHeading
+                  title="Server invites"
+                  hint={`Who may sign in to ${serverName} by email.`}
+                />
+                <AccessInvitesSection profileId={profileId} />
+              </section>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -172,6 +246,15 @@ export function AdminDashboard({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SectionHeading({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div>
+      <h2 className="text-sm font-semibold">{title}</h2>
+      <p className="text-muted-foreground text-xs">{hint}</p>
     </div>
   );
 }

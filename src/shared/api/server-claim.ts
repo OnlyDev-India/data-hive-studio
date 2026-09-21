@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { WEB, apiUrl, wcall } from "./web";
+import { WEB, wcall } from "./web";
+import { webDeviceId, webSetAccess, type TokenReply } from "./web-session";
 import type { MeResult } from "./server-admin";
 
 // A new team server is closed. Signing in on it returns a claim ticket, and
@@ -8,26 +9,33 @@ import type { MeResult } from "./server-admin";
 // flow the desktop app and the web page share: reading how a sign in ended,
 // the claim call, and the plain words for each refusal.
 
-/** How a sign in ended, as read back from the address the browser returns to
- *  (web), or from the desktop callback. */
+/** How a sign in ended, as read back from the address the browser returns to.
+ *  `old_server` is a server from before device sessions, which answers with a
+ *  `token=` this page must not use or keep. */
 export type SignInReturn =
-  | { kind: "token"; token: string }
+  | { kind: "code"; code: string }
   | { kind: "ticket"; ticket: string }
-  | { kind: "refused"; error: string; email: string };
+  | { kind: "refused"; error: string; email: string }
+  | { kind: "old_server" };
 
-const RETURN_KEYS = ["token", "ticket", "error", "email"];
+const RETURN_KEYS = ["code", "token", "ticket", "error", "email"];
 
-/** Read the sign in outcome out of a query string (`?token=…`, `?ticket=…` or
+/** Shown when the server answers a sign in the old way (spec 0010, AC-19). */
+export const OLD_SERVER_MESSAGE =
+  "This server needs updating to work with this version of DH Studio";
+
+/** Read the sign in outcome out of a query string (`?code=…`, `?ticket=…` or
  *  `?error=…&email=…`). `null` when the page was not a sign in return. */
 export function parseSignInReturn(search: string): SignInReturn | null {
   const params = new URLSearchParams(search);
-  const token = params.get("token");
-  if (token) return { kind: "token", token };
+  const code = params.get("code");
+  if (code) return { kind: "code", code };
   const ticket = params.get("ticket");
   if (ticket) return { kind: "ticket", ticket };
   const error = params.get("error");
   if (error)
     return { kind: "refused", error, email: params.get("email") ?? "" };
+  if (params.get("token")) return { kind: "old_server" };
   return null;
 }
 
@@ -80,19 +88,25 @@ export function claimNeedsNewSignIn(e: unknown): boolean {
 }
 
 /** Claim a server that has no owner: the ticket from a sign in plus the setup
- *  code from the server log. The caller becomes the owner and gets a session.
- *  A refusal rejects with the server's code (`code_invalid`, …). */
+ *  code from the server log. The caller becomes the owner and is signed in like
+ *  anyone else. A refusal rejects with the server's code (`code_invalid`, …). */
 export async function serversClaim(
   url: string,
   ticket: string,
   code: string,
-): Promise<{ token: string; me: MeResult }> {
+): Promise<{ me: MeResult }> {
   if (!WEB) return invoke("servers_claim", { url, ticket, code });
-  const base = url || apiUrl();
-  const res = await fetch(`${base}/auth/claim`, {
+  const res = await fetch("/auth/claim", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticket, code }),
+    credentials: "same-origin",
+    cache: "no-store",
+    body: JSON.stringify({
+      ticket,
+      code,
+      device_id: webDeviceId(),
+      platform: "web",
+    }),
   });
   if (!res.ok) {
     let reason = `HTTP ${res.status}`;
@@ -104,7 +118,7 @@ export async function serversClaim(
     }
     throw new Error(reason);
   }
-  const { token } = (await res.json()) as { token: string };
-  const me = await wcall<MeResult>("GET", "/v1/me", undefined, base, token);
-  return { token, me };
+  // The renewal token arrived as the cookie; keep the access token in memory.
+  webSetAccess((await res.json()) as TokenReply);
+  return { me: await wcall<MeResult>("GET", "/v1/me", undefined, true) };
 }

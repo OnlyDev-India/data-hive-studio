@@ -1,6 +1,6 @@
 //! Server state store — PostgreSQL only (`DH_DATABASE_URL` / `DATABASE_URL`).
 //! Holds users and their provider identities, the claim state and server
-//! invites, sessions, organizations, org membership + invites, the connection
+//! invites, device sessions and their tokens, organizations, org membership + invites, the connection
 //! vault, connection-grant overrides, and the audit log. The schema is built
 //! by the numbered files in `crates/dh-core/migrations/`.
 //!
@@ -306,15 +306,20 @@ mod tests {
         rb.expect("second copy migrates");
 
         let applied = || async { sqlx::query_scalar::<_, i64>("SELECT count(*) FROM _sqlx_migrations").fetch_one(&a.pool).await.unwrap() };
-        assert_eq!(applied().await, 1);
+        let migrations = MIGRATOR.iter().count() as i64;
+        assert_eq!(applied().await, migrations);
         // A restart applies nothing new, and the seeded settings row is still one row.
         a.migrate().await.expect("restart");
-        assert_eq!(applied().await, 1);
+        assert_eq!(applied().await, migrations);
         let settings: i64 = sqlx::query_scalar("SELECT count(*) FROM server_settings").fetch_one(&a.pool).await.unwrap();
         assert_eq!(settings, 1);
-        for t in ["users", "identities", "server_settings", "server_invites", "sessions", "organizations", "audit"] {
+        for t in [
+            "users", "identities", "server_settings", "server_invites", "device_sessions", "access_tokens",
+            "login_codes", "organizations", "audit",
+        ] {
             assert!(table_exists(&a.pool, t).await, "{t} exists");
         }
+        assert!(!table_exists(&a.pool, "sessions").await, "the old 30 day sessions table is gone");
     }
 }
 

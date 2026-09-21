@@ -5,10 +5,8 @@ import {
   dispatchDbCall,
   hinted,
   isServerConn,
-  profileOf,
   remoteOf,
   serverUnsupported,
-  webAuthFor,
 } from "./dispatch";
 import type { CancelOutcome, DbKind, QueryOp, QueryResult } from "./types";
 
@@ -106,13 +104,11 @@ export async function runSqlParams(
   database?: string,
 ): Promise<QueryResult> {
   if (WEB && isServerConn(connId)) {
-    const { url, token } = webAuthFor(profileOf(connId));
     return wcall(
       "POST",
       `/v1/c/${encodeURIComponent(remoteOf(connId))}/sql`,
       { sql, params, database: database ?? null },
-      url,
-      token || undefined,
+      true,
     );
   }
   if (WEB)

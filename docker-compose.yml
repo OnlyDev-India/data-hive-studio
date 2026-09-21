@@ -29,6 +29,8 @@ services:
       - dh-postgres:/var/lib/postgresql/data
     expose:
       - "5432" # internal only
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dh -d dh_server"]
@@ -65,10 +67,14 @@ services:
       # get an account. Point DH_DATABASE_URL at an EMPTY database: a database
       # made by an older dh-server is refused at start and left untouched.
       #
-      # Only needed when the Web UI is hosted on a different origin than this
-      # API (VITE_SERVER_URL). Comma separated origins allowed to receive the
-      # sign-in redirect. DH_PUBLIC_URL's origin and loopback are always allowed.
-      # DH_ALLOWED_ORIGINS: https://app.example.com
+      # The Web UI must be reached at the same origin as this API (the `web`
+      # proxy below does that). Set DH_PUBLIC_URL to the https address in
+      # production so the sign in cookie is marked Secure; the server logs a
+      # warning at start when it is plain http on a network address.
+      # DH_PUBLIC_URL: https://studio.example.com
+      #
+      # Upgrading from the single 30 day session token: update this server, the
+      # web build and the desktop apps together. Everyone signs in once again.
       #
       # 64-char hex master key for connection-password encryption; if
       # unset, one is generated into /data on first run and persisted

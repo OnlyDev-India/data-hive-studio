@@ -5,12 +5,13 @@ export interface ConnLite {
   name: string;
 }
 
-export type Tab = "members" | "invites" | "audit";
+export type Tab = "members" | "invites" | "audit" | "devices";
 
 export const TABS: { key: Tab; label: string }[] = [
   { key: "members", label: "Members" },
   { key: "invites", label: "Invites" },
   { key: "audit", label: "Audit log" },
+  { key: "devices", label: "My devices" },
 ];
 
 export const ROLES = ["viewer", "member", "admin", "owner"] as const;
