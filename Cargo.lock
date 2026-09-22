@@ -1489,6 +1489,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "dh-core",
+ "dh-server-client",
  "hex",
  "rand 0.8.7",
  "tokio",
@@ -1496,10 +1497,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "dh-server-client"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm 0.10.3",
+ "base64 0.22.1",
+ "hex",
+ "rand 0.8.7",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "dh-studio"
 version = "0.5.3"
 dependencies = [
  "dh-core",
+ "dh-server-client",
  "enigo",
  "keyring",
  "log",

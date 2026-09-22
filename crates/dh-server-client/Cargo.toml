@@ -1,0 +1,15 @@
+[package]
+name = "dh-server-client"
+version = "0.1.0"
+edition = "2021"
+description = "Wire types and HTTP client shared between the desktop app and dh-server: the team server's JSON shapes, the ServerClient, crypto helpers, and saved server profiles"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+aes-gcm.workspace = true
+sha2.workspace = true
+rand.workspace = true
+hex.workspace = true
+base64.workspace = true
