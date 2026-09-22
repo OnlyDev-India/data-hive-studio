@@ -6,6 +6,7 @@ description = "dh-studio team server: encrypted connection vault, grants, query 
 
 [dependencies]
 dh-core = { path = "../dh-core" }
+dh-server-client = { path = "../dh-server-client" }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 tower-http.workspace = true
 axum.workspace = true
