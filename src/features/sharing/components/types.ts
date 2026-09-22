@@ -14,4 +14,4 @@ export const TABS: { key: Tab; label: string }[] = [
   { key: "devices", label: "My devices" },
 ];
 
-export const ROLES = ["viewer", "member", "admin", "owner"] as const;
+export const ROLES = ["member", "admin", "owner"] as const;

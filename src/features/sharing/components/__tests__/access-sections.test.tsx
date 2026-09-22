@@ -9,6 +9,8 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { MeResult } from "@/shared/api/server-admin";
 import type { ServerAccount, ServerInvite } from "@/shared/api/server-access";
+import { useStudioStore } from "@/shared/store";
+import type { StudioStore } from "@/shared/store/types";
 
 const api = vi.hoisted(() => ({
   serverInvitesList: vi.fn(),
@@ -27,7 +29,7 @@ vi.mock("@/shared/api/workspace-state", () => ({
   saveWorkspaceState: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { AccessInvitesSection } from "../access-invites-section";
+import { AccessInvitesSection, inviteWhen } from "../access-invites-section";
 import { AccessPeopleSection } from "../access-people-section";
 
 const me = (
@@ -74,6 +76,8 @@ function people(caller: MeResult) {
   return render(<AccessPeopleSection profileId="p1" me={caller} />);
 }
 
+let original_push_notification: StudioStore["pushNotification"];
+
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
   api.serverInvitesList.mockResolvedValue([]);
@@ -92,10 +96,96 @@ beforeEach(() => {
     }),
     account({ id: "m1", email: "mem@x.com", name: "Mem" }),
   ]);
+  original_push_notification = useStudioStore.getState().pushNotification;
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  useStudioStore.setState({ pushNotification: original_push_notification });
+});
+
+describe("inviteWhen", () => {
+  const NOW = 1_700_000_000_000;
+
+  it("says who joined, or just Used, for a used invite", () => {
+    expect(
+      inviteWhen(invite({ status: "used", used_by: "a@x.com" }), NOW),
+    ).toBe("Joined as a@x.com");
+    expect(inviteWhen(invite({ status: "used", used_by: null }), NOW)).toBe(
+      "Used",
+    );
+  });
+
+  it("says Never expires when expires_ms is null, regardless of status", () => {
+    expect(inviteWhen(invite({ expires_ms: null }), NOW)).toBe(
+      "Never expires",
+    );
+  });
+
+  it("says Expired once the status has flipped, even if the math is close", () => {
+    expect(
+      inviteWhen(invite({ status: "expired", expires_ms: NOW - 1 }), NOW),
+    ).toBe("Expired");
+  });
+
+  it("rounds down to a same-day warning inside the last 24 hours", () => {
+    expect(
+      inviteWhen(invite({ status: "open", expires_ms: NOW + 3_600_000 }), NOW),
+    ).toBe("Expires within a day");
+  });
+
+  it("counts whole days remaining otherwise", () => {
+    expect(
+      inviteWhen(
+        invite({ status: "open", expires_ms: NOW + 3 * 86_400_000 }),
+        NOW,
+      ),
+    ).toBe("Expires in 3 days");
+  });
+});
 
 describe("Server invites", () => {
+  it("tells the person when invites fail to load", async () => {
+    api.serverInvitesList.mockRejectedValue(new Error("500 — boom"));
+    const push = vi.fn();
+    useStudioStore.setState({ pushNotification: push });
+    invites();
+    await waitFor(() =>
+      expect(push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "error",
+          title: "Couldn't load invites",
+        }),
+      ),
+    );
+    // Falls back to an empty list rather than staying stuck loading forever.
+    expect(
+      await screen.findByText(/No invites yet/),
+    ).toBeVisible();
+  });
+
+  it("tells the person when creating an invite fails, and does not clear the form", async () => {
+    api.serverInviteCreate.mockRejectedValue(new Error("409 — already_has_account"));
+    const push = vi.fn();
+    useStudioStore.setState({ pushNotification: push });
+    invites();
+    await userEvent.type(
+      screen.getByLabelText("Email to invite"),
+      "taken@x.com",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Invite" }));
+    await waitFor(() =>
+      expect(push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "error",
+          title: "Couldn't create the invite",
+        }),
+      ),
+    );
+    expect(screen.getByLabelText("Email to invite")).toHaveValue(
+      "taken@x.com",
+    );
+  });
+
   it("creates an invite for the typed email with the 7 day default", async () => {
     api.serverInviteCreate.mockResolvedValue(invite({}));
     invites();
@@ -150,6 +240,21 @@ describe("Server invites", () => {
 
 describe("Server accounts", () => {
   const peopleLoaded = () => screen.findByText("boss@x.com");
+
+  it("tells the person when accounts fail to load", async () => {
+    api.serverAccountsList.mockRejectedValue(new Error("500 — boom"));
+    const push = vi.fn();
+    useStudioStore.setState({ pushNotification: push });
+    people(me("owner"));
+    await waitFor(() =>
+      expect(push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "error",
+          title: "Couldn't load people",
+        }),
+      ),
+    );
+  });
 
   it("gives an owner a role select on every row and the switch on admins", async () => {
     people(me("owner"));

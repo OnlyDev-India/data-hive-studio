@@ -236,3 +236,102 @@ pub(super) async fn me(State(gw): State<AppState>, auth: Auth) -> Response {
         Err(e) => err_res(e),
     }
 }
+
+// Pure, DB-free unit tests for this file's own helpers. `auth_tests.rs`
+// (below) covers the routes end to end against a real Postgres test store.
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn cookie_header(raw: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(header::COOKIE, HeaderValue::from_str(raw).unwrap());
+        h
+    }
+
+    #[test]
+    fn read_cookie_finds_the_named_value_among_several() {
+        let h = cookie_header("a=1; dh_oauth_state=csrf1:chal1:http://x; b=2");
+        assert_eq!(read_cookie(&h, STATE_COOKIE).as_deref(), Some("csrf1:chal1:http://x"));
+    }
+
+    #[test]
+    fn read_cookie_tolerates_the_surrounding_whitespace_browsers_send() {
+        let h = cookie_header(" a=1;  dh_oauth_state=xyz ; b=2");
+        assert_eq!(read_cookie(&h, STATE_COOKIE).as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn read_cookie_is_none_when_absent_or_header_missing() {
+        assert_eq!(read_cookie(&cookie_header("a=1"), STATE_COOKIE), None);
+        assert_eq!(read_cookie(&HeaderMap::new(), STATE_COOKIE), None);
+    }
+
+    #[test]
+    fn finish_redirects_with_the_outcome_as_a_query_param_and_clears_the_state_cookie() {
+        let next = "http://127.0.0.1:5173/callback";
+
+        let r = finish(next, Outcome::Code("abc".into()));
+        assert_eq!(r.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            r.headers().get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://127.0.0.1:5173/callback?code=abc",
+        );
+        let cleared = r.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+        assert!(cleared.starts_with(&format!("{STATE_COOKIE}=; Max-Age=0")), "{cleared}");
+
+        let r = finish(next, Outcome::Ticket("tix-1".into()));
+        assert_eq!(
+            r.headers().get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://127.0.0.1:5173/callback?ticket=tix-1",
+        );
+
+        let r = finish(next, Outcome::Refused { code: "not_invited", email: "a@x.com".into() });
+        assert_eq!(
+            r.headers().get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://127.0.0.1:5173/callback?error=not_invited&email=a%40x.com",
+        );
+    }
+
+    #[test]
+    fn finish_refuses_a_malformed_return_address() {
+        let r = finish("not a url", Outcome::Code("abc".into()));
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn auth_start_refuses_a_provider_with_no_credentials_configured() {
+        // The test environment sets no GOOGLE_CLIENT_ID/SECRET, so this
+        // exercises the same "unavailable" path a real unconfigured server takes.
+        let r = auth_start(Path("google".into()), Query(StartQuery { next: None, code_challenge: None })).await;
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn auth_start_rejects_an_unrecognized_provider_the_same_way() {
+        let r = auth_start(
+            Path("bogus".into()),
+            Query(StartQuery { next: None, code_challenge: None }),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn claim_body_device_name_is_optional() {
+        let b: ClaimBody =
+            serde_json::from_str(r#"{"ticket":"t","code":"c","device_id":"d1","platform":"macos"}"#).unwrap();
+        assert_eq!(b.device_name, None);
+
+        let b: ClaimBody = serde_json::from_str(
+            r#"{"ticket":"t","code":"c","device_id":"d1","platform":"macos","device_name":"Mac mini"}"#,
+        )
+        .unwrap();
+        assert_eq!(b.device_name.as_deref(), Some("Mac mini"));
+    }
+}
+
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;

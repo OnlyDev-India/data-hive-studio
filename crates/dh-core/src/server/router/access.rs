@@ -111,3 +111,74 @@ pub(super) async fn server_account_manage_roles(
         Err(e) => access_err(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    async fn body_text(resp: Response) -> String {
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn access_err_maps_each_variant_to_its_status_and_code() {
+        let r = access_err(AccessError::BadRequest("bad email".into()));
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(body_text(r).await, "bad email");
+
+        assert_eq!(access_err(AccessError::Forbidden).status(), StatusCode::FORBIDDEN);
+        assert_eq!(access_err(AccessError::NotFound).status(), StatusCode::NOT_FOUND);
+
+        let r = access_err(AccessError::AlreadyHasAccount);
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(body_text(r).await, "already_has_account");
+
+        let r = access_err(AccessError::AlreadyUsed);
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(body_text(r).await, "already_used");
+
+        let r = access_err(AccessError::LastOwner);
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(body_text(r).await, "last_owner");
+
+        let r = access_err(AccessError::NotAnAdmin);
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(body_text(r).await, "not_an_admin");
+
+        // Falls through to the shared error mapper for anything else.
+        assert_eq!(access_err(AccessError::Other("weird".into())).status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn create_invite_body_tells_omitted_from_null_from_a_value() {
+        // Field left out entirely: default applies later (AC-8, 7 days).
+        let omitted: CreateInviteBody = serde_json::from_str(r#"{"email":"a@x.com"}"#).unwrap();
+        assert_eq!(omitted.expires_days, None);
+
+        // Explicit null: never expires.
+        let never: CreateInviteBody =
+            serde_json::from_str(r#"{"email":"a@x.com","expires_days":null}"#).unwrap();
+        assert_eq!(never.expires_days, Some(None));
+
+        // An explicit day count.
+        let days: CreateInviteBody =
+            serde_json::from_str(r#"{"email":"a@x.com","expires_days":30}"#).unwrap();
+        assert_eq!(days.expires_days, Some(Some(30)));
+    }
+
+    #[test]
+    fn default_expiry_is_seven_days_only_when_the_field_was_omitted() {
+        let omitted: CreateInviteBody = serde_json::from_str(r#"{"email":"a@x.com"}"#).unwrap();
+        assert_eq!(omitted.expires_days.unwrap_or(Some(7)), Some(7));
+
+        let never: CreateInviteBody =
+            serde_json::from_str(r#"{"email":"a@x.com","expires_days":null}"#).unwrap();
+        assert_eq!(never.expires_days.unwrap_or(Some(7)), None, "explicit null must not fall back to 7");
+
+        let one_day: CreateInviteBody =
+            serde_json::from_str(r#"{"email":"a@x.com","expires_days":1}"#).unwrap();
+        assert_eq!(one_day.expires_days.unwrap_or(Some(7)), Some(1));
+    }
+}
