@@ -9,7 +9,7 @@
 use super::accounts::{insert_identity, insert_user, load_user};
 use super::provider::VerifiedProfile;
 use super::User;
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::{audit_in, now_ms, Store};
 use sha2::{Digest, Sha256};
 

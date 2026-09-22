@@ -1463,6 +1463,7 @@ dependencies = [
  "base64 0.22.1",
  "bson",
  "chrono",
+ "dh-server-client",
  "futures-util",
  "hex",
  "libsqlite3-sys",

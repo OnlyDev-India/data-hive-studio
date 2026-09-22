@@ -1,4 +1,4 @@
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::Store;
 use crate::api::DbKind;
 use super::{AdapterParams, ERR_NOT_FOUND};

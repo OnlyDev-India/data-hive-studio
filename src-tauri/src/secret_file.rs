@@ -39,14 +39,14 @@ pub fn master_key(dir: &Path) -> Result<[u8; 32], String> {
             return Ok(key);
         }
     }
-    let key = dh_core::server::crypto::random_key();
+    let key = dh_server_client::crypto::random_key();
     write_locked(&path, &key)?;
     Ok(key)
 }
 
 /// Encrypt `secret` and write it to `path` (0600 on unix).
 pub fn save(path: &Path, key: &[u8; 32], secret: &str) -> Result<(), String> {
-    let sealed = dh_core::server::crypto::encrypt(key, secret.as_bytes())?;
+    let sealed = dh_server_client::crypto::encrypt(key, secret.as_bytes())?;
     write_locked(path, &sealed)
 }
 
@@ -58,7 +58,7 @@ pub fn load(path: &Path, key: &[u8; 32]) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
-    if let Ok(plain) = dh_core::server::crypto::decrypt(key, &raw) {
+    if let Ok(plain) = dh_server_client::crypto::decrypt(key, &raw) {
         return String::from_utf8(plain).map(Some).map_err(|e| e.to_string());
     }
     let legacy = String::from_utf8(raw).map_err(|e| e.to_string())?;

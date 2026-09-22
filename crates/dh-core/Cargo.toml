@@ -5,6 +5,10 @@ edition = "2021"
 description = "Shared core for dh-studio: database adapters (SQLite, PostgreSQL, MongoDB), wire types, activity log, and the team-server gateway"
 
 [dependencies]
+# Transitional only — server/ still has files not yet moved to dh-server
+# that need dh-server-client's crypto helpers; dropped once the rest of
+# server/ moves out (spec 0012, build plan steps 4-5 and 11).
+dh-server-client = { path = "../dh-server-client" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx = { workspace = true, features = ["macros"] }

@@ -19,7 +19,7 @@ use super::KEYRING_SERVICE;
 /// that `normalize_base` treats as one server.
 #[cfg(debug_assertions)]
 fn server_key(url: &str) -> String {
-    dh_core::server::crypto::hash_token(&dh_core::server::client::normalize_base(url))
+    dh_server_client::crypto::hash_token(&dh_core::server::client::normalize_base(url))
 }
 
 #[cfg(not(debug_assertions))]
