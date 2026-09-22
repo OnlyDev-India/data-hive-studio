@@ -1,5 +1,5 @@
-use dh_core::server::orgs::{OrgInvite, OrgMember, OrgRole, Organization};
-use dh_core::server::profiles::client_for;
+use dh_server_client::orgs::{OrgInvite, OrgMember, OrgRole, Organization};
+use dh_server_client::profiles::client_for;
 use super::sessions::client_for_url;
 
 /// Create a brand-new organization on a server the app just signed in to (via
@@ -73,7 +73,7 @@ pub async fn servers_org_audit(
     profile_id: String,
     org_id: String,
     limit: i64,
-) -> Result<Vec<dh_core::server::store::AuditEntry>, String> {
+) -> Result<Vec<dh_server_client::store::AuditEntry>, String> {
     client_for(&profile_id)?.org_audit(&org_id, limit).await
 }
 
@@ -83,7 +83,7 @@ pub async fn servers_grants_list(
     profile_id: String,
     org_id: String,
     conn_id: String,
-) -> Result<Vec<dh_core::server::grants::Grant>, String> {
+) -> Result<Vec<dh_server_client::grants::Grant>, String> {
     client_for(&profile_id)?.list_grants(&org_id, &conn_id).await
 }
 

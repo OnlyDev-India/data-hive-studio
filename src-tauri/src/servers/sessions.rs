@@ -3,8 +3,8 @@
 //! token behind each is in the keychain (see `tokens.rs`); the access token
 //! never leaves memory.
 
-use dh_core::server::client::{normalize_base, DeviceParams, ServerClient, SessionState, TokenStore};
-use dh_core::server::profiles::{self, load_profiles};
+use dh_server_client::client::{normalize_base, DeviceParams, ServerClient, SessionState, TokenStore};
+use dh_server_client::profiles::{self, load_profiles};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Emitter, Manager};
@@ -61,7 +61,7 @@ pub(super) fn client_for_url(app: &tauri::AppHandle, url: &str) -> ServerClient 
 pub(super) fn install_session(
     app: &tauri::AppHandle,
     url: &str,
-    reply: &dh_core::server::client::SessionReply,
+    reply: &dh_server_client::client::SessionReply,
 ) -> Result<ServerClient, String> {
     let url = normalize_base(url);
     let store = Box::new(KeychainStore { app: app.clone(), url: url.clone() });

@@ -623,14 +623,14 @@ code in `crates/dh-core/src/server/auth.rs`, `src/features/sharing`
 Desktop (`src-tauri`) depends on `dh-core`, and `dh-core` bundles the whole team server module inside it (Axum routes, the gateway, the vault, the store, auth), so every desktop build compiles server only code it never runs. Move the server only pieces out of `dh-core`, keeping only what the desktop client genuinely shares (db adapters, wire types, the client side calls that talk to a remote server) in `dh-core`, so `src-tauri`'s dependency graph shrinks. The design pass settles where the moved code lands (into `dh-server` directly, or a new crate both `dh-server` and `dh-core` depend on for shared wire types), and which of today's `server/` module counts as shared versus server only.
 **Done when:** `src-tauri` no longer compiles the Axum route handlers, gateway execution, vault encryption, or store code that only the `dh-server` binary runs, the team server (`dh-server`) still builds and behaves unchanged, and every existing backend test still passes.
 spec [0012](../specs/0012-split-server-crate/index.md)
-code in `crates/dh-core/src/server`, `crates/dh-server`, `src-tauri`
+code in `crates/dh-server`, `crates/dh-server-client`, `src-tauri/src/servers`
 
 - [x] Design it (spec): `/architect split server only code into its own crate`
-- [ ] Build it: `/develop split server only code into its own crate`
-  - [ ] Scaffold dh-server-client and dh-server's lib.rs, move the client side pieces (crypto, client, profiles, shared wire types) out of dh-core — satisfies AC-1, AC-4, AC-5
-  - [ ] Split the server only modules (vault, auth, orgs and grants, gateway, store and migrations, router) between the two crates — satisfies AC-1, AC-3, AC-4, AC-6, AC-7
-  - [ ] Rewire dh-server's main.rs and trim each crate's Cargo.toml, verify the dependency boundary with cargo tree — satisfies AC-1, AC-2, AC-8
-  - [ ] Full test suite green across all three crates — satisfies AC-3
+- [x] Build it: `/develop split server only code into its own crate`
+  - [x] Scaffold dh-server-client and dh-server's lib.rs, move the client side pieces (crypto, client, profiles, shared wire types) out of dh-core — satisfies AC-1, AC-4, AC-5
+  - [x] Split the server only modules (vault, auth, orgs and grants, gateway, store and migrations, router) between the two crates — satisfies AC-1, AC-3, AC-4, AC-6, AC-7
+  - [x] Rewire dh-server's main.rs and trim each crate's Cargo.toml, verify the dependency boundary with cargo tree — satisfies AC-1, AC-2, AC-8
+  - [x] Full test suite green across all three crates — satisfies AC-3
 - [ ] Verify it: `/check verify split server only code into its own crate`
 
 

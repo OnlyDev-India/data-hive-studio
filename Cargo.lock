@@ -1457,30 +1457,23 @@ dependencies = [
 name = "dh-core"
 version = "0.1.0"
 dependencies = [
- "aes-gcm 0.10.3",
  "async-trait",
- "axum",
  "base64 0.22.1",
  "bson",
  "chrono",
- "dh-server-client",
  "futures-util",
  "hex",
  "libsqlite3-sys",
  "log",
  "mongodb",
  "rand 0.10.2",
- "rand 0.8.7",
- "reqwest 0.12.28",
  "russh",
  "rust_decimal",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.20",
  "tokio",
- "tower-http",
  "uuid",
 ]
 
@@ -1493,8 +1486,13 @@ dependencies = [
  "dh-server-client",
  "hex",
  "rand 0.8.7",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx",
  "tokio",
  "tower-http",
+ "uuid",
 ]
 
 [[package]]
@@ -1502,13 +1500,18 @@ name = "dh-server-client"
 version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
+ "axum",
  "base64 0.22.1",
+ "dh-core",
+ "futures-util",
  "hex",
  "rand 0.8.7",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

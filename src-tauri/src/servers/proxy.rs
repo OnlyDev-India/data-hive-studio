@@ -1,4 +1,4 @@
-use dh_core::server::profiles::with_remote;
+use dh_server_client::profiles::with_remote;
 
 // ---- Gateway passthrough ----------------------------------------------------
 #[tauri::command]

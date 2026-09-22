@@ -1,5 +1,5 @@
 //! Saved team-server profiles and gateway passthrough — the Tauri-specific
-//! shell around `dh_core::server::profiles`: this file resolves WHERE the
+//! shell around `dh_server_client::profiles`: this file resolves WHERE the
 //! profiles file and tokens live (`AppHandle::path()`), does the actual
 //! renewal-token storage (OS keychain via `keyring`, or a dev-mode file —
 //! `dh-core` has no keychain dependency since `dh-server` has no keychain to
@@ -26,8 +26,8 @@ pub use connections::*;
 pub use orgs::*;
 pub use access::*;
 
-use dh_core::server::client::MeResult;
-use dh_core::server::profiles::ServerProfile;
+use dh_server_client::client::MeResult;
+use dh_server_client::profiles::ServerProfile;
 use serde::Serialize;
 
 #[cfg(not(debug_assertions))]
@@ -49,5 +49,5 @@ pub struct ServerProfileView {
 pub struct ServerSession {
     pub profile: ServerProfile,
     pub me: MeResult,
-    pub connections: Vec<dh_core::server::gateway::ConnWithAccess>,
+    pub connections: Vec<dh_server_client::gateway::ConnWithAccess>,
 }

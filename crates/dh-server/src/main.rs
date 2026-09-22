@@ -38,7 +38,7 @@
 //!                    is unavailable until its pair is set.
 //!
 //! Identity model: every caller is a real user, signed in via OAuth (Google
-//! or GitHub — see `dh_core::server::auth`), holding a device session: a 15
+//! or GitHub — see `dh_server::auth`), holding a device session: a 15
 //! minute access token (`dha_`, sent as a Bearer token) that renews from a
 //! renewal token (`dhr_`) which changes on every use. There is one session per
 //! device, people can see and end their own, and the server owner can end every
@@ -64,9 +64,9 @@
 //! The database is built by numbered migrations; a database made by an older
 //! dh-server is refused at start and left untouched (use an empty database).
 
-use dh_core::server::gateway::Gateway;
-use dh_core::server::router::build_router;
-use dh_core::server::store::{Store, StoreConfig};
+use dh_server::gateway::Gateway;
+use dh_server::router::build_router;
+use dh_server::store::{Store, StoreConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -128,14 +128,14 @@ async fn serve(store: Store) {
     };
 
     if let Some(warning) =
-        dh_core::server::router::insecure_public_url_warning(&env_or("DH_PUBLIC_URL", "http://127.0.0.1:8080"))
+        dh_server::router::insecure_public_url_warning(&env_or("DH_PUBLIC_URL", "http://127.0.0.1:8080"))
     {
         println!("{warning}");
     }
 
     let configured: Vec<&str> = ["google", "github"]
         .into_iter()
-        .filter(|p| dh_core::server::auth::provider_config(p).is_some())
+        .filter(|p| dh_server::auth::provider_config(p).is_some())
         .collect();
     if configured.is_empty() {
         println!(
