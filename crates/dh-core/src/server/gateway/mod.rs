@@ -7,9 +7,9 @@
 //! authorization, or auditing below, which all go through the `DbAdapter`
 //! trait object. Clients never see credentials — they address connections by
 //! id, and every call re-checks the caller's effective access, which is
-//! their `OrgRole` default (owner/admin: full access; member: read+write;
-//! viewer: read-only) overridden per-connection by any `connection_grants`
-//! row for them — see `orgs.rs`/`grants.rs`.
+//! their `OrgRole` default (owner/admin: full access; member: read+write,
+//! not delete) overridden per-connection by any `connection_grants` row for
+//! them — see `orgs.rs`/`grants.rs`.
 
 mod browse;
 mod data;

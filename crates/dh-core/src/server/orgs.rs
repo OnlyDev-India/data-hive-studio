@@ -1,10 +1,10 @@
 //! Organizations: creation, membership + roles, and shareable invite codes.
 //!
-//! Role hierarchy (`OrgRole`, ordered least → most privileged): `Viewer` <
-//! `Member` < `Admin` < `Owner`. Default per-connection access for a role is
-//! defined here (`OrgRole::default_access`) and used by `gateway.rs`'s
-//! `authorize()` as the starting point before any `connection_grants`
-//! override is applied.
+//! Role hierarchy (`OrgRole`, ordered least → most privileged): `Member` <
+//! `Admin` < `Owner`. Default per-connection access for a role is defined
+//! here (`OrgRole::default_access`) and used by `gateway.rs`'s `authorize()`
+//! as the starting point before any `connection_grants` override is
+//! applied.
 
 use super::store::{now_ms, Store};
 use sqlx::Row;
@@ -12,7 +12,6 @@ use sqlx::Row;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OrgRole {
-    Viewer,
     Member,
     Admin,
     Owner,
@@ -24,7 +23,6 @@ impl OrgRole {
             OrgRole::Owner => "owner",
             OrgRole::Admin => "admin",
             OrgRole::Member => "member",
-            OrgRole::Viewer => "viewer",
         }
     }
 
@@ -33,20 +31,18 @@ impl OrgRole {
             "owner" => Some(OrgRole::Owner),
             "admin" => Some(OrgRole::Admin),
             "member" => Some(OrgRole::Member),
-            "viewer" => Some(OrgRole::Viewer),
             _ => None,
         }
     }
 
     /// Owner/Admin manage everything in the org (including deleting
-    /// connections); Member gets read+write by default but not delete;
-    /// Viewer is strictly read-only. `connection_grants` can override any
-    /// of these per (connection, user) — see `gateway.rs`.
+    /// connections); Member gets read+write by default but not delete.
+    /// `connection_grants` can override any of these per (connection, user)
+    /// — see `gateway.rs`.
     pub fn default_access(self) -> (bool, bool, bool) {
         match self {
             OrgRole::Owner | OrgRole::Admin => (true, true, true),
             OrgRole::Member => (true, true, false),
-            OrgRole::Viewer => (true, false, false),
         }
     }
 
@@ -184,7 +180,7 @@ impl Store {
                     slug: r.get("slug"),
                     created_ms: r.get("created_ms"),
                 };
-                let role = OrgRole::parse(&r.get::<String, _>("role")).unwrap_or(OrgRole::Viewer);
+                let role = OrgRole::parse(&r.get::<String, _>("role")).unwrap_or(OrgRole::Member);
                 (org, role)
             })
             .collect())
@@ -217,7 +213,7 @@ impl Store {
                 user_id: r.get("user_id"),
                 email: r.get("email"),
                 name: r.get("name"),
-                role: OrgRole::parse(&r.get::<String, _>("role")).unwrap_or(OrgRole::Viewer),
+                role: OrgRole::parse(&r.get::<String, _>("role")).unwrap_or(OrgRole::Member),
                 joined_ms: r.get("joined_ms"),
             })
             .collect())
@@ -322,7 +318,7 @@ impl Store {
             .map(|r| OrgInvite {
                 code: r.get("code"),
                 org_id: r.get("org_id"),
-                role: OrgRole::parse(&r.get::<String, _>("role")).unwrap_or(OrgRole::Viewer),
+                role: OrgRole::parse(&r.get::<String, _>("role")).unwrap_or(OrgRole::Member),
                 created_by: r.get("created_by"),
                 max_uses: r.get("max_uses"),
                 uses_count: r.get("uses_count"),
@@ -369,7 +365,7 @@ impl Store {
             return Err(ERR_INVITE_INVALID.into());
         }
         let org_id: String = invite.get("org_id");
-        let role: OrgRole = OrgRole::parse(&invite.get::<String, _>("role")).unwrap_or(OrgRole::Viewer);
+        let role: OrgRole = OrgRole::parse(&invite.get::<String, _>("role")).unwrap_or(OrgRole::Member);
 
         sqlx::query("UPDATE org_invites SET uses_count = uses_count + 1 WHERE code=$1")
             .bind(code)
@@ -412,6 +408,11 @@ mod tests {
         crate::server::store::test_user(store, email, crate::server::auth::ServerRole::Member).await.id
     }
 
+    /// A week out — org invites now require a limit and an expiry (spec 0011).
+    fn week_from_now() -> i64 {
+        now_ms() + 7 * 24 * 60 * 60 * 1000
+    }
+
     #[tokio::test]
     #[ignore = "requires a live Postgres test database — see server::store::test_store"]
     async fn create_org_makes_creator_owner() {
@@ -444,7 +445,8 @@ mod tests {
         let bob = user(&store, "bob").await;
         let org = store.org_create("Acme", &alice).await.unwrap();
 
-        let invite = store.invite_create(&org.id, OrgRole::Member, &alice, Some(1), None).await.unwrap();
+        let invite =
+            store.invite_create(&org.id, OrgRole::Member, &alice, Some(1), Some(week_from_now())).await.unwrap();
         assert_eq!(store.orgs_for_user(&bob).await.unwrap().len(), 0);
 
         let joined = store.invite_redeem(&invite.code, &bob).await.unwrap();
@@ -478,10 +480,14 @@ mod tests {
         );
         assert_eq!(store.org_member_remove(&org.id, &alice).await.err().unwrap(), ERR_LAST_OWNER);
 
-        // A second owner makes demoting/removing the first one fine.
+        // A second owner makes demoting/removing the first one fine. A
+        // shareable link only ever grants `member` (spec 0011, AC-8), so
+        // join as member and promote.
         let bob = user(&store, "bob").await;
-        let invite = store.invite_create(&org.id, OrgRole::Owner, &alice, None, None).await.unwrap();
+        let invite =
+            store.invite_create(&org.id, OrgRole::Member, &alice, Some(100), Some(week_from_now())).await.unwrap();
         store.invite_redeem(&invite.code, &bob).await.unwrap();
+        store.org_member_set_role(&org.id, &bob, OrgRole::Owner).await.unwrap();
         store.org_member_set_role(&org.id, &alice, OrgRole::Admin).await.unwrap();
         assert_eq!(store.org_role(&org.id, &alice).await.unwrap(), Some(OrgRole::Admin));
     }
@@ -490,8 +496,6 @@ mod tests {
     fn role_ordering_and_access() {
         assert!(OrgRole::Owner > OrgRole::Admin);
         assert!(OrgRole::Admin > OrgRole::Member);
-        assert!(OrgRole::Member > OrgRole::Viewer);
-        assert_eq!(OrgRole::Viewer.default_access(), (true, false, false));
         assert_eq!(OrgRole::Member.default_access(), (true, true, false));
         assert_eq!(OrgRole::Admin.default_access(), (true, true, true));
         assert!(!OrgRole::Member.can_manage_members());

@@ -12,7 +12,7 @@ import { webSignOut } from "./server-sessions";
 import { remoteOf } from "./dispatch";
 import type { SharedDbKind } from "./types";
 
-export type OrgRole = "viewer" | "member" | "admin" | "owner";
+export type OrgRole = "member" | "admin" | "owner";
 
 export interface Organization {
   id: string;
@@ -47,8 +47,8 @@ export function canManageOrg(me: MeResult, orgId: string): boolean {
 }
 
 /** Whether `me` can publish a new shared connection in `orgId` — mirrors
- *  `gateway.rs::create_connection`'s requirement of at least `Member`
- *  (Viewer cannot). */
+ *  `gateway.rs::create_connection`'s requirement of being a member of the
+ *  org (every org role may publish). */
 export function canPublishConnections(me: MeResult, orgId: string): boolean {
   const role = me.orgs.find((o) => o.id === orgId)?.role;
   return role === "owner" || role === "admin" || role === "member";

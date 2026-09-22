@@ -46,9 +46,9 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
 | 16  | ER diagram                                  | Slice 16 | planned     |
 | 17  | Streaming results for Postgres and MongoDB  | Slice 17 | planned     |
-| 18 | Split large backend files | Slice 18 | done |
-| 19 | Owner claim and invite only accounts | Slice 19 | in-progress |
-| 20 | Short lived sessions and devices | Slice 20 | in-progress |
+| 18  | Split large backend files                   | Slice 18 | done        |
+| 19  | Owner claim and invite only accounts        | Slice 19 | in-progress |
+| 20  | Short lived sessions and devices            | Slice 20 | in-progress |
 | 21  | Orgs, members and email bound invites       | Slice 21 | in-progress |
 | 22  | Connection roles and grants with expiry     | Slice 22 | planned     |
 | 23  | Groups                                      | Slice 23 | planned     |
@@ -56,6 +56,7 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 25  | Audit trail with retention                  | Slice 25 | planned     |
 | 26  | Suspend, rate limits and owner recovery     | Slice 26 | planned     |
 | 27  | Personal access tokens                      | Slice 27 | planned     |
+| 28  | Split server only code into its own crate   | Slice 28 | in-progress |
 
 
 
@@ -434,6 +435,8 @@ code in `crates/dh-core/src/db/postgres.rs`, `crates/dh-core/src/db/mongodb.rs`
 
 ## Slice 18: Split large backend files
 
+
+
 ### 18. Split large backend files · done · Alpha
 
 Several backend files have grown very large and each mixes many jobs. The database adapters are the biggest: `mongodb.rs` is about 3400 lines, `postgres.rs` about 3000, `sqlite.rs` about 2100, and `db/mod.rs` about 1400. Past them, a second group sits at 500 to 1000 lines: the team server files (`router.rs`, `vault.rs`, `gateway.rs`, `client.rs`, `orgs.rs`), the native shell files (`servers.rs`, `commands.rs`, `local_connections.rs`), the shared core files (`ssh_tunnel.rs`, `api/common.rs`), and the helpers inside the db folder (`mongo_json.rs`, `mongo_sql.rs`, `runs.rs`). Restructure each one into its own folder of smaller files grouped by job (for an adapter: connecting, running queries, schema work, row edits; for the server: routes grouped by area), so no single file is huge and a change lands in a small, obvious place. This is a move only refactor: behaviour does not change. Run it after slices 10, 11 and 12 land, since they are still editing the db files and splitting first would cause heavy merge conflicts. Slices 19 to 27 then rework the server files inside the smaller layout. The design pass settles the size line that makes a file worth splitting, where to cut each one, whether `db/mod.rs` is included, how the public paths other crates import and the Tauri command names the frontend calls stay unchanged, and whether it lands as one pass or as a few commits by area.
@@ -454,6 +457,8 @@ code in `crates/dh-core/src`, `src-tauri/src`
 
 ## Slice 19: Owner claim and invite only accounts
 
+
+
 ### 19. Owner claim and invite only accounts · in-progress · GA
 
 This starts the team server access rebuild (slices 19 to 27), a fresh start with no migration from the current server, aimed at small self hosted teams first. Today anyone who can reach a new server and sign in with Google or GitHub gets an account. Make a new server start closed: a one time setup code printed in the server log lets the first person claim the server owner role, and after that only invited people get an account. The same person signing in through Google and through GitHub with the same verified email becomes one account (today the second sign in fails, because email must be unique). The design pass settles the account shape, how the server keeps versioned schema changes (today it only creates tables if missing), and what happens with an email a provider has not verified.
@@ -468,14 +473,16 @@ code in `crates/dh-core/src/server/auth/`, `crates/dh-core/src/server/store.rs`,
   - [x] Invites: invite by email, join on first sign in, refresh and revoke, Server access page Invites section, audit rows — satisfies AC-6, AC-8, AC-12, AC-13
   - [x] Roles: accounts list, role changes, the can manage roles switch, last owner guard, People section — satisfies AC-9, AC-12, AC-13
   - [x] Close out: main.rs and compose env docs, 500 line check, all tests green — satisfies AC-11, AC-12, AC-13
-- [ ] Verify it: `/check verify owner claim and invite only accounts`
-- [ ] Test it: `/test owner claim and invite only accounts`
-- [ ] Review it (fresh model): `/check review owner claim and invite only accounts`
+- [x] Verify it: `/check verify owner claim and invite only accounts`
+- [x] Test it: `/test owner claim and invite only accounts`
+- [x] Review it (fresh model): `/check review owner claim and invite only accounts`
 - [ ] Document it: `/document owner claim and invite only accounts`
 
 
 
 ## Slice 20: Short lived sessions and devices
+
+
 
 ### 20. Short lived sessions and devices · in-progress · GA
 
@@ -491,9 +498,9 @@ code in `crates/dh-core/src/server/auth/`, `crates/dh-core/src/server/router/`, 
   - [x] Sign out and devices on the server: sign out this device, list and end devices, sign out everywhere, owner ends a person's sessions, audit events — satisfies AC-9, AC-10, AC-11, AC-12, AC-18 (the owner check comes from slice 19)
   - [x] Desktop screens: signed out state, Sign in again, Sign out, Remove signs out, My devices dialog — satisfies AC-11, AC-14, AC-15, AC-16
   - [x] Web and close out: HttpOnly cookie, in memory short token with renewal across tabs, sign in on the code flow, `localStorage` scrub, My devices on the web, `no-store`, startup warning, upgrade notes — satisfies AC-2, AC-4, AC-13, AC-16, AC-17, AC-19
-- [ ] Verify it: `/check verify short lived sessions and devices`
-- [ ] Test it: `/test short lived sessions and devices`
-- [ ] Review it (fresh model): `/check review short lived sessions and devices`
+- [x] Verify it: `/check verify short lived sessions and devices`
+- [x] Test it: `/test short lived sessions and devices`
+- [x] Review it (fresh model): `/check review short lived sessions and devices`
 - [ ] Document it: `/document short lived sessions and devices`
 
 
@@ -511,8 +518,8 @@ code in `crates/dh-core/src/server/orgs.rs`, `src/features/sharing`
 
 - [x] Design it (spec): `/architect orgs members and email bound invites`
 - [ ] Build it: `/develop orgs members and email bound invites`
-  - [ ] Migration `0003` and the viewer role clean up, in Rust and TypeScript — satisfies AC-12
-  - [ ] Who can create orgs, on the server, desktop and web: the per admin switch, the one org limit, the owner's org list, New organization gating — satisfies AC-1, AC-2, AC-3, AC-13, AC-14
+  - [x] Migration `0003` and the viewer role clean up, in Rust and TypeScript — satisfies AC-12
+  - [ ] Who can create orgs, on the server, desktop and web: the per admin switch, the server wide open org creation policy for a self deployed server, the one org limit, the owner's org list, New organization gating — satisfies AC-1, AC-2, AC-3, AC-13, AC-14, AC-15
   - [ ] Email invite to accept: org invites, first sign in joining every open invite, pending invites, accept and decline, Copy message and Email, picker and Invitations menu — satisfies AC-4, AC-5, AC-6, AC-7, AC-13, AC-14
   - [ ] Members: admin limits, the locked last owner guard, removal that clears grants and unused invites, leave, the no longer has access state — satisfies AC-9, AC-10, AC-11, AC-13, AC-14
   - [ ] Shareable link and close out: bounded member only links, redeem route move, web `?join=`, file splits under 500 lines, all tests green — satisfies AC-8, AC-12, AC-13, AC-14
@@ -604,6 +611,27 @@ A person can create a token for scripts and CI. It never carries more than its o
 code in `crates/dh-core/src/server/auth.rs`, `src/features/sharing`
 
 - [ ] Design it (spec): `/architect personal access tokens`
+
+
+
+## Slice 28: Split server only code into its own crate
+
+
+
+### 28. Split server only code into its own crate · in-progress · Alpha
+
+Desktop (`src-tauri`) depends on `dh-core`, and `dh-core` bundles the whole team server module inside it (Axum routes, the gateway, the vault, the store, auth), so every desktop build compiles server only code it never runs. Move the server only pieces out of `dh-core`, keeping only what the desktop client genuinely shares (db adapters, wire types, the client side calls that talk to a remote server) in `dh-core`, so `src-tauri`'s dependency graph shrinks. The design pass settles where the moved code lands (into `dh-server` directly, or a new crate both `dh-server` and `dh-core` depend on for shared wire types), and which of today's `server/` module counts as shared versus server only.
+**Done when:** `src-tauri` no longer compiles the Axum route handlers, gateway execution, vault encryption, or store code that only the `dh-server` binary runs, the team server (`dh-server`) still builds and behaves unchanged, and every existing backend test still passes.
+spec [0012](../specs/0012-split-server-crate/index.md)
+code in `crates/dh-core/src/server`, `crates/dh-server`, `src-tauri`
+
+- [x] Design it (spec): `/architect split server only code into its own crate`
+- [ ] Build it: `/develop split server only code into its own crate`
+  - [ ] Scaffold dh-server-client and dh-server's lib.rs, move the client side pieces (crypto, client, profiles, shared wire types) out of dh-core — satisfies AC-1, AC-4, AC-5
+  - [ ] Split the server only modules (vault, auth, orgs and grants, gateway, store and migrations, router) between the two crates — satisfies AC-1, AC-3, AC-4, AC-6, AC-7
+  - [ ] Rewire dh-server's main.rs and trim each crate's Cargo.toml, verify the dependency boundary with cargo tree — satisfies AC-1, AC-2, AC-8
+  - [ ] Full test suite green across all three crates — satisfies AC-3
+- [ ] Verify it: `/check verify split server only code into its own crate`
 
 
 

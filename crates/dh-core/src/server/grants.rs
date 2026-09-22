@@ -5,8 +5,8 @@
 //! `orgs.rs::OrgRole::default_access` and `gateway.rs::Gateway::authorize`).
 //! A row here means "this specific user's access to this specific
 //! connection is different from what their org role would normally give
-//! them" — restrict a member, or grant a viewer extra access to one
-//! connection.
+//! them" — restrict a member to read only on one connection, or grant one
+//! extra access.
 
 use super::store::Store;
 use sqlx::Row;
@@ -108,7 +108,13 @@ impl Store {
 mod tests {
     use crate::server::auth::ServerRole;
     use crate::server::orgs::OrgRole;
+    use crate::server::store::now_ms;
     use crate::server::vault::ConnInput;
+
+    /// A week out — org invites now require a limit and an expiry (spec 0011).
+    fn week_from_now() -> i64 {
+        now_ms() + 7 * 24 * 60 * 60 * 1000
+    }
 
     #[tokio::test]
     #[ignore = "requires a live Postgres test database — see server::store::test_store"]
@@ -117,7 +123,8 @@ mod tests {
         let owner = crate::server::store::test_user(&store, "o@x.com", ServerRole::Owner).await;
         let org = store.org_create("Acme", &owner.id).await.unwrap();
         let member = crate::server::store::test_user(&store, "m@x.com", ServerRole::Member).await;
-        let invite = store.invite_create(&org.id, OrgRole::Member, &owner.id, None, None).await.unwrap();
+        let invite =
+            store.invite_create(&org.id, OrgRole::Member, &owner.id, Some(100), Some(week_from_now())).await.unwrap();
         store.invite_redeem(&invite.code, &member.id).await.unwrap();
 
         let meta = store

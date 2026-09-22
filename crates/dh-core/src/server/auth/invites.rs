@@ -120,7 +120,7 @@ impl Store {
         let row = sqlx::query(
             "INSERT INTO server_invites (id, email, created_by, created_ms, expires_ms)
              VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (email) WHERE used_ms IS NULL DO UPDATE SET expires_ms = EXCLUDED.expires_ms
+             ON CONFLICT (email, COALESCE(org_id, '')) WHERE used_ms IS NULL DO UPDATE SET expires_ms = EXCLUDED.expires_ms
              RETURNING id, (xmax = 0) AS inserted",
         )
         .bind(uuid::Uuid::new_v4().to_string())

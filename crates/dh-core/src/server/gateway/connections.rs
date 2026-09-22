@@ -1,25 +1,21 @@
 use crate::server::auth::AuthCtx;
-use crate::server::orgs::OrgRole;
 use crate::server::vault::{AdapterParams, ConnInput};
 use super::{ConnWithAccess, ERR_FORBIDDEN, Gateway};
 
 impl Gateway {
-    /// Publish a NEW shared connection in `org_id`. Requires at least
-    /// `Member` (viewers can't create connections, by definition of what a
-    /// viewer is). The creator gets an explicit full-access grant override
-    /// so they keep full control even if their role default wouldn't
-    /// otherwise cover it (relevant once per-connection restrictions are
-    /// layered on more broadly).
+    /// Publish a NEW shared connection in `org_id`. Requires being a member
+    /// of the org (every org role, `Member` and up, may publish). The
+    /// creator gets an explicit full-access grant override so they keep
+    /// full control even if their role default wouldn't otherwise cover it
+    /// (relevant once per-connection restrictions are layered on more
+    /// broadly).
     pub async fn create_connection(
         &self,
         ctx: &AuthCtx,
         org_id: &str,
         input: ConnInput,
     ) -> Result<crate::server::vault::ConnMeta, String> {
-        let role = self.store.org_role(org_id, &ctx.user_id).await?.ok_or(ERR_FORBIDDEN)?;
-        if role < OrgRole::Member {
-            return Err(ERR_FORBIDDEN.into());
-        }
+        self.store.org_role(org_id, &ctx.user_id).await?.ok_or(ERR_FORBIDDEN)?;
         let meta = self.store.conn_add(org_id, &input, &ctx.user_id).await?;
         self.store.grant_upsert(&meta.id, &ctx.user_id, true, true, true).await?;
         self.store.audit(ctx, Some(org_id), "conn.create", &meta.id, Some(&meta.name)).await?;
@@ -71,8 +67,8 @@ impl Gateway {
     }
 
     /// Connections visible to a user within one org: every active
-    /// connection in that org they're at least a Viewer of, tagged with
-    /// their effective access.
+    /// connection in that org they're a member of, tagged with their
+    /// effective access.
     pub async fn visible_connections(
         &self,
         ctx: &AuthCtx,
