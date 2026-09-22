@@ -1,4 +1,4 @@
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::Store;
 
 /// SSH password + key passphrase, encrypted together as one JSON blob

@@ -3,7 +3,6 @@
 //! grant overrides, and the query gateway. Shared by `dh-server` and tests.
 
 pub mod auth;
-pub mod crypto;
 pub mod gateway;
 pub mod grants;
 pub mod orgs;

@@ -1,4 +1,4 @@
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::{now_ms, Store};
 use uuid::Uuid;
 use super::{ConnInput, ConnMeta, ERR_NOT_FOUND};

@@ -5,7 +5,7 @@
 
 use super::sessions::AuthError;
 use super::tokens::{new_login_code, verifier_matches, CODE_PREFIX, LOGIN_CODE_TTL_MS};
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::{now_ms, Store};
 use sqlx::Row;
 

@@ -1,6 +1,6 @@
 use sqlx::Row;
 use super::*;
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::Store;
 
 fn input(name: &str, pw: &str) -> ConnInput {

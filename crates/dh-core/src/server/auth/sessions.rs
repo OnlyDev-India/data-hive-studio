@@ -10,7 +10,7 @@
 
 use super::tokens::*;
 use super::{AuthCtx, ServerRole};
-use crate::server::crypto;
+use dh_server_client::crypto;
 use crate::server::store::{audit_in, now_ms, Store};
 use sqlx::{Postgres, Row, Transaction};
 
