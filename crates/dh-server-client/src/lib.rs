@@ -4,4 +4,12 @@
 //! server profiles. Zero `sqlx`, `axum`, or `tower-http` — anything needing
 //! those belongs in `dh-server` instead (see spec 0012).
 
+pub mod auth;
+pub mod client;
 pub mod crypto;
+pub mod gateway;
+pub mod grants;
+pub mod orgs;
+pub mod profiles;
+pub mod store;
+pub mod vault;

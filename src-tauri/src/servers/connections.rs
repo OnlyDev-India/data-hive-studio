@@ -1,5 +1,5 @@
-use dh_core::server::profiles::client_for;
-use dh_core::server::vault::{ConnInput, ConnMeta};
+use dh_server_client::profiles::client_for;
+use dh_server_client::vault::{ConnInput, ConnMeta};
 
 // ---- Connections (org-scoped) ------------------------------------------------
 

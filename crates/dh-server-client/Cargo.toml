@@ -5,6 +5,9 @@ edition = "2021"
 description = "Wire types and HTTP client shared between the desktop app and dh-server: the team server's JSON shapes, the ServerClient, crypto helpers, and saved server profiles"
 
 [dependencies]
+# For the frontend facing wire API types (e.g. DbKind) that dh-core keeps,
+# which this crate's own wire types (ConnMeta, ConnInput, ...) reference.
+dh-core = { path = "../dh-core" }
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
@@ -13,3 +16,13 @@ sha2.workspace = true
 rand.workspace = true
 hex.workspace = true
 base64.workspace = true
+uuid.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "net"] }
+
+[dev-dependencies]
+# Only this crate's own test suite (client/session_tests.rs) needs a fake
+# HTTP server to exercise the renewal logic against — a dev-dependency
+# never reaches a downstream consumer's build (spec 0012, AC-1/AC-8 are
+# about this crate's real dependencies, not its own tests).
+axum.workspace = true
+futures-util.workspace = true

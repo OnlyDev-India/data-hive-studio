@@ -1,6 +1,6 @@
 use tauri::Manager;
-use dh_core::server::profiles;
-use dh_core::server::profiles::{load_profiles, save_profiles, ServerProfile};
+use dh_server_client::profiles;
+use dh_server_client::profiles::{load_profiles, save_profiles, ServerProfile};
 use super::ServerProfileView;
 use super::sessions::{disconnect_server, forget_server, session_for, signed_in};
 use super::tokens::scrub_old_tokens;
@@ -48,7 +48,7 @@ pub async fn servers_save_profile(
     let profile = ServerProfile {
         id: uuid::Uuid::new_v4().to_string(),
         name: name.trim().to_string(),
-        url: dh_core::server::client::normalize_base(&url),
+        url: dh_server_client::client::normalize_base(&url),
         org_id,
     };
     let path = profiles_path(&app)?;

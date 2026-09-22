@@ -7,8 +7,13 @@ description = "dh-studio team server: encrypted connection vault, grants, query 
 [dependencies]
 dh-core = { path = "../dh-core" }
 dh-server-client = { path = "../dh-server-client" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["macros"] }
+uuid.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 tower-http.workspace = true
 axum.workspace = true
+reqwest.workspace = true
 rand.workspace = true
 hex.workspace = true

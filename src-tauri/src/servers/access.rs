@@ -2,8 +2,8 @@
 //! Thin forwarding to the server's `/v1/server/...` routes; the server
 //! decides who is allowed, so these never check a role themselves.
 
-use dh_core::server::auth::{Account, Invite, ServerRole};
-use dh_core::server::profiles::client_for;
+use dh_server_client::auth::{Account, Invite, ServerRole};
+use dh_server_client::profiles::client_for;
 
 #[tauri::command]
 pub async fn servers_access_invites_list(profile_id: String) -> Result<Vec<Invite>, String> {

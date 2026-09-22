@@ -2,7 +2,7 @@
 //! server's `/v1/me/sessions` routes; the server decides what a person may see
 //! and end, so none of this checks anything itself.
 
-use dh_core::server::auth::SessionInfo;
+use dh_server_client::auth::SessionInfo;
 use super::profiles::find_profile;
 use super::sessions::{client_for_url, disconnect_server};
 

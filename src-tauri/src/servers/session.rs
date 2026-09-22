@@ -1,11 +1,11 @@
 use std::io::Write;
 use std::io::Read;
-use dh_core::server::auth::pkce_pair;
-use dh_core::server::client::{
+use dh_server_client::auth::pkce_pair;
+use dh_server_client::client::{
     claim_server, exchange_code, oauth_start_url, parse_oauth_callback, MeResult, OAuthCallback, SessionReply,
     ERR_SIGNED_OUT,
 };
-use dh_core::server::profiles;
+use dh_server_client::profiles;
 use serde::Serialize;
 use super::ServerSession;
 use super::profiles::find_profile;
@@ -98,7 +98,7 @@ pub enum OAuthLoginOutcome {
 /// sign-in form show only the buttons that will actually work.
 #[tauri::command]
 pub async fn servers_oauth_providers(url: String) -> Result<Vec<String>, String> {
-    dh_core::server::client::oauth_providers(&url).await
+    dh_server_client::client::oauth_providers(&url).await
 }
 
 /// Start using a session a sign in just made, and say who it is.
