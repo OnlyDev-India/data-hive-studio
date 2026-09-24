@@ -1,4 +1,5 @@
-//! Server access routes (spec 0010): invites, accounts and roles. The caller's
+//! Server access routes (spec 0010, 0011): invites, accounts, roles, who may
+//! create orgs, and the owner's org list. The caller's
 //! server role comes from the database on every request (`Auth`), and the
 //! store re-checks it, so a demotion applies on the very next call.
 
@@ -19,13 +20,16 @@ pub(super) fn access_err(e: AccessError) -> Response {
         AccessError::AlreadyUsed => (StatusCode::CONFLICT, "already_used").into_response(),
         AccessError::LastOwner => (StatusCode::CONFLICT, "last_owner").into_response(),
         AccessError::NotAnAdmin => (StatusCode::CONFLICT, "not_an_admin").into_response(),
+        AccessError::AlreadyMember => (StatusCode::CONFLICT, "already_member").into_response(),
+        AccessError::OrgLimit => (StatusCode::CONFLICT, "org_limit").into_response(),
+        AccessError::InviteExpired => (StatusCode::CONFLICT, "invite_expired").into_response(),
         AccessError::Other(e) => err_res(e),
     }
 }
 
 /// Tells "field left out" (`None`, so the default of 7 days) from
 /// "field is null" (`Some(None)`, so never expires).
-fn present<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+pub(super) fn present<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
@@ -112,6 +116,48 @@ pub(super) async fn server_account_manage_roles(
     }
 }
 
+#[derive(Deserialize)]
+pub(super) struct EnabledBody {
+    enabled: bool,
+}
+
+pub(super) async fn server_account_create_orgs(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Path(user_id): Path<String>,
+    Json(body): Json<EnabledBody>,
+) -> Response {
+    match gw.store.create_orgs_set(&auth.0, &user_id, body.enabled).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => access_err(e),
+    }
+}
+
+pub(super) async fn server_orgs_list(State(gw): State<AppState>, auth: Auth) -> Response {
+    match gw.store.server_orgs_list(&auth.0).await {
+        Ok(list) => Json(list).into_response(),
+        Err(e) => access_err(e),
+    }
+}
+
+pub(super) async fn server_settings_get(State(gw): State<AppState>, auth: Auth) -> Response {
+    match gw.store.server_settings_get(&auth.0).await {
+        Ok(settings) => Json(settings).into_response(),
+        Err(e) => access_err(e),
+    }
+}
+
+pub(super) async fn server_open_org_creation(
+    State(gw): State<AppState>,
+    auth: Auth,
+    Json(body): Json<EnabledBody>,
+) -> Response {
+    match gw.store.open_org_creation_set(&auth.0, body.enabled).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => access_err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,6 +192,16 @@ mod tests {
         let r = access_err(AccessError::NotAnAdmin);
         assert_eq!(r.status(), StatusCode::CONFLICT);
         assert_eq!(body_text(r).await, "not_an_admin");
+
+        for (e, code) in [
+            (AccessError::AlreadyMember, "already_member"),
+            (AccessError::OrgLimit, "org_limit"),
+            (AccessError::InviteExpired, "invite_expired"),
+        ] {
+            let r = access_err(e);
+            assert_eq!(r.status(), StatusCode::CONFLICT);
+            assert_eq!(body_text(r).await, code);
+        }
 
         // Falls through to the shared error mapper for anything else.
         assert_eq!(access_err(AccessError::Other("weird".into())).status(), StatusCode::BAD_REQUEST);

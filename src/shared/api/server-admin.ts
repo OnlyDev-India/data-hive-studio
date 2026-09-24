@@ -35,6 +35,10 @@ export interface MeResult {
   server_role: ServerRole;
   /** Only ever true for an admin an owner switched it on for. */
   can_manage_roles: boolean;
+  /** Whether this person may create an organization right now: a server
+   *  owner always, anyone else under the server's open policy or an admin
+   *  the owner switched it on for, each once. */
+  can_create_org: boolean;
   orgs: MeOrg[];
 }
 
@@ -181,22 +185,6 @@ export function serversOrgCreateNew(
     return wcall<Organization>("POST", "/v1/orgs", { name }, true);
   }
   return invoke("servers_org_create_new", { url, name });
-}
-
-/** Redeem a shareable invite code on the server the person just signed in to. */
-export function serversOrgRedeemInviteNew(
-  url: string,
-  code: string,
-): Promise<Organization> {
-  if (WEB) {
-    return wcall<Organization>(
-      "POST",
-      `/v1/invites/${encodeURIComponent(code)}/redeem`,
-      undefined,
-      true,
-    );
-  }
-  return invoke("servers_org_redeem_invite_new", { url, code });
 }
 
 /** Desktop only: persist a profile (servers.json) for a server the user has
@@ -450,17 +438,6 @@ export interface OrgMember {
   joined_ms: number;
 }
 
-export interface OrgInvite {
-  code: string;
-  org_id: string;
-  role: OrgRole;
-  created_by: string;
-  max_uses: number | null;
-  uses_count: number;
-  expires_ms: number | null;
-  created_ms: number;
-}
-
 export interface AuditEntry {
   ts_ms: number;
   org_id: string | null;
@@ -521,61 +498,6 @@ export function serversOrgRemoveMember(
     );
   }
   return invoke("servers_org_remove_member", { profileId, orgId, userId });
-}
-
-export function serversOrgInvitesList(
-  profileId: string,
-  orgId: string,
-): Promise<OrgInvite[]> {
-  if (WEB) {
-    return wcall(
-      "GET",
-      `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
-      undefined,
-      true,
-    );
-  }
-  return invoke("servers_org_invites_list", { profileId, orgId });
-}
-
-export function serversOrgInviteCreate(
-  profileId: string,
-  orgId: string,
-  role: OrgRole,
-  maxUses: number | null,
-  expiresMs: number | null,
-): Promise<OrgInvite> {
-  if (WEB) {
-    return wcall(
-      "POST",
-      `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
-      { role, max_uses: maxUses, expires_ms: expiresMs },
-      true,
-    );
-  }
-  return invoke("servers_org_invite_create", {
-    profileId,
-    orgId,
-    role,
-    maxUses,
-    expiresMs,
-  });
-}
-
-export function serversOrgInviteRevoke(
-  profileId: string,
-  orgId: string,
-  code: string,
-): Promise<void> {
-  if (WEB) {
-    return wcallEmpty(
-      "DELETE",
-      `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(code)}`,
-      undefined,
-      true,
-    );
-  }
-  return invoke("servers_org_invite_revoke", { profileId, orgId, code });
 }
 
 export function serversOrgAudit(
@@ -665,12 +587,21 @@ export function serversGrantRevoke(
   return invoke("servers_grant_revoke", { profileId, orgId, connId, userId });
 }
 
+/** The server refused because the person is not (or no longer) in the
+ *  organization: they were removed, or they left. Not a sign in problem. */
+export function isNoOrgAccess(e: unknown): boolean {
+  return /\b403\b|not a member of this organization/i.test(String(e));
+}
+
 /** Turn a connect failure into something a user can act on. A refused
  *  renewal (`signed_out`, from the Tauri client or the web session) is not a
  *  connection problem: the answer is to sign in again. */
 export function friendlyConnectError(name: string, e: unknown): string {
   if (isSignedOut(e)) {
     return `You're signed out of "${name}". Choose Sign in again from the Team servers menu.`;
+  }
+  if (isNoOrgAccess(e)) {
+    return `You no longer have access to "${name}". An owner or admin can invite you again.`;
   }
   return `Couldn't connect to "${name}": ${String(e)}`;
 }

@@ -2,13 +2,7 @@ use super::*;
 use dh_server_client::orgs::OrgRole;
 use dh_server_client::vault::ConnInput;
 use dh_server_client::auth::{AuthCtx, ServerRole};
-use dh_server_client::store::now_ms;
 use crate::store::{test_store, test_user};
-
-/// A week out — org invites now require a limit and an expiry (spec 0011).
-fn week_from_now() -> i64 {
-    now_ms() + 7 * 24 * 60 * 60 * 1000
-}
 
 fn input() -> ConnInput {
     ConnInput {
@@ -50,8 +44,8 @@ async fn owner_and_org(store: &Store) -> (AuthCtx, String) {
     // with its own owner) in one run, and `users.email` is UNIQUE.
     let sub = format!("owner-{}", uuid::Uuid::new_v4());
     let email = format!("{sub}@x.com");
-    let user = test_user(store, &email, ServerRole::Member).await;
-    let org = store.org_create("Acme", &user.id).await.unwrap();
+    let user = test_user(store, &email, ServerRole::Owner).await;
+    let org = store.org_create(&user.ctx(), "Acme").await.unwrap();
     (user.ctx(), org.id)
 }
 
@@ -63,13 +57,11 @@ async fn member_of(store: &Store, org_id: &str, role: OrgRole) -> AuthCtx {
     let owner_id = owner.iter().find(|m| m.role == OrgRole::Owner).unwrap().user_id.clone();
     // A shareable link only ever grants `member` (spec 0011, AC-8); promote
     // afterward for a test that needs an admin or owner.
-    let invite = store
-        .invite_create(org_id, OrgRole::Member, &owner_id, Some(100), Some(week_from_now()))
-        .await
-        .unwrap();
-    store.invite_redeem(&invite.code, &user.id).await.unwrap();
+    let owner_ctx = store.user_get(&owner_id).await.unwrap().unwrap().ctx();
+    let invite = store.link_create(&owner_ctx, org_id, 100, 7).await.unwrap();
+    store.link_redeem(&invite.code, &user.id).await.unwrap();
     if role != OrgRole::Member {
-        store.org_member_set_role(org_id, &user.id, role).await.unwrap();
+        store.org_member_set_role(&owner_ctx, org_id, &user.id, role).await.unwrap();
     }
     user.ctx()
 }
@@ -162,4 +154,55 @@ async fn dispatches_by_connection_kind() {
     // Postgres's connect error never mentions "mongo" — this fails via
     // MongoAdapter::connect's own error text, confirming dispatch.
     assert!(err.contains("mongo"), "expected a Mongo connect error, got: {err}");
+}
+
+/// AC-11: removal (or leaving) cuts access on the very next request, the
+/// connection leaves the person's list, and their grants on the org's
+/// connections and their unused invites into the org are deleted.
+#[tokio::test]
+#[ignore = "requires a live Postgres test database — see store::test_store"]
+async fn removal_cuts_access_at_once_and_clears_grants_and_invites() {
+    let store = test_store().await;
+    let gw = Gateway::new(store.clone());
+    let (owner, org_id) = owner_and_org(&store).await;
+    let meta = gw.create_connection(&owner, &org_id, input()).await.unwrap();
+    let (_other_owner, other_org) = owner_and_org(&store).await;
+
+    let admin = member_of(&store, &org_id, OrgRole::Admin).await;
+    let leaver = member_of(&store, &org_id, OrgRole::Member).await;
+    for who in [&admin, &leaver] {
+        assert_eq!(gw.visible_connections(who, &org_id).await.unwrap().len(), 1);
+        store.grant_upsert(&meta.id, &who.user_id, true, true, false).await.unwrap();
+    }
+    // The admin's unused invite into this org goes with them; the owner's stays.
+    store.org_invite_create(&admin, &org_id, "pending@x.com", OrgRole::Member, Some(7)).await.unwrap();
+    store.org_invite_create(&owner, &org_id, "keep@x.com", OrgRole::Member, Some(7)).await.unwrap();
+
+    // The owner removes the admin.
+    store.org_member_remove(&owner, &org_id, &admin.user_id).await.unwrap();
+    assert_eq!(gw.list_tables(&admin, &meta.id).await.err().unwrap(), ERR_FORBIDDEN);
+    assert_eq!(gw.run_sql(&admin, &meta.id, None, None, "SELECT 1").await.err().unwrap(), ERR_FORBIDDEN);
+    assert_eq!(gw.visible_connections(&admin, &org_id).await.err().unwrap(), ERR_FORBIDDEN);
+    let grants: i64 = sqlx::query_scalar("SELECT count(*) FROM connection_grants WHERE user_id=$1")
+        .bind(&admin.user_id)
+        .fetch_one(&store.pool)
+        .await
+        .unwrap();
+    assert_eq!(grants, 0, "their grants went with them");
+    let emails: Vec<String> = sqlx::query_scalar("SELECT email FROM server_invites WHERE org_id=$1 AND used_ms IS NULL")
+        .bind(&org_id)
+        .fetch_all(&store.pool)
+        .await
+        .unwrap();
+    assert_eq!(emails, ["keep@x.com"], "only the removed person's unused invites are deleted");
+
+    // The other person leaves on their own.
+    store.org_member_remove(&leaver, &org_id, &leaver.user_id).await.unwrap();
+    assert_eq!(gw.list_tables(&leaver, &meta.id).await.err().unwrap(), ERR_FORBIDDEN);
+
+    // Re adding starts clean: back as a member, the old grant is not there.
+    let back = store.org_invite_create(&owner, &org_id, "back@x.com", OrgRole::Member, Some(7)).await;
+    assert!(back.is_ok());
+    assert!(store.grant_for_user(&meta.id, &admin.user_id).await.unwrap().is_none());
+    assert!(!store.org_members(&other_org).await.unwrap().iter().any(|m| m.user_id == admin.user_id));
 }

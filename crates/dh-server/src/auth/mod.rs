@@ -15,6 +15,7 @@
 //! - `claim`: the claim database work
 //! - `invites`: server invites (create, refresh, list, revoke)
 //! - `roles`: accounts list, role changes, the can-manage-roles switch
+//! - `org_policy`: the can-create-orgs switch and the open org creation policy
 //! - `login_codes`: the one time code that ends a provider sign in
 //! - `sessions`: start, renew, verify
 //! - `devices`: the device list, sign out, end every session of a person
@@ -24,6 +25,7 @@ mod claim;
 mod devices;
 mod invites;
 mod login_codes;
+mod org_policy;
 mod provider;
 mod roles;
 mod sessions;
@@ -43,11 +45,12 @@ pub(crate) fn user_from_row(r: &sqlx::postgres::PgRow) -> dh_server_client::auth
         avatar_url: r.get("avatar_url"),
         server_role: ServerRole::parse(&role).unwrap_or(ServerRole::Member),
         can_manage_roles: r.get("can_manage_roles"),
+        can_create_orgs: r.get("can_create_orgs"),
         created_ms: r.get("created_ms"),
     }
 }
 
-pub(crate) const USER_COLUMNS: &str = "id, email, name, avatar_url, server_role, can_manage_roles, created_ms";
+pub(crate) const USER_COLUMNS: &str = "id, email, name, avatar_url, server_role, can_manage_roles, can_create_orgs, created_ms";
 
 impl Store {
     pub async fn user_get(&self, id: &str) -> Result<Option<dh_server_client::auth::User>, String> {

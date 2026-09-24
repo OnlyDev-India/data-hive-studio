@@ -6,6 +6,7 @@ import type { DeviceSession } from "@/shared/api/server-sessions";
 const api = vi.hoisted(() => ({
   serversOrgMembers: vi.fn(),
   serversOrgInvitesList: vi.fn(),
+  serversOrgLinksList: vi.fn(),
   serversOrgAudit: vi.fn(),
   serversSessionsList: vi.fn(),
   serversSessionEnd: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock("@/shared/api/client", async (orig) => ({
   ...(await orig<typeof import("@/shared/api/client")>()),
   serversOrgMembers: api.serversOrgMembers,
   serversOrgInvitesList: api.serversOrgInvitesList,
+  serversOrgLinksList: api.serversOrgLinksList,
   serversOrgAudit: api.serversOrgAudit,
 }));
 vi.mock("@/shared/api/server-sessions", async (orig) => ({
@@ -37,7 +39,7 @@ const THIS_DEVICE: DeviceSession = {
 const session = (id: string, url: string) =>
   ({
     profile: { id, name: id, url, org_id: "o1" },
-    me: {},
+    me: { orgs: [] },
     connIds: [],
   }) as never;
 
@@ -46,6 +48,7 @@ const disconnectServer = vi.fn();
 beforeEach(() => {
   api.serversOrgMembers.mockReset().mockResolvedValue([]);
   api.serversOrgInvitesList.mockReset().mockResolvedValue([]);
+  api.serversOrgLinksList.mockReset().mockResolvedValue([]);
   api.serversOrgAudit.mockReset().mockResolvedValue([]);
   api.serversSessionsList.mockReset().mockResolvedValue([THIS_DEVICE]);
   api.serversSessionEnd.mockReset().mockResolvedValue(true);

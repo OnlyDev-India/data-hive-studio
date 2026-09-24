@@ -29,9 +29,28 @@ export interface ServerAccount {
   avatar_url: string | null;
   server_role: ServerRole;
   can_manage_roles: boolean;
+  /** Only ever true for an admin an owner switched it on for. */
+  can_create_orgs: boolean;
   /** Providers this person has signed in with, such as `google`. */
   providers: string[];
   created_ms: number;
+}
+
+/** One row of the server owner's org list: names and counts only. */
+export interface ServerOrg {
+  id: string;
+  name: string;
+  slug: string;
+  created_ms: number;
+  /** Email of the creator; `null` for an org that predates this feature. */
+  created_by: string | null;
+  member_count: number;
+  /** Emails of the org's owners. */
+  owners: string[];
+}
+
+export interface ServerSettings {
+  open_org_creation: boolean;
 }
 
 /** Invite lifetimes the server accepts; `null` is "never". */
@@ -128,6 +147,61 @@ export function serverAccountSetManageRoles(
   });
 }
 
+/** Turn "Can create organizations" on or off for an admin (owner only). */
+export function serverAccountSetCreateOrgs(
+  profileId: string,
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  if (WEB) {
+    return wcallEmpty(
+      "PUT",
+      `/v1/server/accounts/${encodeURIComponent(userId)}/create-orgs`,
+      { enabled },
+      true,
+    );
+  }
+  return invoke("servers_access_set_create_orgs", {
+    profileId,
+    userId,
+    enabled,
+  });
+}
+
+/** Every org on the server, names and counts only (owner only). */
+export function serverOrgsList(profileId: string): Promise<ServerOrg[]> {
+  if (WEB) {
+    return wcall("GET", "/v1/server/orgs", undefined, true);
+  }
+  return invoke("servers_access_orgs_list", { profileId });
+}
+
+export function serverSettingsGet(profileId: string): Promise<ServerSettings> {
+  if (WEB) {
+    return wcall("GET", "/v1/server/settings", undefined, true);
+  }
+  return invoke("servers_access_settings_get", { profileId });
+}
+
+/** Open org creation to every signed in person, one org each (owner only). */
+export function serverSetOpenOrgCreation(
+  profileId: string,
+  enabled: boolean,
+): Promise<void> {
+  if (WEB) {
+    return wcallEmpty(
+      "PUT",
+      "/v1/server/settings/open-org-creation",
+      { enabled },
+      true,
+    );
+  }
+  return invoke("servers_access_set_open_org_creation", {
+    profileId,
+    enabled,
+  });
+}
+
 // ---- What the signed in person may see and do ------------------------------
 //
 // Mirrors `AuthCtx` on the server (`can_invite`, `can_manage_accounts`). Only
@@ -171,7 +245,16 @@ export function accessErrorMessage(e: unknown): string {
     return "That invite was already used, so it can't be changed.";
   }
   if (raw.includes("last_owner")) {
-    return "A server must keep at least one owner. Make someone else an owner first.";
+    return "An organization must keep at least one owner. Make someone else an owner first.";
+  }
+  if (raw.includes("already_member")) {
+    return "That person is already in this organization.";
+  }
+  if (raw.includes("invite_expired")) {
+    return "That invitation has expired. Ask them to send a new one.";
+  }
+  if (raw.includes("org_limit")) {
+    return "You've already created an organization. Each person can create one.";
   }
   if (raw.includes("not_an_admin")) {
     return "This switch only applies to an admin.";

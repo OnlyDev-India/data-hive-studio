@@ -35,8 +35,9 @@ pub struct SignInFacts {
     /// The user whose account email equals the verified email, and whether
     /// that user already has an identity for this provider.
     pub email_user: Option<(String, bool)>,
-    /// An unused invite for the email: its id and whether it has expired.
-    pub invite: Option<(String, bool)>,
+    /// Every unused invite for the email, server and org (spec 0011): each
+    /// one's id and whether it has expired.
+    pub invites: Vec<(String, bool)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,8 +48,9 @@ pub enum Decision {
     Ticket,
     /// Same verified email as an existing account: add this identity to it.
     LinkIdentity { user_id: String },
-    /// An open invite: create the member account and mark the invite used.
-    JoinWithInvite { invite_id: String },
+    /// One or more open invites: create the member account, join every org
+    /// they name and mark each invite used. Holds only the unexpired ones.
+    JoinWithInvites { invite_ids: Vec<String> },
     Refuse(Refusal),
 }
 
@@ -70,10 +72,13 @@ pub fn decide(facts: &SignInFacts) -> Decision {
             Decision::LinkIdentity { user_id: user_id.clone() }
         };
     }
-    match &facts.invite {
-        Some((_, true)) => Decision::Refuse(Refusal::InviteExpired),
-        Some((invite_id, false)) => Decision::JoinWithInvite { invite_id: invite_id.clone() },
-        None => Decision::Refuse(Refusal::NotInvited),
+    let open: Vec<String> = facts.invites.iter().filter(|(_, expired)| !expired).map(|(id, _)| id.clone()).collect();
+    if !open.is_empty() {
+        Decision::JoinWithInvites { invite_ids: open }
+    } else if facts.invites.is_empty() {
+        Decision::Refuse(Refusal::NotInvited)
+    } else {
+        Decision::Refuse(Refusal::InviteExpired)
     }
 }
 
@@ -101,7 +106,7 @@ mod tests {
 
     #[test]
     fn unclaimed_server_only_gives_a_ticket() {
-        let f = SignInFacts { claimed: false, invite: Some(("i".into(), false)), ..Default::default() };
+        let f = SignInFacts { claimed: false, invites: vec![("i".into(), false)], ..Default::default() };
         assert_eq!(decide(&f), Decision::Ticket);
     }
 
@@ -116,10 +121,16 @@ mod tests {
     #[test]
     fn stranger_needs_an_open_invite() {
         assert_eq!(decide(&facts()), Decision::Refuse(Refusal::NotInvited));
-        let open = SignInFacts { invite: Some(("i1".into(), false)), ..facts() };
-        assert_eq!(decide(&open), Decision::JoinWithInvite { invite_id: "i1".into() });
-        let expired = SignInFacts { invite: Some(("i1".into(), true)), ..facts() };
+        let open = SignInFacts { invites: vec![("i1".into(), false)], ..facts() };
+        assert_eq!(decide(&open), Decision::JoinWithInvites { invite_ids: vec!["i1".into()] });
+        let expired = SignInFacts { invites: vec![("i1".into(), true)], ..facts() };
         assert_eq!(decide(&expired), Decision::Refuse(Refusal::InviteExpired));
+        // Several invites: every unexpired one joins, the expired one is left alone.
+        let mixed = SignInFacts {
+            invites: vec![("a".into(), false), ("b".into(), true), ("c".into(), false)],
+            ..facts()
+        };
+        assert_eq!(decide(&mixed), Decision::JoinWithInvites { invite_ids: vec!["a".into(), "c".into()] });
     }
 
     #[test]

@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   serverAccountsList: vi.fn(),
   serverAccountSetRole: vi.fn(),
   serverAccountSetManageRoles: vi.fn(),
+  serverAccountSetCreateOrgs: vi.fn(),
 }));
 vi.mock("@/shared/api/server-access", async (orig) => ({
   ...(await orig<typeof import("@/shared/api/server-access")>()),
@@ -41,6 +42,7 @@ const me = (
   name: "Me",
   server_role,
   can_manage_roles,
+  can_create_org: false,
   orgs: [],
 });
 
@@ -63,6 +65,7 @@ const account = (over: Partial<ServerAccount>): ServerAccount => ({
   avatar_url: null,
   server_role: "member",
   can_manage_roles: false,
+  can_create_orgs: false,
   providers: ["google"],
   created_ms: 1,
   ...over,
@@ -256,16 +259,33 @@ describe("Server accounts", () => {
     );
   });
 
-  it("gives an owner a role select on every row and the switch on admins", async () => {
+  it("gives an owner a role select on every row and both switches on admins", async () => {
     people(me("owner"));
     await peopleLoaded();
     for (const email of ["boss@x.com", "admin@x.com", "mem@x.com"]) {
       expect(screen.getByLabelText(`Role for ${email}`)).toBeVisible();
     }
-    expect(screen.getAllByRole("switch")).toHaveLength(1);
-    await userEvent.click(screen.getByRole("switch"));
+    expect(screen.getAllByRole("switch")).toHaveLength(2);
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Can manage roles" }),
+    );
     await waitFor(() =>
       expect(api.serverAccountSetManageRoles).toHaveBeenCalledWith(
+        "p1",
+        "ad1",
+        true,
+      ),
+    );
+  });
+
+  it("lets an owner turn Can create organizations on for an admin", async () => {
+    people(me("owner"));
+    await peopleLoaded();
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Can create organizations" }),
+    );
+    await waitFor(() =>
+      expect(api.serverAccountSetCreateOrgs).toHaveBeenCalledWith(
         "p1",
         "ad1",
         true,

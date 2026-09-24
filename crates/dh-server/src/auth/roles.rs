@@ -26,7 +26,7 @@ impl Store {
             return Err(AccessError::Forbidden);
         }
         let rows = sqlx::query(
-            "SELECT u.id, u.email, u.name, u.avatar_url, u.server_role, u.can_manage_roles, u.created_ms,
+            "SELECT u.id, u.email, u.name, u.avatar_url, u.server_role, u.can_manage_roles, u.can_create_orgs, u.created_ms,
                     COALESCE(array_agg(i.provider ORDER BY i.provider) FILTER (WHERE i.provider IS NOT NULL), '{}')
                         AS providers
              FROM users u LEFT JOIN identities i ON i.user_id = u.id
@@ -46,6 +46,7 @@ impl Store {
                     avatar_url: r.get("avatar_url"),
                     server_role: ServerRole::parse(&role).unwrap_or(ServerRole::Member),
                     can_manage_roles: r.get("can_manage_roles"),
+                    can_create_orgs: r.get("can_create_orgs"),
                     providers: r.get("providers"),
                     created_ms: r.get("created_ms"),
                 }
@@ -90,7 +91,8 @@ impl Store {
         }
         sqlx::query(
             "UPDATE users SET server_role = $1,
-                    can_manage_roles = CASE WHEN $1 = 'admin' THEN can_manage_roles ELSE FALSE END
+                    can_manage_roles = CASE WHEN $1 = 'admin' THEN can_manage_roles ELSE FALSE END,
+                    can_create_orgs = CASE WHEN $1 = 'admin' THEN can_create_orgs ELSE FALSE END
              WHERE id = $2",
         )
         .bind(new.as_str())

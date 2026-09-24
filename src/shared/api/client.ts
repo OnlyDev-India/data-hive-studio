@@ -7,6 +7,7 @@ export * from "./dispatch";
 export * from "./env";
 export * from "./read-only";
 export * from "./server-admin";
+export * from "./server-invites";
 export * from "./connection";
 export * from "./query";
 export * from "./streaming";

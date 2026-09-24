@@ -171,16 +171,30 @@ pub(crate) async fn audit_in<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    sqlx::query(
-        "INSERT INTO audit (ts_ms, org_id, user_id, action, target, detail) VALUES ($1,NULL,$2,$3,$4,$5)",
-    )
-    .bind(now_ms())
-    .bind(user_id)
-    .bind(action)
-    .bind(target)
-    .bind(detail)
-    .execute(exec)
-    .await?;
+    audit_org_in(exec, None, user_id, action, target, detail).await
+}
+
+/// Same as [`audit_in`] with the org the action concerns (spec 0011, AC-14).
+pub(crate) async fn audit_org_in<'e, E>(
+    exec: E,
+    org_id: Option<&str>,
+    user_id: &str,
+    action: &str,
+    target: &str,
+    detail: Option<&str>,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query("INSERT INTO audit (ts_ms, org_id, user_id, action, target, detail) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(now_ms())
+        .bind(org_id)
+        .bind(user_id)
+        .bind(action)
+        .bind(target)
+        .bind(detail)
+        .execute(exec)
+        .await?;
     Ok(())
 }
 

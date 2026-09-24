@@ -6,20 +6,26 @@ import type { MeResult } from "@/shared/api/server-admin";
 const api = vi.hoisted(() => ({
   serversOrgMembers: vi.fn(),
   serversOrgInvitesList: vi.fn(),
+  serversOrgLinksList: vi.fn(),
   serversOrgAudit: vi.fn(),
   serverInvitesList: vi.fn(),
   serverAccountsList: vi.fn(),
+  serverOrgsList: vi.fn(),
+  serverSettingsGet: vi.fn(),
 }));
 vi.mock("@/shared/api/client", async (orig) => ({
   ...(await orig<typeof import("@/shared/api/client")>()),
   serversOrgMembers: api.serversOrgMembers,
   serversOrgInvitesList: api.serversOrgInvitesList,
+  serversOrgLinksList: api.serversOrgLinksList,
   serversOrgAudit: api.serversOrgAudit,
 }));
 vi.mock("@/shared/api/server-access", async (orig) => ({
   ...(await orig<typeof import("@/shared/api/server-access")>()),
   serverInvitesList: api.serverInvitesList,
   serverAccountsList: api.serverAccountsList,
+  serverOrgsList: api.serverOrgsList,
+  serverSettingsGet: api.serverSettingsGet,
 }));
 // Store changes schedule a debounced workspace save; keep it off Tauri IPC.
 vi.mock("@/shared/api/workspace-state", () => ({
@@ -38,6 +44,7 @@ const me = (
   name: "Me",
   server_role,
   can_manage_roles,
+  can_create_org: false,
   orgs: [{ id: "o1", name: "Acme", role: "admin" }],
 });
 
@@ -57,9 +64,14 @@ function setup(server_role: MeResult["server_role"], can_manage_roles = false) {
 beforeEach(() => {
   api.serversOrgMembers.mockReset().mockResolvedValue([]);
   api.serversOrgInvitesList.mockReset().mockResolvedValue([]);
+  api.serversOrgLinksList.mockReset().mockResolvedValue([]);
   api.serversOrgAudit.mockReset().mockResolvedValue([]);
   api.serverInvitesList.mockReset().mockResolvedValue([]);
   api.serverAccountsList.mockReset().mockResolvedValue([]);
+  api.serverOrgsList.mockReset().mockResolvedValue([]);
+  api.serverSettingsGet
+    .mockReset()
+    .mockResolvedValue({ open_org_creation: false });
 });
 afterEach(cleanup);
 
@@ -113,5 +125,31 @@ describe("AdminDashboard server sections", () => {
     ).toBeNull();
     expect(api.serverInvitesList).not.toHaveBeenCalled();
     expect(api.serverAccountsList).not.toHaveBeenCalled();
+  });
+});
+
+describe("AdminDashboard after losing access", () => {
+  it("says so plainly instead of a failed load, when the server refuses with 403", async () => {
+    api.serversOrgMembers.mockRejectedValue(
+      new Error("403 not a member of this organization"),
+    );
+    setup("member");
+    expect(
+      await screen.findByText(/You no longer have access to this organization/),
+    ).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "Members" })).toBeNull();
+  });
+
+  it("still reports other load failures as errors", async () => {
+    api.serversOrgMembers.mockRejectedValue(new Error("500 database is down"));
+    setup("member");
+    await waitFor(() =>
+      expect(
+        useStudioStore
+          .getState()
+          .notifications.some((n) => n.title === "Failed to load admin data"),
+      ).toBe(true),
+    );
+    expect(screen.queryByText(/no longer have access/)).toBeNull();
   });
 });

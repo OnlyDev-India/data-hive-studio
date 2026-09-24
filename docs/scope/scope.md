@@ -50,8 +50,8 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 19  | Owner claim and invite only accounts        | Slice 19 | in-progress |
 | 20  | Short lived sessions and devices            | Slice 20 | in-progress |
 | 21  | Orgs, members and email bound invites       | Slice 21 | in-progress |
-| 22  | Connection roles and grants with expiry     | Slice 22 | planned     |
-| 23  | Groups                                      | Slice 23 | planned     |
+| 22  | Connection roles and grants with expiry     | Slice 22 | in-progress |
+| 23  | Groups                                      | Slice 23 | in-progress |
 | 24  | Proxy only shared connections               | Slice 24 | planned     |
 | 25  | Audit trail with retention                  | Slice 25 | planned     |
 | 26  | Suspend, rate limits and owner recovery     | Slice 26 | planned     |
@@ -514,15 +514,15 @@ code in `crates/dh-core/src/server/auth/`, `crates/dh-core/src/server/router/`, 
 Only the server owner creates organizations, and one person can belong to several. Org roles (owner, admin, member) only control people and settings, never database data (that moves to connection roles in slice 22, so today's viewer role goes away). Owners and admins invite by email, bound to that address, or make an optional shareable link with a use limit and an expiry. Removing someone ends their access to that org's connections at once, and the last owner guard stays. The design pass settles the invite delivery (the server may not be able to send email) and how the current invite screens change.
 **Done when:** the server owner creates an org and invites a person by email, only that email can redeem the invite, a shareable link stops working after its limit or expiry, removing a person cuts their access at once, and the last owner cannot be removed or demoted.
 spec [0011](../specs/0011-orgs-members-and-email-bound-invites/index.md)
-code in `crates/dh-core/src/server/orgs.rs`, `src/features/sharing`
+code in `crates/dh-server/src/orgs/`, `crates/dh-server/src/auth/org_policy.rs`, `src/features/sharing`
 
 - [x] Design it (spec): `/architect orgs members and email bound invites`
-- [ ] Build it: `/develop orgs members and email bound invites`
+- [x] Build it: `/develop orgs members and email bound invites`
   - [x] Migration `0003` and the viewer role clean up, in Rust and TypeScript — satisfies AC-12
-  - [ ] Who can create orgs, on the server, desktop and web: the per admin switch, the server wide open org creation policy for a self deployed server, the one org limit, the owner's org list, New organization gating — satisfies AC-1, AC-2, AC-3, AC-13, AC-14, AC-15
-  - [ ] Email invite to accept: org invites, first sign in joining every open invite, pending invites, accept and decline, Copy message and Email, picker and Invitations menu — satisfies AC-4, AC-5, AC-6, AC-7, AC-13, AC-14
-  - [ ] Members: admin limits, the locked last owner guard, removal that clears grants and unused invites, leave, the no longer has access state — satisfies AC-9, AC-10, AC-11, AC-13, AC-14
-  - [ ] Shareable link and close out: bounded member only links, redeem route move, web `?join=`, file splits under 500 lines, all tests green — satisfies AC-8, AC-12, AC-13, AC-14
+  - [x] Who can create orgs, on the server, desktop and web: the per admin switch, the server wide open org creation policy for a self deployed server, the one org limit, the owner's org list, New organization gating — satisfies AC-1, AC-2, AC-3, AC-13, AC-14, AC-15
+  - [x] Email invite to accept: org invites, first sign in joining every open invite, pending invites, accept and decline, Copy message and Email, picker and Invitations menu — satisfies AC-4, AC-5, AC-6, AC-7, AC-13, AC-14
+  - [x] Members: admin limits, the locked last owner guard, removal that clears grants and unused invites, leave, the no longer has access state — satisfies AC-9, AC-10, AC-11, AC-13, AC-14
+  - [x] Shareable link and close out: bounded member only links, redeem route move, web `?join=`, file splits under 500 lines, all tests green — satisfies AC-8, AC-12, AC-13, AC-14
 - [ ] Verify it: `/check verify orgs members and email bound invites`
 - [ ] Test it: `/test orgs members and email bound invites`
 - [ ] Review it (fresh model): `/check review orgs members and email bound invites`
@@ -534,13 +534,24 @@ code in `crates/dh-core/src/server/orgs.rs`, `src/features/sharing`
 
 
 
-### 22. Connection roles and grants with expiry · needs a decision · GA
+### 22. Connection roles and grants with expiry · in-progress · GA
 
 One place decides what a person may do on a shared connection, replacing today's four org roles plus three switch overrides. Each connection has its own roles: viewer (reads), editor (also changes rows and runs writes), admin (also changes schema, settings and who has access). Only org owners and admins add a connection. A new connection is usable by nobody until granted, and an org admin can grant themselves access, which is logged. A grant can carry an end time, and if a person has more than one grant the highest access wins, with no deny rules. Every gateway route asks this same check, and the grant screens are new, since none exist today. The connection wide read only switch from spec 0007 stays separate and beats any role. Slices 10, 11 and 12 finish their team server milestones on this model. The design pass settles how each route maps to a role (SQL console, schema changes, import, Stop), and how an end time is enforced on a connection that is already open.
 **Done when:** a new connection is invisible to everyone except org owners and admins until granted, a viewer reads but cannot write, an editor writes rows but cannot change the schema or access, an admin can do both, a grant with an end time stops working at that time, and every route uses the same check.
-code in `crates/dh-core/src/server/gateway.rs`, `crates/dh-core/src/server/grants.rs`, `src/features/sharing`
+spec [0013](../specs/0013-connection-roles-and-grants-with-expiry/index.md)
+code in `crates/dh-server/src/gateway/`, `crates/dh-server/src/grants.rs`, `crates/dh-server-client/src/grants.rs`, `src/features/sharing`
 
-- [ ] Design it (spec): `/architect connection roles and grants with expiry`
+- [x] Design it (spec): `/architect connection roles and grants with expiry`
+- [ ] Build it: `/develop connection roles and grants with expiry`
+  - [ ] The thin thread on the server: migration `0004`, shared role types, grant store queries, `Gateway::check` and every route mapped to a need, the org connection list with role and end time — satisfies AC-1, AC-2, AC-3, AC-10, AC-12, AC-13, AC-15
+  - [ ] Statement rules: the SQL and Mongo classifier that fails closed to admin, wired into the console, plus the viewer, editor and admin behaviour on data routes — satisfies AC-4, AC-5, AC-6
+  - [ ] Managing access: grants API, credentials and settings and delete rules, the add connection tick, audit events — satisfies AC-2, AC-6, AC-7, AC-8, AC-9, AC-14, AC-16
+  - [ ] Client and screens: role in the connection list, disabled controls per role, Access tab and grant dialog with Renew, access ended handling and the under 24 hours chip — satisfies AC-3, AC-4, AC-9, AC-11, AC-17
+  - [ ] Close out: route coverage, migration, concurrency, expiry timing and classifier tests, all green — satisfies AC-1 to AC-17
+- [ ] Verify it: `/check verify connection roles and grants with expiry`
+- [ ] Test it: `/test connection roles and grants with expiry`
+- [ ] Review it (fresh model): `/check review connection roles and grants with expiry`
+- [ ] Document it: `/document connection roles and grants with expiry`
 
 
 
@@ -548,13 +559,23 @@ code in `crates/dh-core/src/server/gateway.rs`, `crates/dh-core/src/server/grant
 
 
 
-### 23. Groups · needs a decision · GA
+### 23. Groups · in-progress · GA
 
 Named groups of people inside an org, managed by org owners and admins. A connection role can be granted to a group, and every member of the group gets it. When a person has both a direct grant and group grants, the highest access wins. The design pass settles how groups sit in the access check from slice 22 so it stays one check, and what removing a group does to the grants it held.
 **Done when:** adding a person to a group gives them the group's connection roles at once, removing them takes those roles away, a person in two groups gets the higher role, and deleting a group removes every grant it held.
-code in `crates/dh-core/src/server/grants.rs`, `src/features/sharing`
+spec [0014](../specs/0014-groups/index.md)
+code in `crates/dh-server/src/groups/`, `crates/dh-server/src/grants.rs`, `src/features/sharing`
 
-- [ ] Design it (spec): `/architect groups`
+- [x] Design it (spec): `/architect groups`
+- [ ] Build it: `/develop groups`
+  - [ ] Sidebar shell: the admin screen's tabs become a sidebar with an org dropdown, existing panels moved in unchanged — satisfies AC-15
+  - [ ] The thin thread: migration `0005`, groups create and list, members with the org removal cascade, group grants feeding the same access lookup as `Gateway::check` — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-8, AC-9, AC-10, AC-11, AC-12
+  - [ ] Delete a group with its confirmation, and the effective access list with source chips and `grant.self` audit rows — satisfies AC-7, AC-13, AC-14, AC-16
+  - [ ] Close out: route coverage extended to group routes, file splits under 500 lines, backend and frontend tests green — satisfies AC-1 to AC-16
+- [ ] Verify it: `/check verify groups`
+- [ ] Test it: `/test groups`
+- [ ] Review it (fresh model): `/check review groups`
+- [ ] Document it: `/document groups`
 
 
 

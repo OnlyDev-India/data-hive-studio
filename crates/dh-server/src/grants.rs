@@ -83,25 +83,18 @@ impl Store {
 mod tests {
     use crate::store::{test_store, test_user};
     use dh_server_client::auth::ServerRole;
-    use dh_server_client::orgs::OrgRole;
-    use dh_server_client::store::now_ms;
     use dh_server_client::vault::ConnInput;
-
-    /// A week out — org invites now require a limit and an expiry (spec 0011).
-    fn week_from_now() -> i64 {
-        now_ms() + 7 * 24 * 60 * 60 * 1000
-    }
 
     #[tokio::test]
     #[ignore = "requires a live Postgres test database — see store::test_store"]
     async fn grant_override_lifecycle() {
         let store = test_store().await;
         let owner = test_user(&store, "o@x.com", ServerRole::Owner).await;
-        let org = store.org_create("Acme", &owner.id).await.unwrap();
+        let org = store.org_create(&owner.ctx(), "Acme").await.unwrap();
         let member = test_user(&store, "m@x.com", ServerRole::Member).await;
         let invite =
-            store.invite_create(&org.id, OrgRole::Member, &owner.id, Some(100), Some(week_from_now())).await.unwrap();
-        store.invite_redeem(&invite.code, &member.id).await.unwrap();
+            store.link_create(&owner.ctx(), &org.id, 100, 7).await.unwrap();
+        store.link_redeem(&invite.code, &member.id).await.unwrap();
 
         let meta = store
             .conn_add(

@@ -23,17 +23,21 @@ import {
 } from "@/shared/api/server-access";
 import { useStudioStore } from "@/shared/store";
 
-const EXPIRY_LABELS: Record<string, string> = {
+export const EXPIRY_LABELS: Record<string, string> = {
   "1": "1 day",
   "7": "7 days",
   "30": "30 days",
   never: "Never",
 };
 
-const expiryKey = (d: InviteExpiryDays) => (d === null ? "never" : String(d));
+export const expiryKey = (d: InviteExpiryDays) =>
+  d === null ? "never" : String(d);
 
 /** When an invite stops working, or that it never does. */
-export function inviteWhen(inv: ServerInvite, now: number): string {
+export function inviteWhen(
+  inv: Pick<ServerInvite, "status" | "used_by" | "expires_ms">,
+  now: number,
+): string {
   if (inv.status === "used") {
     return inv.used_by ? `Joined as ${inv.used_by}` : "Used";
   }
@@ -43,7 +47,7 @@ export function inviteWhen(inv: ServerInvite, now: number): string {
   return days <= 1 ? "Expires within a day" : `Expires in ${days} days`;
 }
 
-const STATUS_VARIANT = {
+export const STATUS_VARIANT = {
   open: "default",
   used: "secondary",
   expired: "outline",

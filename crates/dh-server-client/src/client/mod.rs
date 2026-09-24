@@ -31,6 +31,9 @@ pub struct MeResult {
     pub name: String,
     pub server_role: crate::auth::ServerRole,
     pub can_manage_roles: bool,
+    /// Whether this person may create an organization right now (spec 0011).
+    #[serde(default)]
+    pub can_create_org: bool,
     pub orgs: Vec<MeOrg>,
 }
 
