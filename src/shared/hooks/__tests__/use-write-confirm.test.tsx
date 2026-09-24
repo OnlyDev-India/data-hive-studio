@@ -57,7 +57,7 @@ describe("useWriteConfirm", () => {
     expect(api.needs).toBe(false);
   });
 
-  it("asks on Production, with the Production chip, and resolves true on confirm", async () => {
+  it("asks on Production, without an env chip, and resolves true on confirm", async () => {
     withConn({ env_label: "Production" });
     renderProbe("c1");
     expect(api.needs).toBe(true);
@@ -69,7 +69,7 @@ describe("useWriteConfirm", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("Apply 2 pending changes to users");
     expect(dialog).toHaveTextContent(/Production connection/);
-    expect(dialog.querySelector("[data-env-color=red]")).not.toBeNull();
+    expect(dialog.querySelector("[data-env-color]")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: /apply/i }));
     await expect(answer!).resolves.toBe(true);

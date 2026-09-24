@@ -76,7 +76,6 @@ export function useWriteConfirm(conn_id: string): {
       description={pending?.description ?? ""}
       title={pending?.title}
       confirmLabel={pending?.confirm_label}
-      env={conn}
       onConfirm={() => settle(true)}
       onCancel={() => settle(false)}
     />

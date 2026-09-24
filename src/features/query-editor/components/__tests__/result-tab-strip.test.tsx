@@ -45,4 +45,36 @@ describe("ResultTabStrip", () => {
     expect(screen.getByText("users")).toBeTruthy();
     expect(screen.getByLabelText("New tab per run: off")).toBeTruthy();
   });
+
+  it("hides the results panel from the chevron, only when given a handler", async () => {
+    const on_hide = vi.fn();
+    const { rerender } = render(
+      <ResultTabStrip
+        items={[]}
+        active_id={null}
+        on_select={vi.fn()}
+        on_close={vi.fn()}
+        keep_all_tabs={false}
+        on_toggle_keep_all_tabs={vi.fn()}
+        on_hide={on_hide}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Hide results panel" }),
+    );
+    expect(on_hide).toHaveBeenCalledOnce();
+
+    rerender(
+      <ResultTabStrip
+        items={[]}
+        active_id={null}
+        on_select={vi.fn()}
+        on_close={vi.fn()}
+        keep_all_tabs={false}
+        on_toggle_keep_all_tabs={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText("Hide results panel")).toBeNull();
+  });
 });

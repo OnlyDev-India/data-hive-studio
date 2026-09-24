@@ -8,9 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui";
-import type { ConnGuard } from "@/shared/api";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
-import { EnvChip } from "./env-chip";
 
 /** One thing about to run, with every reason it needs a second look. A
  *  statement that is both a write on a Production connection and an UPDATE
@@ -29,7 +27,6 @@ export interface ConfirmItem {
 export function WriteConfirmDialog({
   items,
   description,
-  env,
   title = "Confirm before running",
   confirmLabel = "Run anyway",
   onConfirm,
@@ -40,7 +37,6 @@ export function WriteConfirmDialog({
   /** The line under the title. */
   description: string;
   /** The connection's label and lock, shown as a chip beside the title. */
-  env?: ConnGuard | null;
   title?: string;
   confirmLabel?: string;
   onConfirm: () => void;
@@ -56,7 +52,6 @@ export function WriteConfirmDialog({
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="text-destructive size-4" />
             {title}
-            {env && <EnvChip conn={env} />}
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>

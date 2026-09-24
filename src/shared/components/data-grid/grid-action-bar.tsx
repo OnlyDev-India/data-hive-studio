@@ -128,7 +128,6 @@ export function GridActionBar({
   );
   const [bulk_edit_open, setBulkEditOpen] = useState(false);
   const openSql = useStudioStore((s) => s.openSql);
-  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   // Direct Apply skips the review dialog, so on a Production connection (or
   // one with Confirm before writes on) it asks first (spec 0007). Review is
   // itself the confirmation and just wears the environment chip.
@@ -289,7 +288,6 @@ export function GridActionBar({
         <ApplyChangesDialog
           rows={pending_changes_to_row_diff(apply_changes)}
           selectable
-          env={conn}
           on_apply={(keepIds) => bridge.apply_pending(keepIds)}
           on_close={() => setApplyChanges(null)}
         />

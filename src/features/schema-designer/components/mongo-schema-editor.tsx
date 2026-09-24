@@ -92,7 +92,6 @@ export function MongoSchemaEditor({
     : [];
 
   const push_notification = useStudioStore((s) => s.pushNotification);
-  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const setSchemaEdit = useStudioStore((s) => s.setSchemaEdit);
   const clearSchemaEdit = useStudioStore((s) => s.clearSchemaEdit);
   const setSchemaPane = useStudioStore((s) => s.setSchemaPane);
@@ -227,7 +226,6 @@ export function MongoSchemaEditor({
         <ApplyChangesDialog
           title="Review schema changes"
           ddl={confirm_apply}
-          env={conn}
           applying={applying}
           on_apply={() => void run_apply()}
           on_close={() => setConfirmApply(null)}
