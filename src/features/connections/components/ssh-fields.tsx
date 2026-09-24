@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { FilePathInput } from "./file-path-input";
+import { WEB } from "@/shared/api/web";
 
 export interface SshFormValue {
   ssh_host: string;
@@ -76,25 +77,31 @@ export function SshFields({
             onChange={(e) => onChange("ssh_user", e.target.value)}
           />
 
-          <div className="grid gap-1">
-            <Label className="text-muted-foreground text-2xs font-normal">
-              Authentication
-            </Label>
-            <Select
-              value={value.ssh_auth_mode || "password"}
-              onValueChange={(v) => onChange("ssh_auth_mode", v ?? "password")}
-            >
-              <SelectTrigger className="w-40" size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="password">Password</SelectItem>
-                <SelectItem value="key">Private key</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {/* The web build tunnels by password only: a key file would have to
+              be read from the server's disk, not yours. */}
+          {!WEB && (
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-2xs font-normal">
+                Authentication
+              </Label>
+              <Select
+                value={value.ssh_auth_mode || "password"}
+                onValueChange={(v) =>
+                  onChange("ssh_auth_mode", v ?? "password")
+                }
+              >
+                <SelectTrigger className="w-40" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="password">Password</SelectItem>
+                  <SelectItem value="key">Private key</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          {value.ssh_auth_mode === "key" ? (
+          {!WEB && value.ssh_auth_mode === "key" ? (
             <>
               <div className="grid gap-1">
                 <Label className="text-muted-foreground text-2xs font-normal">
@@ -122,33 +129,35 @@ export function SshFields({
             />
           )}
 
-          <div className="grid gap-1">
-            <Label className="text-muted-foreground text-2xs font-normal">
-              Pinned host key (optional — leave blank to trust the server's key
-              on each connect; paste a fingerprint here to reject a connection
-              whose key doesn't match)
-            </Label>
-            <div className="flex gap-1">
-              <Input
-                className="min-w-0 flex-1 font-mono text-xs"
-                placeholder="SHA256:..."
-                value={value.ssh_host_key_fingerprint}
-                onChange={(e) =>
-                  onChange("ssh_host_key_fingerprint", e.target.value)
-                }
-              />
-              {value.ssh_host_key_fingerprint && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onChange("ssh_host_key_fingerprint", "")}
-                >
-                  Clear
-                </Button>
-              )}
+          {!WEB && (
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-2xs font-normal">
+                Pinned host key (optional — leave blank to trust the server's
+                key on each connect; paste a fingerprint here to reject a
+                connection whose key doesn't match)
+              </Label>
+              <div className="flex gap-1">
+                <Input
+                  className="min-w-0 flex-1 font-mono text-xs"
+                  placeholder="SHA256:..."
+                  value={value.ssh_host_key_fingerprint}
+                  onChange={(e) =>
+                    onChange("ssh_host_key_fingerprint", e.target.value)
+                  }
+                />
+                {value.ssh_host_key_fingerprint && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onChange("ssh_host_key_fingerprint", "")}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

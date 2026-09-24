@@ -47,7 +47,7 @@ const READ_PRAGMAS: &[&str] = &[
 
 /// Functions that could switch the lock off from inside an allowed statement
 /// (`SELECT set_config('default_transaction_read_only', 'off', false)`).
-const LOCK_BREAKERS: &[&str] = &["set_config", "load_extension"];
+pub(super) const LOCK_BREAKERS: &[&str] = &["set_config", "load_extension"];
 
 /// The SQL dialect the text is read as: quoting and comment rules differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,13 +163,13 @@ fn snippet(raw: &str) -> String {
 }
 
 /// One statement of a script.
-struct Statement {
+pub(super) struct Statement {
     /// The statement as written, trimmed (for messages only).
-    raw: String,
+    pub(super) raw: String,
     /// The statement with comments turned into a space, string literals
     /// (single quoted, dollar quoted) emptied to `''`, and quoted identifiers
     /// kept but fenced with `\x01` so they can never read as a keyword.
-    masked: String,
+    pub(super) masked: String,
 }
 
 const UNREADABLE: &str = "this script could not be read to check that it only reads";
@@ -234,7 +234,7 @@ fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
 /// Split `sql` into statements on top level `;`, skipping quotes and
 /// comments, and build each one's masked text. Empty statements (a stray `;`,
 /// a comment) are dropped. `Err` when a quote or comment never closes.
-fn split_statements(dialect: Dialect, sql: &str) -> Result<Vec<Statement>, &'static str> {
+pub(super) fn split_statements(dialect: Dialect, sql: &str) -> Result<Vec<Statement>, &'static str> {
     let b = sql.as_bytes();
     let mut out = Vec::new();
     let mut masked: Vec<u8> = Vec::new();
@@ -325,7 +325,7 @@ fn split_statements(dialect: Dialect, sql: &str) -> Result<Vec<Statement>, &'sta
 }
 
 /// The first thing in masked text.
-enum Head<'a> {
+pub(super) enum Head<'a> {
     /// Nothing but whitespace.
     Empty,
     /// The first keyword, lowercased, and the text after it.
@@ -335,7 +335,7 @@ enum Head<'a> {
 }
 
 /// Skips whitespace and opening parentheses (`(SELECT 1) UNION ...`).
-fn head(masked: &str) -> Head<'_> {
+pub(super) fn head(masked: &str) -> Head<'_> {
     let b = masked.as_bytes();
     let mut i = 0;
     while i < b.len() && (b[i].is_ascii_whitespace() || b[i] == b'(') {
@@ -356,7 +356,7 @@ fn head(masked: &str) -> Head<'_> {
 
 /// Identifier like words in masked text, lowercased. Quoted identifiers
 /// count (`"set_config"(...)` calls the function), string literals do not.
-fn tokens(masked: &str) -> impl Iterator<Item = String> + '_ {
+pub(super) fn tokens(masked: &str) -> impl Iterator<Item = String> + '_ {
     masked
         .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
         .filter(|t| !t.is_empty())
@@ -364,7 +364,7 @@ fn tokens(masked: &str) -> impl Iterator<Item = String> + '_ {
 }
 
 /// Judge one statement. `Err` carries the reason, without the prefix.
-fn judge(dialect: Dialect, masked: &str) -> Result<(), String> {
+pub(super) fn judge(dialect: Dialect, masked: &str) -> Result<(), String> {
     let (word, rest) = match head(masked) {
         Head::Empty => return Ok(()),
         Head::Other => return Err("this statement could not be recognised as a read".into()),

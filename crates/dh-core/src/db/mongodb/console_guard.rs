@@ -1,4 +1,5 @@
 use super::console_parse::parse_db_call;
+use crate::db::StmtClass;
 
 /// Console methods that only read (aggregate is judged by its stages).
 const READ_METHODS: &[&str] =
@@ -53,6 +54,35 @@ pub(super) fn console_refusal(script: &str) -> Option<String> {
         return pipeline_refusal(s);
     }
     Some("this command could not be recognised as a read".into())
+}
+
+/// Console methods that change documents, one row at a time or in bulk by a
+/// filter. Everything else that is not a read is a schema or admin command.
+const ROW_WRITE_METHODS: &[&str] = &[
+    "insertOne",
+    "insertMany",
+    "updateOne",
+    "updateMany",
+    "replaceOne",
+    "deleteOne",
+    "deleteMany",
+    "findOneAndUpdate",
+    "findOneAndReplace",
+    "findOneAndDelete",
+];
+
+/// What a console script needs (spec 0013): reads need a viewer, document
+/// inserts, updates and deletes an editor, and everything else, including a
+/// script the console cannot parse, an admin.
+pub fn mongo_script_class(script: &str) -> StmtClass {
+    if console_refusal(script).is_none() {
+        return StmtClass::Read;
+    }
+    let s = script.trim();
+    match s.starts_with("db.").then(|| parse_db_call(s)).flatten() {
+        Some(call) if ROW_WRITE_METHODS.contains(&call.method.as_str()) => StmtClass::RowWrite,
+        _ => StmtClass::Other,
+    }
 }
 
 /// An aggregation pipeline that writes: a `$out` or `$merge` stage anywhere in
@@ -325,5 +355,26 @@ mod read_only_tests {
         .unwrap();
         assert!(ro.guard.read_only);
         assert_eq!(ro.guard.env_label.as_deref(), Some("Production"));
+    }
+
+    /// Spec 0013: the class a console script needs.
+    #[test]
+    fn scripts_are_classed_for_the_role_they_need() {
+        for s in ["db.users.find({})", "use reports", "show dbs", "{ \"a\": 1 }", ""] {
+            assert_eq!(mongo_script_class(s), StmtClass::Read, "{s}");
+        }
+        for m in ["insertOne", "insertMany", "updateOne", "updateMany", "replaceOne", "deleteOne", "deleteMany"] {
+            assert_eq!(mongo_script_class(&format!("db.users.{m}({{}})")), StmtClass::RowWrite, "{m}");
+        }
+        for s in [
+            "db.users.drop()",
+            "db.users.createIndex({ \"a\": 1 })",
+            "db.users.bulkWrite([])",
+            "db.runCommand({ \"ping\": 1 })",
+            "db.users.aggregate([{ \"$out\": \"x\" }])",
+            "something odd",
+        ] {
+            assert_eq!(mongo_script_class(s), StmtClass::Other, "{s}");
+        }
     }
 }

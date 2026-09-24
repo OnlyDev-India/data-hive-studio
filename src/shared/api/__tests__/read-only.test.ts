@@ -56,35 +56,35 @@ describe("isReadOnlyError", () => {
 
 describe("withReadOnlyHint", () => {
   it("tells a local connection to use its settings", () => {
-    expect(withReadOnlyHint(refusal, false)).toBe(
+    expect(withReadOnlyHint(refusal)).toBe(
       `${refusal} Turn off read only in the connection settings.`,
     );
   });
 
-  it("tells a shared connection to ask an org admin", () => {
-    expect(withReadOnlyHint(refusal, true)).toBe(
-      `${refusal} Ask an org admin to turn it off.`,
-    );
+  it("adds nothing to the server's own read only switch", () => {
+    const server =
+      "Read only connection: this server is read only (DH_READ_ONLY).";
+    expect(withReadOnlyHint(server)).toBe(server);
   });
 
   it("keeps a string a string and makes an Error a new Error", () => {
-    expect(typeof withReadOnlyHint(refusal, false)).toBe("string");
+    expect(typeof withReadOnlyHint(refusal)).toBe("string");
     const original = new Error(refusal);
-    const hinted = withReadOnlyHint(original, false);
+    const hinted = withReadOnlyHint(original);
     expect(hinted).toBeInstanceOf(Error);
-    expect((hinted as Error).message).toContain(readOnlyHint(false));
+    expect((hinted as Error).message).toContain(readOnlyHint());
     expect((hinted as Error).cause).toBe(original);
   });
 
   it("hints once, however many layers it passes through", () => {
-    const once = withReadOnlyHint(refusal, false);
-    expect(withReadOnlyHint(once, false)).toBe(once);
+    const once = withReadOnlyHint(refusal);
+    expect(withReadOnlyHint(once)).toBe(once);
   });
 
   it("leaves every other error untouched", () => {
     const other = new Error("relation does not exist");
-    expect(withReadOnlyHint(other, false)).toBe(other);
-    expect(withReadOnlyHint("boom", true)).toBe("boom");
+    expect(withReadOnlyHint(other)).toBe(other);
+    expect(withReadOnlyHint("boom")).toBe("boom");
   });
 });
 
@@ -134,15 +134,6 @@ describe("the hint on real calls", () => {
     await expect(
       query.executeOp("local-1", { kind: "drop_table", table: "t" }),
     ).rejects.toContain("connection settings");
-  });
-
-  it("says to ask an org admin for a shared connection", async () => {
-    const { invoke, query } = await load();
-    invoke.mockRejectedValueOnce(refusal);
-
-    await expect(query.runSql("srv:p1:c1", "DELETE FROM t")).rejects.toContain(
-      "org admin",
-    );
   });
 
   it("leaves other failures exactly as they were", async () => {

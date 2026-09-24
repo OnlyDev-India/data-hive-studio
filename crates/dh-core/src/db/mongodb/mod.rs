@@ -9,6 +9,7 @@ mod filter;
 mod cancel;
 mod console_parse;
 mod console_guard;
+pub use console_guard::mongo_script_class;
 mod convert;
 mod field_tree;
 mod schema;

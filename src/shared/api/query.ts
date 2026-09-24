@@ -4,8 +4,6 @@ import {
   dedupe,
   dispatchDbCall,
   hinted,
-  isServerConn,
-  remoteOf,
   serverUnsupported,
 } from "./dispatch";
 import type { CancelOutcome, DbKind, QueryOp, QueryResult } from "./types";
@@ -34,7 +32,6 @@ export async function runSql(
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/sql`,
     httpBody: { sql, database: database ?? null, schema: schema ?? null },
-    serverCmd: "server_run_sql",
     localCmd: "run_sql",
     args: {
       connId,
@@ -54,18 +51,10 @@ const CANCELLABLE_KINDS: ReadonlySet<DbKind> = new Set([
 ]);
 
 /** Whether the SQL editor can offer Stop for a run on this connection. Grows
- *  engine by engine (spec 0006): team server and web connections have no
- *  cancel route yet, so only local desktop connections qualify. */
-export function canCancelRun(
-  connId: string,
-  kind: DbKind | undefined,
-): boolean {
-  return (
-    !WEB &&
-    !isServerConn(connId) &&
-    kind !== undefined &&
-    CANCELLABLE_KINDS.has(kind)
-  );
+ *  engine by engine (spec 0006): web connections have no cancel route yet, so
+ *  only local desktop connections qualify. */
+export function canCancelRun(kind: DbKind | undefined): boolean {
+  return !WEB && kind !== undefined && CANCELLABLE_KINDS.has(kind);
 }
 
 /** Stop the editor run `runId` (the id passed to `runSqlStream`). Resolves
@@ -75,7 +64,7 @@ export async function cancelRun(
   connId: string,
   runId: string,
 ): Promise<CancelOutcome> {
-  serverUnsupported(connId);
+  serverUnsupported();
   return invoke<CancelOutcome>("cancel_run", { connId, runId });
 }
 
@@ -87,10 +76,9 @@ export async function executeParams(
   params: (string | null)[],
   database?: string,
 ): Promise<number> {
-  serverUnsupported(connId);
+  serverUnsupported();
 
   return hinted(
-    connId,
     invoke("execute_params", { connId, database, sql, params }),
   );
 }
@@ -103,20 +91,13 @@ export async function runSqlParams(
   params: (string | null)[],
   database?: string,
 ): Promise<QueryResult> {
-  if (WEB && isServerConn(connId)) {
-    return wcall(
-      "POST",
-      `/v1/c/${encodeURIComponent(remoteOf(connId))}/sql`,
-      { sql, params, database: database ?? null },
-      true,
-    );
-  }
-  if (WEB)
-    return wcall("POST", `/v1/c/${encodeURIComponent(remoteOf(connId))}/sql`, {
+  if (WEB) {
+    return wcall("POST", `/v1/c/${encodeURIComponent(connId)}/sql`, {
       sql,
       params,
       database: database ?? null,
     });
+  }
   return invoke("run_sql_params", { connId, database, sql, params });
 }
 
@@ -148,7 +129,6 @@ export function executeOp(
       httpMethod: "POST",
       httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/op`,
       httpBody: { ...op, database: database ?? null, schema: schema ?? null },
-      serverCmd: "server_execute_op",
       localCmd: "execute_op",
       args: { connId, database: database ?? null, schema: schema ?? null, op },
     });

@@ -21,13 +21,9 @@ import {
   connectMongo,
   connectPostgres,
   openDatabasePath,
-  serversCreateConnection,
-  serversUpdateConnection,
-  canPublishConnections,
   type ConnGuard,
   type ConnectionInfo,
   type SavedDbKind,
-  type SharedDbKind,
   type SshConnectParams,
 } from "@/shared/api";
 import { WEB } from "@/shared/api/web";
@@ -138,6 +134,11 @@ const DB_KIND_ITEMS: {
   { id: "documentdb", label: "Amazon DocumentDB", icon: DBIcons.documentdb },
 ];
 
+/** The web build has no local files, so no SQLite (spec 0010, AC-8). */
+const KIND_ITEMS = WEB
+  ? DB_KIND_ITEMS.filter((i) => i.id !== "sqlite")
+  : DB_KIND_ITEMS;
+
 /** Database-type picker — replaces the old per-type tab strip so every kind
  *  shares one connection form, differing only in which fields it requires.
  *  shadcn's Combobox recipe (Popover + Command/cmdk) rather than a plain
@@ -152,7 +153,7 @@ function DbTypeSelect({
   on_change: (v: DbKindChoice) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const current = DB_KIND_ITEMS.find((i) => i.id === value) ?? DB_KIND_ITEMS[0];
+  const current = KIND_ITEMS.find((i) => i.id === value) ?? KIND_ITEMS[0];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -178,7 +179,7 @@ function DbTypeSelect({
           <CommandList>
             <CommandEmpty>No match.</CommandEmpty>
             <CommandGroup>
-              {DB_KIND_ITEMS.map(({ id, label, icon: Icon }) => (
+              {KIND_ITEMS.map(({ id, label, icon: Icon }) => (
                 <CommandItem
                   key={id}
                   value={label}
@@ -208,7 +209,7 @@ function DbTypeSelect({
 export function Landing() {
   const openConn = useStudioStore((s) => s.openConn);
 
-  const [kind, setKind] = useState<DbKindChoice>("sqlite");
+  const [kind, setKind] = useState<DbKindChoice>(WEB ? "postgres" : "sqlite");
   // General/SSH/SSL section tab — shared across whichever form (Postgres or
   // MongoDB) is currently shown; SQLite has no sections, so it's unused
   // there. Lives here (not inside each panel) so the tab bar itself can sit
@@ -283,6 +284,7 @@ export function Landing() {
     port: "5432",
     user: "postgres",
     password: "",
+    remember_secret: false,
     database: "",
     ssl_mode: "prefer",
     ssl_ca_file: "",
@@ -328,6 +330,7 @@ export function Landing() {
     port: "27017",
     user: "",
     password: "",
+    remember_secret: false,
     database: "",
     auth_db: "admin",
     srv: false,
@@ -560,46 +563,12 @@ export function Landing() {
   const want_connect = useRef(false);
   /** Which connect form a pending double-click targets; consumed by the
    *  auto-connect effect once its fields commit. */
-  const want_kind = useRef<SharedDbKind | null>(null);
+  const want_kind = useRef<SavedDbKind | null>(null);
 
   const pg_connect_click = async () => {
     if (pg_connecting) return;
     setPgConnecting(true);
     try {
-      if (WEB) {
-        const params = form_ref.current;
-        const sessions = useStudioStore.getState().serverSessions;
-        let matched: { id: string; name: string } | undefined;
-        for (const sess of Object.values(sessions)) {
-          for (const c of sess.connections) {
-            if (
-              c.host === params.host &&
-              Number(c.port) === Number(params.port) &&
-              c.database === params.database
-            ) {
-              matched = { id: c.id, name: c.name };
-              break;
-            }
-          }
-          if (matched) break;
-        }
-        if (!matched) {
-          useStudioStore.getState().pushNotification({
-            kind: "error",
-            title: "No matching server connection",
-            detail:
-              "No matching server connection found for these details. Connect to a team server first.",
-          });
-          return;
-        }
-        openConn({
-          id: matched.id,
-          name: matched.name,
-          kind: "postgres",
-          source_path: null,
-        });
-        return;
-      }
       const conn: ConnectionInfo = await connectPostgres(form_ref.current);
       push_recent_params(conn.id, {
         ...form_ref.current,
@@ -695,17 +664,10 @@ export function Landing() {
     }
   };
 
-  // ---- Save connection (local device; Mongo has no team-server sharing) ----
-  const serverSessions = useStudioStore((st) => st.serverSessions);
+  // ---- Save connection (this device, or this browser on the web) ----
   const saveLocal = useStudioStore((st) => st.saveLocal);
   const updateSavedLocal = useStudioStore((st) => st.updateSavedLocal);
   const pushNotification = useStudioStore((st) => st.pushNotification);
-  /** Servers whose active session may publish connections (Member role or
-   *  above in that server's org — Viewer cannot). */
-  const admin_servers = Object.values(serverSessions).filter((s) =>
-    canPublishConnections(s.me, s.profile.org_id),
-  );
-  const [saving_to, setSavingTo] = useState<string | null>(null);
   const [editing, setEditing] = useState<LandingEditTarget | null>(null);
   const closeConn = useStudioStore((st) => st.closeConn);
 
@@ -765,13 +727,14 @@ export function Landing() {
     return {
       ...params,
       ...flat_ssh_fields(pg),
+      remember_secret: pg.remember_secret,
       kind: "postgres" as const,
     };
   };
 
   const save_local = async () => {
     try {
-      if (editing?.source === "local") {
+      if (editing) {
         const live = live_for(editing.oldName);
         await updateSavedLocal(
           editing.oldName,
@@ -790,7 +753,7 @@ export function Landing() {
       await saveLocal(display_name(), pg_saved_params());
       pushNotification({
         kind: "success",
-        title: "Saved on this device",
+        title: WEB ? "Saved in this browser" : "Saved on this device",
         detail: display_name(),
       });
     } catch (e) {
@@ -816,6 +779,7 @@ export function Landing() {
     return {
       ...params,
       ...flat_ssh_fields(mongo),
+      remember_secret: mongo.remember_secret,
       // "documentdb" here is purely so reopening this connection re-selects
       // "Amazon DocumentDB" in the picker — connected to identically to
       // "mongodb" either way (see `mongo_build_params`'s retry_writes/
@@ -826,7 +790,7 @@ export function Landing() {
 
   const save_mongo_local = async () => {
     try {
-      if (editing?.source === "local") {
+      if (editing) {
         const live = live_for(editing.oldName);
         await updateSavedLocal(
           editing.oldName,
@@ -845,7 +809,7 @@ export function Landing() {
       await saveLocal(mongo_display_name(), mongo_saved_params());
       pushNotification({
         kind: "success",
-        title: "Saved on this device",
+        title: WEB ? "Saved in this browser" : "Saved on this device",
         detail: mongo_display_name(),
       });
     } catch (e) {
@@ -877,7 +841,7 @@ export function Landing() {
   const save_sqlite_local = async () => {
     if (!sqlite_path) return;
     const name = sqlite_display_name();
-    const updating = editing?.source === "local";
+    const updating = editing;
     const live = updating ? live_for(editing.oldName) : [];
     try {
       if (updating) {
@@ -893,7 +857,7 @@ export function Landing() {
         kind: "success",
         title: updating
           ? "Updated saved SQLite connection"
-          : "Saved on this device",
+          : WEB ? "Saved in this browser" : "Saved on this device",
         detail: name,
       });
       if (updating) {
@@ -906,220 +870,6 @@ export function Landing() {
         title: "Save failed",
         detail: String(e),
       });
-    }
-  };
-
-  const update_server = async () => {
-    if (editing?.source !== "server") return;
-    setSavingTo(editing.remoteId);
-    try {
-      const p = form_ref.current;
-      await serversUpdateConnection(editing.profileId, editing.remoteId, {
-        name: display_name(),
-        host: p.host,
-        port: p.port,
-        user: p.user,
-        // blank password = keep the stored one
-        password: "",
-        database: p.database,
-        ssl_mode: p.ssl_mode,
-        ssl_ca_file: p.ssl_ca_file,
-        ssl_client_cert_file: p.ssl_client_cert_file,
-        ssl_client_key_file: p.ssl_client_key_file,
-        pool_max: p.pool_max,
-        pool_min: p.pool_min,
-        connect_timeout_secs: p.connect_timeout_secs,
-        idle_timeout_secs: p.idle_timeout_secs,
-        max_lifetime_secs: p.max_lifetime_secs,
-        ...flat_ssh_fields(pg),
-      });
-      pushNotification({
-        kind: "success",
-        title: "Connection updated",
-        detail: display_name(),
-      });
-      setEditing(null);
-    } catch (e) {
-      pushNotification({
-        kind: "error",
-        title: "Update failed",
-        detail: String(e),
-      });
-    } finally {
-      setSavingTo(null);
-    }
-  };
-
-  const mongo_update_server = async () => {
-    if (editing?.source !== "server") return;
-    setSavingTo(editing.remoteId);
-    try {
-      const p = mongo_build_params();
-      await serversUpdateConnection(editing.profileId, editing.remoteId, {
-        name: mongo_display_name(),
-        // "documentdb" only affects which picker entry reopening this
-        // connection re-selects — see `mongo_saved_params`.
-        kind: kind === "documentdb" ? "documentdb" : "mongodb",
-        host: p.host,
-        port: p.port,
-        user: p.user,
-        // blank password = keep the stored one
-        password: "",
-        database: p.database,
-        auth_db: p.auth_db,
-        srv: p.srv,
-        tls: p.tls,
-        ssl_ca_file: p.ssl_ca_file,
-        ssl_client_cert_file: p.ssl_client_cert_file,
-        retry_writes: p.retry_writes,
-        replica_set: p.replica_set,
-        pool_max: p.pool_max,
-        pool_min: p.pool_min,
-        connect_timeout_secs: p.connect_timeout_secs,
-        idle_timeout_secs: p.idle_timeout_secs,
-        server_selection_timeout_secs: p.server_selection_timeout_secs,
-        ...flat_ssh_fields(mongo),
-      });
-      pushNotification({
-        kind: "success",
-        title: "Connection updated",
-        detail: mongo_display_name(),
-      });
-      setEditing(null);
-    } catch (e) {
-      pushNotification({
-        kind: "error",
-        title: "Update failed",
-        detail: String(e),
-      });
-    } finally {
-      setSavingTo(null);
-    }
-  };
-
-  const edit_server_name =
-    editing?.source === "server"
-      ? (Object.values(serverSessions).find(
-          (x) => x.profile.id === editing.profileId,
-        )?.profile.name ?? "")
-      : "";
-
-  const save_to_server = async (profileId: string, serverName: string) => {
-    if (saving_to) return;
-    setSavingTo(profileId);
-    try {
-      // Re-verify eligibility before attempting to create — permissions may
-      // have changed since the session was last refreshed (e.g. an admin
-      // revoked this device's token while the tab was open).
-      await useStudioStore.getState().refreshServers();
-      const fresh = useStudioStore.getState().serverSessions[profileId];
-      if (!fresh || !canPublishConnections(fresh.me, fresh.profile.org_id)) {
-        pushNotification({
-          kind: "error",
-          title: "Not eligible",
-          detail:
-            "Your account no longer has permission to create shared connections on this server.",
-        });
-        return;
-      }
-      const p = form_ref.current;
-      await serversCreateConnection(profileId, fresh.profile.org_id, {
-        name: display_name(),
-        host: p.host,
-        port: p.port,
-        user: p.user,
-        password: p.password,
-        database: p.database,
-        ssl_mode: p.ssl_mode,
-        ssl_ca_file: p.ssl_ca_file,
-        ssl_client_cert_file: p.ssl_client_cert_file,
-        ssl_client_key_file: p.ssl_client_key_file,
-        pool_max: p.pool_max,
-        pool_min: p.pool_min,
-        connect_timeout_secs: p.connect_timeout_secs,
-        idle_timeout_secs: p.idle_timeout_secs,
-        max_lifetime_secs: p.max_lifetime_secs,
-        ...flat_ssh_fields(pg),
-      });
-      pushNotification({
-        kind: "success",
-        title: `Shared on ${serverName}`,
-        detail: display_name(),
-      });
-      // Pull the new record into the connected server's sidebar group.
-      await useStudioStore.getState().refreshServers();
-    } catch (e) {
-      pushNotification({
-        kind: "error",
-        title: "Save failed",
-        detail: String(e),
-      });
-    } finally {
-      setSavingTo(null);
-    }
-  };
-
-  const mongo_save_to_server = async (
-    profileId: string,
-    serverName: string,
-  ) => {
-    if (saving_to) return;
-    setSavingTo(profileId);
-    try {
-      // Re-verify eligibility before attempting to create — permissions may
-      // have changed since the session was last refreshed (e.g. an admin
-      // revoked this device's token while the tab was open).
-      await useStudioStore.getState().refreshServers();
-      const fresh = useStudioStore.getState().serverSessions[profileId];
-      if (!fresh || !canPublishConnections(fresh.me, fresh.profile.org_id)) {
-        pushNotification({
-          kind: "error",
-          title: "Not eligible",
-          detail:
-            "Your account no longer has permission to create shared connections on this server.",
-        });
-        return;
-      }
-      const p = mongo_build_params();
-      await serversCreateConnection(profileId, fresh.profile.org_id, {
-        name: mongo_display_name(),
-        // "documentdb" only affects which picker entry reopening this
-        // connection re-selects — see `mongo_saved_params`.
-        kind: kind === "documentdb" ? "documentdb" : "mongodb",
-        host: p.host,
-        port: p.port,
-        user: p.user,
-        password: p.password,
-        database: p.database,
-        auth_db: p.auth_db,
-        srv: p.srv,
-        tls: p.tls,
-        ssl_ca_file: p.ssl_ca_file,
-        ssl_client_cert_file: p.ssl_client_cert_file,
-        retry_writes: p.retry_writes,
-        replica_set: p.replica_set,
-        pool_max: p.pool_max,
-        pool_min: p.pool_min,
-        connect_timeout_secs: p.connect_timeout_secs,
-        idle_timeout_secs: p.idle_timeout_secs,
-        server_selection_timeout_secs: p.server_selection_timeout_secs,
-        ...flat_ssh_fields(mongo),
-      });
-      pushNotification({
-        kind: "success",
-        title: `Shared on ${serverName}`,
-        detail: mongo_display_name(),
-      });
-      // Pull the new record into the connected server's sidebar group.
-      await useStudioStore.getState().refreshServers();
-    } catch (e) {
-      pushNotification({
-        kind: "error",
-        title: "Save failed",
-        detail: String(e),
-      });
-    } finally {
-      setSavingTo(null);
     }
   };
 
@@ -1154,6 +904,7 @@ export function Landing() {
           port: String(m.port),
           user: m.user,
           password: m.password,
+          remember_secret: m.remember_secret ?? false,
           database: m.database,
           auth_db: m.auth_db || "admin",
           srv: m.srv ?? false,
@@ -1202,6 +953,7 @@ export function Landing() {
           port: String(pgv.port),
           user: pgv.user,
           password: pgv.password,
+          remember_secret: pgv.remember_secret ?? false,
           database: pgv.database,
           ssl_mode: pgv.ssl_mode ?? prev.ssl_mode,
           ssl_ca_file: pgv.ssl_ca_file ?? "",
@@ -1277,7 +1029,6 @@ export function Landing() {
           {editing && (
             <EditBanner
               editing={editing}
-              server_name={edit_server_name}
               onCancel={() => setEditing(null)}
             />
           )}
@@ -1316,18 +1067,9 @@ export function Landing() {
                   onTest={() => void mongo_test_click()}
                   connecting={mongo_connecting}
                   onConnect={() => void mongo_connect_click()}
-                  saving_to={saving_to}
-                  admin_servers={admin_servers}
                   editing={editing !== null}
                   onSaveLocal={() => void save_mongo_local()}
-                  onSaveServer={(pid, name) =>
-                    void mongo_save_to_server(pid, name)
-                  }
-                  onUpdate={() =>
-                    editing?.source === "server"
-                      ? void mongo_update_server()
-                      : void save_mongo_local()
-                  }
+                  onUpdate={() => void save_mongo_local()}
                   onCancelEdit={() => setEditing(null)}
                   onClear={clear_mongo_form}
                   url_text={mongo_url_text}
@@ -1354,18 +1096,9 @@ export function Landing() {
                   onTest={() => void test_click()}
                   connecting={pg_connecting}
                   onConnect={() => void pg_connect_click()}
-                  saving_to={saving_to}
-                  admin_servers={admin_servers}
                   editing={editing}
                   onSaveLocal={() => void save_local()}
-                  onSaveServer={(pid, name) => void save_to_server(pid, name)}
-                  // A local edit saves to this device, same as MongoDB's Update:
-                  // `update_server` only handles a shared connection.
-                  onUpdate={() =>
-                    editing?.source === "server"
-                      ? void update_server()
-                      : void save_local()
-                  }
+                  onUpdate={() => void save_local()}
                   onCancelEdit={() => setEditing(null)}
                   onClear={clear_pg_form}
                 />

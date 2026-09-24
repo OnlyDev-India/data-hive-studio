@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { mockTauriCore } from "@/test/mock-tauri";
 
 const { openDatabasePath, pickDatabaseFile } = vi.hoisted(() => ({
   openDatabasePath: vi.fn(),
@@ -10,6 +11,13 @@ const { openDatabasePath, pickDatabaseFile } = vi.hoisted(() => ({
 vi.mock("@/shared/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/api")>()),
   openDatabasePath,
+}));
+vi.mock("@tauri-apps/api/core", () => mockTauriCore());
+
+// SQLite files are a desktop feature: the web build never offers them.
+vi.mock("@/shared/api/web", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/shared/api/web")>()),
+  WEB: false,
 }));
 vi.mock("@/shared/lib/platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/lib/platform")>()),
@@ -143,7 +151,7 @@ describe("Landing, SQLite read only", () => {
           "sqlite",
           { ...saved_file, read_only: true },
           false,
-          { source: "local", oldName: "Orders", name: "Orders" },
+          { oldName: "Orders", name: "Orders" },
         ),
     );
 

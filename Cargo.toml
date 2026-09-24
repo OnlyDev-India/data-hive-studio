@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/dh-core", "crates/dh-server", "crates/dh-server-client", "src-tauri"]
+members = ["crates/dh-core", "crates/dh-server", "src-tauri"]
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

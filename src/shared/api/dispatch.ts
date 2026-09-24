@@ -2,78 +2,43 @@ import { invoke } from "@tauri-apps/api/core";
 import { WEB, wcall } from "./web";
 import { withReadOnlyHint } from "./read-only";
 
-// ---- Server (team) connection id helpers -----------------------------------
-//
-// Server-backed connections use namespaced ids `srv:<profile_id>:<conn_id>`
-// so every existing grid/console component keeps its call signatures; the
-// client routes those calls to the gateway passthrough commands instead of
-// the local backend registry.
-
-/** Build a namespaced connection id for a connection served by a team server. */
-export function srvConnId(profileId: string, remoteConnId: string): string {
-  return `srv:${profileId}:${remoteConnId}`;
-}
-
-/** True when this id addresses a team-server connection rather than a local one. */
-export function isServerConn(connId: string): boolean {
-  if (!connId.startsWith("srv:")) return false;
-  const parts = connId.split(":");
-  return parts.length === 3 && parts[1].length > 0 && parts[2].length > 0;
-}
-
-/** Remote (server-side) connection id from a namespaced one. */
-export function remoteOf(connId: string): string {
-  return connId.split(":")[2] ?? "";
-}
-
-/** Profile id embedded in a namespaced server connection id. */
-export function profileOf(connId: string): string {
-  return connId.split(":")[1] ?? "";
-}
-
-/** Team-server connections do not support local-only operations. */
-export function serverUnsupported(connId: string): void {
-  if (isServerConn(connId)) {
-    throw new Error(
-      "This operation is not available on team-server connections.",
-    );
-  }
+/** Operations that only the desktop app can do (they need a local file or the
+ *  native backend). Throws in the web build. */
+export function serverUnsupported(): void {
   if (WEB) {
     throw new Error("This operation requires the desktop app.");
   }
 }
 
 /**
- * Shared WEB/Tauri/server-passthrough dispatch for the connection-scoped
- * read/query functions in `connection.ts` and `query.ts`. Each of those
- * functions previously repeated this exact 4-branch shape (web+server-conn
- * via HTTP with per-server auth, web via HTTP same-origin, desktop
- * server-conn via a `server_*` Tauri passthrough command, desktop local via
- * the plain Tauri command) — this collapses it to one call, differing only
- * in which HTTP path/method to hit and which Tauri commands/args to use.
+ * Shared web/desktop dispatch for the connection-scoped read/query functions
+ * in `connection.ts` and `query.ts`. Each of those functions would otherwise
+ * repeat the same two branches (the web build over HTTP to the server, the
+ * desktop over a Tauri command); this collapses it to one call, differing only
+ * in which HTTP path/method to hit and which Tauri command and args to use.
+ * On the web the connection id is the server handle, and `wcall` swaps in the
+ * live one if the connection had to be reopened.
  */
 export function dispatchDbCall<T>(
   connId: string,
   opts: {
     httpMethod: "GET" | "POST" | "PUT";
-    httpPath: (remoteId: string) => string;
+    httpPath: (connId: string) => string;
     httpBody?: unknown;
-    serverCmd: string;
     localCmd: string;
     args: Record<string, unknown>;
   },
 ): Promise<T> {
-  return hinted(connId, dispatchRaw<T>(connId, opts));
+  return hinted(dispatchRaw<T>(connId, opts));
 }
 
 /** Add the where-to-turn-it-off hint to a read only refusal (spec 0007): the
- *  backend's text says what was refused but not whether the connection is
- *  local or shared, so a `srv:` id gets "ask an org admin" and a local one
- *  "connection settings". Every other failure passes through untouched. Wrap
- *  any write call that does not go through {@link dispatchDbCall}. */
-export function hinted<T>(connId: string, call: Promise<T>): Promise<T> {
+ *  backend's text says what was refused but not where to turn it off. Every
+ *  other failure passes through untouched. Wrap any write call that does not
+ *  go through {@link dispatchDbCall}. */
+export function hinted<T>(call: Promise<T>): Promise<T> {
   return call.catch((e: unknown) => {
-    throw withReadOnlyHint(e, isServerConn(connId));
+    throw withReadOnlyHint(e);
   });
 }
 
@@ -81,21 +46,7 @@ function dispatchRaw<T>(
   connId: string,
   opts: Parameters<typeof dispatchDbCall>[1],
 ): Promise<T> {
-  if (WEB && isServerConn(connId)) {
-    return wcall<T>(
-      opts.httpMethod,
-      opts.httpPath(remoteOf(connId)),
-      opts.httpBody,
-      true,
-    );
-  }
-  if (WEB)
-    return wcall<T>(
-      opts.httpMethod,
-      opts.httpPath(remoteOf(connId)),
-      opts.httpBody,
-    );
-  if (isServerConn(connId)) return invoke<T>(opts.serverCmd, opts.args);
+  if (WEB) return wcall<T>(opts.httpMethod, opts.httpPath(connId), opts.httpBody);
   return invoke<T>(opts.localCmd, opts.args);
 }
 

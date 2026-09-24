@@ -47,7 +47,6 @@ beforeEach(() => {
     savedLocal: {},
     open: [],
     landingPrefill: null,
-    serverSessions: {},
   });
 });
 afterEach(cleanup);

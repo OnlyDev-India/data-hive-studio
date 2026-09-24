@@ -43,7 +43,7 @@ function editOrders() {
       params: saved,
       n: 1,
       connect: false,
-      edit: { source: "local", oldName: "Orders", name: "Orders" },
+      edit: { oldName: "Orders", name: "Orders" },
     },
   });
 }
@@ -63,7 +63,6 @@ beforeEach(() => {
     recentParams: { live1: { ...saved, name: "Orders" } },
     workspaces: {},
     landingPrefill: null,
-    serverSessions: {},
   });
 });
 afterEach(cleanup);

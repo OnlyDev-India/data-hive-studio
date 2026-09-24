@@ -1,11 +1,8 @@
 import { useState } from "react";
-import { History, Settings, ShieldCheck, Terminal } from "lucide-react";
+import { History, Settings, Terminal } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
-import { useStudioStore } from "@/shared/store";
-import { canManageOrg } from "@/shared/api/client";
 import { SettingsDialog } from "@/features/settings";
-import { ServerMenu } from "@/features/sharing";
 import {
   Tooltip,
   TooltipContent,
@@ -84,17 +81,6 @@ export function ActivityBar({
   on_sql,
   on_activity,
 }: ActivityBarProps) {
-  // Team-admin entry: appears only while a connected server session carries
-  // admin scope. Reads the store directly so both landing and workspace
-  // instances stay in sync.
-  const admin_visible = useStudioStore((s) =>
-    Object.values(s.serverSessions).some((sess) =>
-      canManageOrg(sess.me, sess.profile.org_id),
-    ),
-  );
-  const admin_active = useStudioStore((s) => s.view === "admin");
-  const setView = useStudioStore((s) => s.setView);
-
   // App settings dialog (gear button at the bottom of the bar).
   const [settings_open, set_settings_open] = useState(false);
 
@@ -153,16 +139,6 @@ export function ActivityBar({
           />
         </BarButton>
         <div className="mt-auto flex flex-col items-center gap-1">
-          <ServerMenu />
-          {admin_visible && (
-            <BarButton
-              active={admin_active}
-              label="Team admin — devices, invites, grants"
-              onClick={() => setView(admin_active ? "home" : "admin")}
-            >
-              <ShieldCheck className="size-5" />
-            </BarButton>
-          )}
           <BarButton
             active={false}
             label="Settings"

@@ -35,8 +35,8 @@ fn password_file(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBu
 //
 // Release builds use the OS keychain. Debug builds store the password in an
 // app-data file instead, ENCRYPTED (see `secret_file.rs`) rather than
-// plain text — same rationale as `servers.rs`'s token storage (see that
-// file's comment) for why the OS keychain is skipped in debug builds at all.
+// plain text. The OS keychain is skipped in debug builds because every
+// unsigned `tauri dev` rebuild would re-prompt for keychain access.
 pub(super) fn save_password(app: &tauri::AppHandle, name: &str, password: &str) -> Result<(), String> {
     #[cfg(debug_assertions)]
     {

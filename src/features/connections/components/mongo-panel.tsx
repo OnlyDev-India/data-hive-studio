@@ -4,24 +4,12 @@ import { Label } from "@/shared/components/ui/label";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { GuardFields } from "./guard-fields";
 import { applyGuardPatch } from "../lib/guard-form";
-import {
-  Check,
-  Cloud,
-  Copy,
-  Eraser,
-  HardDrive,
-  Link2,
-  Save,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/components/ui/dropdown-menu";
+import { Check, Copy, Eraser, Link2, Save } from "lucide-react";
 import { type FormTabKey } from "./form-tabs";
 import { FilePathInput } from "./file-path-input";
 import { SshFields } from "./ssh-fields";
+import { RememberSecret } from "./remember-secret";
+import { WEB } from "@/shared/api/web";
 
 export interface MongoFormValues {
   name: string;
@@ -29,6 +17,8 @@ export interface MongoFormValues {
   port: string;
   user: string;
   password: string;
+  /** Web build: keep the password in this browser. */
+  remember_secret: boolean;
   database: string;
   /** Auth source database; "admin" when blank. */
   auth_db: string;
@@ -97,12 +87,9 @@ export interface MongoPanelProps {
   copied: boolean;
   onImport: () => void;
   onExport: () => void;
-  // Save (local device, or a team server the caller is admin on)
-  saving_to: string | null;
-  admin_servers: { profile: { id: string; name: string } }[];
+  // Save
   editing: boolean;
   onSaveLocal: () => void;
-  onSaveServer: (profileId: string, serverName: string) => void;
   onUpdate: () => void;
   onCancelEdit: () => void;
 
@@ -131,11 +118,8 @@ export function MongoPanel({
   copied,
   onImport,
   onExport,
-  saving_to,
-  admin_servers,
   editing,
   onSaveLocal,
-  onSaveServer,
   onUpdate,
   onCancelEdit,
   onClear,
@@ -214,6 +198,10 @@ export function MongoPanel({
               onChange={(e) => setField("password", e.target.value)}
             />
           </div>
+          <RememberSecret
+            checked={form.remember_secret}
+            onChange={(v) => setField("remember_secret", v)}
+          />
           <div className="grid grid-cols-2 gap-2">
             <Input
               placeholder="database"
@@ -288,7 +276,9 @@ export function MongoPanel({
             </label>
           </div>
 
-          {tls_active && (
+          {/* Certificate files are read from the machine that connects, so the
+              web build does not offer them. */}
+          {!WEB && tls_active && (
             <div className="grid gap-2">
               {/* CA cert is optional either way: the driver verifies
                   against the public CA trust store by default, so a
@@ -443,16 +433,16 @@ export function MongoPanel({
           <>
             <Button
               variant="secondary"
-              disabled={saving_to !== null || !form.database.trim()}
+              disabled={!form.database.trim()}
               onClick={onUpdate}
             >
-              {saving_to ? "Updating…" : "Update"}
+              Update
             </Button>
             <Button variant="outline" onClick={onCancelEdit}>
               Cancel
             </Button>
           </>
-        ) : admin_servers.length === 0 ? (
+        ) : (
           <Button
             variant="secondary"
             onClick={onSaveLocal}
@@ -461,37 +451,6 @@ export function MongoPanel({
           >
             <Save className="size-4" /> Save
           </Button>
-        ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="secondary"
-                  disabled={!form.database.trim() || saving_to !== null}
-                >
-                  <Save className="size-4" />
-                  {saving_to ? "Saving…" : "Save"}
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuItem onClick={onSaveLocal}>
-                <HardDrive className="size-3.5" /> This device
-              </DropdownMenuItem>
-              {admin_servers.map((s) => (
-                <DropdownMenuItem
-                  key={s.profile.id}
-                  onClick={() => onSaveServer(s.profile.id, s.profile.name)}
-                >
-                  <Cloud className="size-3.5" />
-                  {s.profile.name}
-                  <span className="text-muted-foreground text-3xs ml-auto">
-                    shared
-                  </span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
         )}
         <Button
           variant="ghost"

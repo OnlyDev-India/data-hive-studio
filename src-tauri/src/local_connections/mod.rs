@@ -1,13 +1,11 @@
-//! Locally saved connection profiles (desktop only — web mode has no local
-//! connections; the team-server holds all credentials there, see
-//! `src/shared/api/web.ts`'s doc comment).
+//! Locally saved connection profiles (desktop only; the web page keeps its own
+//! saved connections in the browser).
 //!
 //! Metadata (host, port, user, database, kind, …) lives in a plain JSON file
-//! in the app-data dir. Passwords live in the OS keychain, following the
-//! same pattern `servers.rs` already established for server auth tokens —
-//! including its debug-build file fallback, since every `tauri dev` rebuild
-//! is a new unsigned binary and macOS would otherwise re-prompt for
-//! keychain access on every single launch.
+//! in the app-data dir. Passwords live in the OS keychain. Debug builds use an
+//! encrypted file instead, since every `tauri dev` rebuild is a new unsigned
+//! binary and macOS would otherwise re-prompt for keychain access on every
+//! single launch.
 //!
 //! Connections are keyed by their display `name`, matching how the frontend
 //! already keyed `savedLocal` before this module existed (see
