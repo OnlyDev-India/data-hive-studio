@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Layers, Loader2, Square, X } from "lucide-react";
+import { ChevronDown, Layers, Loader2, Square, X } from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
 import { format as formatSql } from "sql-formatter";
 import { Badge } from "@/shared/components/ui/badge";
@@ -139,6 +139,7 @@ export function ResultTabStrip({
   on_close,
   keep_all_tabs,
   on_toggle_keep_all_tabs,
+  on_hide,
 }: {
   items: ResultTabSummary[];
   active_id: number | null;
@@ -148,6 +149,9 @@ export function ResultTabStrip({
    *  reuse one tab instead of piling up new ones. */
   keep_all_tabs: boolean;
   on_toggle_keep_all_tabs: () => void;
+  /** Hides the whole results panel (the title bar's bottom panel toggle,
+   *  from inside the panel). Omitted = no button. */
+  on_hide?: () => void;
 }) {
   return (
     <TooltipProvider delay={500}>
@@ -217,6 +221,18 @@ export function ResultTabStrip({
             </div>
           ))}
         </div>
+        {on_hide && (
+          <Button
+            variant="ghost"
+            size="iconXs"
+            className="shrink-0"
+            aria-label="Hide results panel"
+            title="Hide results panel"
+            onClick={on_hide}
+          >
+            <ChevronDown className="size-3.5" />
+          </Button>
+        )}
       </div>
     </TooltipProvider>
   );
@@ -711,6 +727,7 @@ function SqlEditorBody({
     defaultSize: bottomDefaultSize,
     bottomPanelOpen,
     openBottomPanel,
+    closeBottomPanel: hideBottomPanel,
   } = useBottomPanelSize({
     conn_id,
     tab_key,
@@ -871,9 +888,7 @@ function SqlEditorBody({
   const run_query = useCallback(
     async (id: number, query: string, range?: { from: number; to: number }) => {
       // Only runs Stop can reach get an id (see `canCancelRun`).
-      const run_id = canCancelRun(conn?.kind)
-        ? crypto.randomUUID()
-        : null;
+      const run_id = canCancelRun(conn?.kind) ? crypto.randomUUID() : null;
       const run_started = performance.now();
       // A run always shows its result, even if the panel was hidden.
       openBottomPanel();
@@ -1229,6 +1244,7 @@ function SqlEditorBody({
               on_close={close_tab}
               keep_all_tabs={keep_all_tabs}
               on_toggle_keep_all_tabs={() => setKeepAllTabs((v) => !v)}
+              on_hide={hideBottomPanel}
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {active === null ? (
@@ -1474,6 +1490,7 @@ function MongoEditorBody({
     defaultSize: bottomDefaultSize,
     bottomPanelOpen,
     openBottomPanel,
+    closeBottomPanel: hideBottomPanel,
   } = useBottomPanelSize({
     conn_id,
     tab_key,
@@ -1615,9 +1632,7 @@ function MongoEditorBody({
       // A run always shows its result, even if the panel was hidden.
       openBottomPanel();
       // Only runs Stop can reach get an id (see `canCancelRun`).
-      const run_id = canCancelRun(conn_kind)
-        ? crypto.randomUUID()
-        : null;
+      const run_id = canCancelRun(conn_kind) ? crypto.randomUUID() : null;
       const run_started = performance.now();
       patch(id, {
         running: true,
@@ -1951,6 +1966,7 @@ function MongoEditorBody({
               on_close={close_tab}
               keep_all_tabs={keep_all_tabs}
               on_toggle_keep_all_tabs={() => setKeepAllTabs((v) => !v)}
+              on_hide={hideBottomPanel}
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
               {!active ? (

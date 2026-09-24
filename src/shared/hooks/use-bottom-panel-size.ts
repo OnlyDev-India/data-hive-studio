@@ -61,6 +61,12 @@ export function useBottomPanelSize({
     [setBottomPanelOpenFor, scope],
   );
 
+  // The in-panel chevron that hides the results panel.
+  const closeBottomPanel = useCallback(
+    () => setBottomPanelOpenFor(scope, false),
+    [setBottomPanelOpenFor, scope],
+  );
+
   // The size the panel falls back to when its group has no measurable size at
   // registration (a tab's portal slot still hidden or detached): the library
   // then discards any layout applied before that and uses the panels' own
@@ -118,5 +124,6 @@ export function useBottomPanelSize({
     onLayoutChanged,
     bottomPanelOpen,
     openBottomPanel,
+    closeBottomPanel,
   };
 }

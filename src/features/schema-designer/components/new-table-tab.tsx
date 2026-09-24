@@ -239,9 +239,14 @@ export function NewTableTab({
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
   const openSql = useStudioStore((s) => s.openSql);
   const own_database = recent_params?.database ?? conn?.name ?? "";
-  const [database, setDatabase] = useState("");
+  // Seeded with the connection's own database so the Database dropdown shows
+  // it the moment the tab opens; the catalog fetch below (a remote round
+  // trip) then fills in the sibling databases and the schema list.
+  const [database, setDatabase] = useState(own_database);
   const [schema, setSchema] = useState("");
-  const [databases, setDatabases] = useState<string[]>([]);
+  const [databases, setDatabases] = useState<string[]>(
+    own_database ? [own_database] : [],
+  );
   const [schemas, setSchemas] = useState<string[]>([]);
   // True while the schema list for the CURRENTLY selected database is being
   // (re)fetched — the Schema dropdown disables itself for that stretch
@@ -310,6 +315,9 @@ export function NewTableTab({
       setSchema(cached.default_schema);
       return;
     }
+    // Own database not cached yet = the initial `catalogOverview` above is
+    // still in flight and will fill it; don't fire a second round trip.
+    if (database === own_database) return;
     let cancelled = false;
     setSchemasLoading(true);
     void (async () => {
@@ -329,7 +337,7 @@ export function NewTableTab({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, is_pg, database]);
+  }, [conn_id, is_pg, database, own_database]);
 
   // Table list for the FK "references" picker — scoped to the currently
   // selected target database/schema, refetched whenever either changes so
@@ -552,7 +560,7 @@ export function NewTableTab({
             <div className="grid gap-2">
               <label className="text-sm font-medium">Database</label>
               <Select
-                value={database || undefined}
+                value={database || null}
                 onValueChange={(v) => v && setDatabase(v)}
               >
                 <SelectTrigger className="w-44" size="sm">
@@ -572,7 +580,10 @@ export function NewTableTab({
             <div className="grid gap-2">
               <label className="text-sm font-medium">Schema</label>
               <Select
-                value={schema || undefined}
+                // `null`, not `undefined`: Base UI decides controlled vs
+                // uncontrolled on the first render, and the schema is empty
+                // until the catalog loads, so `undefined` would ignore it.
+                value={schema || null}
                 disabled={schemas_loading}
                 onValueChange={(v) => v && setSchema(v)}
               >

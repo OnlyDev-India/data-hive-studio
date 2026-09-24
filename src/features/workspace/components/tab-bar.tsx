@@ -25,7 +25,6 @@ import {
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
 import { cn } from "@/shared/lib/utils";
-import { ConnFlags } from "@/shared/components/env-chip";
 import { envColorKey, type ConnGuard } from "@/shared/api";
 import {
   tabEquals,
@@ -147,14 +146,6 @@ export function TabBar({
         if (shouldSuppressTabClick()) e.stopPropagation();
       }}
     >
-      {conn && (
-        <ConnFlags
-          conn={conn}
-          // Not a tab: no `data-tab-key`, so the strip's pointer handling
-          // and drag hit-testing skip it.
-          className="mr-0.5"
-        />
-      )}
       {tabs.map((tab, idx) => {
         const key = tabKey(tab);
         return (

@@ -3,8 +3,6 @@ import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
-import type { ConnGuard } from "@/shared/api";
-import { EnvChip } from "./env-chip";
 import {
   Dialog,
   DialogContent,
@@ -123,7 +121,6 @@ export function ApplyChangesDialog({
    *  an all-or-nothing gate instead of a picker. */
   selectable = false,
   applying = false,
-  env,
   on_apply,
   on_close,
 }: {
@@ -131,7 +128,6 @@ export function ApplyChangesDialog({
   /** The connection's label and lock (spec 0007), shown as a chip in the
    *  title. This review is itself the confirmation before a write, so on a
    *  Production connection it says where the change is going. */
-  env?: ConnGuard | null;
   /** Grid rendering for a schema DDL review — mutually exclusive with
    *  `rows` below; pass exactly one. */
   ddl?: DdlDiffSection[];
@@ -215,7 +211,6 @@ export function ApplyChangesDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {title}
-            {env && <EnvChip conn={env} />}
           </DialogTitle>
           <DialogDescription>
             {selectable

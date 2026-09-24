@@ -1,5 +1,3 @@
-import type { ConnGuard } from "@/shared/api";
-import { EnvChip } from "@/shared/components/env-chip";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   Dialog,
@@ -25,7 +23,6 @@ export function DropDialog({
   name,
   error,
   busy,
-  env,
   on_confirm,
 }: {
   open: boolean;
@@ -36,7 +33,6 @@ export function DropDialog({
   busy: boolean;
   /** The connection's label and lock (spec 0007): this dialog is the
    *  confirmation before a drop, so it says where the drop will run. */
-  env?: ConnGuard | null;
   on_confirm: () => void;
 }) {
   return (
@@ -45,7 +41,6 @@ export function DropDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             Drop {noun}
-            {env && <EnvChip conn={env} />}
           </DialogTitle>
           <DialogDescription>
             This permanently deletes the {noun} “{name}” and its data. This
@@ -247,7 +242,6 @@ export function DbSchemaDdlDialog({
   on_cascade_change,
   busy,
   error,
-  env,
   on_cancel,
   on_confirm,
 }: {
@@ -259,7 +253,6 @@ export function DbSchemaDdlDialog({
   busy: boolean;
   error: string | null;
   /** The connection's label and lock (spec 0007), shown in the title. */
-  env?: ConnGuard | null;
   on_cancel: () => void;
   on_confirm: () => void;
 }) {
@@ -277,7 +270,6 @@ export function DbSchemaDdlDialog({
             {dialog?.kind === "db-drop" && "Drop database"}
             {dialog?.kind === "schema-create" && "Create schema"}
             {dialog?.kind === "schema-drop" && "Drop schema"}
-            {env && <EnvChip conn={env} />}
           </DialogTitle>
         </DialogHeader>
         {dialog && (

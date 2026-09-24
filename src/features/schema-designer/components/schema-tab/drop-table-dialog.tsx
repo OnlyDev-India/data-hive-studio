@@ -10,7 +10,6 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { executeOp } from "@/shared/api";
-import { EnvChip } from "@/shared/components/env-chip";
 import { useStudioStore } from "@/shared/store";
 
 /** Confirm dialog for dropping the table. Controlled: the trigger lives in
@@ -42,7 +41,6 @@ export function DropTableDialog({
 }) {
   const [dropping, setDropping] = useState(false);
   const push_notification = useStudioStore((s) => s.pushNotification);
-  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
 
   const do_drop = async () => {
     if (dropping) return;
@@ -78,7 +76,6 @@ export function DropTableDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             Drop {object_noun}
-            {conn && <EnvChip conn={conn} />}
           </DialogTitle>
           <DialogDescription>
             This permanently deletes the {object_noun} “{table}” and its data.

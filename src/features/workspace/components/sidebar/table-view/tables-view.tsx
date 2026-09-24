@@ -10,7 +10,6 @@ import { Plus, RefreshCw, Search, Star, Trash2, Unplug } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import { ConnFlags } from "@/shared/components/env-chip";
 import { usePendingGuardChange } from "@/features/connections";
 import {
   ContextMenu,
@@ -26,7 +25,6 @@ import {
   dropPgSchema,
   duplicateTable,
   executeOp,
-  hasConnFlags,
   catalogOverview,
   quoteIdent,
   refreshMatview,
@@ -1171,13 +1169,12 @@ export function TablesBrowser({
   // a plain connection keeps the sidebar exactly as it was.
   const search_bar_ui = (
     <>
-      {conn_info && (hasConnFlags(conn_info) || pending_change) && (
+      {conn_info && pending_change && (
         <div
           data-slot="sidebar-conn-flags"
           className="flex min-w-0 items-center gap-1.5 pr-2 text-xs"
         >
           <span className="min-w-0 truncate font-medium">{conn_info.name}</span>
-          <ConnFlags conn={conn_info} />
           {pending_change && (
             <span
               role="status"
@@ -1900,7 +1897,6 @@ export function TablesBrowser({
       {!is_pg && !is_mongo && active_tables_list_ui}
 
       <DropDialog
-        env={conn_info}
         open={confirm_drop !== null}
         on_open_change={(open) => {
           if (!open && !dropping) setConfirmDrop(null);
@@ -1954,7 +1950,6 @@ export function TablesBrowser({
       />
 
       <DbSchemaDdlDialog
-        env={conn_info}
         dialog={ddl_dialog}
         name_value={ddl_name}
         on_name_change={setDdlName}
