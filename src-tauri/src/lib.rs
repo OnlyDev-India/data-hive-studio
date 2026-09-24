@@ -11,8 +11,8 @@ pub mod app_menu;
 pub mod commands;
 pub mod file_open;
 pub mod local_connections;
+mod legacy_servers;
 mod secret_file;
-pub mod servers;
 pub mod updater;
 pub mod workspace_state;
 
@@ -97,6 +97,10 @@ pub fn run() {
       // passes the path as a CLI argument on cold start. (macOS instead
       // delivers it via RunEvent::Opened, handled in run() below.)
       file_open::check_argv();
+
+      // The team server screens are gone (spec 0010): drop the saved server
+      // profiles and their sign in tokens once, silently.
+      legacy_servers::cleanup(app.handle());
 
       // The downloaded-but-not-installed update package (see `updater.rs`).
       app.manage(updater::UpdaterState::default());
@@ -212,79 +216,6 @@ pub fn run() {
       workspace_state::load_workspace_state,
       workspace_state::save_workspace_state,
       workspace_state::clear_workspace_state,
-      servers::servers_list,
-      servers::servers_oauth_providers,
-      servers::servers_oauth_login,
-      servers::servers_claim,
-      servers::servers_sign_out,
-      servers::servers_sessions_list,
-      servers::servers_session_end,
-      servers::servers_sessions_end_all,
-      servers::servers_owner_end_sessions,
-      servers::servers_reuse_session,
-      servers::servers_org_create_new,
-      servers::servers_org_redeem_link_new,
-      servers::servers_my_invites_new,
-      servers::servers_invite_accept_new,
-      servers::servers_invite_decline_new,
-      servers::servers_save_profile,
-      servers::servers_remove,
-      servers::servers_connect,
-      servers::servers_disconnect,
-      servers::server_list_tables,
-      servers::server_list_schemas,
-      servers::server_table_schema,
-      servers::server_mongo_field_tree,
-      servers::server_run_sql,
-      servers::server_execute_op,
-      servers::server_list_databases,
-      servers::server_catalog_overview,
-      servers::server_list_schemas_in,
-      servers::server_list_schema_objects,
-      servers::server_list_roles,
-      servers::server_list_role_details,
-      servers::server_list_extensions,
-      servers::server_active_schema,
-      servers::server_set_active_schema,
-      servers::server_disconnect_database,
-      servers::server_apply_schema_ops_batch,
-      servers::server_duplicate_table,
-      servers::server_list_documents,
-      servers::server_list_documents_ext,
-      servers::server_save_document,
-      servers::server_insert_document,
-      servers::server_run_mongo,
-      servers::server_create_collection,
-      servers::servers_create_connection,
-      servers::servers_update_connection,
-      servers::servers_delete_connection,
-      servers::servers_fetch_credentials,
-      servers::servers_org_members,
-      servers::servers_org_set_member_role,
-      servers::servers_org_remove_member,
-      servers::servers_org_invites_list,
-      servers::servers_org_invite_create,
-      servers::servers_org_invite_revoke,
-      servers::servers_my_invites,
-      servers::servers_invite_accept,
-      servers::servers_invite_decline,
-      servers::servers_org_links_list,
-      servers::servers_org_link_create,
-      servers::servers_org_link_revoke,
-      servers::servers_org_audit,
-      servers::servers_grants_list,
-      servers::servers_grant_set,
-      servers::servers_grant_revoke,
-      servers::servers_access_invites_list,
-      servers::servers_access_invite_create,
-      servers::servers_access_invite_revoke,
-      servers::servers_access_accounts_list,
-      servers::servers_access_set_role,
-      servers::servers_access_set_manage_roles,
-      servers::servers_access_set_create_orgs,
-      servers::servers_access_orgs_list,
-      servers::servers_access_settings_get,
-      servers::servers_access_set_open_org_creation,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

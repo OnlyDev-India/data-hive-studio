@@ -1,12 +1,10 @@
-//! The dh-studio team server library: the Axum router, the connection
-//! gateway's execution engine, and the Postgres backed store. `main.rs` is a
-//! thin binary that only wires configuration and calls into this crate (see
-//! spec 0012).
+//! The dh-studio bare proxy (spec 0010). It knows nothing about people: the
+//! web page hands it database details, it opens a pool and returns a handle,
+//! and every data route works from that handle. It holds no persistent state.
 
-pub mod auth;
-pub mod gateway;
-pub mod grants;
-pub mod orgs;
-pub mod router;
-pub mod store;
-pub mod vault;
+pub mod bodies;
+pub mod config;
+pub mod connect;
+pub mod guard;
+pub mod registry;
+pub mod routes;

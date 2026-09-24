@@ -1,12 +1,10 @@
 //! Shared core for dh-studio.
 //!
-//! Everything that both the desktop shell (`src-tauri`) and the team server
+//! Everything that both the desktop shell (`src-tauri`) and the proxy server
 //! (`dh-server`) need lives here: database adapters, the frontend facing
-//! wire API types, the activity log, and the SSH tunnel. The team server's
-//! own execution engine (the Axum router, the connection gateway, the
-//! Postgres backed store) lives in `dh-server`, and the wire types/HTTP
-//! client shared between the desktop app and that server live in
-//! `dh-server-client` — see spec 0012.
+//! wire API types, the activity log, and the SSH tunnel. The server's own
+//! code (the Axum router, the handle registry, the request guards) lives in
+//! `dh-server` — see spec 0010.
 //!
 //! - [`api`]   — wire types shared with the frontend (mirrored by `src/shared/api/types.ts`)
 //! - [`db`]    — connection registry + `DbAdapter` implementations (SQLite, PostgreSQL)

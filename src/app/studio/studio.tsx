@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
-import {
-  getActivity,
-  serversReleaseConnection,
-  type ActivityEntry,
-} from "@/shared/api";
-import { WEB } from "@/shared/api/web";
-import { canManageOrg } from "@/shared/api/client";
+import { getActivity, type ActivityEntry } from "@/shared/api";
+import { WEB, webRelease } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { ActivityBar } from "./activity-bar";
 import { ActionBar } from "./action-bar";
 import { Landing } from "@/features/connections";
 import { NotificationToast } from "@/features/notifications";
-import { AdminConsole } from "@/features/sharing";
 import { Sidebar } from "@/features/workspace";
 import { CommandPalette } from "./command-palette";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
@@ -32,7 +26,7 @@ export function Studio() {
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
 
   // Web mode: intercept reload shortcuts with an in-app confirm dialog while
-  // at least one server session is connected. No native beforeunload popup —
+  // at least one database is connected. No native beforeunload popup —
   // browsers can't render custom UI on tab close, so only interceptable
   // leave paths (Cmd/Ctrl+R, Shift variants, F5) show the dialog.
   const [leave_open, set_leave_open] = useState(false);
@@ -57,19 +51,7 @@ export function Studio() {
   useEffect(() => {
     if (!WEB) return;
     const release = () => {
-      const openConns = useStudioStore.getState().open;
-      for (const c of openConns) {
-        if (!c.id.startsWith("srv:")) continue;
-        const parts = c.id.split(":");
-        if (parts.length !== 3) continue;
-        const [, profileId, remoteId] = parts;
-        if (!profileId || !remoteId) continue;
-        try {
-          serversReleaseConnection(remoteId);
-        } catch {
-          /* best-effort on unload */
-        }
-      }
+      for (const c of useStudioStore.getState().open) webRelease(c.id);
     };
     window.addEventListener("pagehide", release);
     window.addEventListener("beforeunload", release);
@@ -237,22 +219,13 @@ export function Studio() {
 
   const active_conn =
     open.length === 0 ? null : (open.find((c) => c.id === activeId) ?? open[0]);
-  // The admin page exists only while an admin-scoped session is live;
-  // otherwise the shell falls back to the landing view.
-  const admin_available = useStudioStore((s) =>
-    Object.values(s.serverSessions).some((x) =>
-      canManageOrg(x.me, x.profile.org_id),
-    ),
-  );
-  const effective_view = view === "admin" && !admin_available ? "home" : view;
-  const landing = effective_view === "home";
-  const show_admin = effective_view === "admin";
+  const landing = view === "home";
 
   return (
     <div className="bg-muted/20 flex h-full flex-col overflow-hidden border-t">
       <WebWarningBanner />
       <div className="flex min-h-0 flex-1">
-        {open.length === 0 && !show_admin ? (
+        {open.length === 0 ? (
           <>
             <ActivityBar
               home_active={landing}
@@ -287,21 +260,6 @@ export function Studio() {
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <Landing />
             </div>
-          </>
-        ) : show_admin ? (
-          <>
-            <ActivityBar
-              home_active={false}
-              tables_active={false}
-              activity_active={false}
-              actions_disabled
-              on_home={on_home}
-              on_tables={show_tables}
-              on_new_table={noop}
-              on_sql={noop}
-              on_activity={show_activity}
-            />
-            <AdminConsole />
           </>
         ) : (
           open.map((conn) => {

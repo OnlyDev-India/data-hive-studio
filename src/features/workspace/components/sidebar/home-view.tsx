@@ -1,26 +1,19 @@
 import {
-  AlertTriangle,
   ChevronRight,
-  Cloud,
   Copy,
   CopyPlus,
   Database,
   Pencil,
   Pin,
   Plug,
-  RefreshCw,
   Save,
   Search,
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  connGuardOf,
-  serversFetchCredentials,
-  srvConnId,
-  canManageOrg,
-} from "@/shared/api/client";
+import { useMemo, useState } from "react";
+import { WEB } from "@/shared/api/web";
+import { connGuardOf } from "@/shared/api/client";
 import { reopenRecent } from "@/features/connections";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
@@ -90,7 +83,7 @@ function Collapse({
 
 /**
  * Landing-page sidebar: everything saveable, grouped by source —
- *   [team server groups] · Saved (local) · Pinned (shortcuts) · Recent
+ *   Saved · Pinned (shortcuts) · Recent
  * Each group is collapsible; open groups share the panel height.
  * Single click loads details into the home form; double-click connects.
  */
@@ -107,18 +100,10 @@ export function HomeView({
   const push_notification = useStudioStore((s) => s.pushNotification);
   const pins = useStudioStore((s) => s.pins);
   const toggle_pin = useStudioStore((s) => s.togglePin);
-  const server_sessions = useStudioStore((s) => s.serverSessions);
-  const open_conn = useStudioStore((s) => s.openConn);
   const request_prefill = useStudioStore((s) => s.requestLandingPrefill);
-  const delete_server_connection = useStudioStore(
-    (s) => s.deleteServerConnection,
-  );
-  const refresh_servers = useStudioStore((s) => s.refreshServers);
-  const server_busy = useStudioStore((s) => s.serverBusy);
   const recent = useStudioStore((s) => s.recent);
   const recents_params = useStudioStore((s) => s.recentParams);
 
-  const [confirm_del, setConfirmDel] = useState<string | null>(null);
   /** All sections start expanded; any of them can be collapsed. */
   const [open_map, setOpenMap] = useState<Record<string, boolean>>({});
   const toggle_section = (key: string) =>
@@ -127,20 +112,12 @@ export function HomeView({
     return (open_map[key] ?? key === "recent") ? false : true;
   };
 
-  // Pull fresh team catalogs on mount so grant changes made elsewhere (e.g.
-  // another device's admin session) show up without a manual refresh.
-  const has_servers = Object.keys(server_sessions).length > 0;
-  const has_servers_ref = useRef(has_servers);
-  useEffect(() => {
-    if (has_servers && !has_servers_ref.current) {
-      has_servers_ref.current = true;
-      void refresh_servers();
-    } else if (!has_servers) {
-      has_servers_ref.current = false;
-    }
-  }, [has_servers, refresh_servers]);
-
   const home_query = search_value.trim().toLowerCase();
+
+  /** On the web a connection saved without its password has nothing to
+   *  connect with yet: a double-click fills the form and the person types the
+   *  password (kept in memory only). Everywhere else it connects at once. */
+  const can_connect_now = (p: { password?: string }) => !WEB || !!p.password;
 
   /** A saved connection bundled with everything the Saved section needs:
    *  its kind (which form it fills) and its pin id. */
@@ -228,53 +205,17 @@ export function HomeView({
           id,
           label: name,
           kind,
-          source: "local",
+          source: WEB ? "browser" : "local",
           connect_title: "Double-click to connect",
           guard: connGuardOf(params),
           on_click: () => request_prefill(kind, { ...params }),
-          on_double_click: () => request_prefill(kind, { ...params }, true),
-        });
-        continue;
-      }
-      for (const sess of Object.values(server_sessions)) {
-        const c = sess.connections.find((x) => x.id === id);
-        if (!c) continue;
-        if (home_query && !c.name.toLowerCase().includes(home_query)) continue;
-        out.push({
-          id,
-          label: c.name,
-          kind: c.kind,
-          source: sess.profile.name,
-          connect_title: "Single click loads details; double-click connects",
-          on_click: () =>
-            request_prefill(c.kind, {
-              host: c.host,
-              port: c.port,
-              user: c.user,
-              password: "",
-              database: c.database,
-              kind: c.kind,
-            }),
           on_double_click: () =>
-            open_conn({
-              id: c.id,
-              name: c.name,
-              kind: c.kind,
-              source_path: null,
-            }),
+            request_prefill(kind, { ...params }, can_connect_now(params)),
         });
-        break;
       }
     }
     return out;
-  }, [
-    pins,
-    saved_local,
-    server_sessions,
-    home_query,
-    open_conn,
-    request_prefill,
-  ]);
+  }, [pins, saved_local, home_query, request_prefill]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -289,20 +230,6 @@ export function HomeView({
             onChange={(e) => on_search_change(e.target.value)}
           />
         </div>
-        {has_servers && (
-          <Button
-            variant="ghost"
-            size="iconXs"
-            aria-label="Refresh team connections"
-            title="Refresh team connections"
-            disabled={server_busy}
-            onClick={() => void refresh_servers()}
-          >
-            <RefreshCw
-              className={cn("size-3.5", server_busy && "animate-spin")}
-            />
-          </Button>
-        )}
       </div>
 
       {/* Pinned shortcuts across all sources. */}
@@ -350,168 +277,7 @@ export function HomeView({
         </Collapse>
       )}
 
-      {/* One collapsible group per connected team server. */}
-      {Object.values(server_sessions).map((sess) => {
-        const key = `srv:${sess.profile.id}`;
-        const rows = sess.connections.filter(
-          (c) => !home_query || c.name.toLowerCase().includes(home_query),
-        );
-        if (rows.length === 0) return null;
-        return (
-          <Collapse
-            key={key}
-            icon={Cloud}
-            label={sess.profile.name}
-            count={rows.length}
-            open={is_open(key)}
-            on_toggle={() => toggle_section(key)}
-          >
-            <ul className="flex flex-col gap-0.5">
-              {rows.map((c) => {
-                const is_pinned = pins.includes(c.id);
-                const can_delete =
-                  c.can_delete || canManageOrg(sess.me, sess.profile.org_id);
-                const DBIcon = DBIcons[c.kind] || Database;
-                return (
-                  <li key={c.id}>
-                    <Button
-                      variant="ghost"
-                      title="Single click loads details; double-click connects"
-                      onClick={async () => {
-                        const remote_id = c.id.split(":")[2] ?? "";
-                        const profileId = sess.profile.id;
-                        try {
-                          const creds = await serversFetchCredentials(
-                            profileId,
-                            remote_id,
-                          );
-                          request_prefill(
-                            c.kind,
-                            {
-                              host: creds.host,
-                              port: creds.port,
-                              user: creds.user,
-                              password: creds.password,
-                              database: creds.database,
-                              kind: c.kind,
-                              ...(c.kind === "mongodb"
-                                ? {
-                                    auth_db: creds.auth_db,
-                                    srv: creds.srv,
-                                    tls: creds.tls,
-                                  }
-                                : { ssl_mode: creds.ssl_mode ?? undefined }),
-                            },
-                            false,
-                          );
-                        } catch {
-                          request_prefill(
-                            c.kind,
-                            {
-                              host: c.host,
-                              port: c.port,
-                              user: c.user,
-                              password: "",
-                              database: c.database,
-                              kind: c.kind,
-                              ...(c.kind === "mongodb"
-                                ? { auth_db: c.auth_db, srv: c.srv, tls: c.tls }
-                                : { ssl_mode: c.ssl_mode ?? undefined }),
-                            },
-                            false,
-                          );
-                        }
-                      }}
-                      onDoubleClick={() => {
-                        const remote_id = c.id.split(":")[2] ?? "";
-                        const srv_id = srvConnId(sess.profile.id, remote_id);
-                        open_conn({
-                          id: srv_id,
-                          name: c.name,
-                          kind: c.kind,
-                          source_path: null,
-                        });
-                      }}
-                      className="hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
-                    >
-                      <DBIcon className="text-muted-foreground size-4 shrink-0" />
-                      <span className="truncate font-medium">{c.name}</span>
-                      <span className="ml-auto flex shrink-0 items-center gap-1">
-                        {can_delete && (
-                          <span
-                            aria-label={
-                              confirm_del === c.id
-                                ? "Click again to confirm delete"
-                                : `Delete ${c.name}`
-                            }
-                            title={
-                              confirm_del === c.id
-                                ? "Click again to confirm delete"
-                                : "Delete this shared connection"
-                            }
-                            className={cn(
-                              "hover:text-destructive hover:bg-destructive/10 flex h-7 items-center gap-2 rounded-md px-2 hover:cursor-pointer",
-                              confirm_del === c.id &&
-                                "text-destructive bg-destructive/10",
-                            )}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm_del === c.id) {
-                                void delete_server_connection(
-                                  sess.profile.id,
-                                  c.id.split(":")[2] ?? "",
-                                  c.id,
-                                );
-                                setConfirmDel(null);
-                              } else {
-                                setConfirmDel(c.id);
-                                setTimeout(
-                                  () =>
-                                    setConfirmDel((cur) =>
-                                      cur === c.id ? null : cur,
-                                    ),
-                                  3000,
-                                );
-                              }
-                            }}
-                          >
-                            {confirm_del === c.id ? (
-                              <>
-                                <AlertTriangle className="size-3.5" /> confirm
-                              </>
-                            ) : (
-                              <Trash2 className="size-3.5" />
-                            )}
-                          </span>
-                        )}
-                        <span
-                          aria-label={
-                            is_pinned ? `Unpin ${c.name}` : `Pin ${c.name}`
-                          }
-                          className="hover:text-amber-500"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggle_pin(c.id);
-                          }}
-                        >
-                          <Pin
-                            className={cn(
-                              "size-3.5",
-                              is_pinned && "fill-amber-400 text-amber-400",
-                            )}
-                          />
-                        </span>
-                      </span>
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          </Collapse>
-        );
-      })}
-
-      {/* Locally saved connections. */}
+      {/* Saved connections: on this device, or in this browser on the web. */}
       <Collapse
         icon={Save}
         label="Saved"
@@ -523,7 +289,9 @@ export function HomeView({
           <p className="text-muted-foreground rounded-md border border-dashed px-2 py-2 text-xs">
             {home_query
               ? "No saved connections match."
-              : "Use Save on the home form to keep a connection here."}
+              : WEB
+                ? "Use Save on the home form to keep a connection in this browser."
+                : "Use Save on the home form to keep a connection here."}
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
@@ -537,7 +305,7 @@ export function HomeView({
                   title="Load into the connect form"
                   onClick={() => request_prefill(kind, { ...params })}
                   onDoubleClick={() =>
-                    request_prefill(kind, { ...params }, true)
+                    request_prefill(kind, { ...params }, can_connect_now(params))
                   }
                   className="hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                 >
@@ -582,7 +350,11 @@ export function HomeView({
                     <ContextMenuContent className="w-52">
                       <ContextMenuItem
                         onSelect={() =>
-                          request_prefill(kind, { ...params }, true)
+                          request_prefill(
+                            kind,
+                            { ...params },
+                            can_connect_now(params),
+                          )
                         }
                       >
                         <Plug className="size-3.5" />
@@ -597,7 +369,6 @@ export function HomeView({
                       <ContextMenuItem
                         onSelect={() =>
                           request_prefill(kind, { ...params }, false, {
-                            source: "local",
                             oldName: name,
                             name,
                           })
@@ -648,10 +419,6 @@ export function HomeView({
         ) : (
           <ul className="flex flex-col gap-0.5 pb-2">
             {recent_filtered.map((conn) => {
-              const is_srv = conn.id.startsWith("srv:");
-              const srv_profile = is_srv ? conn.id.split(":")[1] : null;
-              const server_connected =
-                is_srv && srv_profile ? srv_profile in server_sessions : true;
               // conn.kind (ConnectionInfo, the live connection) is always
               // "mongodb" for a DocumentDB connection by design — prefer
               // the saved-params record's kind, which remembers which
@@ -662,11 +429,7 @@ export function HomeView({
                 <li key={conn.id}>
                   <Button
                     variant="ghost"
-                    title={
-                      server_connected
-                        ? "Double-click to connect"
-                        : "Server not connected"
-                    }
+                    title="Double-click to connect"
                     onClick={() => {
                       const params = recents_params[conn.id];
                       if (conn.kind === "postgres" && params) {
@@ -696,17 +459,13 @@ export function HomeView({
                         request_prefill(
                           "postgres",
                           { ...params, kind: "postgres" },
-                          true,
+                          can_connect_now(params),
                         );
                       } else {
                         void reopenRecent(conn);
                       }
                     }}
-                    className={cn(
-                      "hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
-                      !server_connected &&
-                        "text-muted-foreground/50 line-through",
-                    )}
+                    className="hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
                   >
                     <DBIcon className="text-muted-foreground size-4 shrink-0" />
                     <span className="truncate font-medium">{conn.name}</span>

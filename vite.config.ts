@@ -5,7 +5,7 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),
@@ -20,29 +20,31 @@ export default defineConfig(({ mode }) => ({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
-    // Web-mode dev (`bun run dev -- --mode web`): proxy API and sign in calls
-    // to a locally running dh-server so the page is same origin with it (the
-    // web build talks only to the origin that served it, and its renewal
-    // cookie is scoped to `/auth`). Set the server's DH_PUBLIC_URL to this
-    // dev server's address so the sign in redirect may return here.
-    proxy: Object.fromEntries(
-      ["/v1", "/auth"].map((path) => [
-        path,
-        {
-          target: process.env.DH_DEV_SERVER_URL ?? "http://localhost:8080",
-          changeOrigin: true,
+    // Web-mode dev: proxy API calls to a locally running dh-server so the page
+    // is same origin with it (the web build talks only to the origin that
+    // served it). The browser's Origin is this dev server's; the proxy drops
+    // it, since dh-server refuses a request from another origin.
+    proxy: {
+      "/v1": {
+        target: process.env.DH_DEV_SERVER_URL ?? "http://localhost:8080",
+        changeOrigin: true,
+        configure: (proxy: {
+          on: (
+            event: "proxyReq",
+            cb: (req: { removeHeader: (name: string) => void }) => void,
+          ) => void;
+        }) => {
+          proxy.on("proxyReq", (req) => req.removeHeader("origin"));
         },
-      ]),
-    ),
+      },
+    },
   },
   // Tauri expects a fixed port on dev.
   clearScreen: false,
   envPrefix: ["VITE_", "TAURI_"],
   build: {
     target: "esnext",
-    // Web UI build (`bun run build:web`) lands in its own directory so it
-    // never clobbers the desktop bundle in dist/.
-    outDir: mode === "web" ? "dist-web" : "dist",
+    outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
       output: {

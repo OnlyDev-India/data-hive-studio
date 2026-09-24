@@ -5,7 +5,6 @@ import type {
   ExportPayload,
   QueryOp,
   SavedDbKind,
-  SharedDbKind,
 } from "../api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
@@ -15,7 +14,7 @@ import type { ShortcutBinding } from "../hooks/shortcut-registry";
 import type { DelimitedListSettings } from "@/shared/components/query-editor/delimited-list";
 
 /** Which top-level screen fills the workspace area. */
-export type StudioView = "home" | "workspace" | "admin";
+export type StudioView = "home" | "workspace";
 
 /** A connection's saved tabs/layout + live editor text, as persisted to
  *  (and restored from) workspace_state.json — see
@@ -330,14 +329,18 @@ export interface SavedConnParams extends ConnGuard {
   ssh_host_key_fingerprint?: string;
   ssh_password?: string;
   ssh_key_passphrase?: string;
+  /** Web build only: keep the database and SSH passwords in this browser's
+   *  storage, as plain text. False means they are asked for at connect time. */
+  remember_secret?: boolean;
   /** SQLite only: real file path prefilled into the connect form. */
   source_path?: string | null;
 }
 
 /** What the landing form is editing (when prefill carries an edit target). */
-export type LandingEditTarget =
-  | { source: "server"; profileId: string; remoteId: string; name: string }
-  | { source: "local"; oldName: string; name: string };
+export interface LandingEditTarget {
+  oldName: string;
+  name: string;
+}
 
 export interface StudioStore {
   // Connections
@@ -742,46 +745,4 @@ export interface StudioStore {
     tabKey: string,
     mode: "data" | "schema",
   ) => void;
-
-  // Team servers (dh-server profiles)
-  /** One entry per CONNECTED server profile; keyed by profile id. */
-  serverSessions: Record<
-    string,
-    {
-      profile: { id: string; name: string; url: string; org_id: string };
-      me: import("@/shared/api/server-admin").MeResult;
-      /** Granted connections as namespaced ids (`srv:<profile>:<conn>`). */
-      connIds: string[];
-      /** Full shared-connection entries incl. this user's effective access. */
-      connections: {
-        id: string;
-        name: string;
-        kind: SharedDbKind;
-        host: string;
-        port: number;
-        user: string;
-        database: string;
-        ssl_mode?: string | null;
-        /** MongoDB only. */
-        auth_db?: string;
-        srv?: boolean;
-        tls?: boolean;
-        can_read: boolean;
-        can_update: boolean;
-        can_delete: boolean;
-      }[];
-    }
-  >;
-  serverBusy: boolean;
-  connectServer: (profileId: string) => Promise<void>;
-  disconnectServer: (profileId: string) => Promise<void>;
-  /** Re-fetch every connected server's shared-connection catalog (keeps
-   *  open tabs intact). */
-  refreshServers: () => Promise<void>;
-  /** Delete a shared connection on this profile and drop its local entry. */
-  deleteServerConnection: (
-    profileId: string,
-    connId: string,
-    srvId: string,
-  ) => Promise<void>;
 }

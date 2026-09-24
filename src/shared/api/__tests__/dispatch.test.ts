@@ -21,42 +21,15 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("connection id helpers", () => {
-  it("srvConnId namespaces a remote id under its profile", async () => {
-    const { srvConnId } = await loadDispatch(false);
-    expect(srvConnId("p1", "c1")).toBe("srv:p1:c1");
-  });
-
-  it("isServerConn recognizes only well-formed srv:profile:conn ids", async () => {
-    const { isServerConn } = await loadDispatch(false);
-    expect(isServerConn("srv:p1:c1")).toBe(true);
-    expect(isServerConn("srv:p1:")).toBe(false);
-    expect(isServerConn("srv::c1")).toBe(false);
-    expect(isServerConn("local-id")).toBe(false);
-    expect(isServerConn("srv:p1:c1:extra")).toBe(false);
-  });
-
-  it("remoteOf/profileOf extract the two id segments", async () => {
-    const { remoteOf, profileOf } = await loadDispatch(false);
-    expect(profileOf("srv:p1:c1")).toBe("p1");
-    expect(remoteOf("srv:p1:c1")).toBe("c1");
-  });
-});
-
 describe("serverUnsupported", () => {
-  it("throws for a server connection", async () => {
-    const { serverUnsupported } = await loadDispatch(false);
-    expect(() => serverUnsupported("srv:p1:c1")).toThrow(/team-server/);
-  });
-
-  it("throws in WEB mode even for a local-looking id", async () => {
+  it("throws in the web build", async () => {
     const { serverUnsupported } = await loadDispatch(true);
-    expect(() => serverUnsupported("local-id")).toThrow(/desktop app/);
+    expect(() => serverUnsupported()).toThrow(/desktop app/);
   });
 
-  it("does not throw for a local connection on desktop", async () => {
+  it("does not throw on the desktop", async () => {
     const { serverUnsupported } = await loadDispatch(false);
-    expect(() => serverUnsupported("local-id")).not.toThrow();
+    expect(() => serverUnsupported()).not.toThrow();
   });
 });
 
@@ -64,7 +37,6 @@ describe("dispatchDbCall", () => {
   const opts = () => ({
     httpMethod: "GET" as const,
     httpPath: (id: string) => `/v1/c/${id}/tables`,
-    serverCmd: "server_list_tables",
     localCmd: "list_tables",
     args: { connId: "x" },
   });
@@ -83,38 +55,17 @@ describe("dispatchDbCall", () => {
     expect(result).toEqual(["t1"]);
   });
 
-  it("desktop + server connection: forwards to the server_* passthrough command", async () => {
-    const dispatch = await loadDispatch(false);
-    const { invoke } = await import("@tauri-apps/api/core");
-    (invoke as ReturnType<typeof vi.fn>).mockResolvedValue(["t2"]);
-
-    await dispatch.dispatchDbCall("srv:p1:c1", opts());
-    expect(invoke).toHaveBeenCalledWith("server_list_tables", { connId: "x" });
-  });
-
-  it("web + server connection: goes over HTTP with the session's token", async () => {
+  it("web: goes over HTTP under the connection's handle", async () => {
     const dispatch = await loadDispatch(true);
     const web = await import("../web");
 
-    const result = await dispatch.dispatchDbCall("srv:p1:c1", opts());
-    // The last argument asks the transport to attach the session's access
-    // token (and renew it); the page never handles a token itself.
+    const result = await dispatch.dispatchDbCall("handle-1", opts());
     expect(web.wcall).toHaveBeenCalledWith(
       "GET",
-      "/v1/c/c1/tables",
+      "/v1/c/handle-1/tables",
       undefined,
-      true,
     );
     expect(result).toEqual({ mocked: "http-result" });
-  });
-
-  it("web + local-looking connection: goes over HTTP without per-server auth args", async () => {
-    const dispatch = await loadDispatch(true);
-    const web = await import("../web");
-
-    await dispatch.dispatchDbCall("local-id", opts());
-    // remoteOf("local-id") is "" since it has no srv: segments.
-    expect(web.wcall).toHaveBeenCalledWith("GET", "/v1/c//tables", undefined);
   });
 });
 

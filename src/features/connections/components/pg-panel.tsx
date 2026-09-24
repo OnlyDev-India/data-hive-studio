@@ -1,12 +1,4 @@
-import {
-  Check,
-  Cloud,
-  Copy,
-  Eraser,
-  HardDrive,
-  Link2,
-  Save,
-} from "lucide-react";
+import { Check, Copy, Eraser, Link2, Save } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -20,16 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/components/ui/dropdown-menu";
 import type { LandingEditTarget } from "@/shared/store";
 import { type FormTabKey } from "./form-tabs";
 import { FilePathInput } from "./file-path-input";
 import { SshFields } from "./ssh-fields";
+import { RememberSecret } from "./remember-secret";
+import { WEB } from "@/shared/api/web";
 
 export interface PgFormValues {
   name: string;
@@ -37,6 +25,8 @@ export interface PgFormValues {
   port: string;
   user: string;
   password: string;
+  /** Web build: keep the password in this browser. */
+  remember_secret: boolean;
   database: string;
   ssl_mode: string;
   /** Path to a CA certificate file verifying the server's certificate. */
@@ -105,11 +95,8 @@ export interface PgPanelProps {
   onConnect: () => void;
 
   // Save
-  saving_to: string | null;
-  admin_servers: { profile: { id: string; name: string } }[];
   editing: LandingEditTarget | null;
   onSaveLocal: () => void;
-  onSaveServer: (profileId: string, serverName: string) => void;
   onUpdate: () => void;
   onCancelEdit: () => void;
 
@@ -133,11 +120,8 @@ export function PgPanel({
   onTest,
   connecting,
   onConnect,
-  saving_to,
-  admin_servers,
   editing,
   onSaveLocal,
-  onSaveServer,
   onUpdate,
   onCancelEdit,
   onClear,
@@ -212,6 +196,10 @@ export function PgPanel({
               onChange={(e) => setField("password", e.target.value)}
             />
           </div>
+          <RememberSecret
+            checked={form.remember_secret}
+            onChange={(v) => setField("remember_secret", v)}
+          />
           <Input
             placeholder="database (optional, defaults to postgres)"
             value={form.database}
@@ -285,48 +273,51 @@ export function PgPanel({
               Supabase, …) verifies fine with nothing filled in here. They
               only matter for a self-signed/private-CA server, or a server
               that specifically demands a client certificate. */}
-          {(form.ssl_mode === "require" ||
-            form.ssl_mode === "verify-ca" ||
-            form.ssl_mode === "verify-full") && (
-            <div className="grid gap-2">
-              {(form.ssl_mode === "verify-ca" ||
-                form.ssl_mode === "verify-full") && (
-                <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-2xs font-normal">
-                    CA certificate file (optional — only needed for a
-                    self-signed or private-CA server)
-                  </Label>
-                  <FilePathInput
-                    placeholder="/path/to/ca.pem"
-                    value={form.ssl_ca_file}
-                    onChange={(v) => setField("ssl_ca_file", v)}
-                  />
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-2xs font-normal">
-                    Client certificate (optional, for mTLS)
-                  </Label>
-                  <FilePathInput
-                    placeholder="/path/to/client-cert.pem"
-                    value={form.ssl_client_cert_file}
-                    onChange={(v) => setField("ssl_client_cert_file", v)}
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Label className="text-muted-foreground text-2xs font-normal">
-                    Client private key (optional, for mTLS)
-                  </Label>
-                  <FilePathInput
-                    placeholder="/path/to/client-key.pem"
-                    value={form.ssl_client_key_file}
-                    onChange={(v) => setField("ssl_client_key_file", v)}
-                  />
+          {/* Certificate files are read from the machine that connects, so the
+              web build, whose server holds none of yours, does not offer them. */}
+          {!WEB &&
+            (form.ssl_mode === "require" ||
+              form.ssl_mode === "verify-ca" ||
+              form.ssl_mode === "verify-full") && (
+              <div className="grid gap-2">
+                {(form.ssl_mode === "verify-ca" ||
+                  form.ssl_mode === "verify-full") && (
+                  <div className="grid gap-1">
+                    <Label className="text-muted-foreground text-2xs font-normal">
+                      CA certificate file (optional — only needed for a
+                      self-signed or private-CA server)
+                    </Label>
+                    <FilePathInput
+                      placeholder="/path/to/ca.pem"
+                      value={form.ssl_ca_file}
+                      onChange={(v) => setField("ssl_ca_file", v)}
+                    />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="grid gap-1">
+                    <Label className="text-muted-foreground text-2xs font-normal">
+                      Client certificate (optional, for mTLS)
+                    </Label>
+                    <FilePathInput
+                      placeholder="/path/to/client-cert.pem"
+                      value={form.ssl_client_cert_file}
+                      onChange={(v) => setField("ssl_client_cert_file", v)}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label className="text-muted-foreground text-2xs font-normal">
+                      Client private key (optional, for mTLS)
+                    </Label>
+                    <FilePathInput
+                      placeholder="/path/to/client-key.pem"
+                      value={form.ssl_client_key_file}
+                      onChange={(v) => setField("ssl_client_key_file", v)}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
 
@@ -411,18 +402,14 @@ export function PgPanel({
         </Button>
         {editing ? (
           <>
-            <Button
-              variant="secondary"
-              disabled={saving_to !== null}
-              onClick={onUpdate}
-            >
-              {saving_to ? "Updating…" : "Update"}
+            <Button variant="secondary" onClick={onUpdate}>
+              Update
             </Button>
             <Button variant="outline" onClick={onCancelEdit}>
               Cancel
             </Button>
           </>
-        ) : admin_servers.length === 0 ? (
+        ) : (
           <Button
             variant="secondary"
             onClick={onSaveLocal}
@@ -430,34 +417,6 @@ export function PgPanel({
           >
             <Save className="size-4" /> Save
           </Button>
-        ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="secondary" disabled={saving_to !== null}>
-                  <Save className="size-4" />
-                  {saving_to ? "Saving…" : "Save"}
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuItem onClick={onSaveLocal}>
-                <HardDrive className="size-3.5" /> This device
-              </DropdownMenuItem>
-              {admin_servers.map((s) => (
-                <DropdownMenuItem
-                  key={s.profile.id}
-                  onClick={() => onSaveServer(s.profile.id, s.profile.name)}
-                >
-                  <Cloud className="size-3.5" />
-                  {s.profile.name}
-                  <span className="text-muted-foreground text-3xs ml-auto">
-                    shared
-                  </span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
         )}
         <Button
           variant="ghost"

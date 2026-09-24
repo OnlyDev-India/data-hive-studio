@@ -7,7 +7,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:web": "tsc -b && vite build --mode web",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "typecheck:test": "tsc -p tsconfig.vitest.json --noEmit",
@@ -18,10 +17,9 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "server": "cargo run -p dh-server",
-    "server:demo": "DH_READ_ONLY=1 DH_READ_ONLY_MSG='This is a demo instance — saving connections is disabled.' cargo run -p dh-server",
+    "server:demo": "DH_READ_ONLY=1 cargo run -p dh-server",
     "server:build": "cargo build --release -p dh-server",
-    "server:reset-admin": "cargo run -p dh-server -- reset-admin",
-    "docker:server": "docker build -f crates/dh-server/Dockerfile -t dh-server .",
+    "docker:server": "docker build -t dh-studio-server .",
     "test": "cargo test -p dh-core",
     "format": "prettier --write src"
   },

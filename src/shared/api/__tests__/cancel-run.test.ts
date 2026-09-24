@@ -23,26 +23,21 @@ afterEach(() => {
 describe("canCancelRun", () => {
   it("offers Stop on local desktop SQLite, PostgreSQL and MongoDB connections", async () => {
     const { canCancelRun } = await loadQuery(false);
-    expect(canCancelRun("local-1", "sqlite")).toBe(true);
-    expect(canCancelRun("local-1", "postgres")).toBe(true);
-    expect(canCancelRun("local-1", "mongodb")).toBe(true);
+    expect(canCancelRun("sqlite")).toBe(true);
+    expect(canCancelRun("postgres")).toBe(true);
+    expect(canCancelRun("mongodb")).toBe(true);
   });
 
   it("does not offer Stop for engines the backend cannot cancel yet", async () => {
     const { canCancelRun } = await loadQuery(false);
-    expect(canCancelRun("local-1", "documentdb")).toBe(false);
-    expect(canCancelRun("local-1", "mysql")).toBe(false);
-    expect(canCancelRun("local-1", undefined)).toBe(false);
-  });
-
-  it("does not offer Stop on team server connections", async () => {
-    const { canCancelRun } = await loadQuery(false);
-    expect(canCancelRun("srv:p1:c1", "postgres")).toBe(false);
+    expect(canCancelRun("documentdb")).toBe(false);
+    expect(canCancelRun("mysql")).toBe(false);
+    expect(canCancelRun(undefined)).toBe(false);
   });
 
   it("does not offer Stop in the web build", async () => {
     const { canCancelRun } = await loadQuery(true);
-    expect(canCancelRun("local-1", "sqlite")).toBe(false);
+    expect(canCancelRun("sqlite")).toBe(false);
   });
 });
 
@@ -78,16 +73,6 @@ describe("cancelRun", () => {
       await expect(cancelRun("local-1", "run-7")).resolves.toEqual({ state });
     },
   );
-
-  it("rejects for a team server connection without calling the backend", async () => {
-    const { cancelRun } = await loadQuery(false);
-    const invoke = await tauriInvoke();
-
-    await expect(cancelRun("srv:p1:c1", "run-7")).rejects.toThrow(
-      /team-server/,
-    );
-    expect(invoke).not.toHaveBeenCalled();
-  });
 
   it("rejects in the web build without calling the backend", async () => {
     const { cancelRun } = await loadQuery(true);
@@ -192,24 +177,6 @@ describe("runSqlStream run id", () => {
     ]);
     expect(res.cancelled).toBe(true);
     expect(res.error).toBeNull();
-  });
-
-  it("does not use the streaming command on a team server connection", async () => {
-    const { runSqlStream } = await loadStreaming(false);
-    const invoke = await tauriInvoke();
-    invoke.mockResolvedValueOnce({ ...stoppedResult, cancelled: false });
-
-    await runSqlStream(
-      "srv:p1:c1",
-      "select 1",
-      undefined,
-      undefined,
-      undefined,
-      "run-7",
-    );
-
-    expect(invoke).toHaveBeenCalledTimes(1);
-    expect(invoke.mock.calls[0][0]).toBe("server_run_sql");
   });
 });
 

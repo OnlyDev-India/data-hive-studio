@@ -12,10 +12,6 @@ export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb" | "documentdb";
  *  rather than re-listing kinds so adding one only means editing `DbKind`. */
 export type SavedDbKind = Exclude<DbKind, "mysql">;
 
-/** Kinds a team-server-shared connection can be — `DbKind` minus "mysql"
- *  and "sqlite" (neither is supported as a shared connection). */
-export type SharedDbKind = Exclude<DbKind, "mysql" | "sqlite">;
-
 /** How careful to be with a connection (spec 0007). Mirrors the Rust
  *  `ConnGuard`, which flattens these four fields into every struct that saves,
  *  describes or opens a connection. A connection saved before this existed has

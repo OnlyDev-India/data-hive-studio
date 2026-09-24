@@ -20,7 +20,7 @@ export type LocalConnInput = LocalConnMeta & {
 };
 
 /** List every locally saved connection's metadata (no passwords). No-op in
- *  web mode — the team-server holds all credentials there. */
+ *  web mode, where the browser keeps its own (`web-connections.ts`). */
 export async function listLocalConnections(): Promise<LocalConnMeta[]> {
   if (WEB) return [];
   return invoke("list_local_connections");

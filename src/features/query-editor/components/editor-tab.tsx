@@ -871,7 +871,7 @@ function SqlEditorBody({
   const run_query = useCallback(
     async (id: number, query: string, range?: { from: number; to: number }) => {
       // Only runs Stop can reach get an id (see `canCancelRun`).
-      const run_id = canCancelRun(conn_id, conn?.kind)
+      const run_id = canCancelRun(conn?.kind)
         ? crypto.randomUUID()
         : null;
       const run_started = performance.now();
@@ -1615,7 +1615,7 @@ function MongoEditorBody({
       // A run always shows its result, even if the panel was hidden.
       openBottomPanel();
       // Only runs Stop can reach get an id (see `canCancelRun`).
-      const run_id = canCancelRun(conn_id, conn_kind)
+      const run_id = canCancelRun(conn_kind)
         ? crypto.randomUUID()
         : null;
       const run_started = performance.now();

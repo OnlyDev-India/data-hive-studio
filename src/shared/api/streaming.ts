@@ -1,6 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { WEB } from "./web";
-import { hinted, isServerConn } from "./dispatch";
+import { hinted } from "./dispatch";
 import { executeOp, runSql } from "./query";
 import type { QueryOp, QueryResult } from "./types";
 
@@ -44,14 +44,13 @@ export async function executeOpStream(
   database?: string,
   schema?: string,
 ): Promise<QueryResult> {
-  if (isServerConn(connId) || WEB) {
+  if (WEB) {
     // No channel streaming over HTTP yet — fetch whole result, emit once.
     const res = await executeOp(connId, op, database, schema);
     emitAsChunk(res, onChunk);
     return res;
   }
   return hinted(
-    connId,
     invoke<QueryResult>("execute_op_stream", {
       connId,
       database,
@@ -78,14 +77,13 @@ export async function runSqlStream(
   schema?: string,
   runId?: string,
 ): Promise<QueryResult> {
-  if (isServerConn(connId) || WEB) {
+  if (WEB) {
     // Still the editor's own "Run" — just a different transport.
     const res = await runSql(connId, sql, "user", database, schema);
     emitAsChunk(res, onChunk);
     return res;
   }
   return hinted(
-    connId,
     invoke<QueryResult>("run_sql_stream", {
       connId,
       database,

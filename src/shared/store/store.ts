@@ -3,7 +3,6 @@ import { persist } from "zustand/middleware";
 import { activityActions } from "@/features/activity/store/activity-slice";
 import { notificationsActions } from "@/features/notifications/store/notifications-slice";
 import { schemaDesignerActions } from "@/features/schema-designer/store/schema-designer-slice";
-import { sharingActions } from "@/features/sharing/store/sharing-slice";
 import {
   deleteLocalConnection as apiDeleteLocalConnection,
   getLocalConnectionSecret,
@@ -13,6 +12,11 @@ import {
   updateLocalConnection as apiUpdateLocalConnection,
 } from "@/shared/api/local-connections";
 import { WEB } from "@/shared/api/web";
+import {
+  readWebConnections,
+  withoutSecrets,
+  writeWebConnections,
+} from "@/shared/api/web-connections";
 import { connectionActions } from "./connections";
 import { DEFAULT_PALETTE_KEYWORDS } from "./types";
 import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-editor/delimited-list";
@@ -318,7 +322,14 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set((s) => {
             const next = { ...s.recentParams, [connId]: params };
             try {
-              localStorage.setItem("pg.recents", JSON.stringify(next));
+              // The web build never leaves a secret in `localStorage` unless a
+              // saved connection asked for it (spec 0010, AC-4).
+              const saved = WEB
+                ? Object.fromEntries(
+                    Object.entries(next).map(([id, p]) => [id, withoutSecrets(p)]),
+                  )
+                : next;
+              localStorage.setItem("pg.recents", JSON.stringify(saved));
             } catch {
               // storage unavailable — recents stay session-only
             }
@@ -326,18 +337,18 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           });
         },
 
-        // Saved (local) connections — ONE map for every kind, keyed by
-        // display name. Metadata lives in an app-data JSON file and
+        // Saved connections — ONE map for every kind, keyed by display
+        // name. On the desktop, metadata lives in an app-data JSON file and
         // passwords in the OS keychain (src-tauri/src/local_connections.rs)
         // — see hydrateSavedLocal, called once at startup (Studio's mount
         // effect). Starts empty since Tauri IPC can't be awaited during
-        // store creation. Web mode has no local connections (the
-        // team-server holds all credentials there) and keeps the old
-        // localStorage-only behavior unchanged.
+        // store creation. The web build keeps them in this browser's
+        // localStorage instead (`web-connections.ts`), with the password
+        // only for connections that ask to remember it.
         savedLocal: {},
         async hydrateSavedLocal() {
           if (WEB) {
-            set({ savedLocal: readLegacySavedLocal() });
+            set({ savedLocal: readWebConnections() });
             return;
           }
           try {
@@ -380,11 +391,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           if (WEB) {
             set((s) => {
               const next = { ...s.savedLocal, [name]: { ...params, name } };
-              try {
-                localStorage.setItem("saved.local", JSON.stringify(next));
-              } catch {
-                /* storage unavailable */
-              }
+              writeWebConnections(next);
               return { savedLocal: next };
             });
             return;
@@ -400,11 +407,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               const next = { ...s.savedLocal };
               delete next[oldName];
               next[name] = { ...params, name };
-              try {
-                localStorage.setItem("saved.local", JSON.stringify(next));
-              } catch {
-                /* storage unavailable */
-              }
+              writeWebConnections(next);
               let pin_next = s.pins;
               if (s.pins.includes(`local:${oldName}`)) {
                 pin_next = s.pins.map((p) =>
@@ -444,11 +447,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             set((s) => {
               const next = { ...s.savedLocal };
               delete next[name];
-              try {
-                localStorage.setItem("saved.local", JSON.stringify(next));
-              } catch {
-                /* storage unavailable */
-              }
+              writeWebConnections(next);
               return {
                 savedLocal: next,
                 pins: s.pins.filter((p) => p !== `local:${name}`),
@@ -518,7 +517,6 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...activityActions(set),
         ...notificationsActions(set, get),
         ...schemaDesignerActions(set),
-        ...sharingActions(set, get),
         ...connectionActions(set),
         ...workspaceActions(set),
       }),

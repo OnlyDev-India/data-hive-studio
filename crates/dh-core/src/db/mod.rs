@@ -33,6 +33,7 @@ mod mongo_sql;
 mod mongodb;
 mod postgres;
 mod read_only;
+mod stmt_class;
 mod runs;
 mod sqlite;
 mod types;
@@ -55,8 +56,9 @@ pub use ddl::*;
 
 use crate::api::QueryChunk;
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};
-pub use mongodb::{MongoAdapter, MongoParams};
+pub use mongodb::{mongo_script_class, MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
 pub use read_only::{Dialect, ReadOnlyGuard, READ_ONLY_PREFIX};
+pub use stmt_class::{sql_class, StmtClass};
 pub use runs::{cancel as cancel_run, CancelOutcome, CancelState, RunHandle};
 pub use self::sqlite::SqliteAdapter;

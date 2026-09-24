@@ -1,18 +1,12 @@
-# dh-studio team server — API ONLY.
+# dh-studio proxy server: no accounts, no database of its own.
 # The web UI lives in Dockerfile.web (nginx) and proxies /v1 here.
 #
 # Build:  docker build -t dh-studio-server .
-# Run:    docker run -p 8080:8080 -v dh-data:/data \
-#           -e DH_DATABASE_URL=postgres://user:pass@host:5432/db \
-#           -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... \
-#           dh-studio-server
+# Run:    docker run -p 8080:8080 -e DH_ACCESS_KEY=choose-a-long-secret dh-studio-server
 #
-# DH_DATABASE_URL (a real Postgres instance — there is no bundled-SQLite
-# fallback) is required; the container panics at startup without it. At
-# least one OAuth provider's client id/secret is required for anyone to be
-# able to sign in. See crates/dh-server/src/main.rs for the full env var
-# reference, or docker-compose.yml for a ready-to-run example with a bundled
-# Postgres service.
+# Every setting is optional; see crates/dh-server/src/main.rs. The image
+# listens on every interface, so set DH_ACCESS_KEY (or keep it on a private
+# network): the server connects to any database it can reach.
 
 # ---- build stage -----------------------------------------------------------
 # Same Debian release as the runtime stage below: the binary links the build
@@ -32,15 +26,13 @@ RUN cargo build --release -p dh-server
 # ---- runtime stage ---------------------------------------------------------
 FROM debian:bookworm-slim
 
-RUN useradd -r -m -u 1000 dh && mkdir -p /data && chown dh:dh /data
+RUN useradd -r -m -u 1000 dh
 
 COPY --from=build /src/target/release/dh-server /usr/local/bin/dh-server
 
-ENV DH_BIND=0.0.0.0:8080 \
-    DH_DATA_DIR=/data
+ENV DH_BIND=0.0.0.0:8080
 
 USER dh
 EXPOSE 8080
-VOLUME ["/data"]
 
 ENTRYPOINT ["dh-server"]

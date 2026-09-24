@@ -19,7 +19,8 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 dh-core = { path = "../crates/dh-core" }
-dh-server-client = { path = "../crates/dh-server-client" }
+aes-gcm.workspace = true
+rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
@@ -35,14 +36,6 @@ tauri-plugin-window-state = "2.4.1"
 tauri-plugin-updater = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
-# Used only for `tokio::task::spawn_blocking` in the OAuth desktop sign-in
-# loopback listener (servers.rs) — the listener itself is a plain blocking
-# `std::net::TcpListener`, run off the async runtime's worker threads so a
-# blocking `accept()` call (waiting on the browser redirect) never stalls
-# anything else. Not in dh-core's own tokio feature set (it doesn't need
-# this), hence the separate direct dep here.
-tokio = { version = "1", features = ["rt"] }
-
 # Windows only: simulates the native Win+Z shortcut so hovering our custom
 # maximize button shows the real Snap Layout flyout (see
 # `show_snap_overlay` in commands.rs) — decorations:false on Windows means

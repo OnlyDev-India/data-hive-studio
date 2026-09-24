@@ -1,13 +1,12 @@
 import { Pencil, X } from "lucide-react";
+import { WEB } from "@/shared/api/web";
 import type { LandingEditTarget } from "@/shared/store";
 
 export function EditBanner({
   editing,
-  server_name,
   onCancel,
 }: {
   editing: LandingEditTarget;
-  server_name: string;
   onCancel: () => void;
 }) {
   return (
@@ -16,9 +15,7 @@ export function EditBanner({
       <span>
         Editing <b>{editing.name}</b>
         {" — "}
-        {editing.source === "server"
-          ? `shared on ${server_name || "team server"}`
-          : "saved on this device"}
+        saved {WEB ? "in this browser" : "on this device"}
         . Saving updates it.
       </span>
       <button
