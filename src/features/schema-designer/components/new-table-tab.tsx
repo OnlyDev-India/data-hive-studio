@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, Plus, SquareArrowOutUpRight, Trash2 } from "lucide-react";
+import {
+  KeyRound,
+  Plus,
+  SquareArrowOutUpRight,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
@@ -228,6 +234,7 @@ export function NewTableTab({
   const push_notification = useStudioStore((s) => s.pushNotification);
   const setNewTable = useStudioStore((s) => s.setNewTable);
   const clearNewTable = useStudioStore((s) => s.clearNewTable);
+  const openImport = useStudioStore((s) => s.openImport);
 
   // ---- Target database/schema (Postgres only — SQLite has neither
   // concept within one connection, and Mongo creates collections through
@@ -605,6 +612,29 @@ export function NewTableTab({
             </div>
           </>
         )}
+        <div className="flex items-end">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!!conn?.read_only}
+            title={
+              conn?.read_only
+                ? "Read only connection: import is refused"
+                : "Create a table from a CSV, JSON or Excel file"
+            }
+            onClick={() =>
+              openImport({
+                connId: conn_id,
+                database: target_database,
+                schema: is_pg ? schema : undefined,
+                onImported: on_modified,
+              })
+            }
+          >
+            <Upload className="size-3.5" />
+            Import file
+          </Button>
+        </div>
       </div>
 
       {/* shrink-0 matters: a flex item with non-visible overflow loses
