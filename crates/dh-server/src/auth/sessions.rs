@@ -189,7 +189,8 @@ impl Store {
         let row = sqlx::query(
             "SELECT s.id AS session_id, s.user_id AS user_id, s.last_used_ms AS last_used_ms,
                     u.email AS email, u.name AS name,
-                    u.server_role AS server_role, u.can_manage_roles AS can_manage_roles
+                    u.server_role AS server_role, u.can_manage_roles AS can_manage_roles,
+                    u.can_create_orgs AS can_create_orgs
              FROM access_tokens a
              JOIN device_sessions s ON s.id = a.session_id
              JOIN users u ON u.id = s.user_id
@@ -223,6 +224,7 @@ impl Store {
             name: row.get("name"),
             server_role: ServerRole::parse(&role).unwrap_or(ServerRole::Member),
             can_manage_roles: row.get("can_manage_roles"),
+            can_create_orgs: row.get("can_create_orgs"),
         })
     }
 }

@@ -36,6 +36,7 @@ function me(orgs: { id: string; role: OrgRole }[]): MeResult {
     name: "U",
     server_role: "member",
     can_manage_roles: false,
+    can_create_org: false,
     orgs: orgs.map((o) => ({ id: o.id, role: o.role, name: o.id, slug: o.id, created_ms: 0 })),
   };
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   serversOrgMembers,
   serversOrgInvitesList,
+  serversOrgLinksList,
   serversOrgAudit,
 } from "@/shared/api/client";
 import { useStudioStore } from "@/shared/store";
@@ -11,13 +12,15 @@ import { Input } from "@/shared/components/ui/input";
 import { cn } from "@/shared/lib/utils";
 import type { AuditEntry } from "@/shared/api/server-admin";
 import { canInvite, canManageAccounts } from "@/shared/api/server-access";
-import type { OrgInvite, OrgMember, Tab } from "./types";
+import { isNoOrgAccess } from "@/shared/api/server-admin";
+import type { OrgEmailInvite, OrgLink, OrgMember, Tab } from "./types";
 import { TABS } from "./types";
 import { MembersPanel } from "./members-panel";
-import { InvitesPanel } from "./invites-panel";
-import { CreateInviteForm } from "./create-invite-panel";
+import { OrgLinksSection } from "./org-links-section";
+import { OrgInvitesSection } from "./org-invites-section";
 import { MyDevicesPanel } from "./my-devices-panel";
 import { AccessInvitesSection } from "./access-invites-section";
+import { AccessOrgsSection } from "./access-orgs-section";
 import { AccessPeopleSection } from "./access-people-section";
 
 export function AdminDashboard({
@@ -29,9 +32,12 @@ export function AdminDashboard({
 }) {
   const [tab, setTab] = useState<Tab>("members");
   const [members, setMembers] = useState<OrgMember[]>([]);
-  const [invites, setInvites] = useState<OrgInvite[]>([]);
+  const [invites, setInvites] = useState<OrgEmailInvite[]>([]);
+  const [links, setLinks] = useState<OrgLink[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // The server says this person is not in the org (removed, or left).
+  const [no_access, setNoAccess] = useState(false);
   const [filter, setFilter] = useState("");
   const disconnectServer = useStudioStore((s) => s.disconnectServer);
   const serverName = useStudioStore(
@@ -46,15 +52,22 @@ export function AdminDashboard({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [mems, invs, log] = await Promise.all([
+      const [mems, invs, lnks, log] = await Promise.all([
         serversOrgMembers(profileId, orgId),
         serversOrgInvitesList(profileId, orgId),
+        serversOrgLinksList(profileId, orgId),
         serversOrgAudit(profileId, orgId, 200),
       ]);
       setMembers(mems);
       setInvites(invs);
+      setLinks(lnks);
       setAudit(log);
+      setNoAccess(false);
     } catch (e) {
+      if (isNoOrgAccess(e)) {
+        setNoAccess(true);
+        return;
+      }
       useStudioStore.getState().pushNotification({
         kind: "error",
         title: "Failed to load admin data",
@@ -90,6 +103,20 @@ export function AdminDashboard({
         m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q),
     );
   }, [members, filter]);
+
+  if (no_access) {
+    return (
+      <div className="px-6 py-5">
+        <p className="text-sm font-medium">
+          You no longer have access to this organization
+        </p>
+        <p className="text-muted-foreground mt-1 text-xs">
+          An owner or admin removed you, or you left. Ask one of them to invite
+          you again, or pick another organization from the Team servers menu.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -185,26 +212,40 @@ export function AdminDashboard({
                 )}
               </section>
             )}
+            {me?.server_role === "owner" && (
+              <section className="space-y-3 border-t pt-6">
+                <SectionHeading
+                  title="Organizations on this server"
+                  hint="Who may create organizations, and every organization here."
+                />
+                <AccessOrgsSection profileId={profileId} />
+              </section>
+            )}
           </div>
         ) : tab === "invites" ? (
           <div className="space-y-8">
-            <section className="space-y-6">
-              {show_server_invites && (
-                <SectionHeading
-                  title="Organization invite codes"
-                  hint="A code that joins this organization with a role."
-                />
-              )}
-              <CreateInviteForm
-                profileId={profileId}
-                orgId={orgId}
-                on_created={() => void refresh()}
+            <section className="space-y-3">
+              <SectionHeading
+                title="Invite by email"
+                hint="Only the person with that email can join."
               />
-              <InvitesPanel
+              <OrgInvitesSection
                 invites={invites}
                 profileId={profileId}
                 orgId={orgId}
-                onRefresh={() => void refresh()}
+                onChanged={() => void refresh()}
+              />
+            </section>
+            <section className="space-y-3 border-t pt-6">
+              <SectionHeading
+                title="Shareable link"
+                hint="A code that lets people who already have an account join."
+              />
+              <OrgLinksSection
+                links={links}
+                profileId={profileId}
+                orgId={orgId}
+                onChanged={() => void refresh()}
               />
             </section>
             {show_server_invites && (

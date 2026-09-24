@@ -24,12 +24,20 @@ import {
   serversOAuthLogin,
   serversReuseSession,
   serversOrgCreateNew,
-  serversOrgRedeemInviteNew,
   serversSaveProfile,
   type MeResult,
   type Organization,
   type ServerProfileView,
 } from "@/shared/api/server-admin";
+import {
+  serversInviteAcceptNew,
+  serversInviteDeclineNew,
+  serversMyInvitesNew,
+  serversOrgRedeemLinkNew,
+  type PendingInvite,
+} from "@/shared/api/server-invites";
+import { accessErrorMessage } from "@/shared/api/server-access";
+import { parseJoinCode } from "@/shared/api/web-join";
 import {
   claimErrorMessage,
   claimNeedsNewSignIn,
@@ -508,14 +516,35 @@ export function OrgPickerStep({
   error?: string | null;
   onSelect: (org: Organization) => void;
 }) {
-  const [mode, setMode] = useState<"pick" | "create" | "redeem">(
-    me.orgs.length ? "pick" : "create",
-  );
+  const can_create = me.can_create_org;
+  // Land on the form that can succeed: an org to open, else create when the
+  // server allows it, else the list (with the way to join one).
+  const home_mode = me.orgs.length || !can_create ? "pick" : "create";
+  const [mode, setMode] = useState<"pick" | "create" | "redeem">(home_mode);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingInvite[]>([]);
   const disabled = busy || localBusy;
+
+  // Invitations for this email wait here until the person accepts or
+  // declines, so an org never appears in their list without their say. A
+  // failure to load them is not fatal: the rest of the picker still works.
+  useEffect(() => {
+    let cancelled = false;
+    void serversMyInvitesNew(url)
+      .then((list) => {
+        if (cancelled) return;
+        setPending(list);
+        // Someone with no org and an invitation should see it, not a form.
+        if (list.length > 0 && me.orgs.length === 0) setMode("pick");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [url, me.orgs.length]);
   const display_error = localError ?? externalError ?? null;
 
   async function createOrg() {
@@ -531,12 +560,37 @@ export function OrgPickerStep({
     }
   }
 
+  async function accept(inv: PendingInvite) {
+    setLocalBusy(true);
+    setLocalError(null);
+    try {
+      onSelect(await serversInviteAcceptNew(url, inv.id));
+    } catch (e) {
+      setLocalError(accessErrorMessage(e));
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function decline(inv: PendingInvite) {
+    setLocalBusy(true);
+    setLocalError(null);
+    try {
+      await serversInviteDeclineNew(url, inv.id);
+      setPending((list) => list.filter((p) => p.id !== inv.id));
+    } catch (e) {
+      setLocalError(accessErrorMessage(e));
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
   async function redeem() {
     if (!code.trim()) return;
     setLocalBusy(true);
     setLocalError(null);
     try {
-      onSelect(await serversOrgRedeemInviteNew(url, code.trim()));
+      onSelect(await serversOrgRedeemLinkNew(url, parseJoinCode(code)));
     } catch (e) {
       setLocalError(String(e));
     } finally {
@@ -551,6 +605,42 @@ export function OrgPickerStep({
 
       {mode === "pick" && (
         <div className="flex flex-col gap-2">
+          {pending.length > 0 && (
+            <div className="flex flex-col gap-2 pb-1">
+              <p className="text-sm font-medium">Invitations</p>
+              {pending.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="flex items-center gap-2 rounded-md border px-3 py-2"
+                >
+                  <Building2 className="text-muted-foreground size-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{inv.org_name}</div>
+                    <div className="text-muted-foreground text-2xs truncate">
+                      {inv.role} · from {inv.inviter_name || inv.inviter_email}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={disabled}
+                    aria-label={`Accept invitation to ${inv.org_name}`}
+                    onClick={() => void accept(inv)}
+                  >
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={disabled}
+                    aria-label={`Decline invitation to ${inv.org_name}`}
+                    onClick={() => void decline(inv)}
+                  >
+                    Decline
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
           {me.orgs.map((o) => (
             <Button
               key={o.id}
@@ -564,10 +654,22 @@ export function OrgPickerStep({
               <span className="text-muted-foreground text-xs">{o.role}</span>
             </Button>
           ))}
+          {me.orgs.length === 0 && pending.length === 0 && (
+            <p className="text-muted-foreground text-sm">
+              You aren&apos;t in an organization yet. Ask an owner or admin to
+              invite you by email, or use an invite code.
+            </p>
+          )}
           <div className="flex gap-2 pt-1">
-            <Button size="sm" variant="ghost" onClick={() => setMode("create")}>
-              New organization
-            </Button>
+            {can_create && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setMode("create")}
+              >
+                New organization
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={() => setMode("redeem")}>
               <TicketCheck className="mr-1 size-3.5" /> Have an invite code?
             </Button>
@@ -593,7 +695,7 @@ export function OrgPickerStep({
             Create organization
           </Button>
           <div className="flex gap-2">
-            {me.orgs.length > 0 && (
+            {home_mode === "pick" && (
               <Button size="sm" variant="ghost" onClick={() => setMode("pick")}>
                 Back
               </Button>
@@ -607,12 +709,12 @@ export function OrgPickerStep({
 
       {mode === "redeem" && (
         <div className="grid gap-2">
-          <Label htmlFor="org-code">Invite code</Label>
+          <Label htmlFor="org-code">Invite link or code</Label>
           <Input
             id="org-code"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            placeholder="Paste invite code"
+            placeholder="Paste the invite link or code"
             autoFocus
           />
           <Button
@@ -622,11 +724,7 @@ export function OrgPickerStep({
             {localBusy && <Loader2 className="mr-1 size-4 animate-spin" />}
             Join organization
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setMode(me.orgs.length ? "pick" : "create")}
-          >
+          <Button size="sm" variant="ghost" onClick={() => setMode(home_mode)}>
             Back
           </Button>
         </div>

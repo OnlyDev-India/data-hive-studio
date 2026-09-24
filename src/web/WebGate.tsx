@@ -28,6 +28,14 @@ import {
   stripSignInParams,
   type SignInReturn,
 } from "@/shared/api/server-claim";
+import { serversOrgRedeemLinkNew } from "@/shared/api/server-invites";
+import {
+  forgetJoinCode,
+  joinCodeFromSearch,
+  pendingJoinCode,
+  rememberJoinCode,
+  stripJoinParam,
+} from "@/shared/api/web-join";
 import {
   ClaimServerStep,
   ConnectServerForm,
@@ -70,6 +78,35 @@ function clearSignInParams(): void {
   );
 }
 
+/** The shareable link's code (`?join=`), kept in `sessionStorage` so it
+ *  survives the sign in round trip (a full page redirect). Only reads and
+ *  remembers: the address bar is cleaned once the gate has mounted, like the
+ *  sign in parameters, because the first render can be thrown away. */
+function readJoinCode(): string | null {
+  if (!WEB || typeof window === "undefined") return null;
+  const from_url = joinCodeFromSearch(window.location.search);
+  if (from_url) {
+    rememberJoinCode(from_url);
+    return from_url;
+  }
+  return pendingJoinCode();
+}
+
+/** Take `join` out of the address bar so the code is not left in history or
+ *  a copied address. */
+function clearJoinParam(): void {
+  if (!new URLSearchParams(window.location.search).has("join")) return;
+  const rest = stripJoinParam(window.location.search);
+  window.history.replaceState(
+    {},
+    "",
+    window.location.pathname + (rest ? `?${rest}` : ""),
+  );
+}
+
+const JOIN_FAILED =
+  "That invite link didn't work. It may have expired, run out of uses or been revoked. Ask for a new one.";
+
 export function WebGate({ children }: GateProps) {
   const [stored] = useState<WebServerConfig[]>(() =>
     WEB ? webListServers() : [],
@@ -80,6 +117,7 @@ export function WebGate({ children }: GateProps) {
   const [sign_in_return] = useState<SignInReturn | null>(() =>
     readSignInReturn(),
   );
+  const [join_code] = useState<string | null>(() => readJoinCode());
   const pending_code =
     sign_in_return?.kind === "code" ? sign_in_return.code : null;
   const claim_ticket =
@@ -110,6 +148,36 @@ export function WebGate({ children }: GateProps) {
     if (sign_in_return) clearSignInParams();
   }, [sign_in_return]);
 
+  useEffect(() => {
+    if (WEB) clearJoinParam();
+  }, []);
+
+  /** Add a profile for `org` on `url` and connect it, then open the studio. */
+  const open_org = useCallback(async (url: string, org: Organization) => {
+    const id = deriveServerId(url, org.id);
+    webAddServer({ id, url, name: org.name, org_id: org.id });
+    await useStudioStore.getState().connectServer(id);
+    localStorage.setItem(LAST_KEY, id);
+    setState("ready");
+  }, []);
+
+  /** Use the shareable link the page was opened with, now that the person is
+   *  signed in. The code is spent or dropped either way: it is tried once. */
+  const redeem_join = useCallback(
+    async (url: string): Promise<Organization | null> => {
+      const code = pendingJoinCode();
+      if (!code) return null;
+      forgetJoinCode();
+      try {
+        return await serversOrgRedeemLinkNew(url, code);
+      } catch {
+        setGateError(JOIN_FAILED);
+        return null;
+      }
+    },
+    [],
+  );
+
   // Trade the login code (if any) for a session, then resolve it into an
   // identity + org list. Runs once even when React runs effects twice: the code
   // and the verifier can each be used only once.
@@ -121,6 +189,12 @@ export function WebGate({ children }: GateProps) {
       try {
         await webExchange(pending_code);
         const me = await wcall<MeResult>("GET", "/v1/me", undefined, true);
+        // An invite link wins over the last org: it is why they came.
+        const joined = await redeem_join(url);
+        if (joined) {
+          await open_org(url, joined);
+          return;
+        }
         const target = stored.find((s) => s.id === last_id) ?? stored[0];
         if (target && me.orgs.some((o) => o.id === target.org_id)) {
           // Signing in again keeps the profile and its org: no org picker.
@@ -135,7 +209,7 @@ export function WebGate({ children }: GateProps) {
         setState("login");
       }
     })();
-  }, [pending_code, stored, last_id]);
+  }, [pending_code, stored, last_id, redeem_join, open_org]);
 
   // A session that was working has ended (signed out here, in another tab, or
   // on another device): show the sign in dialog again.
@@ -184,7 +258,13 @@ export function WebGate({ children }: GateProps) {
       try {
         await useStudioStore.getState().connectServer(target.id);
         localStorage.setItem(LAST_KEY, target.id);
-        if (!cancelled) setState("ready");
+        // Already signed in and opened an invite link: use it now.
+        const joined = await redeem_join(apiUrl());
+        if (joined && joined.id !== target.org_id) {
+          await open_org(apiUrl(), joined);
+        } else if (!cancelled) {
+          setState("ready");
+        }
       } catch (e) {
         if (!cancelled) {
           // Not signed in here: the sign in buttons are the answer, no error.
@@ -199,7 +279,7 @@ export function WebGate({ children }: GateProps) {
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [state, stored, last_id]);
+  }, [state, stored, last_id, redeem_join, open_org]);
 
   const cancel_connect = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -218,17 +298,7 @@ export function WebGate({ children }: GateProps) {
   function handle_org_select(org: Organization) {
     if (!oauth_session) return;
     setOrgBusy(true);
-    const id = deriveServerId(oauth_session.url, org.id);
-    webAddServer({
-      id,
-      url: oauth_session.url,
-      name: org.name,
-      org_id: org.id,
-    });
-    void useStudioStore
-      .getState()
-      .connectServer(id)
-      .then(() => setState("ready"))
+    void open_org(oauth_session.url, org)
       .catch((e) => setGateError(String(e)))
       .finally(() => setOrgBusy(false));
   }
@@ -289,6 +359,12 @@ export function WebGate({ children }: GateProps) {
               )
             ) : (
               <div className="mt-4">
+                {join_code && (
+                  <p className="text-muted-foreground mb-3 text-sm">
+                    You opened an invite link. Sign in with an account that
+                    already exists here to use it.
+                  </p>
+                )}
                 <ConnectServerForm
                   error={gate_error}
                   on_connect={handle_connect}

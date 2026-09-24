@@ -2,6 +2,7 @@
 //! (`/v1/server/...`, spec 0010).
 
 use crate::auth::{Account, Invite, ServerRole};
+use crate::orgs::{ServerOrg, ServerSettings};
 use super::ServerClient;
 
 impl ServerClient {
@@ -41,6 +42,35 @@ impl ServerClient {
         self.empty_with_body(
             reqwest::Method::PUT,
             &format!("/v1/server/accounts/{user_id}/manage-roles"),
+            serde_json::json!({ "enabled": enabled }),
+        )
+        .await
+    }
+
+    /// The per admin "can create organizations" switch (owner only).
+    pub async fn server_set_create_orgs(&self, user_id: &str, enabled: bool) -> Result<(), String> {
+        self.empty_with_body(
+            reqwest::Method::PUT,
+            &format!("/v1/server/accounts/{user_id}/create-orgs"),
+            serde_json::json!({ "enabled": enabled }),
+        )
+        .await
+    }
+
+    /// Every org on the server, names and counts only (owner only).
+    pub async fn server_orgs(&self) -> Result<Vec<ServerOrg>, String> {
+        self.get("/v1/server/orgs").await
+    }
+
+    pub async fn server_settings(&self) -> Result<ServerSettings, String> {
+        self.get("/v1/server/settings").await
+    }
+
+    /// Open org creation to every signed in person, one org each (owner only).
+    pub async fn server_set_open_org_creation(&self, enabled: bool) -> Result<(), String> {
+        self.empty_with_body(
+            reqwest::Method::PUT,
+            "/v1/server/settings/open-org-creation",
             serde_json::json!({ "enabled": enabled }),
         )
         .await

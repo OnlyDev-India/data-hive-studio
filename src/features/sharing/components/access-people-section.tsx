@@ -14,6 +14,7 @@ import type { MeResult, ServerRole } from "@/shared/api/server-admin";
 import {
   accessErrorMessage,
   assignableRoles,
+  serverAccountSetCreateOrgs,
   serverAccountSetManageRoles,
   serverAccountSetRole,
   serverAccountsList,
@@ -127,6 +128,30 @@ export function AccessPeopleSection({
                       a.id,
                       () =>
                         serverAccountSetManageRoles(profileId, a.id, enabled),
+                      "Couldn't change the switch",
+                    )
+                  }
+                />
+              </div>
+            )}
+
+            {is_owner && a.server_role === "admin" && (
+              <div className="flex items-center gap-2">
+                <Label
+                  htmlFor={`create-orgs-${a.id}`}
+                  className="text-muted-foreground text-xs font-normal"
+                >
+                  Can create organizations
+                </Label>
+                <Switch
+                  id={`create-orgs-${a.id}`}
+                  checked={a.can_create_orgs}
+                  disabled={busy === a.id}
+                  onCheckedChange={(enabled) =>
+                    void change(
+                      a.id,
+                      () =>
+                        serverAccountSetCreateOrgs(profileId, a.id, enabled),
                       "Couldn't change the switch",
                     )
                   }

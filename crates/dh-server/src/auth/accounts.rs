@@ -4,7 +4,7 @@
 //! decision itself (`decide`) lives in `dh_server_client::auth`.
 
 use super::{user_from_row, USER_COLUMNS};
-use crate::store::{audit_in, now_ms, Store};
+use crate::store::{audit_in, audit_org_in, now_ms, Store};
 use dh_server_client::auth::{decide, Decision, ProfileOutcome, Refusal, SignIn, SignInFacts, User, VerifiedProfile};
 use sqlx::Row;
 
@@ -14,8 +14,10 @@ enum Attempt {
     Raced,
 }
 
-fn is_unique_violation(e: &sqlx::Error) -> bool {
-    e.as_database_error().map(|d| d.is_unique_violation()).unwrap_or(false)
+/// Another request got there first: a unique violation (the same account or
+/// membership), or a serialization failure (the snapshot below went stale).
+fn lost_a_race(e: &sqlx::Error) -> bool {
+    e.as_database_error().is_some_and(|d| d.is_unique_violation() || d.code().as_deref() == Some("40001"))
 }
 
 impl Store {
@@ -34,7 +36,7 @@ impl Store {
             match self.sign_in_once(&profile).await {
                 Ok(Attempt::Done(out)) => return Ok(out),
                 Ok(Attempt::Raced) => continue,
-                Err(e) if is_unique_violation(&e) => continue,
+                Err(e) if lost_a_race(&e) => continue,
                 Err(e) => return Err(e.to_string()),
             }
         }
@@ -71,19 +73,26 @@ impl Store {
         .fetch_optional(&mut **tx)
         .await?
         .map(|r| (r.get::<String, _>("id"), r.get::<bool, _>("has_identity")));
-        let invite = sqlx::query("SELECT id, expires_ms FROM server_invites WHERE email=$1 AND used_ms IS NULL")
+        let now = now_ms();
+        let invites = sqlx::query("SELECT id, expires_ms FROM server_invites WHERE email=$1 AND used_ms IS NULL ORDER BY id")
             .bind(&p.email)
-            .fetch_optional(&mut **tx)
+            .fetch_all(&mut **tx)
             .await?
+            .into_iter()
             .map(|r| {
                 let expires_ms: Option<i64> = r.get("expires_ms");
-                (r.get::<String, _>("id"), expires_ms.is_some_and(|t| t <= now_ms()))
-            });
-        Ok(SignInFacts { identity_user: None, claimed, email_user, invite })
+                (r.get::<String, _>("id"), expires_ms.is_some_and(|t| t <= now))
+            })
+            .collect();
+        Ok(SignInFacts { identity_user: None, claimed, email_user, invites })
     }
 
     async fn sign_in_once(&self, p: &VerifiedProfile) -> Result<Attempt, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
+        // One snapshot for every fact read below. Under READ COMMITTED a
+        // winner committing between two reads can show "no account yet" and
+        // then "no open invite", which would refuse a person who was invited.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").execute(&mut *tx).await?;
         let facts = self.gather_facts(&mut tx, p).await?;
         let out = match decide(&facts) {
             Decision::SignInExisting { user_id } | Decision::LinkIdentity { user_id } => {
@@ -95,23 +104,42 @@ impl Store {
             }
             Decision::Ticket => SignIn::Ticket(p.clone()),
             Decision::Refuse(refusal) => SignIn::Refused { refusal, email: Some(p.email.clone()) },
-            Decision::JoinWithInvite { invite_id } => {
+            Decision::JoinWithInvites { invite_ids } => {
                 let id = uuid::Uuid::new_v4().to_string();
                 insert_user(&mut tx, &id, p, "member").await?;
                 insert_identity(&mut tx, &id, p).await?;
-                let marked = sqlx::query(
-                    "UPDATE server_invites SET used_ms=$1, used_by=$2 WHERE id=$3 AND used_ms IS NULL",
-                )
-                .bind(now_ms())
-                .bind(&id)
-                .bind(&invite_id)
-                .execute(&mut *tx)
-                .await?;
-                if marked.rows_affected() != 1 {
-                    tx.rollback().await?;
-                    return Ok(Attempt::Raced);
+                for invite_id in &invite_ids {
+                    // A plain server invite has no org; an org invite adds the
+                    // membership with its role. Each is marked used in the
+                    // same transaction, so nothing is half joined.
+                    let used = sqlx::query(
+                        "UPDATE server_invites SET used_ms=$1, used_by=$2 WHERE id=$3 AND used_ms IS NULL
+                         RETURNING org_id, org_role",
+                    )
+                    .bind(now_ms())
+                    .bind(&id)
+                    .bind(invite_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                    let Some(used) = used else {
+                        tx.rollback().await?;
+                        return Ok(Attempt::Raced);
+                    };
+                    let (org_id, org_role): (Option<String>, Option<String>) = (used.get("org_id"), used.get("org_role"));
+                    match (org_id, org_role) {
+                        (Some(org_id), Some(role)) => {
+                            sqlx::query("INSERT INTO org_members (org_id, user_id, role, joined_ms) VALUES ($1,$2,$3,$4)")
+                                .bind(&org_id)
+                                .bind(&id)
+                                .bind(&role)
+                                .bind(now_ms())
+                                .execute(&mut *tx)
+                                .await?;
+                            audit_org_in(&mut *tx, Some(&org_id), &id, "org.invite_accepted", &p.email, None).await?;
+                        }
+                        _ => audit_in(&mut *tx, &id, "server.invite_accepted", &p.email, None).await?,
+                    }
                 }
-                audit_in(&mut *tx, &id, "server.invite_accepted", &p.email, None).await?;
                 SignIn::User(load_user(&mut tx, &id).await?)
             }
         };

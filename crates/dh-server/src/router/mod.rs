@@ -10,6 +10,10 @@ mod access;
 mod auth;
 mod redirect;
 mod session;
+mod invites;
+#[cfg(test)]
+mod invites_tests;
+mod links;
 mod orgs;
 mod connections;
 mod browse;
@@ -28,14 +32,16 @@ use axum::routing::{delete, get, post, put};
 use axum::Router;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
-use self::access::{server_account_manage_roles, server_account_role, server_accounts_list, server_invites_create, server_invites_list, server_invites_revoke};
+use self::access::{server_account_create_orgs, server_account_manage_roles, server_account_role, server_open_org_creation, server_orgs_list, server_settings_get, server_accounts_list, server_invites_create, server_invites_list, server_invites_revoke};
 use self::auth::{auth_callback, auth_claim, auth_providers, auth_start, me};
 use self::session::{auth_exchange, auth_refresh, logout, my_session_end, my_sessions, my_sessions_end_all, owner_end_sessions, unauthorized};
 use self::browse::{conn_catalog, conn_databases, conn_disconnect_database, conn_extensions, conn_get_active_schema, conn_mongo_field_tree, conn_role_details, conn_roles, conn_schema, conn_schema_objects, conn_schemas, conn_schemas_in, conn_set_active_schema, conn_tables};
 use self::connections::{conn_close, conn_credentials, create_conn, delete_conn, list_grants, org_connections, revoke_grant, set_grant, update_connection};
 use self::query::{conn_duplicate, conn_op, conn_schema_ops, conn_sql};
 use self::mongo::{conn_mongo_create_collection, conn_mongo_documents, conn_mongo_documents_ext, conn_mongo_insert_document, conn_mongo_run, conn_mongo_save_document};
-use self::orgs::{create_invite, create_org, list_invites, list_members, list_orgs, org_audit, redeem_invite, remove_member, revoke_invite, set_member_role};
+use self::invites::{my_invite_accept, my_invite_decline, my_invites, org_invites_create, org_invites_list, org_invites_revoke};
+use self::links::{create_link, list_links, redeem_link, revoke_link};
+use self::orgs::{create_org, list_members, list_orgs, org_audit, remove_member, set_member_role};
 
 type AppState = Arc<Gateway>;
 
@@ -69,15 +75,24 @@ pub fn build_router(gateway: Arc<Gateway>) -> Router {
         .route("/v1/server/accounts", get(server_accounts_list))
         .route("/v1/server/accounts/{user_id}/role", put(server_account_role))
         .route("/v1/server/accounts/{user_id}/manage-roles", put(server_account_manage_roles))
+        .route("/v1/server/accounts/{user_id}/create-orgs", put(server_account_create_orgs))
+        .route("/v1/server/orgs", get(server_orgs_list))
+        .route("/v1/server/settings", get(server_settings_get))
+        .route("/v1/server/settings/open-org-creation", put(server_open_org_creation))
         .route("/v1/orgs", get(list_orgs).post(create_org))
         .route("/v1/orgs/{org_id}/members", get(list_members))
         .route(
             "/v1/orgs/{org_id}/members/{user_id}",
             put(set_member_role).delete(remove_member),
         )
-        .route("/v1/orgs/{org_id}/invites", get(list_invites).post(create_invite))
-        .route("/v1/orgs/{org_id}/invites/{code}", delete(revoke_invite))
-        .route("/v1/invites/{code}/redeem", post(redeem_invite))
+        .route("/v1/orgs/{org_id}/invites", get(org_invites_list).post(org_invites_create))
+        .route("/v1/orgs/{org_id}/invites/{id}", delete(org_invites_revoke))
+        .route("/v1/orgs/{org_id}/links", get(list_links).post(create_link))
+        .route("/v1/orgs/{org_id}/links/{code}", delete(revoke_link))
+        .route("/v1/links/{code}/redeem", post(redeem_link))
+        .route("/v1/me/invites", get(my_invites))
+        .route("/v1/me/invites/{id}/accept", post(my_invite_accept))
+        .route("/v1/me/invites/{id}/decline", post(my_invite_decline))
         .route("/v1/orgs/{org_id}/audit", get(org_audit))
         .route("/v1/orgs/{org_id}/connections", get(org_connections).post(create_conn))
         .route(
@@ -154,7 +169,6 @@ fn err_res(e: String) -> Response {
     let status = if e == crate::gateway::ERR_FORBIDDEN
         || e == crate::gateway::ERR_READONLY
         || e == crate::orgs::ERR_NOT_A_MEMBER
-        || e == crate::orgs::ERR_LAST_OWNER
     {
         StatusCode::FORBIDDEN
     } else if e == crate::vault::ERR_NOT_FOUND || e == crate::orgs::ERR_INVITE_INVALID {

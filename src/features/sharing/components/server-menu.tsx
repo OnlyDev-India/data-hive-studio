@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
-import { Cloud, KeyRound, LogOut, Plug, Plus, Trash2 } from "lucide-react";
+import {
+  Ban,
+  Building2,
+  Cloud,
+  KeyRound,
+  LogOut,
+  Mail,
+  Plug,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -23,8 +33,11 @@ import {
 } from "@/shared/components/ui/tooltip";
 import {
   serversList,
+  serversMyInvites,
   serversRemove,
   friendlyConnectError,
+  isNoOrgAccess,
+  type PendingInvite,
   type ServerProfileView,
 } from "@/shared/api/client";
 import { serversSignOut } from "@/shared/api/server-sessions";
@@ -35,6 +48,11 @@ import {
   type ConnectResult,
 } from "@/shared/components/connect-server-dialog";
 import { SignInAgainDialog } from "./sign-in-again-dialog";
+import {
+  InvitationsDialog,
+  NewOrgDialog,
+  type SignedInServer,
+} from "./server-menu-orgs";
 
 /** The server as the person knows it: its address, or the profile's name when
  *  the address is the page's own origin (web). */
@@ -57,6 +75,12 @@ export function ServerMenu() {
   const [profiles, setProfiles] = useState<ServerProfileView[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [signInFor, setSignInFor] = useState<ServerProfileView | null>(null);
+  const [invitesOpen, setInvitesOpen] = useState(false);
+  const [newOrgFor, setNewOrgFor] = useState<SignedInServer | null>(null);
+  const [invites, setInvites] = useState<Record<string, PendingInvite[]>>({});
+  // Profiles whose org refused them (removed, or left): shown as such until a
+  // later connect works, since being invited again brings access back.
+  const [no_access, setNoAccess] = useState<Set<string>>(new Set());
   const serverSessions = useStudioStore((s) => s.serverSessions);
   const connectServer = useStudioStore((s) => s.connectServer);
   const refreshServers = useStudioStore((s) => s.refreshServers);
@@ -72,6 +96,47 @@ export function ServerMenu() {
       setProfiles([]);
     }
   }
+
+  // One entry per signed in server: every profile on an address shares one
+  // session, so any one of them can ask for that server's invitations.
+  const signed_in_servers: SignedInServer[] = distinctServers(
+    profiles.filter((p) => p.signed_in),
+  ).map((p) => ({ profileId: p.id, url: p.url, label: serverLabel(p) }));
+  // A server where the person may create an organization right now, from the
+  // `me` the session already holds (the server checks again on create).
+  const creatable = signed_in_servers.filter((s) => {
+    const sess = Object.values(serverSessions).find(
+      (x) => x.profile.url === s.url,
+    );
+    return sess?.me.can_create_org === true;
+  });
+  const pending_count = signed_in_servers.reduce(
+    (n, s) => n + (invites[s.url]?.length ?? 0),
+    0,
+  );
+
+  async function refreshInvites(servers: SignedInServer[]) {
+    const next: Record<string, PendingInvite[]> = {};
+    await Promise.all(
+      servers.map(async (s) => {
+        try {
+          next[s.url] = await serversMyInvites(s.profileId);
+        } catch {
+          // Offline or signed out: no count for this server.
+          next[s.url] = [];
+        }
+      }),
+    );
+    setInvites(next);
+  }
+
+  // Reload the counts when the set of signed in servers changes.
+  const server_key = signed_in_servers.map((s) => s.url).join("|");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on change
+    void refreshInvites(signed_in_servers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on server_key
+  }, [server_key]);
 
   useEffect(() => {
     // Async fetch — setState only fires after the IPC round trip resolves.
@@ -198,7 +263,15 @@ export function ServerMenu() {
                     try {
                       if (session) await disconnectServer(p.id);
                       else await connectServer(p.id);
+                      setNoAccess((set) => {
+                        const next = new Set(set);
+                        next.delete(p.id);
+                        return next;
+                      });
                     } catch (e) {
+                      if (isNoOrgAccess(e)) {
+                        setNoAccess((set) => new Set(set).add(p.id));
+                      }
                       pushNotification({
                         kind: "error",
                         title: "Server connection failed",
@@ -208,7 +281,9 @@ export function ServerMenu() {
                     void refresh();
                   }}
                 >
-                  {!p.signed_in ? (
+                  {no_access.has(p.id) ? (
+                    <Ban className="text-muted-foreground size-3.5" />
+                  ) : !p.signed_in ? (
                     <KeyRound className="text-muted-foreground size-3.5" />
                   ) : session ? (
                     <LogOut className="text-muted-foreground size-3.5" />
@@ -218,7 +293,7 @@ export function ServerMenu() {
                   <span className="flex-1 truncate">{p.name}</span>
                   <span
                     className={
-                      !p.signed_in
+                      no_access.has(p.id) || !p.signed_in
                         ? "text-3xs font-medium text-amber-600"
                         : session
                           ? "text-3xs font-medium text-emerald-600"
@@ -227,11 +302,13 @@ export function ServerMenu() {
                   >
                     {serverBusy
                       ? "…"
-                      : !p.signed_in
-                        ? "sign in again"
-                        : session
-                          ? "connected"
-                          : "connect"}
+                      : no_access.has(p.id)
+                        ? "no longer has access"
+                        : !p.signed_in
+                          ? "sign in again"
+                          : session
+                            ? "connected"
+                            : "connect"}
                   </span>
                   <button
                     aria-label={`Remove ${p.name}`}
@@ -264,6 +341,27 @@ export function ServerMenu() {
                 <LogOut className="size-3.5" /> Sign out · {serverLabel(p)}
               </DropdownMenuItem>
             ))}
+          {signed_in_servers.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setInvitesOpen(true)}>
+                <Mail className="size-3.5" /> Invitations
+                {pending_count > 0 && (
+                  <span
+                    aria-label={`${pending_count} pending`}
+                    className="bg-primary text-primary-foreground text-3xs ml-auto rounded-full px-1.5 py-0.5 font-medium"
+                  >
+                    {pending_count}
+                  </span>
+                )}
+              </DropdownMenuItem>
+              {creatable.length > 0 && (
+                <DropdownMenuItem onClick={() => setNewOrgFor(creatable[0])}>
+                  <Building2 className="size-3.5" /> New organization…
+                </DropdownMenuItem>
+              )}
+            </>
+          )}
           {!WEB && (
             <>
               <DropdownMenuSeparator />
@@ -284,6 +382,20 @@ export function ServerMenu() {
           else await connectServer(p.id);
           void refresh();
         }}
+      />
+
+      <InvitationsDialog
+        open={invitesOpen}
+        onOpenChange={setInvitesOpen}
+        servers={signed_in_servers}
+        invites={invites}
+        onChanged={() => void refreshInvites(signed_in_servers)}
+      />
+
+      <NewOrgDialog
+        open={newOrgFor !== null}
+        onOpenChange={(v) => !v && setNewOrgFor(null)}
+        server={newOrgFor}
       />
 
       <AddServerDialog

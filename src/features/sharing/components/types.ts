@@ -1,4 +1,9 @@
-export type { OrgMember, OrgInvite, OrgRole } from "@/shared/api/server-admin";
+export type { OrgMember, OrgRole } from "@/shared/api/server-admin";
+export type {
+  OrgEmailInvite,
+  OrgLink,
+  PendingInvite,
+} from "@/shared/api/server-invites";
 
 export interface ConnLite {
   id: string;

@@ -103,7 +103,7 @@ impl Store {
             return Err(AccessError::Forbidden);
         }
         let now = now_ms();
-        let rows = sqlx::query(&format!("{INVITE_SELECT} ORDER BY i.created_ms DESC, i.id"))
+        let rows = sqlx::query(&format!("{INVITE_SELECT} WHERE i.org_id IS NULL ORDER BY i.created_ms DESC, i.id"))
             .fetch_all(&self.pool)
             .await
             .map_err(sqlx_err)?;
@@ -116,7 +116,7 @@ impl Store {
             return Err(AccessError::Forbidden);
         }
         let mut tx = self.pool.begin().await.map_err(sqlx_err)?;
-        let row = sqlx::query("SELECT email, used_ms FROM server_invites WHERE id=$1 FOR UPDATE")
+        let row = sqlx::query("SELECT email, used_ms FROM server_invites WHERE id=$1 AND org_id IS NULL FOR UPDATE")
             .bind(invite_id)
             .fetch_optional(&mut *tx)
             .await

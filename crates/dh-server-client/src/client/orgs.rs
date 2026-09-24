@@ -1,6 +1,6 @@
 use crate::gateway::ConnWithAccess;
 use crate::grants::Grant;
-use crate::orgs::{OrgInvite, OrgMember, OrgRole, Organization};
+use crate::orgs::{OrgEmailInvite, OrgLink, OrgMember, OrgRole, Organization, PendingInvite};
 use crate::store::AuditEntry;
 use crate::vault::{ConnInput, ConnMeta};
 use super::{MeResult, ServerClient};
@@ -55,31 +55,67 @@ impl ServerClient {
         self.empty(reqwest::Method::DELETE, &format!("/v1/orgs/{org_id}/members/{user_id}")).await
     }
 
-    pub async fn list_invites(&self, org_id: &str) -> Result<Vec<OrgInvite>, String> {
+    // ---- Email invites (spec 0011) -----------------------------------------
+    pub async fn list_org_invites(&self, org_id: &str) -> Result<Vec<OrgEmailInvite>, String> {
         self.get(&format!("/v1/orgs/{org_id}/invites")).await
     }
 
-    pub async fn create_invite(
+    /// `expires_days` is 1, 7 or 30, or `None` for never. A refreshed invite
+    /// comes back the same as a new one.
+    pub async fn create_org_invite(
         &self,
         org_id: &str,
+        email: &str,
         role: OrgRole,
-        max_uses: Option<i32>,
-        expires_ms: Option<i64>,
-    ) -> Result<OrgInvite, String> {
+        expires_days: Option<i64>,
+    ) -> Result<OrgEmailInvite, String> {
         self.send(
             reqwest::Method::POST,
             &format!("/v1/orgs/{org_id}/invites"),
-            serde_json::json!({ "role": role, "max_uses": max_uses, "expires_ms": expires_ms }),
+            serde_json::json!({ "email": email, "role": role, "expires_days": expires_days }),
         )
         .await
     }
 
-    pub async fn revoke_invite(&self, org_id: &str, code: &str) -> Result<(), String> {
-        self.empty(reqwest::Method::DELETE, &format!("/v1/orgs/{org_id}/invites/{code}")).await
+    pub async fn revoke_org_invite(&self, org_id: &str, invite_id: &str) -> Result<(), String> {
+        self.empty(reqwest::Method::DELETE, &format!("/v1/orgs/{org_id}/invites/{invite_id}")).await
     }
 
-    pub async fn redeem_invite(&self, code: &str) -> Result<Organization, String> {
-        self.send(reqwest::Method::POST, &format!("/v1/invites/{code}/redeem"), ()).await
+    /// The signed in person's own pending invites.
+    pub async fn my_invites(&self) -> Result<Vec<PendingInvite>, String> {
+        self.get("/v1/me/invites").await
+    }
+
+    pub async fn accept_invite(&self, invite_id: &str) -> Result<Organization, String> {
+        self.send(reqwest::Method::POST, &format!("/v1/me/invites/{invite_id}/accept"), ()).await
+    }
+
+    pub async fn decline_invite(&self, invite_id: &str) -> Result<(), String> {
+        self.empty(reqwest::Method::POST, &format!("/v1/me/invites/{invite_id}/decline")).await
+    }
+
+    // ---- Shareable links ------------------------------------------------------
+    pub async fn list_links(&self, org_id: &str) -> Result<Vec<OrgLink>, String> {
+        self.get(&format!("/v1/orgs/{org_id}/links")).await
+    }
+
+    /// `max_uses` is 1 to 100 and `expires_days` is 1, 7 or 30. The link
+    /// always grants the member role.
+    pub async fn create_link(&self, org_id: &str, max_uses: i32, expires_days: i64) -> Result<OrgLink, String> {
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/orgs/{org_id}/links"),
+            serde_json::json!({ "max_uses": max_uses, "expires_days": expires_days }),
+        )
+        .await
+    }
+
+    pub async fn revoke_link(&self, org_id: &str, code: &str) -> Result<(), String> {
+        self.empty(reqwest::Method::DELETE, &format!("/v1/orgs/{org_id}/links/{code}")).await
+    }
+
+    pub async fn redeem_link(&self, code: &str) -> Result<Organization, String> {
+        self.send(reqwest::Method::POST, &format!("/v1/links/{code}/redeem"), ()).await
     }
 
     pub async fn org_audit(&self, org_id: &str, limit: i64) -> Result<Vec<AuditEntry>, String> {

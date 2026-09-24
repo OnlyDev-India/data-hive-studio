@@ -216,6 +216,8 @@ pub(super) async fn auth_claim(State(gw): State<AppState>, headers: HeaderMap, J
 pub(super) struct MeResponse {
     #[serde(flatten)]
     pub(super) ctx: AuthCtx,
+    /// Whether `may_create_org` currently allows this person to create an org.
+    pub(super) can_create_org: bool,
     pub(super) orgs: Vec<MeOrg>,
 }
 
@@ -227,9 +229,14 @@ pub(super) struct MeOrg {
 }
 
 pub(super) async fn me(State(gw): State<AppState>, auth: Auth) -> Response {
+    let can_create_org = match gw.store.can_create_org(&auth.0).await {
+        Ok(v) => v,
+        Err(e) => return err_res(e),
+    };
     match gw.store.orgs_for_user(&auth.0.user_id).await {
         Ok(orgs) => Json(MeResponse {
             ctx: auth.0,
+            can_create_org,
             orgs: orgs.into_iter().map(|(org, role)| MeOrg { org, role }).collect(),
         })
         .into_response(),

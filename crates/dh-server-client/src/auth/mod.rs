@@ -19,7 +19,7 @@ pub use claim::{constant_time_eq, derive_setup_code, normalize_setup_code, Claim
 pub use invites::{invite_status, normalize_invite_email, Invite, InviteStatus, InviteWrite};
 pub use provider::{ProfileOutcome, VerifiedProfile};
 pub use devices::SessionInfo;
-pub use roles::{check_role_change, Account};
+pub use roles::{check_role_change, may_create_org, Account};
 pub use sessions::{clean_device_name, device_name_from_user_agent, AuthError, DeviceInfo, Issued, Platform};
 pub use tokens::{
     new_access_token, new_login_code, new_refresh_token, pkce_challenge, pkce_pair, valid_challenge, valid_verifier,
@@ -76,6 +76,10 @@ pub struct AuthCtx {
     pub name: String,
     pub server_role: ServerRole,
     pub can_manage_roles: bool,
+    /// The per admin "can create organizations" switch (spec 0011). Only an
+    /// admin can have it on.
+    #[serde(default)]
+    pub can_create_orgs: bool,
 }
 
 impl AuthCtx {
@@ -102,6 +106,7 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub server_role: ServerRole,
     pub can_manage_roles: bool,
+    pub can_create_orgs: bool,
     pub created_ms: i64,
 }
 
@@ -115,6 +120,7 @@ impl User {
             name: self.name.clone(),
             server_role: self.server_role,
             can_manage_roles: self.can_manage_roles,
+            can_create_orgs: self.can_create_orgs,
         }
     }
 }
@@ -139,6 +145,12 @@ pub enum AccessError {
     LastOwner,
     /// 409 `not_an_admin`: the switch only exists on an admin.
     NotAnAdmin,
+    /// 409 `already_member`: the invited email is already in the org.
+    AlreadyMember,
+    /// 409 `org_limit`: a non owner may create one organization, ever.
+    OrgLimit,
+    /// 409 `invite_expired`: the invite is past its expiry.
+    InviteExpired,
     /// 500.
     Other(String),
 }
@@ -156,6 +168,7 @@ mod tests {
             name: "U".into(),
             server_role: role,
             can_manage_roles: switch,
+            can_create_orgs: false,
         };
         let owner = ctx(ServerRole::Owner, false);
         assert!(owner.is_owner() && owner.can_invite() && owner.can_manage_accounts());
