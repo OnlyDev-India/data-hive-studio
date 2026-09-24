@@ -230,4 +230,93 @@ mod tests {
         );
         assert!(!out.contains("pw"));
     }
+
+    #[test]
+    fn scrub_hides_a_secret_that_contains_another_secret() {
+        // The SSH password comes first in the list, as `parse` builds it.
+        let out = scrub(
+            "auth failed for hunter2",
+            &["hunter".into(), "hunter2".into()],
+        );
+        assert!(!out.contains("hunter") && !out.contains('2'), "{out}");
+    }
+
+    #[test]
+    fn scrub_hides_every_occurrence_and_leaves_other_text_alone() {
+        assert_eq!(
+            scrub("pw then pw again", &["pw".into()]),
+            "*** then *** again"
+        );
+        assert_eq!(scrub("nothing here", &[]), "nothing here");
+    }
+
+    #[test]
+    fn a_body_that_is_not_an_object_is_invalid() {
+        for body in [json!([]), json!("postgres"), json!(null), json!(5)] {
+            assert!(matches!(parse(body, false), Err(ConnectError::Invalid(_))));
+        }
+    }
+
+    #[test]
+    fn a_kind_that_is_not_a_string_is_refused_as_the_kind_field() {
+        assert_eq!(refused(json!({"kind": 5})), "kind");
+        assert_eq!(refused(json!({"kind": "POSTGRES"})), "kind");
+    }
+
+    #[test]
+    fn mongodb_refuses_ssl_files_too() {
+        let v = json!({"kind":"mongodb","host":"h","user":"u","ssl_client_key_file":"/k.pem"});
+        assert_eq!(refused(v), "ssl_client_key_file");
+    }
+
+    #[test]
+    fn an_ssh_key_file_that_is_empty_is_ignored() {
+        let mut v = pg();
+        v["ssh"] = json!({"host":"jump","port":22,"user":"me","key_file":"","key_passphrase":null});
+        v["ssh_password"] = json!("sshpw");
+        assert!(parse(v, false).is_ok());
+    }
+
+    #[test]
+    fn password_as_the_ssh_auth_mode_is_accepted() {
+        let mut v = pg();
+        v["ssh"] = json!({"host":"jump","port":22,"user":"me","auth_mode":"password"});
+        assert!(parse(v, false).is_ok());
+    }
+
+    #[test]
+    fn an_ssh_password_with_no_ssh_block_is_dropped_but_still_scrubbed() {
+        let mut v = pg();
+        v["ssh_password"] = json!("orphan");
+        let (Params::Postgres(p), secrets) = parse(v, false).unwrap() else {
+            panic!()
+        };
+        assert!(p.ssh.is_none());
+        assert!(secrets.contains(&"orphan".to_string()));
+    }
+
+    #[test]
+    fn an_empty_password_is_not_a_secret_to_scrub() {
+        let mut v = pg();
+        v["password"] = json!("");
+        let (_, secrets) = parse(v, false).unwrap();
+        assert!(secrets.is_empty(), "{secrets:?}");
+    }
+
+    #[test]
+    fn read_only_stays_off_when_neither_the_server_nor_the_request_asks() {
+        let (Params::Postgres(p), _) = parse(pg(), false).unwrap() else {
+            panic!()
+        };
+        assert!(!p.guard.read_only);
+    }
+
+    #[test]
+    fn the_server_switch_locks_mongodb_too() {
+        let m = json!({"kind":"mongodb","host":"h","user":"u","password":"pw","database":"d"});
+        let (Params::Mongodb(p), _) = parse(m, true).unwrap() else {
+            panic!()
+        };
+        assert!(p.guard.read_only);
+    }
 }

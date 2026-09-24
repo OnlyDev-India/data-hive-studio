@@ -114,6 +114,14 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ disconnectPendingId: id });
         },
 
+        importTarget: null,
+        openImport(target) {
+          set({ importTarget: target });
+        },
+        closeImport() {
+          set({ importTarget: null });
+        },
+
         updateInfo: null,
         setUpdateInfo(info) {
           set((s) => ({
@@ -326,7 +334,10 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               // saved connection asked for it (spec 0010, AC-4).
               const saved = WEB
                 ? Object.fromEntries(
-                    Object.entries(next).map(([id, p]) => [id, withoutSecrets(p)]),
+                    Object.entries(next).map(([id, p]) => [
+                      id,
+                      withoutSecrets(p),
+                    ]),
                   )
                 : next;
               localStorage.setItem("pg.recents", JSON.stringify(saved));

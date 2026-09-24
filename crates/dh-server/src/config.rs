@@ -148,4 +148,93 @@ mod tests {
         );
         assert_eq!(cfg(&[]).public_host(), None);
     }
+
+    #[test]
+    fn dh_bind_wins_over_port() {
+        let c = cfg(&[("DH_BIND", "127.0.0.1:7000"), ("PORT", "9000")]);
+        assert_eq!(c.bind, "127.0.0.1:7000");
+    }
+
+    #[test]
+    fn an_empty_variable_counts_as_unset() {
+        let c = cfg(&[("DH_BIND", ""), ("PORT", "9000"), ("DH_ACCESS_KEY", ""), ("DH_STATIC_DIR", "")]);
+        assert_eq!(c.bind, "0.0.0.0:9000");
+        assert_eq!(c.access_key, None);
+        assert_eq!(c.static_dir, None);
+    }
+
+    #[test]
+    fn read_only_is_on_only_for_1_or_true_in_any_case() {
+        for on in ["1", "true", "TRUE", "True"] {
+            assert!(cfg(&[("DH_READ_ONLY", on)]).read_only, "{on}");
+        }
+        for off in ["0", "false", "yes", "on", "2"] {
+            assert!(!cfg(&[("DH_READ_ONLY", off)]).read_only, "{off}");
+        }
+        assert!(!cfg(&[]).read_only);
+    }
+
+    #[test]
+    fn only_a_loopback_address_counts_as_loopback() {
+        for (bind, loopback) in [
+            ("127.0.0.1:80", true),
+            ("[::1]:80", true),
+            ("0.0.0.0:80", false),
+            ("192.168.1.5:80", false),
+            // A name cannot be checked, so it is treated as reachable.
+            ("localhost:8080", false),
+            ("not an address", false),
+        ] {
+            let c = cfg(&[("DH_BIND", bind)]);
+            assert_eq!(c.binds_loopback(), loopback, "{bind}");
+        }
+    }
+
+    #[test]
+    fn the_open_bind_warning_names_the_address_and_the_key_variable() {
+        let w = cfg(&[("DH_BIND", "0.0.0.0:8080")]).warnings(|_| false);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("0.0.0.0:8080") && w[0].contains("DH_ACCESS_KEY"));
+    }
+
+    #[test]
+    fn an_open_bind_with_retired_variables_gives_both_warnings() {
+        let c = cfg(&[("PORT", "9000")]);
+        assert_eq!(c.warnings(|v| v == "DH_DATABASE_URL").len(), 2);
+    }
+
+    #[test]
+    fn retired_variables_alone_on_loopback_give_one_note_and_no_bind_warning() {
+        let w = cfg(&[]).warnings(|v| v == "GOOGLE_CLIENT_SECRET");
+        assert_eq!(w.len(), 1);
+        assert!(w[0].starts_with("note:") && w[0].contains("GOOGLE_CLIENT_SECRET"));
+    }
+
+    #[test]
+    fn the_public_host_ignores_scheme_userinfo_path_and_port() {
+        for (url, host) in [
+            ("https://user:pw@db.example.com/x?y#z", "db.example.com"),
+            ("db.example.com:8080", "db.example.com"),
+            ("http://[::1]:9000/", "[::1]"),
+        ] {
+            let c = Config {
+                public_url: Some(url.into()),
+                ..Default::default()
+            };
+            assert_eq!(c.public_host().as_deref(), Some(host), "{url}");
+        }
+        let empty = Config {
+            public_url: Some(String::new()),
+            ..Default::default()
+        };
+        assert_eq!(empty.public_host(), None);
+    }
+
+    #[test]
+    fn host_of_lowers_case_and_drops_the_port() {
+        assert_eq!(host_of("LocalHost:80"), "localhost");
+        assert_eq!(host_of("  [::1]:8080 "), "[::1]");
+        assert_eq!(host_of("example.com"), "example.com");
+        assert_eq!(host_of(""), "");
+    }
 }

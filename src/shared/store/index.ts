@@ -5,6 +5,7 @@ export {
   type StudioView,
   type WorkspaceTabs,
   type GridBridge,
+  type ImportTarget,
   type JsonRow,
   type SchemaEditHandle,
   type SchemaPaneHandle,

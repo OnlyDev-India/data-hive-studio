@@ -443,3 +443,60 @@ export interface ExportPayload {
   /** Declared column types ("INTEGER", "BOOLEAN", …) for typed output. */
   types?: Record<string, string>;
 }
+
+// ---- Import (spec 0008) ----------------------------------------------------
+// Mirrors `crates/dh-core/src/api/common/import.rs`.
+
+/** A parsed, mapped cell. JSON null is SQL NULL. */
+export type ImportCell = string | number | boolean | null | object;
+
+/** What to do when some rows fail: commit nothing, or commit the good rows. */
+export type ImportOnError = "rollback" | "skip";
+
+export type ImportData =
+  | { kind: "rows"; columns: string[]; rows: ImportCell[][] }
+  | { kind: "docs"; docs: Record<string, unknown>[] };
+
+export interface ImportRequest {
+  table: string;
+  /** One `CREATE TABLE`, run first inside the import transaction. */
+  create_sql?: string | null;
+  data: ImportData;
+  on_error: ImportOnError;
+  /** Run everything, then always roll back (the Check button). */
+  dry_run: boolean;
+  run_id?: string | null;
+  /** The file name, only for the activity log text. */
+  source_label?: string | null;
+}
+
+/** One row that did not load. `index` is its position in the rows sent. */
+export interface RowFailure {
+  index: number;
+  column?: string | null;
+  message: string;
+}
+
+/** What an import can promise: whether a rollback undoes everything. */
+export interface ImportCapabilities {
+  atomic: boolean;
+}
+
+/** How far a local import has got, sent between batches. */
+export interface ImportProgress {
+  done: number;
+  total: number;
+}
+
+export interface ImportReport {
+  /** Rows that loaded (or, on a rolled back run, would have loaded). */
+  inserted: number;
+  failed: RowFailure[];
+  failed_total: number;
+  failed_truncated: boolean;
+  committed: boolean;
+  atomic: boolean;
+  cancelled: boolean;
+  dry_run: boolean;
+  statements: string[];
+}

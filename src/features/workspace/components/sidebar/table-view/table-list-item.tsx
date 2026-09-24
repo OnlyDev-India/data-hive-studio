@@ -3,6 +3,7 @@ import {
   CopyPlus,
   Eye,
   RefreshCw,
+  Upload,
   ShieldCheck,
   Table as TableIcon,
   Trash2,
@@ -36,6 +37,7 @@ export function TableListItem({
   on_view_structure,
   on_copy,
   on_duplicate,
+  on_import,
   on_drop,
   on_refresh_matview,
   on_view_grants,
@@ -54,6 +56,7 @@ export function TableListItem({
   on_view_grants?: () => void;
   on_copy?: () => void;
   on_duplicate?: () => void;
+  on_import?: () => void;
   on_drop?: () => void;
   on_refresh_matview?: () => void;
 }) {
@@ -116,6 +119,16 @@ export function TableListItem({
           >
             <CopyPlus className="text-muted-foreground size-4" />
             Duplicate {noun}
+          </ContextMenuItem>
+        )}
+        {on_import && (is_mongo || kind === "table") && (
+          <ContextMenuItem
+            onSelect={on_import}
+            disabled={disabled || read_only}
+            title={read_only ? READ_ONLY_TITLE : undefined}
+          >
+            <Upload className="text-muted-foreground size-4" />
+            Import into {noun}…
           </ContextMenuItem>
         )}
         {(kind === "matview" || kind === "materialized_view") &&

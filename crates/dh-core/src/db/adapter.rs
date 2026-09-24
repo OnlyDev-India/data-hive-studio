@@ -4,6 +4,9 @@ use async_trait::async_trait;
 use crate::api::{
     FieldShape,
     MongoRunResult,
+    ImportCapabilities,
+    ImportReport,
+    ImportRequest,
     QueryOp,
     QueryResult,
     SchemaOp,
@@ -111,6 +114,26 @@ pub trait DbAdapter: Send + Sync {
         Err(DbError::InvalidOperation(
             "duplicate table is not supported by this adapter".into(),
         ))
+    }
+    /// Write an import (spec 0008) in ONE transaction and report every bad
+    /// row. `database`/`schema` as in `table_schema`. Refused on a read only
+    /// connection.
+    async fn import_rows(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        request: &ImportRequest,
+    ) -> DbResult<ImportReport> {
+        let _ = (database, schema, request);
+        Err(DbError::InvalidOperation(
+            "import is not supported by this adapter".into(),
+        ))
+    }
+    /// What an import into this connection can promise (spec 0008). SQL
+    /// adapters always roll back cleanly; Mongo asks the server.
+    async fn import_capabilities(&self, database: Option<&str>) -> DbResult<ImportCapabilities> {
+        let _ = database;
+        Ok(ImportCapabilities { atomic: true })
     }
     /// Refresh a materialized view (Postgres). See `table_schema`'s doc
     /// comment for `database`/`schema` semantics.

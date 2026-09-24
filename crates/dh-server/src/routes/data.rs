@@ -1,5 +1,7 @@
 use super::{json_or, Live, Shared};
-use crate::bodies::{DuplicateBody, ExecuteOpBody, SchemaOpsBody, SqlBody};
+use crate::bodies::{
+    DuplicateBody, ExecuteOpBody, ImportBody, ImportCapabilitiesBody, SchemaOpsBody, SqlBody,
+};
 use axum::extract::State;
 use axum::response::Response;
 use axum::Json;
@@ -80,4 +82,28 @@ pub(super) async fn duplicate(
         )
         .await,
     )
+}
+
+/// The one route with a body limit above the default (see `IMPORT_BODY_LIMIT`
+/// in the router): an import carries the whole file's rows.
+pub(super) async fn import(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<ImportBody>,
+) -> Response {
+    if let Err(r) = st.refuse_writes() {
+        return r;
+    }
+    json_or(
+        a.import_rows(b.database.as_deref(), b.schema.as_deref(), &b.request)
+            .await,
+    )
+}
+
+/// Writes nothing, so it is allowed on a read only server.
+pub(super) async fn import_capabilities(
+    Live(a): Live,
+    Json(b): Json<ImportCapabilitiesBody>,
+) -> Response {
+    json_or(a.import_capabilities(b.database.as_deref()).await)
 }

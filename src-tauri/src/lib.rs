@@ -195,6 +195,8 @@ pub fn run() {
       commands::cancel_run,
       commands::save_database,
       commands::duplicate_table,
+      commands::import_rows,
+      commands::import_capabilities,
       commands::apply_schema_ops,
       commands::read_file,
       commands::write_file,

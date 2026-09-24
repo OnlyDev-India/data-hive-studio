@@ -2,6 +2,7 @@ mod connection;
 mod schema;
 mod query;
 mod schema_ops;
+mod import;
 
 pub use connection::{DbKind, ConnGuard, ENV_COLOR_KEYS, ENV_LABEL_MAX_CHARS, ConnectionInfo};
 pub use schema::{
@@ -16,3 +17,13 @@ pub use schema::{
 };
 pub use query::{QueryResult, QueryChunk, FilterOp, GridFilterCond, OrderByCond, QueryOp};
 pub use schema_ops::{DefaultMode, SchemaOp};
+pub use import::{
+    ImportCapabilities,
+    ImportData,
+    ImportOnError,
+    ImportProgress,
+    ImportReport,
+    ImportRequest,
+    RowFailure,
+    MAX_KEPT_FAILURES,
+};

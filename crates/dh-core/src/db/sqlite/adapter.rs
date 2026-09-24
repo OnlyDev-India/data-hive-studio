@@ -1,4 +1,4 @@
-use crate::api::{QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use std::sync::Arc;
 use crate::db::read_only::Dialect;
 use crate::db::{BatchSink, DbAdapter, DbResult, RunHandle};
@@ -14,6 +14,14 @@ impl DbAdapter for SqliteAdapter {
         SqliteAdapter::list_tables(self).await
     }
     // SQLite has exactly one implicit schema and one database per connection.
+    async fn import_rows(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        request: &ImportRequest,
+    ) -> DbResult<ImportReport> {
+        SqliteAdapter::import_rows(self, request).await
+    }
     async fn list_schemas(&self) -> DbResult<Vec<String>> {
         Ok(vec!["main".to_string()])
     }

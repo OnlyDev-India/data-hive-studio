@@ -125,4 +125,48 @@ mod tests {
             assert!(!host_allowed(&cfg, bad), "{bad}");
         }
     }
+
+    #[test]
+    fn host_check_allows_only_loopback_when_no_public_url_is_set() {
+        let cfg = Config::default();
+        assert!(host_allowed(&cfg, "localhost:8080"));
+        for bad in ["db.example.com", "localhost.evil.example", "localhost@evil.example"] {
+            assert!(!host_allowed(&cfg, bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_origin_is_own_when_it_names_the_host_and_port_the_request_went_to() {
+        let cfg = Config::default();
+        assert!(origin_is_own(&cfg, "http://localhost:8080", "localhost:8080"));
+        assert!(origin_is_own(&cfg, "HTTP://LOCALHOST:8080/", "localhost:8080"));
+        assert!(!origin_is_own(&cfg, "http://localhost:9999", "localhost:8080"));
+        assert!(!origin_is_own(&cfg, "http://evil.example", "localhost:8080"));
+    }
+
+    #[test]
+    fn an_origin_that_is_missing_or_not_a_url_is_never_own() {
+        let cfg = Config::default();
+        for bad in ["", "null", "localhost:8080", "http://"] {
+            assert!(!origin_is_own(&cfg, bad, "localhost:8080"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_public_address_is_an_own_origin_behind_a_proxy() {
+        let cfg = Config {
+            public_url: Some("https://db.example.com/".into()),
+            ..Default::default()
+        };
+        // A reverse proxy may forward a Host that differs from the public one.
+        assert!(origin_is_own(&cfg, "https://db.example.com", "localhost:8080"));
+        assert!(!origin_is_own(&cfg, "https://other.example.com", "localhost:8080"));
+    }
+
+    #[test]
+    fn a_key_compare_does_not_care_about_length_or_content_shape() {
+        assert!(keys_match("", ""));
+        assert!(!keys_match("a", "A"));
+        assert!(!keys_match("secret", &"secret".repeat(1000)));
+    }
 }
