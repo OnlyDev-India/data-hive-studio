@@ -345,7 +345,8 @@ export interface LandingEditTarget {
 /** Where an import lands. `database`/`schema` omitted = the connection's own. */
 export interface ImportTarget {
   connId: string;
-  table: string;
+  /** Omitted when opened from the activity bar: only a new table is offered. */
+  table?: string;
   database?: string;
   schema?: string;
   /** Called after a committed import so the open grid can reload. */

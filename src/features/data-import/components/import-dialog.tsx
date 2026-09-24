@@ -73,11 +73,13 @@ function ImportBody({ target }: { target: ImportTarget }) {
   // table on another connection can trigger it too.
   const stagedEdits = useStudioStore((s) =>
     Object.values(s.gridBridges).some(
-      (b) => b?.pending_exists && b.table === target.table,
+      (b) => !!target.table && b?.pending_exists && b.table === target.table,
     ),
   );
   const writeConfirm = useWriteConfirm(target.connId);
 
+  // No table = opened from the activity bar, so the only choice is a new one.
+  const existingTable = target.table;
   const documents = isDocumentDb(db);
   const noun = documents ? "collection" : "table";
   // Whether a rollback undoes an import here. Null until Mongo answers.
@@ -88,7 +90,9 @@ function ImportBody({ target }: { target: ImportTarget }) {
   const [parsed, setParsed] = useState<ParsedFile | null>(null);
   const [existingColumns, setExistingColumns] = useState<ColumnInfo[]>([]);
   const [existingMapping, setExistingMapping] = useState<Mapping>({});
-  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [mode, setMode] = useState<"existing" | "new">(
+    target.table ? "existing" : "new",
+  );
   const [newName, setNewName] = useState("");
   const [newCols, setNewCols] = useState<NewColumn[]>([]);
   const [tables, setTables] = useState<string[]>([]);
@@ -104,9 +108,11 @@ function ImportBody({ target }: { target: ImportTarget }) {
 
   useEffect(() => {
     let live = true;
-    tableSchema(target.connId, target.table, target.database, target.schema)
-      .then((s) => live && setExistingColumns(s.columns))
-      .catch((e: unknown) => live && setError(errorText(e)));
+    if (target.table) {
+      tableSchema(target.connId, target.table, target.database, target.schema)
+        .then((s) => live && setExistingColumns(s.columns))
+        .catch((e: unknown) => live && setError(errorText(e)));
+    }
     // Names already taken, for the new table check. Only the connection's own
     // schema is listed, so a table in another schema is caught by the database.
     if (!target.schema) {
@@ -162,7 +168,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
     if (
       !dryRun &&
       !(await writeConfirm.confirm_write(
-        `Import ${parsed.rows.length.toLocaleString()} rows into ${isNew ? newName.trim() : target.table}`,
+        `Import ${parsed.rows.length.toLocaleString()} rows into ${isNew ? newName.trim() : existingTable}`,
         "These rows will be written to the database.",
       ))
     ) {
@@ -176,7 +182,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
     try {
       const ctx = makeContext(parsed, mapping, columns, db, emptyAsText, isNew);
       const prep = prepare({
-        table: isNew ? newName.trim() : target.table,
+        table: isNew ? newName.trim() : (existingTable ?? ""),
         createSql: isNew
           ? buildCreateSql(newName.trim(), newCols, db)
           : undefined,
@@ -206,7 +212,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
           kind: "success",
           title: isNew
             ? `Created ${newName.trim()} with ${merged.inserted.toLocaleString()} ${documents ? "documents" : "rows"}`
-            : `Imported ${merged.inserted.toLocaleString()} rows into ${target.table}`,
+            : `Imported ${merged.inserted.toLocaleString()} rows into ${existingTable}`,
         });
       }
     } catch (e) {
@@ -246,12 +252,14 @@ function ImportBody({ target }: { target: ImportTarget }) {
   return (
     <>
       <Dialog open onOpenChange={(open) => !open && !busy && close()}>
-        <DialogContent className="sm:max-w-3xl">
+        {/* One `minmax(0, 1fr)` column so a wide preview scrolls inside its own
+            box instead of stretching the grid (and the dialog) sideways. */}
+        <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>
               {isNew
                 ? `Import into a new ${noun}`
-                : `Import into ${target.table}`}
+                : `Import into ${existingTable}`}
             </DialogTitle>
             <DialogDescription>
               {step === "choose" &&
@@ -293,7 +301,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
           />
 
           {step === "map" && parsed && file && (
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               <FileOptions
                 parsed={parsed}
                 opts={opts}
@@ -311,21 +319,23 @@ function ImportBody({ target }: { target: ImportTarget }) {
                   collection. The result tells you how many landed.
                 </p>
               )}
-              <div className="flex gap-4 text-sm">
-                {(["existing", "new"] as const).map((m) => (
-                  <label key={m} className="flex items-center gap-1.5">
-                    <input
-                      type="radio"
-                      name="import-mode"
-                      checked={mode === m}
-                      onChange={() => setMode(m)}
-                    />
-                    {m === "existing"
-                      ? `Into ${target.table}`
-                      : `Into a new ${noun}`}
-                  </label>
-                ))}
-              </div>
+              {existingTable && (
+                <div className="flex gap-4 text-sm">
+                  {(["existing", "new"] as const).map((m) => (
+                    <label key={m} className="flex items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name="import-mode"
+                        checked={mode === m}
+                        onChange={() => setMode(m)}
+                      />
+                      {m === "existing"
+                        ? `Into ${existingTable}`
+                        : `Into a new ${noun}`}
+                    </label>
+                  ))}
+                </div>
+              )}
               {isNew ? (
                 <NewTableForm
                   name={newName}

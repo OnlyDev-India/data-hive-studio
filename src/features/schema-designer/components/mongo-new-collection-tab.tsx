@@ -11,7 +11,7 @@ import {
 } from "@/shared/components/ui/select";
 import { useStudioStore } from "@/shared/store";
 import { Button } from "@/shared/components/ui";
-import { SquareArrowOutUpRight } from "lucide-react";
+import { SquareArrowOutUpRight, Upload } from "lucide-react";
 import { QueryEditor } from "@/features/query-editor";
 
 interface MongoNewCollectionTabProps {
@@ -51,6 +51,10 @@ export function MongoNewCollectionTab({
   const setNewTable = useStudioStore((s) => s.setNewTable);
   const clearNewTable = useStudioStore((s) => s.clearNewTable);
   const openMongoConsole = useStudioStore((s) => s.openMongoConsole);
+  const openImport = useStudioStore((s) => s.openImport);
+  const read_only = useStudioStore(
+    (s) => !!s.open.find((c) => c.id === conn_id)?.read_only,
+  );
 
   // Defaults to the connection's own active database, same as before this
   // became a real picker — Mongo connections can span several databases
@@ -177,6 +181,28 @@ export function MongoNewCollectionTab({
               </SelectGroup>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-end">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={read_only}
+            title={
+              read_only
+                ? "Read only connection: import is refused"
+                : "Create a collection from a CSV, JSON or Excel file"
+            }
+            onClick={() =>
+              openImport({
+                connId: conn_id,
+                database: target_database,
+                onImported: on_modified,
+              })
+            }
+          >
+            <Upload className="size-3.5" />
+            Import file
+          </Button>
         </div>
       </div>
 
