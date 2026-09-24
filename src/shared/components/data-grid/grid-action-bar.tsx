@@ -212,7 +212,7 @@ export function GridActionBar({
         <GridToolbarButton
           icon={bridge.loading ? Loader2 : Check}
           label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
-          className={cn("bg-primary hover:bg-primary/70 rounded-r-none")}
+          className={cn("bg-primary hover:bg-primary/70 rounded-r-none text-primary-foreground")}
           iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
           disabled={!bridge.pending_exists || bridge.loading}
           onClick={() => setApplyChanges(bridge.get_pending_changes())}

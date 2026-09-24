@@ -17,7 +17,6 @@ import { ShortcutsSection } from "./shortcuts-section";
 import { SqlFormatSection } from "./sql-format-section";
 import { AboutSection } from "./about";
 import { Button } from "@/shared/components/ui";
-import { useTheme } from "@/shared/theme/theme";
 
 type SectionId =
   "appearance" | "command-palette" | "shortcuts" | "sql-format" | "about";
@@ -44,8 +43,6 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [section, setSection] = useState<SectionId>("appearance");
-  const { accent, dark } = useTheme();
-  const isGraphite = accent === "graphite";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -72,9 +69,8 @@ export function SettingsDialog({
                     className={cn(
                       "flex w-full shrink-0 items-center justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                       section === id
-                        ? "bg-primary hover:bg-primary/60 font-medium text-white"
-                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                      section === id && isGraphite && dark && "text-black",
+                        ? "bg-primary hover:bg-primary/60 font-medium text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     )}
                   >
                     <Icon className="size-4" />
