@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::api::{QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use crate::db::{
     BatchSink,
     DbAdapter,
@@ -29,6 +29,15 @@ impl DbAdapter for PgAdapter {
 
     async fn list_schemas(&self) -> DbResult<Vec<String>> {
         PgAdapter::list_schemas(self).await
+    }
+
+    async fn import_rows(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        request: &ImportRequest,
+    ) -> DbResult<ImportReport> {
+        PgAdapter::import_rows(self, database, schema, request).await
     }
 
     async fn list_databases(&self) -> DbResult<Vec<String>> {

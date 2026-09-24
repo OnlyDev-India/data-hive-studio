@@ -33,11 +33,11 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 10  | Stop a running query                        | Slice 10 | in-progress |
 | 11  | Read only and environment labels            | Slice 11 | in-progress |
 | 12  | Import data                                 | Slice 12 | in-progress |
-| 13  | Explain plan viewer                         | Slice 13 | planned     |
+| 13  | Explain plan viewer                         | Slice 13 | in-progress |
 | 14  | Saved queries and snippets                  | Slice 14 | planned     |
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
 | 16  | ER diagram                                  | Slice 16 | planned     |
-| 17  | Streaming results for Postgres and MongoDB  | Slice 17 | planned     |
+| 17  | Streaming results for Postgres and MongoDB  | Slice 17 | in-progress |
 | 28  | Split server only code into its own crate   | Slice 28 | in-progress |
 | 29  | Strip the server to a bare no login proxy   | Slice 29 | in-progress |
 
@@ -184,15 +184,15 @@ code in `src/features/connections`, `src/features/query-editor/lib/dangerous-sql
 Export is covered in five formats, but you cannot bring data back in. Add import: pick a CSV or JSON file (Excel too if it stays cheap), map its columns to a table's columns or a collection's fields, preview what will be written, and load it. Import writes many rows at once, so the design pass settles how it runs (one transaction or in batches), how bad rows are reported, and how it works for Mongo.
 **Done when:** you can import a CSV or JSON file into an existing table or collection with a preview and column mapping, see which rows failed and why, and a failed import does not leave a half written table on the databases that support a transaction.
 spec [0008](../specs/0008-import-data/index.md)
-code in `src/features/data-export`
+code in `src/features/data-import`, `src/features/data-export`, `crates/dh-core/src/db/import.rs`
 
 - [x] Design it (spec): `/architect import data`
-- [ ] Build it: `/develop import data`
-  - [ ] Thread on SQLite, local: Rust request and report types, SQLite writer with savepoint batches, local command, dialog with CSV and automatic mapping, Roll back mode, Import button in the action bar — satisfies AC-1, AC-2, AC-3, AC-8, AC-9, AC-13, AC-14, AC-18
-  - [ ] Mapping, checks, reports and formats: full mapping and preview, type checks, Skip and Check, error list and failed rows CSV, encoding, JSON, JSON Lines and Excel — satisfies AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-10, AC-11, AC-15
-  - [ ] PostgreSQL and new table: Postgres writer with casts and savepoints, then create a table from the file inside the same transaction — satisfies AC-5, AC-8, AC-9, AC-12, AC-14
-  - [ ] MongoDB: document path, transaction when the server supports it, not atomic warning, Check disabled on a standalone server, `_id` rules — satisfies AC-6, AC-9, AC-10, AC-19
-  - [ ] Web, cancel and guards: gateway route with the larger body limit, spinner, local progress and Cancel, sidebar entry, read only and Production confirm — satisfies AC-1, AC-13, AC-16, AC-17, AC-20 (the audit and Member role parts are dropped, the server has no accounts for now, see slice 29)
+- [x] Build it: `/develop import data`
+  - [x] Thread on SQLite, local: Rust request and report types, SQLite writer with savepoint batches, local command, dialog with CSV and automatic mapping, Roll back mode, Import button in the action bar — satisfies AC-1, AC-2, AC-3, AC-8, AC-9, AC-13, AC-14, AC-18
+  - [x] Mapping, checks, reports and formats: full mapping and preview, type checks, Skip and Check, error list and failed rows CSV, encoding, JSON, JSON Lines and Excel — satisfies AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-10, AC-11, AC-15
+  - [x] PostgreSQL and new table: Postgres writer with casts and savepoints, then create a table from the file inside the same transaction — satisfies AC-5, AC-8, AC-9, AC-12, AC-14
+  - [x] MongoDB: document path, transaction when the server supports it, not atomic warning, Check disabled on a standalone server, `_id` rules — satisfies AC-6, AC-9, AC-10, AC-19
+  - [x] Web, cancel and guards: gateway route with the larger body limit, spinner, local progress and Cancel, sidebar entry, read only and Production confirm — satisfies AC-1, AC-13, AC-16, AC-17, AC-20 (the audit and Member role parts are dropped, the server has no accounts for now, see slice 29)
 - [ ] Verify it: `/check verify import data`
 - [ ] Test it: `/test import data`
 - [ ] Review it (fresh model): `/check review import data`
@@ -204,13 +204,22 @@ code in `src/features/data-export`
 
 
 
-### 13. Explain plan viewer · needs a decision
+### 13. Explain plan viewer · in-progress
 
 There is no way to see how a query will run, which is the first thing you need when a query is slow. Add an Explain action in the editor that runs the database's explain for the current statement and shows the plan in a readable view (a tree with costs and row counts where the database gives them). The design pass settles which databases and which plan formats are covered first, and how Mongo's explain fits the same view.
 **Done when:** choosing Explain on a statement in the editor opens a readable plan for it, without running the statement's changes, on PostgreSQL and SQLite, with Mongo covered or clearly marked as a later step.
+spec [0011](../specs/0011-explain-plan-viewer/index.md)
 code in `src/features/query-editor/components/editor-run-toolbar.tsx`
 
-- [ ] Design it (spec): `/architect explain plan viewer`
+- [x] Design it (spec): `/architect explain plan viewer`
+- [ ] Build it: `/develop explain plan viewer`
+  - [ ] Thread on SQLite and PostgreSQL: plan types, Rust parsers, Explain button, Plan tab tree grid, unsupported and error states — satisfies AC-1, AC-2, AC-3, AC-10, AC-12, AC-17
+  - [ ] Plan tab polish and bind variables: virtualized tree, stale marking, several statements, shortcut, bind variables dialog — satisfies AC-2, AC-8, AC-9, AC-11, AC-15, AC-16
+  - [ ] Explain Analyze and Stop: rolled back PostgreSQL analyze, write confirm, read only refusal, run id and stop — satisfies AC-4, AC-5, AC-6, AC-8
+  - [ ] MongoDB: find, aggregate, count, distinct in the console and SQL editor, queryPlanner and executionStats — satisfies AC-3, AC-4, AC-10
+  - [ ] Auto plan, Activity log, team server and web: on by default toggle with plan after each result, `explain` log kind, gateway routes and old server fallback — satisfies AC-7, AC-13, AC-14
+- [ ] Verify it: `/check verify explain plan viewer`
+- [ ] Test it: `/test explain plan viewer`
 
 
 
@@ -262,13 +271,21 @@ code in `src/features/schema-designer`, `src/features/workspace/components/sideb
 
 
 
-### 17. Streaming results for Postgres and MongoDB · needs a decision · from spec 0006
+### 17. Streaming results for Postgres and MongoDB · in-progress · from spec 0006
 
 Only SQLite sends rows back as it reads them. PostgreSQL and MongoDB fetch the whole result first and then push it in batches, so a large query shows nothing until it has all loaded, and a stopped query has no partial rows to keep. Make both stream rows as they arrive, the way SQLite does, including the MongoDB SQL translation path. The design pass settles how each engine streams without holding the full result in memory, and how it interacts with the new Stop button.
 **Done when:** a large SELECT on PostgreSQL or MongoDB starts showing rows before the query has finished loading, and stopping it keeps the rows already shown.
-code in `crates/dh-core/src/db/postgres.rs`, `crates/dh-core/src/db/mongodb.rs`
+spec [0011](../specs/0011-stream-postgres-mongo-results/index.md)
+code in `crates/dh-core/src/db/postgres`, `crates/dh-core/src/db/mongodb`, `crates/dh-server/src/routes`, `src/shared/api/streaming.ts`
 
-- [ ] Design it (spec): `/architect streaming results for postgres and mongodb`
+- [x] Design it (spec): `/architect streaming results for postgres and mongodb`
+- [ ] Build it: `/develop streaming results for postgres and mongodb`
+  - [ ] Thread on Postgres, desktop, SQL editor: shared batcher and chunk protocol, Postgres streaming core with Stop keeping rows, one row accumulator with append only rows, rows kept on a late error, real row counts in the activity log — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-13, AC-19, AC-20, AC-21
+  - [ ] MongoDB streaming: one cursor loop with growing columns, SQL editor path with killOp during the stream, console find and aggregate with rows and JSON together — satisfies AC-6, AC-7, AC-8, AC-9, AC-10
+  - [ ] Grid loads and export: Mongo page on the cursor loop, Postgres grid on the shared core, grid and export on the accumulator with final columns — satisfies AC-11, AC-12
+  - [ ] Team server and web: NDJSON stream routes, cancel route on the run registry, idle refresh and cancel on disconnect, page stream reader, Stop on the web, read only refusals before the first byte — satisfies AC-14, AC-15, AC-16, AC-17, AC-18
+- [ ] Verify it: `/check verify streaming results for postgres and mongodb`
+- [ ] Test it: `/test streaming results for postgres and mongodb`
 
 
 
@@ -321,6 +338,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 
 - **Stopped status in the activity log**: a query stopped with the Stop button is logged as a failed entry with the message "Stopped by user" (spec 0006). Give the activity record and its screen a real "stopped" status so stopped runs stop showing in the failed filter · from spec 0006 · code in `crates/dh-core/src/activity.rs`
 - **Break up the longest backend functions**: splitting the files (spec 0009) moves long functions whole, so Postgres `execute_op` (about 290 lines), MongoDB `run_db_call` (about 265), `table_schema` and `apply_schema_ops_batch` stay long. Cut them by step once the file split has landed · from spec 0009 · code in `crates/dh-core/src/db`
+- **Row cap and load more for huge results**: streamed results have no row cap (spec 0011), so a runaway SELECT can fill app memory and Stop is the only guard. Add a cap with a load more cursor, and backpressure on the desktop channel, if memory pressure shows up · from spec 0011 · code in `src/shared/api/streaming.ts`, `crates/dh-core/src/db`
 - **Import upsert and skip duplicates**: import is insert only, so a clash with an existing key is a bad row (spec 0008). Add a Skip duplicates choice and an Update on duplicate (upsert) mode, with a key to match on and different Mongo handling · from spec 0008 · code in `src/features/data-import`, `crates/dh-core/src/db/mod.rs`
 - **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB (spec 0008). Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/mod.rs`
 - **Cancel and progress for remote imports**: on team server and web connections an import shows a spinner and cannot be cancelled (spec 0008). Once spec 0006's run registry is built, send `run_id` with the import and reuse its cancel route · from spec 0008 · code in `crates/dh-core/src/server/router.rs`

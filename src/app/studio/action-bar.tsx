@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, Upload } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { prettyKind } from "@/shared/api";
 import { Button } from "@/shared/components/ui/button";
@@ -41,6 +41,7 @@ export function ActionBar() {
     conn?.id ?? "",
     is_schema_pane_kind && active_key ? active_key : "",
   );
+  const openImport = useStudioStore((s) => s.openImport);
   const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
   // Reload the active table's rows. Lives here because this is the one place
@@ -176,6 +177,34 @@ export function ActionBar() {
                 <ActionBarTooltip label="Download">
                   <ExportMenu bridge={bridge} conn_id={conn?.id ?? ""} />
                 </ActionBarTooltip>
+                {conn && (
+                  <ActionBarTooltip
+                    label={
+                      bridge.read_only
+                        ? "Read only connection: import is refused"
+                        : "Import a file"
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs"
+                      disabled={bridge.read_only || bridge.pending_exists}
+                      onClick={() =>
+                        openImport({
+                          connId: conn.id,
+                          table: bridge.table,
+                          database: bridge.database,
+                          schema: bridge.schema_name,
+                          onImported: bridge.refresh,
+                        })
+                      }
+                    >
+                      <Upload className="size-3.5" />
+                      Import
+                    </Button>
+                  </ActionBarTooltip>
+                )}
               </>
             )}
             {newTable && (

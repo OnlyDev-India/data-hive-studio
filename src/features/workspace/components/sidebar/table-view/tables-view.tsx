@@ -183,6 +183,7 @@ export function TablesBrowser({
   const open_structure = useStudioStore((s) => s.openStructure);
   const openRolesTab = useStudioStore((s) => s.openRolesTab);
   const push_notification = useStudioStore((s) => s.pushNotification);
+  const open_import = useStudioStore((s) => s.openImport);
   const set_disconnect_pending = useStudioStore(
     (s) => s.setDisconnectPendingId,
   );
@@ -1278,6 +1279,9 @@ export function TablesBrowser({
           on_duplicate={(name) =>
             is_mongo ? ask_duplicate_mongo({ name }) : ask_duplicate({ name })
           }
+          on_import={(name) =>
+            open_import({ connId: conn_id, table: name, onImported: on_refresh })
+          }
           on_drop={(name) =>
             setConfirmDrop({
               name,
@@ -1637,6 +1641,18 @@ export function TablesBrowser({
                                                 },
                                               })
                                             }
+                                            on_import={(name) =>
+                                              open_import({
+                                                connId: conn_id,
+                                                table: name,
+                                                database:
+                                                  db === pg_current_db
+                                                    ? undefined
+                                                    : db,
+                                                schema,
+                                                onImported: on_refresh,
+                                              })
+                                            }
                                             on_drop={(name) =>
                                               setConfirmDrop({
                                                 name,
@@ -1848,6 +1864,14 @@ export function TablesBrowser({
                               schema: "",
                               kind: "table",
                             },
+                          })
+                        }
+                        on_import={(name) =>
+                          open_import({
+                            connId: conn_id,
+                            table: name,
+                            database: is_active_db ? undefined : db,
+                            onImported: on_refresh,
                           })
                         }
                         on_drop={(name) =>

@@ -18,6 +18,10 @@ mod documents;
 mod console;
 mod console_bare;
 mod edit;
+mod import_docs;
+mod import_rows;
+#[cfg(test)]
+mod import_tests;
 mod ddl;
 mod adapter;
 #[cfg(test)]

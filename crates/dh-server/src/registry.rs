@@ -129,4 +129,39 @@ mod tests {
         assert_eq!(r.remove("a"), Some(1));
         assert_eq!(r.remove("a"), None);
     }
+
+    #[test]
+    fn the_sweep_hands_back_only_idle_handles() {
+        let r = Registry::new(4, Duration::from_millis(80));
+        r.insert("old".into(), 1);
+        std::thread::sleep(Duration::from_millis(120));
+        r.insert("fresh".into(), 2);
+        // Inserting already dropped "old", so the sweep finds nothing idle.
+        assert!(r.sweep().is_empty());
+        assert_eq!(r.get("fresh").0, Some(2));
+    }
+
+    #[test]
+    fn the_sweep_returns_an_idle_value_for_the_caller_to_close() {
+        let r = Registry::new(4, Duration::from_millis(20));
+        r.insert("a".into(), 7);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(r.sweep(), vec![7]);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn a_cap_of_one_keeps_only_the_newest_handle() {
+        let r = Registry::new(1, IDLE);
+        assert!(r.insert("a".into(), 1).is_empty());
+        assert_eq!(r.insert("b".into(), 2), vec![1]);
+        assert_eq!((r.get("a").0, r.get("b").0), (None, Some(2)));
+    }
+
+    #[test]
+    fn an_unknown_handle_returns_nothing_and_drops_nothing() {
+        let r: Registry<i32> = Registry::new(4, IDLE);
+        assert_eq!(r.get("missing"), (None, vec![]));
+        assert!(r.sweep().is_empty());
+    }
 }

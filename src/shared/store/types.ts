@@ -342,6 +342,16 @@ export interface LandingEditTarget {
   name: string;
 }
 
+/** Where an import lands. `database`/`schema` omitted = the connection's own. */
+export interface ImportTarget {
+  connId: string;
+  table: string;
+  database?: string;
+  schema?: string;
+  /** Called after a committed import so the open grid can reload. */
+  onImported?: () => void;
+}
+
 export interface StudioStore {
   // Connections
   open: ConnectionInfo[];
@@ -579,6 +589,13 @@ export interface StudioStore {
    *  dialog (`DisconnectDialog`, mounted once in `Studio`). */
   disconnectPendingId: string | null;
   setDisconnectPendingId: (id: string | null) => void;
+
+  /** The table the import dialog (spec 0008) is aimed at, or null when it is
+   *  closed. Shared state so the action bar and the sidebar open the same
+   *  singleton dialog (`ImportDialog`, mounted once in `Studio`). */
+  importTarget: ImportTarget | null;
+  openImport: (target: ImportTarget) => void;
+  closeImport: () => void;
 
   /** A newer release than the running version, once the background/on-demand
    *  check (`src/features/updater/update-check.ts`) finds one — null while

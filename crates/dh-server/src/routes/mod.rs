@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::connect::{self, ConnectError};
 use crate::guard::guard;
 use crate::registry::{Registry, IDLE, MAX_HANDLES};
-use axum::extract::{FromRequestParts, RawPathParams, State};
+use axum::extract::{DefaultBodyLimit, FromRequestParts, RawPathParams, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
@@ -27,6 +27,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub type Adapter = Arc<dyn DbAdapter>;
+
+/// An import sends every row in one request (spec 0008: at most 100 MB of
+/// file), so this one route takes a larger body than axum's 2 MB default.
+const IMPORT_BODY_LIMIT: usize = 256 * 1024 * 1024;
 
 pub struct AppState {
     pub cfg: Arc<Config>,
@@ -229,6 +233,14 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))
         .route("/v1/c/{handle}/duplicate", post(data::duplicate))
+        .route(
+            "/v1/c/{handle}/import",
+            post(data::import).layer(DefaultBodyLimit::max(IMPORT_BODY_LIMIT)),
+        )
+        .route(
+            "/v1/c/{handle}/import/capabilities",
+            post(data::import_capabilities),
+        )
         .route("/v1/c/{handle}/mongo/documents", post(mongo::documents))
         .route(
             "/v1/c/{handle}/mongo/documents/ext",

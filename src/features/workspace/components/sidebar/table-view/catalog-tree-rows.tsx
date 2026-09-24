@@ -227,6 +227,7 @@ export function LazyTableRows({
   on_view_grants,
   on_copy,
   on_duplicate,
+  on_import,
   on_drop,
   on_refresh_matview,
   is_mongo,
@@ -248,6 +249,7 @@ export function LazyTableRows({
   on_view_grants?: (name: string) => void;
   on_copy?: (name: string) => void;
   on_duplicate?: (name: string) => void;
+  on_import?: (name: string) => void;
   on_drop?: (name: string) => void;
   on_refresh_matview?: (name: string) => void;
   is_mongo?: boolean;
@@ -287,6 +289,7 @@ export function LazyTableRows({
             on_view_grants={on_view_grants && (() => on_view_grants(obj.name))}
             on_copy={on_copy && (() => on_copy(obj.name))}
             on_duplicate={on_duplicate && (() => on_duplicate(obj.name))}
+            on_import={on_import && (() => on_import(obj.name))}
             on_drop={on_drop && (() => on_drop(obj.name))}
             on_refresh_matview={
               on_refresh_matview && (() => on_refresh_matview(obj.name))

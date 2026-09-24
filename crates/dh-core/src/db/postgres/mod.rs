@@ -16,6 +16,9 @@ mod objects;
 mod query;
 mod edit;
 mod ddl;
+mod import_rows;
+#[cfg(test)]
+mod import_tests;
 mod adapter;
 
 pub use params::PgParams;

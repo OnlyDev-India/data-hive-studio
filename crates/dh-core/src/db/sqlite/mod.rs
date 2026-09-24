@@ -12,7 +12,10 @@ mod edit;
 mod schema_ops;
 mod alter;
 mod duplicate;
+mod import_rows;
 mod adapter;
+#[cfg(test)]
+mod import_tests;
 #[cfg(test)]
 mod tests;
 

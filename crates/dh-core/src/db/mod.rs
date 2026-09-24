@@ -44,6 +44,8 @@ mod catalog;
 mod documents;
 mod query;
 mod ddl;
+mod import;
+mod import_rows;
 
 pub use types::*;
 pub use adapter::*;
@@ -53,6 +55,7 @@ pub use catalog::*;
 pub use documents::*;
 pub use query::*;
 pub use ddl::*;
+pub use import_rows::*;
 
 use crate::api::QueryChunk;
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};

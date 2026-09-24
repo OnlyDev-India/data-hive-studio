@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use crate::db::{BatchSink, DbAdapter, DbResult, OpOutcome, RunHandle};
-use crate::api::{FieldShape, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{FieldShape, ImportCapabilities, ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use super::MongoAdapter;
 
 #[async_trait]
@@ -174,6 +174,19 @@ impl DbAdapter for MongoAdapter {
         ops: &[SchemaOp],
     ) -> DbResult<Vec<String>> {
         MongoAdapter::apply_schema_ops_batch(self, database, _schema, ops).await
+    }
+
+    async fn import_rows(
+        &self,
+        database: Option<&str>,
+        _schema: Option<&str>,
+        request: &ImportRequest,
+    ) -> DbResult<ImportReport> {
+        MongoAdapter::import_rows(self, database, request).await
+    }
+
+    async fn import_capabilities(&self, _database: Option<&str>) -> DbResult<ImportCapabilities> {
+        MongoAdapter::import_capabilities(self).await
     }
 
     async fn close(self: Arc<Self>) {
