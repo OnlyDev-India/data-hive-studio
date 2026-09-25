@@ -5,8 +5,6 @@ import type { DbKind } from "@/shared/api";
 import { isDocumentDb } from "../lib/typed-cell";
 
 interface Props {
-  name: string;
-  onName: (name: string) => void;
   columns: NewColumn[];
   onColumns: (columns: NewColumn[]) => void;
   db: DbKind | undefined;
@@ -14,26 +12,17 @@ interface Props {
 
 const KINDS = Object.keys(KIND_LABELS) as InferredKind[];
 
-/** Name the new table, then check each column's name and guessed type, and
+/** Check each new column's name and guessed type, and
  *  tick any that should be the primary key. */
-export function NewTableForm({ name, onName, columns, onColumns, db }: Props) {
+export function NewTableForm({ columns, onColumns, db }: Props) {
   const docs = isDocumentDb(db);
   const set = (i: number, patch: Partial<NewColumn>) =>
     onColumns(columns.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   return (
-    <div className="space-y-2">
-      <label className="flex items-center gap-2 text-sm">
-        {docs ? "Collection name" : "Table name"}
-        <Input
-          className="h-7 max-w-64"
-          value={name}
-          aria-label={docs ? "New collection name" : "New table name"}
-          onChange={(e) => onName(e.target.value)}
-        />
-      </label>
-      <div className="max-h-52 overflow-y-auto rounded-md border">
+    <div>
+      <div>
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground sticky top-0 text-xs">
+          <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
             <tr>
               <th className="px-3 py-1.5 text-left font-medium">
                 {docs ? "Field" : "Column"}
@@ -51,7 +40,7 @@ export function NewTableForm({ name, onName, columns, onColumns, db }: Props) {
               <tr key={c.from} className="border-t">
                 <td className="px-3 py-1">
                   <Input
-                    className="h-7"
+                    className="bg-input/30 h-8"
                     value={c.name}
                     aria-label={`Name for file column ${i + 1}`}
                     onChange={(e) => set(i, { name: e.target.value })}
@@ -59,7 +48,7 @@ export function NewTableForm({ name, onName, columns, onColumns, db }: Props) {
                 </td>
                 <td className="px-3 py-1">
                   <select
-                    className="bg-background h-7 w-full rounded-md border px-2 text-sm"
+                    className="bg-input/30 h-8 w-full rounded-md border px-2 text-sm"
                     aria-label={`Type for ${c.name}`}
                     value={c.kind}
                     onChange={(e) =>
