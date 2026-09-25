@@ -230,6 +230,19 @@ export interface QueryResult {
   /** The user stopped this run (spec 0006). Not an error: rows already
    *  streamed stay with the caller. Absent from an older server's reply. */
   cancelled?: boolean;
+  /** A streamed result: how many entries of `rows` are valid. `rows` is one
+   *  append only array shared by every update of the run, so its length can
+   *  run ahead of what was last handed to the UI. Absent means every entry
+   *  counts (`rows.length`). */
+  row_count?: number;
+}
+
+/** How many rows of `result` are valid, streamed or not. */
+export function resultRowCount(result: {
+  rows: unknown[];
+  row_count?: number;
+}): number {
+  return result.row_count ?? result.rows.length;
 }
 
 /** Which engine's explain produced a plan. Mirrors Rust `PlanDialect`. */

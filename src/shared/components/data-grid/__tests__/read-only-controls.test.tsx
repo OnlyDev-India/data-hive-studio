@@ -41,6 +41,7 @@ function bridge(over: Partial<GridBridge> = {}): GridBridge {
     hidden_columns: [],
     toggle_column_visibility: () => {},
     reorder_column: () => {},
+    reveal_column: () => {},
     elapsed_ms: null,
     pending_exists: false,
     pending_count: 0,

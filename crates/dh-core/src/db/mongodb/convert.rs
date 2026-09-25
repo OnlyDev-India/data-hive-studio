@@ -1,40 +1,5 @@
 use base64::Engine as _;
 use super::MongoAdapter;
-use super::filter::json_cell_string;
-
-/// Project a list of JSON documents into a union-of-fields grid.
-pub(super) fn flatten_documents(docs: &[serde_json::Value]) -> (Vec<String>, Vec<Vec<Option<String>>>) {
-    let mut columns: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for d in docs {
-        if let serde_json::Value::Object(map) = d {
-            for k in map.keys() {
-                if seen.insert(k.clone()) {
-                    columns.push(k.clone());
-                }
-            }
-        }
-    }
-    if let Some(i) = columns.iter().position(|c| c == "_id") {
-        let id = columns.remove(i);
-        columns.insert(0, id);
-    } else if columns.is_empty() {
-        // No documents matched — fall back to _id rather than a columnless
-        // grid, same as `select_page`.
-        columns.push("_id".to_string());
-    }
-    let rows = docs
-        .iter()
-        .map(|d| match d {
-            serde_json::Value::Object(map) => columns
-                .iter()
-                .map(|c| map.get(c).and_then(json_cell_string))
-                .collect(),
-            other => columns.iter().map(|_| json_cell_string(other)).collect(),
-        })
-        .collect();
-    (columns, rows)
-}
 
 /// One index key's sort direction as ±1. Non-numeric key values (text/geo/
 /// hashed index specs, e.g. `{field: "text"}`) aren't a sort direction at

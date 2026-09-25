@@ -2,7 +2,6 @@ use super::*;
 use crate::db::mongodb::field_tree::{FIELD_TREE_NODE_BUDGET, FieldTreeAccum, accumulate_field_tree, build_field_children};
 use crate::db::mongodb::filter::build_filter;
 use crate::db::mongodb::cancel::{current_op_filter, mongo_canceller, mongo_err, run_comment};
-use crate::db::mongodb::convert::flatten_documents;
 use crate::db::mongodb::console_parse::{parse_chain, parse_db_call, parse_filter, split_top_level, validate_chain};
 use bson::{doc, Bson};
 use mongodb::error::ErrorKind;
@@ -113,20 +112,6 @@ fn wide_nested_object_is_capped_at_50_keys_with_a_truncation_marker() {
     let truncated = dynamic.truncated.as_ref().expect("expected a truncation marker");
     assert_eq!(truncated.shown, 50);
     assert_eq!(truncated.total, 75);
-}
-
-#[test]
-fn flatten_documents_falls_back_to_id_when_empty() {
-    let (columns, rows) = flatten_documents(&[]);
-    assert_eq!(columns, vec!["_id".to_string()]);
-    assert!(rows.is_empty());
-}
-
-#[test]
-fn flatten_documents_puts_id_first_when_present() {
-    let docs = vec![serde_json::json!({ "name": "a", "_id": "x" })];
-    let (columns, _) = flatten_documents(&docs);
-    assert_eq!(columns[0], "_id");
 }
 
 #[test]
@@ -323,4 +308,20 @@ async fn a_cancel_that_cannot_reach_the_server_gives_up_quietly() {
     tokio::time::timeout(std::time::Duration::from_secs(3), canceller())
         .await
         .expect("a failed cancel attempt must return promptly");
+}
+
+/// A date cell edited in the grid goes back as a BSON date, so the field
+/// keeps its type; other text in a date field stays a string.
+#[test]
+fn a_date_cell_is_written_back_as_a_bson_date() {
+    use super::filter::field_bson;
+    let want = bson::DateTime::parse_rfc3339_str("2026-08-20T02:08:00Z").unwrap();
+    for text in ["2026-08-20T02:08:00.000Z", "2026-08-20 02:08:00", "2026-08-20T02:08:00Z"] {
+        assert_eq!(field_bson(Some(text), Some("date")), Bson::DateTime(want), "{text}");
+    }
+    assert_eq!(
+        field_bson(Some("2026-08-20"), Some("date")),
+        Bson::DateTime(bson::DateTime::parse_rfc3339_str("2026-08-20T00:00:00Z").unwrap())
+    );
+    assert_eq!(field_bson(Some("soon"), Some("date")), Bson::String("soon".into()));
 }

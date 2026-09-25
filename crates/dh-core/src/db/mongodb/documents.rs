@@ -2,9 +2,9 @@ use futures_util::TryStreamExt;
 use bson::doc;
 use crate::db::{DbError, DbResult, RunHandle};
 use super::MongoAdapter;
-use super::convert::flatten_documents;
 use super::filter::{is_object_id_hex, json_cell_string};
 use super::cancel::{mongo_err, run_comment};
+use super::stream::{collect_documents, stream_documents, ColumnSet, CURSOR_BATCH};
 
 impl MongoAdapter {
     /// Fetch a page of documents from a collection with optional filter.
@@ -46,12 +46,11 @@ impl MongoAdapter {
         Ok((docs, total))
     }
 
-    /// Read one page of documents as a grid-style result (columns = union of
-    /// field names across the page, rows = flattened top-level cells). Returns
-    /// the column list and the row cells. It does NOT count the collection:
-    /// `count_documents` scans every match, and the grid asks for the total
-    /// with its own `QueryOp::Count`, so counting here delayed the first row
-    /// for a number nobody read.
+    /// Read one page of documents as a grid-style result (columns = fields
+    /// across the page, `_id` first; rows = flattened top-level cells), all in
+    /// memory. It does NOT count the collection: `count_documents` scans every
+    /// match, and the grid asks for the total with its own `QueryOp::Count`,
+    /// so counting here delayed the first row for a number nobody read.
     pub(super) async fn select_page(
         &self,
         database: &str,
@@ -61,11 +60,45 @@ impl MongoAdapter {
         limit: i64,
         offset: i64,
     ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>)> {
+        let cursor = self
+            .page_cursor(database, collection, filter, order_by, limit, offset)
+            .await?;
+        collect_documents(cursor, ColumnSet::growing(), None).await
+    }
+
+    /// [`select_page`], with rows sent to `sink` in batches as they arrive.
+    /// Returns the final column list.
+    pub(super) async fn select_page_stream(
+        &self,
+        database: &str,
+        collection: &str,
+        filter: Option<bson::Document>,
+        order_by: &[crate::api::OrderByCond],
+        limit: i64,
+        offset: i64,
+        sink: crate::db::BatchSink<'_>,
+    ) -> DbResult<Vec<String>> {
+        let cursor = self
+            .page_cursor(database, collection, filter, order_by, limit, offset)
+            .await?;
+        stream_documents(cursor, &mut ColumnSet::growing(), None, sink, false).await
+    }
+
+    async fn page_cursor(
+        &self,
+        database: &str,
+        collection: &str,
+        filter: Option<bson::Document>,
+        order_by: &[crate::api::OrderByCond],
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<mongodb::Cursor<bson::Document>> {
         let col = self
             .client
             .database(database)
             .collection::<bson::Document>(collection);
         let mut opts = mongodb::options::FindOptions::builder().build();
+        opts.batch_size = Some(CURSOR_BATCH);
         if !order_by.is_empty() {
             // Mongo sort documents apply keys in insertion order, so the
             // requested columns must come first (in priority order) — `_id`
@@ -81,83 +114,56 @@ impl MongoAdapter {
             }
             opts.sort = Some(sort);
         }
-        let skip_u = offset.max(0) as u64;
-        opts.skip = Some(skip_u);
+        opts.skip = Some(offset.max(0) as u64);
         let limit_u = limit.max(0) as u64;
         if limit_u > 0 {
             opts.limit = Some(limit_u as i64);
         }
-        let mut cursor = col
-            .find(filter.clone().unwrap_or_default())
+        col.find(filter.unwrap_or_default())
             .with_options(opts)
             .await
-            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
-
-        let mut docs: Vec<serde_json::Value> = Vec::new();
-        while let Some(doc) = cursor
-            .try_next()
-            .await
-            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?
-        {
-            docs.push(Self::document_to_json(doc));
-        }
-
-        // Column order: _id first, then first-seen field order across the page.
-        let mut columns: Vec<String> = Vec::new();
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for doc in &docs {
-            if let serde_json::Value::Object(map) = doc {
-                for key in map.keys() {
-                    if seen.insert(key.clone()) {
-                        columns.push(key.clone());
-                    }
-                }
-            }
-        }
-        // Put _id first so the grid's PK (from the pane schema) sorts naturally.
-        if let Some(i) = columns.iter().position(|c| c == "_id") {
-            let id = columns.remove(i);
-            columns.insert(0, id);
-        } else if columns.is_empty() {
-            // No documents on this page (empty collection, or a filter that
-            // matched nothing) — there's nothing to derive columns from, but
-            // showing a completely columnless grid reads as broken rather
-            // than "empty". Every document has an _id, so it's the one
-            // column that's always a safe guess; mirrors the same fallback
-            // `inferred_schema` already uses for the schema panel.
-            columns.push("_id".to_string());
-        }
-
-        let mut rows: Vec<Vec<Option<String>>> = Vec::with_capacity(docs.len());
-        for doc in &docs {
-            rows.push(match doc {
-                serde_json::Value::Object(map) => columns
-                    .iter()
-                    .map(|c| map.get(c).and_then(json_cell_string))
-                    .collect(),
-                other => columns.iter().map(|_| json_cell_string(other)).collect(),
-            });
-        }
-        Ok((columns, rows))
+            .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))
     }
 
     /// Execute a translated SQL `SELECT` (Phase 4: SQL-on-Mongo) as a Mongo
-    /// `find()` and project it into a grid-style column/row result. Explicit
-    /// column lists (`SELECT a, b FROM ...`) drive the Mongo projection and
-    /// fix the output column order; `SELECT *` falls back to the union-of-
-    /// fields projection used elsewhere in this adapter.
+    /// `find()`, sending rows to `sink` in batches as the cursor yields them,
+    /// and return the final column list. Explicit column lists
+    /// (`SELECT a, b FROM ...`) drive the Mongo projection and fix the output
+    /// columns; `SELECT *` grows its columns as new fields appear.
     pub(super) async fn run_select_plan(
         &self,
         database: &str,
         plan: &super::mongo_sql::SelectPlan,
         run: Option<&RunHandle>,
+        sink: crate::db::BatchSink<'_>,
+    ) -> DbResult<Vec<String>> {
+        let (cursor, mut columns) = self.plan_cursor(database, plan, run).await?;
+        stream_documents(cursor, &mut columns, run, sink, false).await
+    }
+
+    /// [`run_select_plan`], collecting every row in memory.
+    pub(super) async fn collect_select_plan(
+        &self,
+        database: &str,
+        plan: &super::mongo_sql::SelectPlan,
     ) -> DbResult<(Vec<String>, Vec<Vec<Option<String>>>)> {
+        let (cursor, columns) = self.plan_cursor(database, plan, None).await?;
+        collect_documents(cursor, columns, None).await
+    }
+
+    async fn plan_cursor(
+        &self,
+        database: &str,
+        plan: &super::mongo_sql::SelectPlan,
+        run: Option<&RunHandle>,
+    ) -> DbResult<(mongodb::Cursor<bson::Document>, ColumnSet)> {
         let col = self
             .client
             .database(database)
             .collection::<bson::Document>(&plan.table);
         let mut opts = mongodb::options::FindOptions::builder().build();
         opts.comment = run_comment(run);
+        opts.batch_size = Some(CURSOR_BATCH);
         if let Some(cols) = &plan.columns {
             let mut proj = bson::Document::new();
             for c in cols {
@@ -179,34 +185,16 @@ impl MongoAdapter {
         if let Some(offset) = plan.offset {
             opts.skip = Some(offset.max(0) as u64);
         }
-        let mut cursor = col
+        let cursor = col
             .find(plan.filter.clone().unwrap_or_default())
             .with_options(opts)
             .await
             .map_err(|e| mongo_err(e, run))?;
-        let mut docs: Vec<serde_json::Value> = Vec::new();
-        while let Some(d) = cursor
-            .try_next()
-            .await
-            .map_err(|e| mongo_err(e, run))?
-        {
-            docs.push(Self::document_to_json(d));
-        }
-        if let Some(cols) = &plan.columns {
-            let rows = docs
-                .iter()
-                .map(|d| match d {
-                    serde_json::Value::Object(map) => cols
-                        .iter()
-                        .map(|c| map.get(c).and_then(json_cell_string))
-                        .collect(),
-                    other => cols.iter().map(|_| json_cell_string(other)).collect(),
-                })
-                .collect();
-            Ok((cols.clone(), rows))
-        } else {
-            Ok(flatten_documents(&docs))
-        }
+        let columns = match &plan.columns {
+            Some(cols) => ColumnSet::fixed(cols.clone()),
+            None => ColumnSet::growing(),
+        };
+        Ok((cursor, columns))
     }
 
     /// Distinct cell values for one field (bounded), for enum-style editors.

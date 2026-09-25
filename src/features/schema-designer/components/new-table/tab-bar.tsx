@@ -53,21 +53,22 @@ export function arrangeTabs<T extends string>(
 /** The segmented switch between the parts of a table. When the space is too
  *  small, the tabs that do not fit collapse into a dropdown. `counts` shows
  *  how many items a tab holds once it has any. */
-export function TabBar({
+export function TabBar<T extends string = DesignerTab>({
+  tabs = DESIGNER_TABS as unknown as readonly (readonly [T, string])[],
   value,
   onChange,
   counts,
 }: {
-  value: DesignerTab;
-  onChange: (t: DesignerTab) => void;
-  counts: Partial<Record<DesignerTab, number>>;
+  /** The tabs to show, in order. Defaults to the new table designer's. */
+  tabs?: readonly (readonly [T, string])[];
+  value: T;
+  onChange: (t: T) => void;
+  counts: Partial<Record<T, number>>;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const probe = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState(Infinity);
-  const [widths, setWidths] = useState<Record<DesignerTab, number> | null>(
-    null,
-  );
+  const [widths, setWidths] = useState<Record<T, number> | null>(null);
 
   // Every tab is drawn once, invisibly, so its width is known whether or not
   // it is currently shown. A tab page can be mounted while hidden, where every
@@ -81,13 +82,13 @@ export function TabBar({
     const measure = () => {
       // 8px for the bar's own padding.
       setAvailable(boxEl.clientWidth - 8);
-      const next = {} as Record<DesignerTab, number>;
+      const next = {} as Record<T, number>;
       for (const el of Array.from(probeEl.children) as HTMLElement[]) {
-        next[el.dataset.tab as DesignerTab] = el.offsetWidth;
+        next[el.dataset.tab as T] = el.offsetWidth;
       }
-      if (DESIGNER_TABS.some(([id]) => !next[id])) return;
+      if (tabs.some(([id]) => !next[id])) return;
       setWidths((w) =>
-        w && DESIGNER_TABS.every(([id]) => w[id] === next[id]) ? w : next,
+        w && tabs.every(([id]) => w[id] === next[id]) ? w : next,
       );
     };
     measure();
@@ -95,15 +96,14 @@ export function TabBar({
     ro.observe(boxEl);
     ro.observe(probeEl);
     return () => ro.disconnect();
-  }, []);
+  }, [tabs]);
 
-  const order = DESIGNER_TABS.map(([id]) => id);
+  const order = tabs.map(([id]) => id);
   const { visible, hidden } = widths
     ? arrangeTabs(order, widths, available, value)
-    : { visible: order, hidden: [] as DesignerTab[] };
-  const label = (id: DesignerTab) =>
-    DESIGNER_TABS.find(([t]) => t === id)?.[1] ?? id;
-  const tabButton = (id: DesignerTab, probing = false) => {
+    : { visible: order, hidden: [] as T[] };
+  const label = (id: T) => tabs.find(([t]) => t === id)?.[1] ?? id;
+  const tabButton = (id: T, probing = false) => {
     const n = counts[id] ?? 0;
     return (
       <button

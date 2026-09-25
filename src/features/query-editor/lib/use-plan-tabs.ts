@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import {
-  canCancelRun,
+  canCancelPlan,
   explainMongo,
   explainSql,
   type PlanDialect,
@@ -22,7 +22,7 @@ export interface PlanTab {
   /** Null while the database is still answering. */
   result: PlanResult | null;
   mode: PlanResult["mode"];
-  /** Set only when Stop can reach the call (see `canCancelRun`). */
+  /** Set only when Stop can reach the call (see `canCancelPlan`). */
   run_id: string | null;
   /** Stop was pressed and the database has not confirmed yet. */
   stopping: boolean;
@@ -76,7 +76,7 @@ export function usePlanTabs({
       if (reuse) reusable_id.current = id;
       const call = ++calls.current;
       latest_call.current.set(id, call);
-      const run_id = canCancelRun(dialect) ? crypto.randomUUID() : null;
+      const run_id = canCancelPlan(dialect) ? crypto.randomUUID() : null;
       const tab: PlanTab = {
         id,
         label: "Plan",

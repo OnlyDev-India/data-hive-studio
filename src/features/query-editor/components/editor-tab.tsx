@@ -35,14 +35,16 @@ import {
   canExplain,
   canExplainAnalyze,
   cancelRun,
+  createRowAccumulator,
   catalogOverview,
   listDatabases,
   listSchemaObjects,
   listSchemasIn,
-  runMongo,
+  runMongoStream,
   runSqlStream,
   tableSchema,
   writeFile,
+  resultRowCount,
   type MongoRunResult,
   type QueryResult,
 } from "@/shared/api";
@@ -986,39 +988,26 @@ function SqlEditorBody({
         stopped: false,
         winding_down: false,
       });
-      // Accumulate streamed rows; flush to the tab at most once per frame so
-      // large results paint progressively without a render per batch.
-      const acc: { cols: string[] | null; rows: (string | null)[][] } = {
-        cols: null,
-        rows: [],
-      };
-      let raf = 0;
-      const flush = () => {
-        raf = 0;
-        if (acc.rows.length === 0) return;
+      // Streamed rows collect in one append only array; the tab hears about
+      // them at most once per frame, as that same array plus a row count, so
+      // a frame never copies the rows however many have arrived.
+      const acc = createRowAccumulator((snapshot) => {
         patch_tab(id, {
           result: {
-            columns: acc.cols ?? [],
-            rows: [...acc.rows],
+            ...snapshot,
             rows_affected: 0,
             is_select: true,
             error: null,
             elapsed_ms: 0,
           },
         });
-      };
+      });
       let res: QueryResult;
       try {
         res = await runSqlStream(
           conn_id,
           query,
-          (chunk) => {
-            if (chunk.columns) acc.cols = chunk.columns;
-            if (chunk.rows.length > 0) {
-              acc.rows.push(...chunk.rows);
-              if (!raf) raf = requestAnimationFrame(flush);
-            }
-          },
+          acc.push,
           target_database,
           undefined,
           run_id ?? undefined,
@@ -1033,7 +1022,9 @@ function SqlEditorBody({
           elapsed_ms: 0,
         };
       }
-      if (raf) cancelAnimationFrame(raf);
+      // Padded to the final column count, so copy, edit and export see
+      // rectangular data.
+      const streamed = acc.finish();
       if (res.cancelled) {
         // The user stopped it: not an error, keep what had already arrived,
         // and neither mark the range as a success nor as a failure. A stopped
@@ -1044,9 +1035,8 @@ function SqlEditorBody({
           stopped: true,
           result: {
             ...res,
-            columns: acc.cols ?? [],
-            rows: acc.rows,
-            is_select: acc.cols !== null,
+            ...streamed,
+            is_select: acc.started(),
             // Measured here, from run start to the run resolving.
             elapsed_ms: Math.round(performance.now() - run_started),
           },
@@ -1058,6 +1048,16 @@ function SqlEditorBody({
         }
         return;
       }
+      if (res.error && acc.started()) {
+        // It failed after rows had already arrived: keep them, with the
+        // error shown above.
+        res = {
+          ...res,
+          ...streamed,
+          is_select: true,
+          elapsed_ms: Math.round(performance.now() - run_started),
+        };
+      }
       if (!res.is_select && !res.error) {
         on_modified?.();
         if (is_schema_ddl(query)) on_schema_modified?.();
@@ -1068,7 +1068,10 @@ function SqlEditorBody({
         // Stop may have been pressed just as it finished (AC-16): the real
         // result wins, so there is nothing left to stop.
         stopping: false,
-        result: res.is_select ? { ...res, rows: acc.rows } : res,
+        result:
+          res.is_select && !res.error && acc.started()
+            ? { ...res, ...streamed }
+            : res,
       });
       if (range) {
         if (res.error)
@@ -1208,7 +1211,9 @@ function SqlEditorBody({
     () =>
       active && !active.running && !active.stopped && result && !result.error
         ? {
-            rows: result.is_select ? result.rows.length : result.rows_affected,
+            rows: result.is_select
+              ? resultRowCount(result)
+              : result.rows_affected,
             is_select: result.is_select,
             elapsed_ms: result.elapsed_ms,
           }
@@ -1404,6 +1409,23 @@ function SqlEditorBody({
                 <div className="text-muted-foreground m-6 rounded-md border border-dashed p-10 text-center text-sm">
                   Run a query to see results.
                 </div>
+              ) : active.running &&
+                active.result &&
+                resultRowCount(active.result) > 0 ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <LoadingNote rows_loaded={resultRowCount(active.result)} />
+                  <div className="min-h-0 flex-1">
+                    <SqlResults
+                      live
+                      conn_id={conn_id}
+                      tab_key={`${tab_key}\u0000${active.id}`}
+                      result={active.result}
+                      sql={active.sql}
+                      database={target_database}
+                      on_refresh={() => void run_query(active.id, active.sql)}
+                    />
+                  </div>
+                </div>
               ) : active.running ? (
                 <div className="flex flex-col gap-2 pt-4">
                   {Array.from({ length: 4 }).map((_, i) => (
@@ -1417,7 +1439,7 @@ function SqlEditorBody({
                 <div className="flex h-full min-h-0 flex-col">
                   <StoppedNote
                     elapsed_ms={active.result.elapsed_ms}
-                    rows_loaded={active.result.rows.length}
+                    rows_loaded={resultRowCount(active.result)}
                     winding_down={active.winding_down}
                   />
                   {active.result.is_select && (
@@ -1464,6 +1486,20 @@ function splitSchemaQualified(name: string): {
     : { schema: name.slice(0, dot), table: name.slice(dot + 1) };
 }
 
+/** Status line above a result that is still arriving: how many rows are in
+ *  so far. Stop is in the run toolbar. */
+function LoadingNote({ rows_loaded }: { rows_loaded: number }) {
+  return (
+    <div
+      role="status"
+      className="text-muted-foreground bg-muted/40 flex shrink-0 items-center gap-x-2 border-b px-3 py-1.5 text-xs"
+    >
+      <Loader2 className="size-3 shrink-0 animate-spin" />
+      <span>Loading, {rows_loaded.toLocaleString()} rows so far</span>
+    </div>
+  );
+}
+
 /** Neutral status line for a run the user stopped (never the error style):
  *  time before the stop and how many rows had already arrived, plus the
  *  "still winding down" note when the database never confirmed the cancel,
@@ -1494,6 +1530,7 @@ function StoppedNote({
 
 function SqlResults({
   result,
+  live = false,
   conn_id,
   tab_key,
   sql,
@@ -1501,6 +1538,9 @@ function SqlResults({
   on_refresh,
 }: {
   result: QueryResult;
+  /** The run is still streaming rows in: read only, and no editability
+   *  lookup per frame. It runs once for the final result. */
+  live?: boolean;
   conn_id: string;
   tab_key: string;
   sql: string;
@@ -1512,7 +1552,7 @@ function SqlResults({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a new result invalidates the previous one's editability immediately; the real (async) detection follows below
     setEditableSource(null);
-    if (!result.is_select) return;
+    if (!result.is_select || live) return;
     const hit = singleTableSelect(sql);
     if (!hit) return;
     const { table, schema } = splitSchemaQualified(hit.table);
@@ -1528,7 +1568,7 @@ function SqlResults({
     return () => {
       cancelled = true;
     };
-  }, [result, sql, conn_id, database]);
+  }, [result, live, sql, conn_id, database]);
 
   // Row count/elapsed time show in the action bar (via the sqlTabs handle's
   // `result` field) instead of here, matching where the regular table grid
@@ -1537,6 +1577,15 @@ function SqlResults({
   if (result.is_select)
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden border">
+        {result.error && (
+          // Rows arrived, then the run failed: keep the rows, error on top.
+          <div
+            role="alert"
+            className="border-destructive/30 bg-destructive/5 text-destructive shrink-0 border-b px-3 py-2 text-sm"
+          >
+            {result.error}
+          </div>
+        )}
         <QueryResultsGrid
           result={result}
           conn_id={conn_id}
@@ -1813,18 +1862,46 @@ function MongoEditorBody({
         error_ranges.current.set(id, { ...range, message });
         sync_errors();
       };
+      // Rows and their documents collect in one append only pair of arrays;
+      // the tab hears about them at most once per frame.
+      const acc = createRowAccumulator((snapshot) => {
+        patch(id, {
+          result: {
+            command: text,
+            ...snapshot,
+            documents: snapshot.documents ?? [],
+            rows_affected: 0,
+            is_select: true,
+            message: null,
+            error: null,
+            switch_db: null,
+            elapsed_ms: 0,
+          },
+        });
+      });
       try {
-        const res = await runMongo(
+        let res = await runMongoStream(
           conn_id,
           db,
           null,
           text,
+          acc.push,
           run_id ?? undefined,
         );
+        // Rows that streamed in are not in the result: put them back.
+        const streamed = acc.finish();
+        if (acc.started()) {
+          res = {
+            ...res,
+            ...streamed,
+            documents: streamed.documents ?? [],
+            is_select: true,
+          };
+        }
         if (res.cancelled) {
           // The user stopped it: not an error and no success mark. MongoDB
           // has no rollback, so a stopped write may have changed documents:
-          // refresh open grids for it.
+          // refresh open grids for it. Rows already received stay.
           patch(id, {
             stopped: true,
             result: {
@@ -1856,19 +1933,34 @@ function MongoEditorBody({
         }
       } catch (e) {
         const message = String(e);
+        // A failure after rows had already arrived keeps them, with the
+        // error shown above; before the first row it is the error alone.
+        const streamed = acc.finish();
         patch(id, {
-          result: {
-            command: text,
-            columns: [],
-            rows: [],
-            documents: [],
-            rows_affected: 0,
-            is_select: false,
-            message: null,
-            error: message,
-            switch_db: null,
-            elapsed_ms: 0,
-          },
+          result: acc.started()
+            ? {
+                command: text,
+                ...streamed,
+                documents: streamed.documents ?? [],
+                rows_affected: 0,
+                is_select: true,
+                message: null,
+                error: message,
+                switch_db: null,
+                elapsed_ms: Math.round(performance.now() - run_started),
+              }
+            : {
+                command: text,
+                columns: [],
+                rows: [],
+                documents: [],
+                rows_affected: 0,
+                is_select: false,
+                message: null,
+                error: message,
+                switch_db: null,
+                elapsed_ms: 0,
+              },
         });
         flag_error(message);
         if (range) editorRef.current?.markRunResult(null);
@@ -2221,17 +2313,50 @@ function MongoEditorBody({
                 <div className="text-muted-foreground m-4 rounded-md border border-dashed p-10 text-center text-sm">
                   Run a command to see results.
                 </div>
+              ) : active.running &&
+                active.result &&
+                resultRowCount(active.result) > 0 ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <LoadingNote rows_loaded={resultRowCount(active.result)} />
+                  <div className="min-h-0 flex-1">
+                    <MongoResults
+                      live
+                      entry={active}
+                      conn_id={conn_id}
+                      tab_key={`${tab_key}\u0000${active.id}`}
+                      database={db}
+                      on_refresh={() =>
+                        void run_query(active.id, active.command)
+                      }
+                    />
+                  </div>
+                </div>
               ) : active.running ? (
                 <div className="flex h-full min-h-0 items-center justify-center p-3">
                   <Loader2 className="text-muted-foreground size-5 animate-spin" />
                 </div>
               ) : active.stopped && active.result ? (
-                <StoppedNote
-                  elapsed_ms={active.result.elapsed_ms}
-                  rows_loaded={0}
-                  winding_down={active.winding_down}
-                  note={MONGO_WRITE_NOTE}
-                />
+                <div className="flex h-full min-h-0 flex-col">
+                  <StoppedNote
+                    elapsed_ms={active.result.elapsed_ms}
+                    rows_loaded={resultRowCount(active.result)}
+                    winding_down={active.winding_down}
+                    note={MONGO_WRITE_NOTE}
+                  />
+                  {resultRowCount(active.result) > 0 && (
+                    <div className="min-h-0 flex-1">
+                      <MongoResults
+                        entry={active}
+                        conn_id={conn_id}
+                        tab_key={`${tab_key}\u0000${active.id}`}
+                        database={db}
+                        on_refresh={() =>
+                          void run_query(active.id, active.command)
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
               ) : active.result ? (
                 <MongoResults
                   entry={active}
@@ -2251,12 +2376,15 @@ function MongoEditorBody({
 
 function MongoResults({
   entry,
+  live = false,
   conn_id,
   tab_key,
   database,
   on_refresh,
 }: {
   entry: MongoEntry;
+  /** The run is still streaming rows in: no editability lookup per frame. */
+  live?: boolean;
   conn_id: string;
   tab_key: string;
   database: string;
@@ -2268,7 +2396,7 @@ function MongoResults({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a new result invalidates the previous one's editability immediately; the real (async) detection follows below
     setEditableSource(null);
-    if (result.error || !result.is_select) return;
+    if (result.error || !result.is_select || live) return;
     const hit = singleCollectionQuery(entry.command);
     if (!hit) return;
     let cancelled = false;
@@ -2283,9 +2411,10 @@ function MongoResults({
     return () => {
       cancelled = true;
     };
-  }, [entry.command, result, conn_id, database]);
+  }, [entry.command, result, live, conn_id, database]);
 
-  if (result.error)
+  const has_rows = result.is_select && resultRowCount(result) > 0;
+  if (result.error && !has_rows)
     return (
       <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm whitespace-pre-wrap">
         {result.error}
@@ -2294,6 +2423,7 @@ function MongoResults({
   const query_result: QueryResult = {
     columns: result.columns,
     rows: result.rows,
+    row_count: result.row_count,
     rows_affected: result.rows_affected,
     is_select: result.is_select,
     error: result.error,
@@ -2301,6 +2431,15 @@ function MongoResults({
   };
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
+      {result.error && (
+        // Rows arrived, then the run failed: keep the rows, error on top.
+        <div
+          role="alert"
+          className="border-destructive/30 bg-destructive/5 text-destructive shrink-0 border-b px-3 py-2 text-sm whitespace-pre-wrap"
+        >
+          {result.error}
+        </div>
+      )}
       <QueryResultsGrid
         result={query_result}
         conn_id={conn_id}

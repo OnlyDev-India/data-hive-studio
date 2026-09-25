@@ -149,6 +149,7 @@ export function GridActionBar({
         hidden={bridge.hidden_columns}
         on_toggle={bridge.toggle_column_visibility}
         on_reorder={bridge.reorder_column}
+        on_reveal={bridge.reveal_column}
       >
         {/* No `onClick` — `ColumnVisibilityMenu` renders this button as its
             own popover trigger, so opening/closing is already handled by

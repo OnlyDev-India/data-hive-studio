@@ -1,9 +1,8 @@
 import { CalendarIcon, ClockIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/shared/components/ui/button";
 import { Calendar } from "@/shared/components/ui/calendar";
-import { Input } from "@/shared/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -18,6 +17,9 @@ interface DatePickerProps {
   className?: string;
   /** Open the calendar automatically on mount. */
   autoOpen?: boolean;
+  /** Write ISO 8601 (`2026-08-20T02:08:00.000Z`, as Mongo dates read) instead
+   *  of the SQLite style `YYYY-MM-DD HH:MM:SS`. */
+  iso?: boolean;
 }
 
 /** A calendar popover that edits a `date` or `datetime` cell value and keeps
@@ -28,30 +30,35 @@ export function DatePicker({
   onChange,
   className,
   autoOpen,
+  iso,
 }: DatePickerProps) {
   const [open, setOpen] = useState(autoOpen ?? false);
   const parsed = parseDate(value);
   const selected: Date | undefined = parsed?.valid ? parsed.date : undefined;
-  const [time, setTime] = useState(
-    parsed?.valid ? `${pad(parsed.hh)}:${pad(parsed.mm)}` : "",
-  );
+  const hh = parsed?.valid ? parsed.hh : 0;
+  const mm = parsed?.valid ? parsed.mm : 0;
+  // Seconds and milliseconds the picker has no control for are kept, so
+  // changing the day or the hour does not wipe them.
+  const tail = value
+    ? /[T ]\d{2}:\d{2}:(\d{2})(?:\.(\d{1,3}))?/.exec(value)
+    : null;
+  const sec = tail?.[1] ?? "00";
+  const ms = (tail?.[2] ?? "").padEnd(3, "0") || "000";
+
+  const write = (date: Date, h: number, m: number) =>
+    onChange(
+      iso
+        ? `${formatToDb(date)}T${pad(h)}:${pad(m)}:${sec}.${ms}Z`
+        : formatToDb(date, true, `${h}:${pad(m)}`),
+    );
 
   const commit = (date: Date | undefined) => {
-    const text = formatToDb(date, withTime, time);
-    onChange(text || null);
+    if (!date) return onChange(null);
+    if (withTime) write(date, hh, mm);
+    else onChange(formatToDb(date));
   };
 
-  const on_time = (raw: string) => {
-    setTime(raw);
-    const m = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
-    if (m && selected) {
-      const hh = Math.min(23, Number(m[1]));
-      const mm = Math.min(59, Number(m[2]));
-      const copy = new Date(selected.getTime());
-      copy.setHours(hh, mm, 0, 0);
-      onChange(formatToDb(copy, true));
-    }
-  };
+  const on_time = (h: number, m: number) => write(selected ?? new Date(), h, m);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -61,7 +68,7 @@ export function DatePicker({
             variant="outline"
             size="sm"
             className={cn(
-              "bg-background hover:bg-accent hover:text-accent-foreground h-7 w-full justify-start border-transparent px-1.5 text-left text-sm font-normal",
+              "hover:text-accent-foreground h-7 w-full justify-start border-transparent bg-transparent px-1.5 text-left text-sm font-normal hover:bg-transparent",
               !value && "text-muted-foreground",
               className,
             )}
@@ -111,29 +118,72 @@ export function DatePicker({
             autoFocus
           />
           {withTime && (
-            <div className="border-border flex flex-col items-center justify-center gap-2 border-l px-3">
+            <div className="border-border flex flex-col items-center gap-2 border-l pl-3">
               <ClockIcon className="text-muted-foreground size-4 shrink-0" />
-              <Input
-                type="time"
-                className="h-7 w-auto"
-                value={time}
-                onChange={(e) => on_time(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const m = /^(\d{1,2}):(\d{2})$/.exec(time);
-                    if (m) {
-                      onChange(formatToDb(selected, true));
-                      setOpen(false);
-                    }
-                  }
-                }}
-              />
+              <div className="flex min-h-0 flex-1 gap-1">
+                <TimeColumn
+                  label="Hour"
+                  count={24}
+                  value={hh}
+                  onPick={(h) => on_time(h, mm)}
+                />
+                <TimeColumn
+                  label="Minute"
+                  count={60}
+                  value={mm}
+                  onPick={(m) => on_time(hh, m)}
+                />
+              </div>
             </div>
           )}
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** One scrolling column of numbers (hours or minutes), the current one
+ *  highlighted and brought to the middle when the picker opens. */
+function TimeColumn({
+  label,
+  count,
+  value,
+  onPick,
+}: {
+  label: string;
+  count: number;
+  value: number;
+  onPick: (n: number) => void;
+}) {
+  const current = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    current.current?.scrollIntoView({ block: "center" });
+    // Only on mount: picking a number must not make the list jump.
+  }, []);
+  return (
+    <div
+      role="listbox"
+      aria-label={label}
+      className="flex max-h-64 w-12 [scrollbar-width:none] flex-col gap-0.5 overflow-y-auto [&::-webkit-scrollbar]:hidden"
+    >
+      {Array.from({ length: count }, (_, n) => (
+        <button
+          key={n}
+          ref={n === value ? current : undefined}
+          type="button"
+          role="option"
+          aria-selected={n === value}
+          className={cn(
+            "hover:bg-accent shrink-0 cursor-pointer rounded-md py-1 text-center text-sm tabular-nums",
+            n === value &&
+              "bg-primary text-primary-foreground hover:bg-primary",
+          )}
+          onClick={() => onPick(n)}
+        >
+          {pad(n)}
+        </button>
+      ))}
+    </div>
   );
 }
 

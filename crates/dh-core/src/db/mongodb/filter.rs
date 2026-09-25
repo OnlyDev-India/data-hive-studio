@@ -132,6 +132,13 @@ pub(super) fn field_bson(value: Option<&str>, data_type: Option<&str>) -> bson::
     if t.contains("bool") {
         return bson::Bson::Boolean(v == "true" || v == "1");
     }
+    // A date cell must be written back as a BSON date, not as the text the
+    // grid shows, or the field silently changes type.
+    if t == "date" {
+        if let Some(d) = super::import_docs::parse_date(v) {
+            return d;
+        }
+    }
     if t.contains("int") || t.contains("long") || t.contains("integer") {
         if let Ok(i) = v.parse::<i64>() {
             return bson::Bson::Int64(i);

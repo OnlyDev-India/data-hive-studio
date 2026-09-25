@@ -532,7 +532,7 @@ export function NewTableTab({
       {/* The tabs and their tools sit on top of the grid, in one box, so they
           read as part of the table. */}
       <div className="flex min-h-56 flex-1 flex-col overflow-hidden rounded-lg border">
-        <div className="flex shrink-0 items-center gap-3 border-b p-2">
+        <div className="flex shrink-0 items-center gap-3 border-b p-1">
           <TabBar
             value={tab}
             onChange={setTab}

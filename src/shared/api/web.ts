@@ -19,6 +19,7 @@
  * The page talks only to the server that served it (or, in development,
  * through vite's `/v1` proxy).
  */
+import { readNdjson, type StreamEvent } from "./ndjson";
 import type { QueryResult } from "./types";
 
 export const WEB = !(
@@ -258,6 +259,49 @@ export async function wcall<T>(
   const res = await send(method, path, body);
   if (!res.ok) throw new Error(await errorText(res));
   return (await res.json()) as T;
+}
+
+/** POST to a streaming route and hand each chunk to `onChunk` as it arrives.
+ *  Resolves with the `done` line's result. A refusal or an error before the
+ *  first byte comes back as the normal status and text, so it throws like
+ *  `wcall`; an `error` line throws its message. A body that ends with neither
+ *  line (the server went away, the network dropped) throws, never resolves as
+ *  a finished result: the rows already handed over stay with the caller. */
+export async function wstream<T>(
+  path: string,
+  body: unknown,
+  onChunk: (chunk: Extract<StreamEvent, { t: "chunk" }>) => void,
+): Promise<T> {
+  const res = await send("POST", path, body);
+  if (!res.ok) throw new Error(await errorText(res));
+  if (!res.body) throw new Error("This browser cannot read a streamed answer.");
+  let rows = 0;
+  const end: { result?: T; error?: string; closed: boolean } = {
+    closed: false,
+  };
+  try {
+    await readNdjson(res.body, (event) => {
+      if (event.t === "chunk") {
+        rows += event.rows.length;
+        onChunk(event);
+      } else if (event.t === "done") {
+        end.result = event.result as T;
+        end.closed = true;
+      } else {
+        end.error = event.message;
+        end.closed = true;
+      }
+    });
+  } catch {
+    // A cut connection: reported below like a body that just ended.
+  }
+  if (end.error !== undefined) throw new Error(end.error);
+  if (!end.closed) {
+    throw new Error(
+      `The connection dropped after ${rows.toLocaleString()} rows.`,
+    );
+  }
+  return end.result as T;
 }
 
 export async function wcallEmpty(

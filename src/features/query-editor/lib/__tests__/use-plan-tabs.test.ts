@@ -4,7 +4,7 @@ import type { PlanResult } from "@/shared/api";
 
 const explainSql = vi.fn();
 vi.mock("@/shared/api", () => ({
-  canCancelRun: () => true,
+  canCancelPlan: () => true,
   explainSql: (...args: unknown[]) => explainSql(...args),
   explainMongo: vi.fn(),
 }));

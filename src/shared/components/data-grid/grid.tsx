@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   executeOp,
+  createRowAccumulator,
   executeOpStream,
   tableSchema,
   type QueryOp,
@@ -528,10 +529,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           // Other arrays fall through to plain text editing.
           c.is_array && (c.enum_values?.length ?? 0) > 0
             ? ("array" as CellKind)
-            : classify(c.data_type.toLowerCase()),
+            : classify(c.data_type.toLowerCase(), kind === "mongo"),
         ]),
       ),
-    [schema],
+    [schema, kind],
   );
   const kindsTyped = kinds as Record<string, CellKind>;
 
@@ -1021,6 +1022,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     table,
     layout_key: `${conn_id}::${database ?? ""}::${schema_name ?? ""}::${table}`,
     kinds: kindsTyped,
+    iso_dates: kind === "mongo",
     types: column_types,
     key_kinds,
     fk_targets,
@@ -1048,36 +1050,31 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // same details (filters / raw WHERE / sort / pagination).
   useEffect(() => {
     let cancelled = false;
-    // Accumulate streamed rows and flush to state at most once per frame so
-    // fast local results don't trigger a render per batch.
-    const acc: { cols: string[] | null; rows: (string | null)[][] } = {
-      cols: null,
-      rows: [],
-    };
-    let raf = 0;
-    const flush = () => {
-      raf = 0;
+    // Streamed rows collect in one accumulator that flushes to state at most
+    // once per frame, so fast local results don't trigger a render per batch.
+    // It also grows the columns when a Mongo page shows a new field late, and
+    // pads every row to the final column count.
+    const acc = createRowAccumulator((snapshot) => {
       if (cancelled) return;
       // Hold the previous page on screen until real rows exist — avoids a
       // "No rows." flash between the header chunk and the first batch.
-      if (acc.rows.length === 0) return;
+      if (snapshot.row_count === 0) return;
       setResult({
-        columns: acc.cols ?? [],
-        rows: [...acc.rows],
+        columns: snapshot.columns,
+        rows: snapshot.rows.slice(0, snapshot.row_count),
         rows_affected: 0,
         is_select: true,
         error: null,
         elapsed_ms: 0,
       });
-    };
+    });
     // Stop: abandon this fetch. Its rows and count are dropped when they
     // arrive (`cancelled`), the grid goes back to an empty "stopped" state.
     // The statements themselves are not cancelled on the server.
     const give_up = () => {
       if (cancelled) return;
       cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
+      acc.finish();
       setResult(null);
       setLoading(false);
       setCountPending(false);
@@ -1144,22 +1141,20 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
             limit: page_size,
             offset,
           },
-          (chunk) => {
-            if (chunk.columns) acc.cols = chunk.columns;
-            if (chunk.rows.length > 0) {
-              acc.rows.push(...chunk.rows);
-              if (!raf) raf = requestAnimationFrame(flush);
-            }
-          },
+          acc.push,
           database,
           schema_name,
         );
-        if (raf) cancelAnimationFrame(raf);
-        raf = 0;
+        const streamed = acc.finish();
         if (cancelled) return;
-        // The resolved metadata is authoritative (columns/elapsed); pair it
-        // with the accumulated rows.
-        setResult({ ...pageMeta, rows: acc.rows });
+        // The resolved metadata is authoritative (elapsed); pair it with the
+        // accumulated rows and the columns they ended with.
+        setResult({
+          ...pageMeta,
+          columns:
+            streamed.columns.length > 0 ? streamed.columns : pageMeta.columns,
+          rows: streamed.rows,
+        });
       } catch (e) {
         // A failed page (bad WHERE, dropped connection) used to leave a blank
         // grid with nothing said. Drop the previous page too: it belongs to
@@ -1174,7 +1169,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     })();
     return () => {
       cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
+      acc.finish();
       if (stop_fetch.current === give_up) stop_fetch.current = null;
     };
   }, [
@@ -1255,6 +1250,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       hidden_columns: [...ctl.hidden_columns],
       toggle_column_visibility: ctl.toggle_column_visibility,
       reorder_column: ctl.reorder_column,
+      reveal_column: ctl.reveal_column,
       editable: editable && !show_loading,
       read_only,
       loading: show_loading,
@@ -1329,6 +1325,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       ctl.hidden_columns,
       ctl.toggle_column_visibility,
       ctl.reorder_column,
+      ctl.reveal_column,
     ],
   );
 

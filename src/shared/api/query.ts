@@ -1,11 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WEB, wcall } from "./web";
-import {
-  dedupe,
-  dispatchDbCall,
-  hinted,
-  serverUnsupported,
-} from "./dispatch";
+import { dedupe, dispatchDbCall, hinted, serverUnsupported } from "./dispatch";
 import type { CancelOutcome, DbKind, QueryOp, QueryResult } from "./types";
 
 /** Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
@@ -51,10 +46,17 @@ const CANCELLABLE_KINDS: ReadonlySet<DbKind> = new Set([
 ]);
 
 /** Whether the SQL editor can offer Stop for a run on this connection. Grows
- *  engine by engine (spec 0006): web connections have no cancel route yet, so
- *  only local desktop connections qualify. */
+ *  engine by engine (spec 0006). On the web only the streaming routes can be
+ *  stopped, and the web build reaches PostgreSQL and MongoDB only. */
 export function canCancelRun(kind: DbKind | undefined): boolean {
-  return !WEB && kind !== undefined && CANCELLABLE_KINDS.has(kind);
+  if (kind === undefined || !CANCELLABLE_KINDS.has(kind)) return false;
+  return WEB ? kind !== "sqlite" : true;
+}
+
+/** Whether a Plan tab can offer Stop. The web build's plan calls have no cancel
+ *  route yet, so only the desktop app qualifies. */
+export function canCancelPlan(kind: DbKind | undefined): boolean {
+  return !WEB && canCancelRun(kind);
 }
 
 /** Stop the editor run `runId` (the id passed to `runSqlStream`). Resolves
@@ -64,7 +66,13 @@ export async function cancelRun(
   connId: string,
   runId: string,
 ): Promise<CancelOutcome> {
-  serverUnsupported();
+  if (WEB) {
+    return wcall<CancelOutcome>(
+      "POST",
+      `/v1/c/${encodeURIComponent(connId)}/cancel`,
+      { run_id: runId },
+    );
+  }
   return invoke<CancelOutcome>("cancel_run", { connId, runId });
 }
 
@@ -78,9 +86,7 @@ export async function executeParams(
 ): Promise<number> {
   serverUnsupported();
 
-  return hinted(
-    invoke("execute_params", { connId, database, sql, params }),
-  );
+  return hinted(invoke("execute_params", { connId, database, sql, params }));
 }
 
 /** Run a SELECT with bound `?` parameters (used by UI-built filters).

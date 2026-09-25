@@ -1,11 +1,10 @@
 use mongodb::action::Action;
-use futures_util::TryStreamExt;
 use crate::db::read_only::{refused, Dialect};
-use crate::db::{DbError, DbResult, RunHandle};
+use crate::db::{BatchSink, DbError, DbResult, RunHandle};
 use crate::api::QueryResult;
 use super::MongoAdapter;
 use super::console_guard::console_refusal;
-use super::convert::flatten_documents;
+use super::stream::read_console_cursor;
 use super::filter::json_cell_string;
 use super::cancel::{mongo_err, run_comment};
 use super::console_parse::{parse_chain, parse_db_call, parse_filter, parse_json_object, parse_json_object_array, split_top_level, validate_chain};
@@ -21,6 +20,7 @@ impl MongoAdapter {
         collection: Option<&str>,
         script: &str,
         run: Option<&RunHandle>,
+        sink: Option<BatchSink<'_>>,
     ) -> DbResult<crate::api::MongoRunResult> {
         let start = std::time::Instant::now();
         let s = script.trim();
@@ -80,13 +80,13 @@ impl MongoAdapter {
         }
         if s.starts_with("db.") {
             self.arm_kill_op(run).await?;
-            return self.run_db_call(db, s, start, run).await;
+            return self.run_db_call(db, s, start, run, sink).await;
         }
         // Bare JSON: object → find (needs a collection), array → aggregate.
         if s.starts_with('{') || s.starts_with('[') {
             if let Some(coll) = collection {
                 self.arm_kill_op(run).await?;
-                return self.run_bare_json(db, coll, s, start, run).await;
+                return self.run_bare_json(db, coll, s, start, run, sink).await;
             }
             return Ok(fail(
                 "A bare query needs a collection — use db.<collection>.find(<query>) instead"
@@ -106,6 +106,7 @@ impl MongoAdapter {
         s: &str,
         start: std::time::Instant,
         run: Option<&RunHandle>,
+        sink: Option<BatchSink<'_>>,
     ) -> DbResult<crate::api::MongoRunResult> {
         let comment = run_comment(run);
         let Some(call) = parse_db_call(s) else {
@@ -157,27 +158,27 @@ impl MongoAdapter {
                     // the whole collection into the console.
                     opts.limit = Some(200);
                 }
-                let mut cursor = col
+                opts.batch_size = Some(super::stream::CURSOR_BATCH);
+                let cursor = col
                     .find(filter.clone().unwrap_or_default())
-            .with_options(opts)
+                    .with_options(opts)
                     .await
                     .map_err(|e| mongo_err(e, run))?;
-                let mut docs: Vec<serde_json::Value> = Vec::new();
-                while let Some(d) = cursor.try_next().await.map_err(|e| mongo_err(e, run))? {
-                    docs.push(Self::document_to_json(d));
-                }
-                let (columns, rows) = flatten_documents(&docs);
+                // findOne has at most one document and a message of its own,
+                // so it is collected rather than streamed.
+                let (columns, rows, documents) =
+                    read_console_cursor(cursor, run, if is_one { None } else { sink }).await?;
                 Ok(crate::api::MongoRunResult {
                     command: command(),
                     columns,
                     rows,
-                    documents: docs.clone(),
                     is_select: true,
-                    message: if is_one && docs.is_empty() {
+                    message: if is_one && documents.is_empty() {
                         Some("No matching document".into())
                     } else {
                         None
                     },
+                    documents,
                     elapsed_ms: start.elapsed().as_millis(),
                     ..Default::default()
                 })
@@ -251,21 +252,18 @@ impl MongoAdapter {
                         })
                     })
                     .collect::<DbResult<_>>()?;
-                let mut cursor = col
+                let cursor = col
                     .aggregate(stages)
+                    .batch_size(super::stream::CURSOR_BATCH)
                     .optional(comment.clone(), |a, c| a.comment(c))
                     .await
                     .map_err(|e| mongo_err(e, run))?;
-                let mut docs: Vec<serde_json::Value> = Vec::new();
-                while let Some(d) = cursor.try_next().await.map_err(|e| mongo_err(e, run))? {
-                    docs.push(Self::document_to_json(d));
-                }
-                let (columns, rows) = flatten_documents(&docs);
+                let (columns, rows, documents) = read_console_cursor(cursor, run, sink).await?;
                 Ok(crate::api::MongoRunResult {
                     command: command(),
                     columns,
                     rows,
-                    documents: docs,
+                    documents,
                     is_select: true,
                     elapsed_ms: start.elapsed().as_millis(),
                     ..Default::default()
@@ -370,13 +368,38 @@ impl MongoAdapter {
         script: &str,
         run: Option<&RunHandle>,
     ) -> DbResult<crate::api::MongoRunResult> {
+        self.run_mongo_with(db, collection, script, run, None).await
+    }
+
+    /// [`run_mongo`], with find, aggregate and bare JSON reads streaming
+    /// their rows and documents to `sink`. Every other command returns its
+    /// result inline as before.
+    pub(super) async fn run_mongo_stream(
+        &self,
+        db: &str,
+        collection: Option<&str>,
+        script: &str,
+        run: Option<&RunHandle>,
+        sink: BatchSink<'_>,
+    ) -> DbResult<crate::api::MongoRunResult> {
+        self.run_mongo_with(db, collection, script, run, Some(sink)).await
+    }
+
+    async fn run_mongo_with(
+        &self,
+        db: &str,
+        collection: Option<&str>,
+        script: &str,
+        run: Option<&RunHandle>,
+        sink: Option<BatchSink<'_>>,
+    ) -> DbResult<crate::api::MongoRunResult> {
         // Before anything runs or a canceller is armed.
         if self.guard.is_on() {
             if let Some(reason) = console_refusal(script) {
                 return Err(refused(reason));
             }
         }
-        let res = self.run_mongo_impl(db, collection, script, run).await;
+        let res = self.run_mongo_impl(db, collection, script, run, sink).await;
         // Nothing left for a late Stop to reach once the run is over.
         if let Some(run) = run {
             run.finish().await;
@@ -405,7 +428,7 @@ impl MongoAdapter {
         }
         let plan = super::mongo_sql::translate_select(sql)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
-        let (columns, rows) = self.run_select_plan(&db, &plan, None).await?;
+        let (columns, rows) = self.collect_select_plan(&db, &plan).await?;
         Ok(QueryResult {
             columns,
             rows,

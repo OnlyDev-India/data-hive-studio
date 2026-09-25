@@ -15,6 +15,9 @@ mod field_tree;
 mod schema;
 mod indexes;
 mod documents;
+mod stream;
+#[cfg(test)]
+mod stream_live_tests;
 mod console;
 mod console_bare;
 mod edit;

@@ -17,12 +17,17 @@ pub struct QueryResult {
 /// One streamed batch of SELECT rows pushed to the frontend over an IPC
 /// channel while a large result is still being read. The first chunk carries
 /// the column names (known from preparing the statement); later chunks carry
-/// only rows.
+/// only rows, unless the column list grew (MongoDB), in which case the chunk
+/// carries the full list again. The list is append only.
 #[derive(Debug, Clone, Serialize)]
 pub struct QueryChunk {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub columns: Option<Vec<String>>,
     pub rows: Vec<Vec<Option<String>>>,
+    /// The documents behind `rows`, same order and count. Only the MongoDB
+    /// console sends them, so its JSON view fills as the grid does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub documents: Option<Vec<serde_json::Value>>,
 }
 
 // ---- Structured operations -------------------------------------------------

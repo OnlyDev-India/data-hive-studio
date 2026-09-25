@@ -5,8 +5,11 @@
 mod browse;
 mod data;
 mod mongo;
+mod stream;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod stream_tests;
 
 use crate::config::Config;
 use crate::connect::{self, ConnectError};
@@ -182,12 +185,17 @@ fn new_handle() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-async fn close_route(State(st): State<Shared>, params: RawPathParams) -> Response {
-    let handle = params
+/// The `{handle}` a path names.
+pub(crate) fn handle_of(params: &RawPathParams) -> String {
+    params
         .iter()
         .find(|(k, _)| *k == "handle")
         .map(|(_, v)| v.to_string())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+async fn close_route(State(st): State<Shared>, params: RawPathParams) -> Response {
+    let handle = handle_of(&params);
     match st.handles.remove(&handle) {
         Some(a) => {
             a.close().await;
@@ -230,6 +238,9 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
             post(browse::disconnect_database),
         )
         .route("/v1/c/{handle}/sql", post(data::sql))
+        .route("/v1/c/{handle}/sql-stream", post(stream::sql_stream))
+        .route("/v1/c/{handle}/op-stream", post(stream::op_stream))
+        .route("/v1/c/{handle}/cancel", post(stream::cancel))
         .route("/v1/c/{handle}/explain", post(data::explain))
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))
@@ -256,6 +267,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
             post(mongo::insert_document),
         )
         .route("/v1/c/{handle}/mongo/run", post(mongo::run))
+        .route("/v1/c/{handle}/mongo/run-stream", post(stream::mongo_run_stream))
         .route("/v1/c/{handle}/mongo/explain", post(mongo::explain))
         .route(
             "/v1/c/{handle}/mongo/collections",

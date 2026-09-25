@@ -1,29 +1,26 @@
 use sqlx::{Connection as _, PgConnection, PgPool};
 use std::time::Instant;
 use crate::api::QueryResult;
-use crate::db::{DbError, DbResult, RunHandle};
-use super::rows::{describe_columns, describe_columns_conn, row_to_vec};
+use crate::db::{BatchSink, DbError, DbResult, RunHandle};
+use super::rows::{describe_columns, row_to_vec};
 use super::sql_text::{dollar_placeholders, q};
-use super::cancel::pg_run_error;
+use super::stream::{stream_error, stream_statement};
 
-/// Run one statement on `conn`, rendering rows as text cells.
+/// Run one statement on `conn`. A SELECT streams its rows to `sink` and
+/// resolves without them; anything else runs and reports the rows it changed.
 pub(super) async fn exec_statement(
     conn: &mut PgConnection,
     trimmed: &str,
     is_select: bool,
     start: Instant,
-    run: &RunHandle,
+    run: Option<&RunHandle>,
+    sink: BatchSink<'_>,
 ) -> DbResult<QueryResult> {
     if is_select {
-        let columns = describe_columns_conn(conn, trimmed).await?;
-        let rows = sqlx::query(trimmed)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(|e| pg_run_error(e, run))?;
-        let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
+        let streamed = stream_statement(conn, trimmed, &[], run, sink).await?;
         return Ok(QueryResult {
-            columns,
-            rows: out,
+            columns: streamed.columns,
+            rows: vec![],
             rows_affected: 0,
             is_select: true,
             error: null_error(),
@@ -34,7 +31,7 @@ pub(super) async fn exec_statement(
     let res = sqlx::query(trimmed)
         .execute(&mut *conn)
         .await
-        .map_err(|e| pg_run_error(e, run))?;
+        .map_err(|e| stream_error(e, run))?;
     Ok(QueryResult {
         columns: vec![],
         rows: vec![],
@@ -55,14 +52,15 @@ pub(super) async fn run_in_schema_tx(
     trimmed: &str,
     is_select: bool,
     start: Instant,
-    run: &RunHandle,
+    run: Option<&RunHandle>,
+    sink: BatchSink<'_>,
 ) -> DbResult<QueryResult> {
     let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
     sqlx::query(&format!("SET LOCAL search_path = {}", q(schema)))
         .execute(&mut *tx)
         .await
         .map_err(DbError::SqlEngine)?;
-    let result = exec_statement(&mut tx, trimmed, is_select, start, run).await?;
+    let result = exec_statement(&mut tx, trimmed, is_select, start, run, sink).await?;
     tx.commit().await.map_err(DbError::SqlEngine)?;
     Ok(result)
 }

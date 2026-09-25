@@ -6,6 +6,7 @@ import { HeaderCell } from "./header-cell";
 import { ColumnDragGhost } from "./column-drag-ghost";
 import { useGrid } from "./grid-context";
 import { GridSearchBar } from "./search-bar";
+import { HEADER_HEIGHT_PX, ROW_HEIGHT_PX } from "./types";
 
 /**
  * Presentational shell of the grid: renders the header row and the data rows.
@@ -20,7 +21,7 @@ import { GridSearchBar } from "./search-bar";
  */
 export function GridBody() {
   const ctx = useGrid();
-  const { view, rows, row_offset, pinned, pending_count } = ctx;
+  const { view, row_count, row_offset, pinned, pending_count } = ctx;
   const { column_order, col_meta, pin_px, width_of } = view;
 
   const root_mouse_down = ctx.on_root_mouse_down;
@@ -66,7 +67,12 @@ export function GridBody() {
       >
         {/* Header: corner cell (row-number gutter header) then column headers.
           Sticks to the top of the scroller while rows window underneath. */}
-        <div className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium select-none">
+        <div
+          className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium select-none"
+          // Its height comes from the header cells, so with no columns it
+          // would collapse to the "#" text.
+          style={{ height: HEADER_HEIGHT_PX }}
+        >
           <div className="border-border/40 bg-muted text-2xs sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r">
             <span>#</span>
           </div>
@@ -111,6 +117,9 @@ export function GridBody() {
                   // their own stacking contexts, so the editing cell's z-index
                   // works globally against every other cell/row.
                   top: `${vi.start}px`,
+                  // Rows are placed ROW_HEIGHT_PX apart; without cells the
+                  // gutter alone would make them shorter and leave gaps.
+                  height: ROW_HEIGHT_PX,
                 }}
               >
                 <div
@@ -169,7 +178,7 @@ export function GridBody() {
             );
           })}
         </div>
-        {rows.length === 0 && (
+        {row_count === 0 && (
           <p className="text-muted-foreground px-3 py-8 text-center text-sm">
             No rows.
           </p>

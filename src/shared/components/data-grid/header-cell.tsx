@@ -18,7 +18,7 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
 import { ColumnQuickFilter } from "./column-quick-filter";
-import { useGrid } from "./grid-context";
+import { cellKey, useGrid } from "./grid-context";
 
 interface HeaderCellProps {
   col: string;
@@ -89,6 +89,14 @@ export function HeaderCell({
     (f) => f.column === col && f.op === "in",
   );
   const ci = ctx.col_index_of[col];
+  // Every row of this column is selected (a header click, or the same cells
+  // picked another way). The size check keeps the scan off the common case.
+  const col_selected =
+    ctx.row_count > 0 &&
+    ctx.selected.size >= ctx.row_count &&
+    Array.from({ length: ctx.row_count }, (_, r) => r).every((r) =>
+      ctx.selected.has(cellKey(r, col)),
+    );
   const quick_filter_values = useMemo(
     () => [...new Set(ctx.rows.map((r) => r[ci] ?? null))],
     [ctx.rows, ci],
@@ -178,7 +186,7 @@ export function HeaderCell({
   }, [col_pointer_down, col, start_column_drag]);
 
   const merged = cn(
-    "relative min-w-0 shrink-0 w-36",
+    "relative h-full min-w-0 shrink-0 w-36",
     is_pinned && "sticky bg-muted z-40",
   );
 
@@ -190,13 +198,14 @@ export function HeaderCell({
       <div
         data-col={col}
         className={cn(
-          "flex h-7 w-full min-w-0 cursor-grab items-center gap-1 overflow-hidden px-2 active:cursor-grabbing",
+          "flex h-full w-full min-w-0 cursor-grab items-center gap-1 overflow-hidden px-2 active:cursor-grabbing",
           // Reordering happens live as the drag crosses into each column
           // (tracked by cursor position in `grid-controller.ts`, not this
           // cell's own hover state — see that file's `on_move` for why), so
           // the dragged column is already sitting at its live position —
           // this just marks which one it is.
           col_dragging && "bg-primary/10 ring-primary/50 ring-1 ring-inset",
+          col_selected && "bg-primary/30 text-primary-foreground",
         )}
         onMouseDown={(e) => {
           if (e.button !== 0) return;
@@ -240,14 +249,18 @@ export function HeaderCell({
                 )}
               </span>
             )}
-            <span className="truncate">{col}</span>
-            {type_label && (
-              <span className="text-muted-foreground/60 text-3xs shrink-0 truncate font-normal tracking-wide uppercase">
-                {type_label}
-              </span>
-            )}
+            {/* Name over type, so both stay readable in a narrow column
+                without making the header taller than a row. */}
+            <span className="flex min-w-0 flex-col items-start justify-center">
+              <span className="max-w-full truncate leading-4">{col}</span>
+              {type_label && (
+                <span className="text-muted-foreground/60 text-3xs max-w-full truncate leading-3 font-normal tracking-wide uppercase">
+                  {type_label}
+                </span>
+              )}
+            </span>
           </TooltipTrigger>
-          {type_label && (
+          {(type_label || key_kind) && (
             <TooltipContent
               side="bottom"
               align="center"
@@ -256,29 +269,51 @@ export function HeaderCell({
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Column</span>
-                <button
-                  type="button"
-                  title="Copy type"
-                  aria-label="Copy type"
-                  className="text-muted-foreground hover:text-foreground cursor-pointer"
-                  onClick={() => {
-                    void navigator.clipboard
-                      .writeText(type_label)
-                      .then(() => setCopied(true));
-                  }}
-                >
-                  {copied ? (
-                    <Check className="size-3" />
-                  ) : (
-                    <Copy className="size-3" />
-                  )}
-                </button>
+                {type_label && (
+                  <button
+                    type="button"
+                    title="Copy type"
+                    aria-label="Copy type"
+                    className="text-muted-foreground hover:text-foreground cursor-pointer"
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(type_label)
+                        .then(() => setCopied(true));
+                    }}
+                  >
+                    {copied ? (
+                      <Check className="size-3" />
+                    ) : (
+                      <Copy className="size-3" />
+                    )}
+                  </button>
+                )}
               </div>
               <div className="mt-0.5 truncate font-mono">{col}</div>
-              <div className="text-muted-foreground mt-2">Type</div>
-              <div className="text-info-dark wrap-break-words mt-0.5 font-mono">
-                {type_label}
-              </div>
+              {type_label && (
+                <>
+                  <div className="text-muted-foreground mt-2">Type</div>
+                  <div className="text-info-dark wrap-break-words mt-0.5 font-mono">
+                    {type_label}
+                  </div>
+                </>
+              )}
+              {key_kind && (
+                <>
+                  <div className="text-muted-foreground mt-2">Key</div>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-0.5">
+                      {(key_kind === "primary" || key_kind === "both") && (
+                        <KeyRound className="size-3 text-amber-500" />
+                      )}
+                      {(key_kind === "foreign" || key_kind === "both") && (
+                        <KeyRound className="size-3 text-sky-500" />
+                      )}
+                    </span>
+                    {KEY_TITLES[key_kind]}
+                  </div>
+                </>
+              )}
             </TooltipContent>
           )}
         </Tooltip>

@@ -88,6 +88,9 @@ export interface GridBridge {
    *  the column-visibility popover's own drag-reorder, same action the
    *  header cells' drag handle uses. */
   reorder_column: (dragged: string, target: string) => void;
+  /** Select the whole of `col` and scroll its header into view — the
+   *  column-visibility popover's click on a column's name. */
+  reveal_column: (col: string) => void;
   elapsed_ms: number | null;
   delete_rows: () => void;
   /** True while not-yet-inserted "pending" rows are being drafted. */

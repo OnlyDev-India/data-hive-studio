@@ -1,6 +1,7 @@
-use crate::api::MongoRunResult;
+use crate::api::{MongoRunResult, QueryChunk};
 use serde_json;
-use super::types::{DbError, DbResult};
+use super::adapter::DbAdapter;
+use super::types::{BatchSink, DbError, DbResult};
 use super::activity_log::{activity_rows_mongo, log_refusal};
 use super::runs;
 use super::registry::with_connection;
@@ -117,4 +118,79 @@ pub async fn run_mongo(
         Err(e) => crate::activity::log_stmt_err(conn_id, "mongo", script, t, e),
     }
     res
+}
+
+/// Streaming variant of [`run_mongo`]: find, aggregate and bare JSON reads push
+/// their rows and matching documents through `on_batch` as the cursor yields
+/// them, and the returned result carries no rows or documents of its own.
+/// Every other command returns inline, as `run_mongo` does. `run_id` and the
+/// activity log work as in `run_mongo`, with the real streamed row count.
+pub async fn run_mongo_stream(
+    conn_id: &str,
+    db: &str,
+    collection: Option<&str>,
+    script: &str,
+    run_id: Option<&str>,
+    on_batch: impl FnMut(QueryChunk) -> DbResult<()> + Send,
+) -> DbResult<MongoRunResult> {
+    let t = std::time::Instant::now();
+    let streamed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = streamed.clone();
+    let mut inner = on_batch;
+    let mut sink = move |chunk: QueryChunk| {
+        counter.fetch_add(chunk.rows.len(), std::sync::atomic::Ordering::Relaxed);
+        inner(chunk)
+    };
+    let id = conn_id.to_string();
+    let run_id = run_id.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        run_mongo_stream_on(&*a, &id, db, collection, script, run_id.as_deref(), &mut sink).await
+    })
+    .await;
+    match &res {
+        Ok(r) if r.cancelled => {
+            crate::activity::log_stmt_err(conn_id, "mongo", script, t, &DbError::Cancelled)
+        }
+        Ok(r) if r.error.is_none() => {
+            let streamed = streamed.load(std::sync::atomic::Ordering::Relaxed) as i64;
+            let rows = if streamed > 0 { streamed } else { activity_rows_mongo(r) };
+            crate::activity::log_stmt_ok(conn_id, "mongo", script, t, rows)
+        }
+        Ok(r) => {
+            let err = DbError::InvalidOperation(r.error.clone().unwrap_or_default());
+            crate::activity::log_stmt_err(conn_id, "mongo", script, t, &err)
+        }
+        Err(e) => crate::activity::log_stmt_err(conn_id, "mongo", script, t, e),
+    }
+    res
+}
+
+/// [`run_mongo_stream`] on an adapter the caller already holds, with no
+/// activity log (see `run_sql_stream_on`). A stopped run resolves as `Ok` with
+/// `cancelled: true`.
+pub async fn run_mongo_stream_on(
+    a: &dyn DbAdapter,
+    conn_id: &str,
+    db: &str,
+    collection: Option<&str>,
+    script: &str,
+    run_id: Option<&str>,
+    sink: BatchSink<'_>,
+) -> DbResult<MongoRunResult> {
+    let t = std::time::Instant::now();
+    let run = run_id.map(|id| runs::register(conn_id, id));
+    let run_ref = run.as_ref();
+    let res = runs::until_abandoned(run_ref, a.run_mongo_stream(db, collection, script, run_ref, sink)).await;
+    if let Some(r) = &run {
+        r.finish().await;
+    }
+    match res {
+        Err(DbError::Cancelled) => Ok(MongoRunResult {
+            command: script.trim().to_string(),
+            cancelled: true,
+            elapsed_ms: t.elapsed().as_millis(),
+            ..Default::default()
+        }),
+        other => other,
+    }
 }

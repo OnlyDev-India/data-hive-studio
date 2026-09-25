@@ -400,6 +400,9 @@ export interface MongoRunResult {
    *  stopped write already changed stay changed. Absent from an older
    *  server's reply. */
   cancelled?: boolean;
+  /** A streamed result: how many entries of `rows` are valid (see
+   *  `QueryResult.row_count`). Absent means all of them. */
+  row_count?: number;
 }
 
 /** Run a MongoDB console command (JSON find/aggregate or a shell-subset
@@ -518,9 +521,7 @@ export async function refreshMatview(
   schema?: string,
 ): Promise<void> {
   serverUnsupported();
-  return hinted(
-    invoke("refresh_matview", { connId, database, schema, name }),
-  );
+  return hinted(invoke("refresh_matview", { connId, database, schema, name }));
 }
 
 /** The schema unqualified operations currently target (Postgres). */

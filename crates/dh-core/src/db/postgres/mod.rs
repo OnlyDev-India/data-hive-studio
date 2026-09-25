@@ -11,6 +11,9 @@ mod filters;
 mod rows;
 mod cancel;
 mod exec;
+mod stream;
+#[cfg(test)]
+mod stream_tests;
 mod catalog;
 mod objects;
 mod query;

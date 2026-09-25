@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GripVertical, Search } from "lucide-react";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
@@ -16,11 +16,38 @@ import { cn } from "@/shared/lib/utils";
  *  `Popover` (not a `DropdownMenu`) specifically because a dropdown's
  *  auto-close-on-interior-interaction and focus trap fight both the search
  *  input and native HTML5 drag events. */
+/** `order` with `dragged` moved into the slot `over` holds right now. Working
+ *  from the live order (not the one the drag started with) is what lets the
+ *  ghost go back to where it began: the row now sitting in that slot is the
+ *  one to hover. */
+function move_into_slot(order: string[], dragged: string, over: string) {
+  const from = order.indexOf(dragged);
+  const to = order.indexOf(over);
+  if (from === -1 || to === -1 || from === to) return order;
+  const next = order.filter((c) => c !== dragged);
+  next.splice(to, 0, dragged);
+  return next;
+}
+
+/** The (dragged, target) pair `on_reorder` needs to produce `final`, which
+ *  drops after the target when moving down and before it when moving up. */
+function reorder_args(
+  start: string[],
+  final: string[],
+  dragged: string,
+): [string, string] | null {
+  const from = start.indexOf(dragged);
+  const at = final.indexOf(dragged);
+  if (from === -1 || at === -1 || from === at) return null;
+  return [dragged, at > from ? final[at - 1] : final[at + 1]];
+}
+
 export function ColumnVisibilityMenu({
   columns,
   hidden,
   on_toggle,
   on_reorder,
+  on_reveal,
   children,
 }: {
   /** Every column, in current display order (pin-partitioned,
@@ -29,17 +56,30 @@ export function ColumnVisibilityMenu({
   hidden: string[];
   on_toggle: (col: string) => void;
   on_reorder: (dragged: string, target: string) => void;
+  /** A click on a column's name (not its checkbox): select it in the grid and
+   *  scroll it into view. */
+  on_reveal: (col: string) => void;
   children: React.ReactElement;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [drag_over, setDragOver] = useState<string | null>(null);
+  // The dragged column and the order the list shows while it moves.
+  const [drag, setDrag] = useState<{ col: string; order: string[] } | null>(
+    null,
+  );
+  const dragging = drag?.col ?? null;
+  const drag_ref = useRef(drag);
+  useEffect(() => {
+    drag_ref.current = drag;
+  });
   const hidden_set = new Set(hidden);
   const q = query.trim().toLowerCase();
-  const filtered = q
+  const matching = q
     ? columns.filter((c) => c.toLowerCase().includes(q))
     : columns;
+  // While dragging, the list shows the order the drop would give, with the
+  // dragged row as the placeholder sitting where it will land.
+  const filtered = drag && !q ? drag.order : matching;
   // Applies to the FILTERED set, not every column — checking "select all"
   // while a search narrows the list only touches what's actually visible
   // here, same convention as a filtered list/inbox "select all".
@@ -60,17 +100,16 @@ export function ColumnVisibilityMenu({
   useEffect(() => {
     if (!dragging) return;
     const on_up = () => {
-      setDragging((from) => {
-        setDragOver((to) => {
-          if (from && to && from !== to) on_reorder(from, to);
-          return null;
-        });
-        return null;
-      });
+      const cur = drag_ref.current;
+      if (cur) {
+        const args = reorder_args(columns, cur.order, cur.col);
+        if (args) on_reorder(...args);
+      }
+      setDrag(null);
     };
     window.addEventListener("mouseup", on_up);
     return () => window.removeEventListener("mouseup", on_up);
-  }, [dragging, on_reorder]);
+  }, [dragging, columns, on_reorder]);
 
   return (
     <Popover
@@ -113,15 +152,17 @@ export function ColumnVisibilityMenu({
               key={col}
               title={q ? "Clear the search to drag-reorder" : undefined}
               onMouseEnter={() => {
-                if (!q && dragging && dragging !== col) setDragOver(col);
+                if (!q && drag && drag.col !== col)
+                  setDrag({
+                    col: drag.col,
+                    order: move_into_slot(drag.order, drag.col, col),
+                  });
               }}
               className={cn(
                 "flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs",
-                // Insertion line above the target row — `on_reorder` always
-                // drops before `col`, mirroring the header's own left-edge
-                // indicator.
-                drag_over === col && "border-primary bg-primary/10 border-t-2",
-                dragging === col && "opacity-40",
+                // The ghost: the dragged column, drawn where it will drop.
+                dragging === col &&
+                  "border-primary bg-primary/10 border border-dashed opacity-60",
               )}
             >
               <GripVertical
@@ -132,16 +173,27 @@ export function ColumnVisibilityMenu({
                 onMouseDown={(e) => {
                   if (q) return;
                   e.preventDefault();
-                  setDragging(col);
+                  setDrag({ col, order: columns });
                 }}
               />
-              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={!hidden_set.has(col)}
-                  onCheckedChange={() => on_toggle(col)}
-                />
-                <span className="truncate">{col}</span>
-              </label>
+              <Checkbox
+                checked={!hidden_set.has(col)}
+                aria-label={`Show ${col}`}
+                onCheckedChange={() => on_toggle(col)}
+              />
+              <button
+                type="button"
+                disabled={hidden_set.has(col)}
+                title={
+                  hidden_set.has(col)
+                    ? "Show the column to select it"
+                    : "Select column"
+                }
+                className="min-w-0 flex-1 cursor-pointer truncate text-left disabled:cursor-default disabled:opacity-60"
+                onClick={() => on_reveal(col)}
+              >
+                {col}
+              </button>
             </div>
           ))}
         </div>

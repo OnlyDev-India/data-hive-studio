@@ -322,6 +322,21 @@ pub trait DbAdapter: Send + Sync {
             "Mongo console commands are only available on MongoDB connections".into(),
         ))
     }
+    /// [`run_mongo`], with find, aggregate and bare JSON reads pushing their
+    /// rows and documents through `on_batch` as they arrive. Other commands
+    /// return inline. Non-Mongo adapters reject it.
+    async fn run_mongo_stream(
+        &self,
+        _db: &str,
+        _collection: Option<&str>,
+        _script: &str,
+        _run: Option<&RunHandle>,
+        _on_batch: BatchSink<'_>,
+    ) -> DbResult<MongoRunResult> {
+        Err(DbError::InvalidOperation(
+            "Mongo console commands are only available on MongoDB connections".into(),
+        ))
+    }
     /// Recursively inferred nested field shape for a MongoDB collection (spec
     /// 0001's "Fields" view) — sampled the same way as `inferred_schema`
     /// (up to 200 documents) but built as a per-path tree instead of a flat

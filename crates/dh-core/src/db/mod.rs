@@ -36,6 +36,7 @@ mod postgres;
 mod read_only;
 mod stmt_class;
 mod runs;
+mod stream;
 mod sqlite;
 mod types;
 mod adapter;

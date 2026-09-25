@@ -12,6 +12,9 @@ export const GUTTER_W_PX = 48;
  * rows (too small).
  */
 export const ROW_HEIGHT_PX = 29;
+/** The header row is a little taller than a data row: the column name and its
+ *  type sit on two lines. Not part of the row windowing. */
+export const HEADER_HEIGHT_PX = 36;
 /** Page-size choices offered in the toolbar selector. */
 export const PAGE_SIZES = [50, 100, 200];
 /** Number of distinct values fetched per column (fetch 51 to detect "many"). */
@@ -146,8 +149,10 @@ export function filterConfigFor(typeLower: string): {
   };
 }
 
-/** Decide what editor a column should get. */
-export function classify(typeLower: string): CellKind {
+/** Decide what editor a column should get. A Mongo `date` is a BSON date, an
+ *  instant with a time, unlike a SQL `date`, so it gets the date and time
+ *  editor. */
+export function classify(typeLower: string, mongo = false): CellKind {
   if (typeLower.includes("bool")) return "bool";
   if (
     typeLower.includes("time") ||
@@ -156,7 +161,7 @@ export function classify(typeLower: string): CellKind {
   ) {
     return "datetime";
   }
-  if (typeLower.includes("date")) return "date";
+  if (typeLower.includes("date")) return mongo ? "datetime" : "date";
   if (typeLower.includes("enum")) return "dropdown";
   return "text";
 }

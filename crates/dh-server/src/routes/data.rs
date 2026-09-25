@@ -9,7 +9,7 @@ use dh_core::api::QueryOp;
 use dh_core::db::{sql_class, Dialect, StmtClass};
 
 /// True for the operations that only read.
-fn op_reads(op: &QueryOp) -> bool {
+pub(super) fn op_reads(op: &QueryOp) -> bool {
     matches!(
         op,
         QueryOp::Select { .. } | QueryOp::Count { .. } | QueryOp::SelectDistinct { .. }

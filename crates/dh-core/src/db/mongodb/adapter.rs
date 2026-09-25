@@ -83,6 +83,17 @@ impl DbAdapter for MongoAdapter {
         MongoAdapter::run_mongo(self, db, collection, script, run).await
     }
 
+    async fn run_mongo_stream(
+        &self,
+        db: &str,
+        collection: Option<&str>,
+        script: &str,
+        run: Option<&RunHandle>,
+        on_batch: BatchSink<'_>,
+    ) -> DbResult<crate::api::MongoRunResult> {
+        MongoAdapter::run_mongo_stream(self, db, collection, script, run, on_batch).await
+    }
+
     async fn explain_sql(
         &self,
         database: Option<&str>,
