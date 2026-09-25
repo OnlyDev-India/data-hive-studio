@@ -92,7 +92,7 @@ export function usePaneCompactWidth(
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [ref]);
+  }, [ref, paneCompactBelowPx, oneButtonMinShrink]);
   return compact;
 }
 
