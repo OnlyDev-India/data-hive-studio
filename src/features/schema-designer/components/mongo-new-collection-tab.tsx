@@ -165,7 +165,7 @@ export function MongoNewCollectionTab({
         <div className="grid gap-2">
           <label className="text-sm font-medium">Database</label>
           <Select
-            value={database || undefined}
+            value={database || null}
             onValueChange={(v) => v && setDatabase(v)}
           >
             <SelectTrigger className="w-44" size="sm">
