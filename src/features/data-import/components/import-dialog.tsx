@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  FileUp,
+  Loader2,
+  Upload,
+  X,
+} from "lucide-react";
 import {
   Button,
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -31,7 +37,6 @@ import {
   type NewColumn,
 } from "../lib/build-create-sql";
 import { saveFailedCsv } from "../lib/failed-csv";
-import { formatBytes } from "../lib/limits";
 import { autoMap, unmappedRequired, type Mapping } from "../lib/mapping";
 import { parseFile } from "../lib/parse-file";
 import {
@@ -42,13 +47,20 @@ import {
 } from "../lib/prepare";
 import type { ParseOptions, ParsedFile } from "../lib/types";
 import { isDocumentDb } from "../lib/typed-cell";
-import { FileOptions } from "./file-options";
-import { NewTableForm } from "./new-table-form";
-import { MappingTable } from "./mapping-table";
-import { PreviewTable } from "./preview-table";
+import { ImportStepper, type StepName } from "./import-stepper";
+import { MappingStep } from "./mapping-step";
+import { OptionsStep } from "./options-step";
 import { ResultView } from "./result-view";
+import { ReviewStep } from "./review-step";
+import { SourceStep } from "./source-step";
 
-type Step = "choose" | "map" | "importing" | "result";
+const STEP_ORDER: StepName[] = [
+  "Source",
+  "Options",
+  "Mapping",
+  "Review",
+  "Run",
+];
 
 const DEFAULT_OPTS: ParseOptions = { encoding: "utf-8", hasHeader: true };
 
@@ -84,9 +96,11 @@ function ImportBody({ target }: { target: ImportTarget }) {
   const noun = documents ? "collection" : "table";
   // Whether a rollback undoes an import here. Null until Mongo answers.
   const [atomic, setAtomic] = useState<boolean | null>(documents ? null : true);
-  const [step, setStep] = useState<Step>("choose");
+  const [step, setStep] = useState<StepName>("Source");
   const [file, setFile] = useState<File | null>(null);
   const [opts, setOpts] = useState<ParseOptions>(DEFAULT_OPTS);
+  // Edited on the Options step, and only read into the preview on Reload.
+  const [draft, setDraft] = useState<ParseOptions>(DEFAULT_OPTS);
   const [parsed, setParsed] = useState<ParsedFile | null>(null);
   const [existingColumns, setExistingColumns] = useState<ColumnInfo[]>([]);
   const [existingMapping, setExistingMapping] = useState<Mapping>({});
@@ -105,6 +119,9 @@ function ImportBody({ target }: { target: ImportTarget }) {
   const [cancelling, setCancelling] = useState(false);
   const runId = useRef<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const connName = useStudioStore(
+    (s) => s.open.find((c) => c.id === target.connId)?.name,
+  );
 
   useEffect(() => {
     let live = true;
@@ -151,11 +168,13 @@ function ImportBody({ target }: { target: ImportTarget }) {
       const p = await parseFile(f, o);
       setFile(f);
       setOpts(o);
+      setDraft(o);
       setParsed(p);
       setExistingMapping(autoMap(p.header, existingColumns));
       setNewCols(proposeColumns(p));
       if (!newName) setNewName(suggestTableName(f.name));
-      setStep("map");
+      // A reload stays on Options; a fresh file moves on to it.
+      setStep("Options");
     } catch (e) {
       setError(errorText(e));
     }
@@ -178,7 +197,8 @@ function ImportBody({ target }: { target: ImportTarget }) {
     setCancelling(false);
     // Only the desktop can stop a run, so only it gets an id to stop.
     runId.current = IMPORT_CANCELLABLE ? crypto.randomUUID() : null;
-    setStep("importing");
+    setOutcome(null);
+    setStep("Run");
     try {
       const ctx = makeContext(parsed, mapping, columns, db, emptyAsText, isNew);
       const prep = prepare({
@@ -204,7 +224,6 @@ function ImportBody({ target }: { target: ImportTarget }) {
         : null;
       const merged = mergeReport(prep, parsed, report);
       setOutcome(merged);
-      setStep("result");
       if (merged.committed) {
         if (isNew) setTables((t) => [...t, newName.trim()]);
         target.onImported?.();
@@ -217,7 +236,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
       }
     } catch (e) {
       setError(errorText(e));
-      setStep("map");
+      setStep("Review");
     }
   }
 
@@ -247,47 +266,86 @@ function ImportBody({ target }: { target: ImportTarget }) {
     }
   }
 
-  const busy = step === "importing";
-  const rowCount = parsed?.rows.length.toLocaleString();
+  const running = step === "Run" && outcome === null;
+  const rowCount = parsed?.rows.length ?? 0;
+  const targetLabel = [
+    connName,
+    target.database,
+    target.schema,
+    isNew ? newName.trim() || `(new ${noun})` : existingTable,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+  const cannotImport =
+    readOnly || blocked.length > 0 || mappedCount === 0 || problem !== null;
+  const stale =
+    !!parsed &&
+    (draft.encoding !== opts.encoding ||
+      draft.hasHeader !== opts.hasHeader ||
+      draft.sheet !== opts.sheet);
+
+  // Whatever stops the person from going on, shown where they can fix it.
+  const warnings: { text: string; bad: boolean }[] = [];
+  if (step === "Mapping" || step === "Review") {
+    if (stagedEdits)
+      warnings.push({
+        bad: false,
+        text: `The open ${noun} has edits that are not applied. Apply or discard them first, or the grid will reload without them after the import.`,
+      });
+    if (readOnly)
+      warnings.push({
+        bad: true,
+        text: "Read only connection: import is refused. Turn off read only in the connection settings.",
+      });
+    if (problem) warnings.push({ bad: true, text: problem });
+    if (blocked.length > 0)
+      warnings.push({
+        bad: true,
+        text: `Required target columns are not mapped: ${blocked.join(", ")}`,
+      });
+    else if (mappedCount === 0)
+      warnings.push({ bad: true, text: "Map at least one column." });
+  }
+
+  const back = () =>
+    setStep(STEP_ORDER[Math.max(0, STEP_ORDER.indexOf(step) - 1)]);
+  const next = () =>
+    setStep(STEP_ORDER[Math.min(4, STEP_ORDER.indexOf(step) + 1)]);
+
   return (
     <>
-      <Dialog open onOpenChange={(open) => !open && !busy && close()}>
+      <Dialog open onOpenChange={(open) => !open && !running && close()}>
         {/* One `minmax(0, 1fr)` column so a wide preview scrolls inside its own
             box instead of stretching the grid (and the dialog) sideways. */}
-        <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-3xl">
+        <DialogContent
+          hideCloseButton={running}
+          className="grid-cols-[minmax(0,1fr)] sm:max-w-5xl"
+        >
           <DialogHeader>
-            <DialogTitle>
-              {isNew
-                ? `Import into a new ${noun}`
-                : `Import into ${existingTable}`}
+            <DialogTitle className="flex items-center gap-2">
+              <FileUp className="size-5" />
+              Import {noun === "table" ? "Table" : "Collection"} Data
             </DialogTitle>
-            <DialogDescription>
-              {step === "choose" &&
-                "Pick a CSV, JSON, JSON Lines or Excel (.xlsx) file."}
-              {step === "map" &&
-                `${file?.name} (${formatBytes(file?.size ?? 0)}), ${rowCount} rows. Match each column, or leave it blank to use its default.`}
-              {step === "importing" &&
-                "Working. Nothing is saved until the whole import is done."}
-              {step === "result" && "Done."}
-            </DialogDescription>
           </DialogHeader>
 
-          {step === "choose" && (
-            <button
-              type="button"
-              className="hover:bg-muted/50 flex h-32 w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed text-sm"
+          <div className="flex items-center gap-3">
+            <div className="bg-accent/40 flex min-w-0 flex-1 items-baseline gap-3 rounded-lg border px-3 py-2.5">
+              <span className="text-muted-foreground text-sm">
+                Target {noun}
+              </span>
+              <span className="truncate font-medium" title={targetLabel}>
+                {targetLabel}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              disabled={running}
               onClick={() => input.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const f = e.dataTransfer.files[0];
-                if (f) void load(f, opts);
-              }}
             >
-              <FileUp className="size-5" />
-              Choose a file, or drop one here
-            </button>
-          )}
+              <Upload className="size-4" />
+              {file ? "Change File" : "Choose File"}
+            </Button>
+          </div>
           <input
             ref={input}
             type="file"
@@ -300,70 +358,65 @@ function ImportBody({ target }: { target: ImportTarget }) {
             }}
           />
 
-          {step === "map" && parsed && file && (
-            <div className="min-w-0 space-y-3">
-              <FileOptions
-                parsed={parsed}
-                opts={opts}
-                onOpts={(o) => void load(file, o)}
-                emptyAsText={emptyAsText}
-                onEmptyAsText={setEmptyAsText}
-                onError={onError}
-                onOnError={setOnError}
-                documents={documents}
-              />
-              {documents && atomic === false && onError === "rollback" && (
-                <p className="text-sm text-amber-600 dark:text-amber-400">
-                  This server has no transactions, so Roll back is not atomic.
-                  If a document fails, the ones before it stay in the
-                  collection. The result tells you how many landed.
-                </p>
-              )}
-              {existingTable && (
-                <div className="flex gap-4 text-sm">
-                  {(["existing", "new"] as const).map((m) => (
-                    <label key={m} className="flex items-center gap-1.5">
-                      <input
-                        type="radio"
-                        name="import-mode"
-                        checked={mode === m}
-                        onChange={() => setMode(m)}
-                      />
-                      {m === "existing"
-                        ? `Into ${existingTable}`
-                        : `Into a new ${noun}`}
-                    </label>
-                  ))}
-                </div>
-              )}
-              {isNew ? (
-                <NewTableForm
-                  name={newName}
-                  onName={setNewName}
-                  columns={newCols}
-                  onColumns={setNewCols}
-                  db={db}
-                />
-              ) : (
-                <MappingTable
-                  columns={columns}
-                  parsed={parsed}
-                  mapping={mapping}
-                  onMapping={setExistingMapping}
-                />
-              )}
-              <PreviewTable
-                parsed={parsed}
-                mapping={mapping}
-                columns={columns}
-                db={db}
-                emptyAsText={emptyAsText}
-                newCollection={isNew}
-              />
-            </div>
+          <ImportStepper current={step} />
+
+          {step === "Source" && (
+            <SourceStep
+              onPick={() => input.current?.click()}
+              onDrop={(f) => void load(f, opts)}
+            />
           )}
 
-          {step === "importing" && (
+          {step === "Options" && parsed && file && (
+            <OptionsStep
+              fileName={file.name}
+              parsed={parsed}
+              draft={draft}
+              onDraft={setDraft}
+              stale={stale}
+              onReload={() => void load(file, draft)}
+              isNew={isNew}
+              onMode={setMode}
+              existingTable={existingTable}
+              noun={noun}
+              name={newName}
+              onName={setNewName}
+              emptyAsText={emptyAsText}
+              onEmptyAsText={setEmptyAsText}
+              documents={documents}
+            />
+          )}
+
+          {step === "Mapping" && parsed && file && (
+            <MappingStep
+              fileName={file.name}
+              parsed={parsed}
+              columns={columns}
+              mapping={mapping}
+              onMapping={setExistingMapping}
+              mappedCount={mappedCount}
+              db={db}
+              emptyAsText={emptyAsText}
+              isNew={isNew}
+              newCols={newCols}
+              onNewCols={setNewCols}
+            />
+          )}
+
+          {step === "Review" && parsed && file && (
+            <ReviewStep
+              targetLabel={targetLabel}
+              fileName={file.name}
+              rowCount={rowCount}
+              mappedCount={mappedCount}
+              columnCount={parsed.header.length}
+              onError={onError}
+              onOnError={setOnError}
+              looseRollback={documents && atomic === false}
+            />
+          )}
+
+          {step === "Run" && running && (
             <div className="flex h-24 flex-col items-center justify-center gap-2 text-sm">
               {IMPORT_CANCELLABLE && progress && progress.total > 0 ? (
                 <>
@@ -387,7 +440,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
             </div>
           )}
 
-          {step === "result" && outcome && (
+          {step === "Run" && outcome && (
             <ResultView
               outcome={outcome}
               onSaveFailed={() => void saveFailed()}
@@ -395,53 +448,65 @@ function ImportBody({ target }: { target: ImportTarget }) {
             />
           )}
 
-          {step === "map" && stagedEdits && (
-            <p className="text-sm text-amber-600 dark:text-amber-400">
-              The open {noun} has edits that are not applied. Apply or discard
-              them first, or the grid will reload without them after the import.
+          {warnings.map((w) => (
+            <p
+              key={w.text}
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                w.bad
+                  ? "border-destructive/50 text-destructive"
+                  : "border-amber-500/50 text-amber-600 dark:text-amber-400"
+              }`}
+            >
+              {w.text}
             </p>
-          )}
-          {step === "map" && readOnly && (
-            <p className="text-destructive text-sm">
-              Read only connection: import is refused. Turn off read only in the
-              connection settings.
-            </p>
-          )}
-          {step === "map" && problem && (
-            <p className="text-destructive text-sm">{problem}</p>
-          )}
-          {step === "map" && blocked.length > 0 && (
-            <p className="text-destructive text-sm">
-              Match {blocked.map((c) => `"${c}"`).join(", ")} before importing.
-              The table needs a value there.
-            </p>
-          )}
+          ))}
           {error && <p className="text-destructive text-sm">{error}</p>}
 
           <DialogFooter>
-            {step === "result" ? (
+            {step === "Run" && outcome ? (
               <>
-                <Button variant="outline" onClick={() => setStep("map")}>
+                <Button variant="outline" onClick={() => setStep("Review")}>
+                  <ArrowLeft className="size-4" />
                   Back
                 </Button>
                 <Button onClick={close}>Close</Button>
               </>
             ) : (
               <>
-                {busy && IMPORT_CANCELLABLE ? (
+                {running && IMPORT_CANCELLABLE ? (
                   <Button
                     variant="outline"
                     disabled={cancelling}
                     onClick={() => void cancel()}
                   >
+                    <X className="size-4" />
                     Cancel
                   </Button>
                 ) : (
-                  <Button variant="outline" disabled={busy} onClick={close}>
+                  <Button variant="outline" disabled={running} onClick={close}>
+                    <X className="size-4" />
                     Cancel
                   </Button>
                 )}
-                {step === "map" && (
+                {step !== "Source" && !running && (
+                  <Button variant="outline" onClick={back}>
+                    <ArrowLeft className="size-4" />
+                    Back
+                  </Button>
+                )}
+                {step === "Options" && (
+                  <Button disabled={stale} onClick={next}>
+                    <ArrowRight className="size-4" />
+                    Next
+                  </Button>
+                )}
+                {step === "Mapping" && (
+                  <Button disabled={cannotImport} onClick={next}>
+                    <ArrowRight className="size-4" />
+                    Next
+                  </Button>
+                )}
+                {step === "Review" && (
                   <>
                     <Button
                       variant="outline"
@@ -450,27 +515,17 @@ function ImportBody({ target }: { target: ImportTarget }) {
                           ? "Check needs a replica set or sharded cluster. A standalone server has no transactions, so a check would really write."
                           : undefined
                       }
-                      disabled={
-                        readOnly ||
-                        blocked.length > 0 ||
-                        mappedCount === 0 ||
-                        problem !== null ||
-                        (documents && atomic !== true)
-                      }
+                      disabled={cannotImport || (documents && atomic !== true)}
                       onClick={() => void run(true)}
                     >
                       Check
                     </Button>
                     <Button
-                      disabled={
-                        readOnly ||
-                        blocked.length > 0 ||
-                        mappedCount === 0 ||
-                        problem !== null
-                      }
+                      disabled={cannotImport}
                       onClick={() => void run(false)}
                     >
-                      Import {rowCount} rows
+                      <Upload className="size-4" />
+                      Start Import
                     </Button>
                   </>
                 )}

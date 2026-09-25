@@ -49,11 +49,17 @@ export function PreviewTable({
     };
   }, [parsed, mapping, columns, db, emptyAsText, newCollection]);
 
-  if (view.names.length === 0) return null;
+  if (view.names.length === 0) {
+    return (
+      <p className="text-muted-foreground p-3 text-sm">
+        Map at least one column to see the rows.
+      </p>
+    );
+  }
   return (
-    <div className="max-h-52 overflow-auto rounded-md border">
+    <div>
       <table className="w-full text-xs">
-        <thead className="bg-muted/50 text-muted-foreground sticky top-0">
+        <thead className="bg-muted text-muted-foreground sticky top-0 z-10">
           <tr>
             <th className="px-2 py-1 text-left font-medium">Row</th>
             {view.names.map((n) => (
