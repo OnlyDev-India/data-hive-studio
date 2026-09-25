@@ -1766,12 +1766,11 @@ export function TablesBrowser({
                 // second selector slot (`pg_active_schema`) is repurposed for
                 // its one and only level, the active database.
                 const is_active_db = db === pg_active_schema;
-                const is_connected_db = connected_dbs.has(db);
                 const cache_key = objectKey(db, "", "table");
                 const db_row = (
                   <TreeToggleRow
                     kind="database"
-                    icon_badge={is_connected_db}
+                    stateless
                     label={db}
                     expanded={db_expanded}
                     active={is_active_db}
@@ -1797,45 +1796,33 @@ export function TablesBrowser({
                   />
                 );
                 const can_set_default = db !== default_db;
-                const can_disconnect = is_active_db || is_connected_db;
                 return (
                   <div key={db}>
-                    {can_set_default || can_disconnect ? (
-                      <ContextMenu>
-                        <ContextMenuTrigger className="contents">
-                          {db_row}
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-48">
-                          {can_set_default && (
-                            <ContextMenuItem
-                              onSelect={() => set_default_database(db)}
-                            >
-                              <Star className="size-4" />
-                              Set as default
-                            </ContextMenuItem>
-                          )}
-                          {/* Same rule as the Postgres branch above — the
-                              last connected database falls through to the
-                              real whole-connection teardown instead. */}
-                          {can_disconnect && (
-                            <ContextMenuItem
-                              variant="destructive"
-                              onSelect={() =>
-                                connected_dbs.size === 1 &&
-                                connected_dbs.has(db)
-                                  ? set_disconnect_pending(conn_id)
-                                  : disconnect_database(db)
-                              }
-                            >
-                              <Unplug className="size-4" />
-                              Disconnect
-                            </ContextMenuItem>
-                          )}
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    ) : (
-                      db_row
-                    )}
+                    <ContextMenu>
+                      <ContextMenuTrigger className="contents">
+                        {db_row}
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        {can_set_default && (
+                          <ContextMenuItem
+                            onSelect={() => set_default_database(db)}
+                          >
+                            <Star className="size-4" />
+                            Set as default
+                          </ContextMenuItem>
+                        )}
+                        {/* One client serves every Mongo database, so there is
+                            no per database disconnect: any row ends the whole
+                            connection. */}
+                        <ContextMenuItem
+                          variant="destructive"
+                          onSelect={() => set_disconnect_pending(conn_id)}
+                        >
+                          <Unplug className="size-4" />
+                          Disconnect
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                     {db_expanded && (
                       <LazyTableRows
                         read_only={!!conn_info?.read_only}

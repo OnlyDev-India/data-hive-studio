@@ -1,6 +1,6 @@
 use super::{empty_or, json_or, Live, Shared};
 use crate::bodies::{
-    CreateCollectionBody, InsertDocumentBody, MongoDocumentsBody, RunMongoBody, SaveDocumentBody,
+    CreateCollectionBody, ExplainMongoBody, InsertDocumentBody, MongoDocumentsBody, RunMongoBody, SaveDocumentBody,
 };
 use axum::extract::State;
 use axum::response::Response;
@@ -62,6 +62,24 @@ pub(super) async fn run(
     }
     json_or(
         a.run_mongo(&b.database, b.collection.as_deref(), &b.script, None)
+            .await,
+    )
+}
+
+/// Like the SQL route: a plain Explain is allowed on a read only server, an
+/// analyze of anything that is not a plain read is refused.
+pub(super) async fn explain(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<ExplainMongoBody>,
+) -> Response {
+    if b.analyze && mongo_script_class(&b.script) != StmtClass::Read {
+        if let Err(r) = st.refuse_writes() {
+            return r;
+        }
+    }
+    json_or(
+        a.explain_mongo(&b.database, b.collection.as_deref(), &b.script, b.analyze, None)
             .await,
     )
 }

@@ -136,6 +136,42 @@ pub async fn run_sql_stream(
     .map_err(to_err)
 }
 
+/// The plan of one SQL statement, without running it. A database
+/// error and a statement Explain does not accept come back inside the
+/// `PlanResult` for the Plan tab to show. `run_id` makes it stoppable through
+/// `cancel_run`; a stopped call resolves with `cancelled: true`. 
+#[tauri::command]
+pub async fn explain_sql(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    sql: String,
+    analyze: bool,
+    run_id: Option<String>,
+) -> Result<crate::api::PlanResult, String> {
+    crate::db::explain_sql(&conn_id, database.as_deref(), schema.as_deref(), &sql, analyze, run_id.as_deref())
+        .await
+        .map_err(to_err)
+}
+
+/// The plan of one MongoDB console command, without running it. `database`
+/// and `collection` are the console's current ones, as for `run_mongo`. Like
+/// `explain_sql`, errors and unsupported commands come back inside the
+/// `PlanResult`.
+#[tauri::command]
+pub async fn explain_mongo(
+    conn_id: String,
+    database: String,
+    collection: Option<String>,
+    script: String,
+    analyze: bool,
+    run_id: Option<String>,
+) -> Result<crate::api::PlanResult, String> {
+    crate::db::explain_mongo(&conn_id, &database, collection.as_deref(), &script, analyze, run_id.as_deref())
+        .await
+        .map_err(to_err)
+}
+
 /// Stop the editor run `run_id` on `conn_id`. Waits up to 3 seconds for the
 /// database to confirm; cancelling a finished or unknown run is not an error.
 #[tauri::command]

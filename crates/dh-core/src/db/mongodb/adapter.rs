@@ -83,6 +83,28 @@ impl DbAdapter for MongoAdapter {
         MongoAdapter::run_mongo(self, db, collection, script, run).await
     }
 
+    async fn explain_sql(
+        &self,
+        database: Option<&str>,
+        _schema: Option<&str>,
+        sql: &str,
+        analyze: bool,
+        run: Option<&RunHandle>,
+    ) -> DbResult<crate::api::PlanResult> {
+        Ok(MongoAdapter::explain_select(self, database, sql, analyze, run).await)
+    }
+
+    async fn explain_mongo(
+        &self,
+        db: &str,
+        collection: Option<&str>,
+        script: &str,
+        analyze: bool,
+        run: Option<&RunHandle>,
+    ) -> DbResult<crate::api::PlanResult> {
+        Ok(MongoAdapter::explain_mongo(self, db, collection, script, analyze, run).await)
+    }
+
     async fn catalog_overview(&self) -> DbResult<super::CatalogOverview> {
         MongoAdapter::catalog_overview(self).await
     }

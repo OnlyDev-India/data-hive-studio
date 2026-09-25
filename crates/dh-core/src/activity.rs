@@ -22,7 +22,7 @@ pub struct ActivityEntry {
     pub conn_id: String,
     /// Coarse operation class: select | count | distinct | insert | update |
     /// delete | drop_table | sql | ddl | duplicate | schema | connect |
-    /// disconnect.
+    /// disconnect | explain.
     pub kind: String,
     /// Table name, SQL snippet, or database name — what the command touched.
     pub target: String,
@@ -287,6 +287,27 @@ pub fn log_stmt_err_origin(
     });
 }
 
+/// A manual Explain: kind `explain`, the whole statement, and the mode as a
+/// target prefix so the row says whether it only planned or also ran it.
+/// `error` is the database's message, or "Cancelled" when Stop won.
+pub fn log_explain(conn_id: &str, statement: &str, analyze: bool, started: Instant, error: Option<&str>) {
+    let mode = if analyze { "Analyze" } else { "Estimate" };
+    push(ActivityEntry {
+        id: 0,
+        ts_ms: now_ms(),
+        conn_id: conn_id.to_string(),
+        kind: "explain".to_string(),
+        target: clip(&format!("{mode}: {}", preview(statement))),
+        ok: error.is_none(),
+        rows: 0,
+        duration_ms: started.elapsed().as_secs_f64() * 1000.0,
+        error: error.map(str::to_string),
+        sql: Some(store_sql(statement)),
+        origin: "user".to_string(),
+        conn_key: None,
+    });
+}
+
 /// One-line panel preview of a statement: leading `--` comments and blank
 /// lines dropped, remaining lines joined. `clip` truncates the result.
 fn preview(sql: &str) -> String {
@@ -379,5 +400,25 @@ mod tests {
         let back: Vec<ActivityEntry> = serde_json::from_str(&json).unwrap();
         assert_eq!(back[0].origin, "app");
         assert_eq!(back[0].conn_key.as_deref(), Some("sqlite:/tmp/x.db"));
+    }
+
+    #[test]
+    fn an_explain_is_logged_with_its_mode_and_the_whole_statement() {
+        let t = Instant::now();
+        log_explain("explain-log-test", "SELECT 1", false, t, None);
+        log_explain("explain-log-test", "DELETE FROM t", true, t, Some("Cancelled"));
+        let mut mine: Vec<_> = snapshot(CAP)
+            .into_iter()
+            .filter(|e| e.conn_id == "explain-log-test")
+            .collect();
+        mine.sort_by_key(|e| e.id);
+        assert_eq!(mine.len(), 2);
+        assert_eq!(mine[0].kind, "explain");
+        assert_eq!(mine[0].target, "Estimate: SELECT 1");
+        assert!(mine[0].ok);
+        assert_eq!(mine[0].origin, "user");
+        assert_eq!(mine[1].target, "Analyze: DELETE FROM t");
+        assert_eq!(mine[1].sql.as_deref(), Some("DELETE FROM t"));
+        assert_eq!(mine[1].error.as_deref(), Some("Cancelled"));
     }
 }

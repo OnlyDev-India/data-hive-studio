@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use crate::api::{
     FieldShape,
     MongoRunResult,
+    PlanResult,
     ImportCapabilities,
     ImportReport,
     ImportRequest,
@@ -89,6 +90,36 @@ pub trait DbAdapter: Send + Sync {
         run: Option<&RunHandle>,
         on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult>;
+    /// The plan of one SQL statement. Never runs it: `analyze`
+    /// (real timings) is the only mode that does. A statement Explain does
+    /// not accept and a database error come back inside the [`PlanResult`].
+    /// `database`/`schema` as in `run_sql`.
+    async fn explain_sql(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _sql: &str,
+        _analyze: bool,
+        _run: Option<&RunHandle>,
+    ) -> DbResult<PlanResult> {
+        Err(DbError::InvalidOperation(
+            "Explain is not supported by this adapter".into(),
+        ))
+    }
+    /// The plan of one MongoDB console command. `db`/`collection` as in
+    /// `run_mongo`.
+    async fn explain_mongo(
+        &self,
+        _db: &str,
+        _collection: Option<&str>,
+        _script: &str,
+        _analyze: bool,
+        _run: Option<&RunHandle>,
+    ) -> DbResult<PlanResult> {
+        Err(DbError::InvalidOperation(
+            "Explain is not supported by this adapter".into(),
+        ))
+    }
     /// See `table_schema`'s doc comment for `database`/`schema` semantics.
     async fn apply_schema_ops_batch(
         &self,

@@ -212,12 +212,12 @@ spec [0011](../specs/0011-explain-plan-viewer/index.md)
 code in `src/features/query-editor/components/editor-run-toolbar.tsx`
 
 - [x] Design it (spec): `/architect explain plan viewer`
-- [ ] Build it: `/develop explain plan viewer`
-  - [ ] Thread on SQLite and PostgreSQL: plan types, Rust parsers, Explain button, Plan tab tree grid, unsupported and error states — satisfies AC-1, AC-2, AC-3, AC-10, AC-12, AC-17
-  - [ ] Plan tab polish and bind variables: virtualized tree, stale marking, several statements, shortcut, bind variables dialog — satisfies AC-2, AC-8, AC-9, AC-11, AC-15, AC-16
-  - [ ] Explain Analyze and Stop: rolled back PostgreSQL analyze, write confirm, read only refusal, run id and stop — satisfies AC-4, AC-5, AC-6, AC-8
-  - [ ] MongoDB: find, aggregate, count, distinct in the console and SQL editor, queryPlanner and executionStats — satisfies AC-3, AC-4, AC-10
-  - [ ] Auto plan, Activity log, team server and web: on by default toggle with plan after each result, `explain` log kind, gateway routes and old server fallback — satisfies AC-7, AC-13, AC-14
+- [x] Build it: `/develop explain plan viewer`
+  - [x] Thread on SQLite and PostgreSQL: plan types, Rust parsers, Explain button, Plan tab tree grid, unsupported and error states — satisfies AC-1, AC-2, AC-3, AC-10, AC-12, AC-17
+  - [x] Plan tab polish and bind variables: virtualized tree, stale marking, several statements, shortcut, bind variables dialog — satisfies AC-2, AC-8, AC-9, AC-11, AC-15, AC-16
+  - [x] Explain Analyze and Stop: rolled back PostgreSQL analyze, write confirm, read only refusal, run id and stop — satisfies AC-4, AC-5, AC-6, AC-8
+  - [x] MongoDB: find, aggregate, count, distinct in the console and SQL editor, queryPlanner and executionStats — satisfies AC-3, AC-4, AC-10
+  - [x] Auto plan, Activity log, team server and web: on by default toggle with plan after each result, `explain` log kind, gateway routes and old server fallback — satisfies AC-7, AC-13, AC-14
 - [ ] Verify it: `/check verify explain plan viewer`
 - [ ] Test it: `/test explain plan viewer`
 

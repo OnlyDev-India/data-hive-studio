@@ -9,6 +9,7 @@ import {
 } from "@/shared/components/ui";
 import {
   FolderOpen,
+  ListTree,
   PlayIcon,
   Save,
   Shrink,
@@ -17,6 +18,7 @@ import {
   TextAlignStart,
   Tags,
   TextSelect,
+  Timer,
   WrapText,
 } from "lucide-react";
 import { DBIcons, type DbIconKind } from "@/shared/components/icons/types";
@@ -49,6 +51,8 @@ export function EditorRunToolbar({
   running_count = 0,
   stop_pending,
   on_stop_all,
+  on_explain,
+  on_explain_analyze,
   db_kind,
   database,
   databases,
@@ -76,6 +80,14 @@ export function EditorRunToolbar({
   /** Stop was pressed and the database has not confirmed yet. */
   stop_pending?: boolean;
   on_stop_all?: () => void;
+  /** SQL editor only: opens a Plan tab for the selection or the statement at
+   *  the cursor, without running it. Omitted = no Explain button
+   *  (an engine that cannot explain yet). */
+  on_explain?: () => void;
+  /** Explain Analyze button, beside Explain: opens a Plan tab for the
+   *  statement after running it for real timings (rolled back on PostgreSQL).
+   *  Omitted = no button, for an engine that cannot analyze. */
+  on_explain_analyze?: () => void;
   /** Drives the colored connection-type icon next to the database picker. */
   db_kind?: DbIconKind;
   /** Omitted entirely (both `databases` and `on_database_change` absent) =
@@ -153,6 +165,24 @@ export function EditorRunToolbar({
                 {has_selection ? "Run selected" : "Run all"}
               </TooltipContent>
             </Tooltip>
+          )}
+          {on_explain && (
+            <ToolbarIconButton
+              icon={ListTree}
+              label="Explain"
+              color="info"
+              disabled={!has_text}
+              onClick={on_explain}
+            />
+          )}
+          {on_explain_analyze && (
+            <ToolbarIconButton
+              icon={Timer}
+              label="Explain Analyze"
+              color="warning"
+              disabled={!has_text}
+              onClick={on_explain_analyze}
+            />
           )}
           {onToggleWrap && (
             <ToolbarIconButton

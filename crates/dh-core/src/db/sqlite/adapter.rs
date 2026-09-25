@@ -1,4 +1,4 @@
-use crate::api::{ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use std::sync::Arc;
 use crate::db::read_only::Dialect;
 use crate::db::{BatchSink, DbAdapter, DbResult, RunHandle};
@@ -116,6 +116,16 @@ impl DbAdapter for SqliteAdapter {
         SqliteAdapter::run_sql_stream(self, sql, run, &mut on_batch)
             .await
             .map_err(|e| self.guard.refine(e))
+    }
+    async fn explain_sql(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        sql: &str,
+        analyze: bool,
+        run: Option<&RunHandle>,
+    ) -> DbResult<PlanResult> {
+        Ok(SqliteAdapter::explain_sql(self, sql, analyze, run).await)
     }
     async fn apply_schema_ops_batch(
         &self,

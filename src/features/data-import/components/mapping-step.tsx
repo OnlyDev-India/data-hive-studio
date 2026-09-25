@@ -19,6 +19,9 @@ interface Props {
   isNew: boolean;
   newCols: NewColumn[];
   onNewCols: (c: NewColumn[]) => void;
+  /** Document stores: fields this import will add to the collection. */
+  added?: ColumnInfo[];
+  onAdded?: (a: ColumnInfo[]) => void;
 }
 
 /** Step 3: match file columns to target columns, with the rows as they will
@@ -47,6 +50,9 @@ export function MappingStep(p: Props) {
               parsed={p.parsed}
               mapping={p.mapping}
               onMapping={p.onMapping}
+              db={p.db}
+              added={p.added}
+              onAdded={p.onAdded}
             />
           )}
         </Panel>

@@ -1,5 +1,13 @@
+import type { ReactNode } from "react";
+import { CodeXml, Info, Table2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/components/ui/tooltip";
 
 /** A VIEW of one already-selected query result — not to be confused with
  *  `ResultTabStrip` (editor-tab.tsx), which picks WHICH statement's result
@@ -7,10 +15,10 @@ import { cn } from "@/shared/lib/utils";
  *  displayed. */
 export type ResultView = "result" | "summary" | "query";
 
-const TABS: { id: ResultView; label: string }[] = [
-  { id: "result", label: "Result" },
-  { id: "summary", label: "Summary" },
-  { id: "query", label: "Query" },
+const TABS: { id: ResultView; label: string; icon: ReactNode }[] = [
+  { id: "result", label: "Result", icon: <Table2 className="size-3.5" /> },
+  { id: "summary", label: "Summary", icon: <Info className="size-3.5" /> },
+  { id: "query", label: "Query", icon: <CodeXml className="size-3.5" /> },
 ];
 
 /** Result | Summary | Query switcher shown in a query result's own header —
@@ -25,22 +33,38 @@ export function ResultViewTabs({
   on_change: (tab: ResultView) => void;
 }) {
   return (
-    <div className="flex items-center gap-0.5">
-      {TABS.map((t) => (
-        <Button
-          key={t.id}
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "h-6 px-2 text-xs",
-            active === t.id && "bg-muted text-foreground",
-          )}
-          onClick={() => on_change(t.id)}
-        >
-          {t.label}
-        </Button>
-      ))}
-    </div>
+    <TooltipProvider delay={0}>
+      <div className="flex items-center gap-0.5">
+        {TABS.map((t) => {
+          const selected = active === t.id;
+          const button = (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-6 gap-1 px-2 text-xs",
+                selected && "bg-muted text-foreground",
+              )}
+              aria-label={t.label}
+              onClick={() => on_change(t.id)}
+            >
+              {t.icon}
+              {selected && t.label}
+            </Button>
+          );
+          // The selected tab already shows its name, so only the icon only
+          // ones need a tooltip.
+          return selected ? (
+            <span key={t.id}>{button}</span>
+          ) : (
+            <Tooltip key={t.id}>
+              <TooltipTrigger render={button} />
+              <TooltipContent side="top">{t.label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
   );
 }

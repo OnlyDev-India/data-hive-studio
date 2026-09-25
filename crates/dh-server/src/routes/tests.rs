@@ -356,6 +356,47 @@ async fn read_only_refuses_every_write_whatever_the_client_sends() {
 }
 
 #[tokio::test]
+async fn read_only_allows_an_estimate_but_refuses_analyzing_a_write() {
+    let (st, h) = state_with_handle(Config {
+        read_only: true,
+        ..cfg()
+    })
+    .await;
+    let base = format!("/v1/c/{h}");
+    let explain = |q: &str, analyze: bool| Some(json!({"sql": q, "analyze": analyze}));
+    // A plain Explain never runs the statement, so it is allowed.
+    let (status, body) = call(
+        &st,
+        "POST",
+        &format!("{base}/explain"),
+        &[],
+        explain("select 1", false),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("\"mode\":\"estimate\""), "{body}");
+    // Analyze runs it, so a write is refused like a normal run.
+    let (status, _) = call(
+        &st,
+        "POST",
+        &format!("{base}/explain"),
+        &[],
+        explain("delete from t", true),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &st,
+        "POST",
+        &format!("{base}/mongo/explain"),
+        &[],
+        Some(json!({"database": "d", "script": "db.c.deleteMany({})", "analyze": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn connect_names_the_refused_field_with_422() {
     let (st, _) = state_with_handle(cfg()).await;
     for (body, field) in [
@@ -471,7 +512,7 @@ async fn the_public_host_is_allowed_when_configured() {
 #[tokio::test]
 async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_body() {
     let (st, _) = state_with_handle(cfg()).await;
-    let routes: [(&str, &str); 26] = [
+    let routes: [(&str, &str); 28] = [
         ("POST", "close"),
         ("GET", "tables"),
         ("GET", "schemas"),
@@ -498,6 +539,8 @@ async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_b
         ("POST", "mongo/documents/save"),
         ("POST", "mongo/documents/insert"),
         ("POST", "mongo/run"),
+        ("POST", "explain"),
+        ("POST", "mongo/explain"),
     ];
     for (method, route) in routes {
         // `{}` is not a valid body for any of these, so a 404 proves the

@@ -37,7 +37,12 @@ import {
   type NewColumn,
 } from "../lib/build-create-sql";
 import { saveFailedCsv } from "../lib/failed-csv";
-import { autoMap, unmappedRequired, type Mapping } from "../lib/mapping";
+import {
+  addUnmatched,
+  autoMap,
+  unmappedRequired,
+  type Mapping,
+} from "../lib/mapping";
 import { parseFile } from "../lib/parse-file";
 import {
   makeContext,
@@ -103,6 +108,8 @@ function ImportBody({ target }: { target: ImportTarget }) {
   const [draft, setDraft] = useState<ParseOptions>(DEFAULT_OPTS);
   const [parsed, setParsed] = useState<ParsedFile | null>(null);
   const [existingColumns, setExistingColumns] = useState<ColumnInfo[]>([]);
+  // Document stores only: fields the file adds that the collection lacks.
+  const [addedFields, setAddedFields] = useState<ColumnInfo[]>([]);
   const [existingMapping, setExistingMapping] = useState<Mapping>({});
   const [mode, setMode] = useState<"existing" | "new">(
     target.table ? "existing" : "new",
@@ -156,7 +163,10 @@ function ImportBody({ target }: { target: ImportTarget }) {
 
   const isNew = mode === "new";
   const newTarget = useMemo(() => asTarget(newCols, db), [newCols, db]);
-  const columns = isNew ? newTarget.columns : existingColumns;
+  const columns = useMemo(
+    () => (isNew ? newTarget.columns : [...existingColumns, ...addedFields]),
+    [isNew, newTarget.columns, existingColumns, addedFields],
+  );
   const mapping = isNew ? newTarget.mapping : existingMapping;
   const problem = isNew ? newTableProblem(newName, newCols, tables, db) : null;
   const blocked = isNew ? [] : unmappedRequired(columns, mapping);
@@ -170,7 +180,15 @@ function ImportBody({ target }: { target: ImportTarget }) {
       setOpts(o);
       setDraft(o);
       setParsed(p);
-      setExistingMapping(autoMap(p.header, existingColumns));
+      const auto = autoMap(p.header, existingColumns);
+      if (documents && target.table) {
+        const r = addUnmatched(p, existingColumns, auto, db);
+        setAddedFields(r.added);
+        setExistingMapping(r.mapping);
+      } else {
+        setAddedFields([]);
+        setExistingMapping(auto);
+      }
       setNewCols(proposeColumns(p));
       if (!newName) setNewName(suggestTableName(f.name));
       // A reload stays on Options; a fresh file moves on to it.
@@ -203,9 +221,11 @@ function ImportBody({ target }: { target: ImportTarget }) {
       const ctx = makeContext(parsed, mapping, columns, db, emptyAsText, isNew);
       const prep = prepare({
         table: isNew ? newName.trim() : (existingTable ?? ""),
-        createSql: isNew
-          ? buildCreateSql(newName.trim(), newCols, db)
-          : undefined,
+        // A collection is created by the import itself, so it gets no statement.
+        createSql:
+          isNew && !documents
+            ? buildCreateSql(newName.trim(), newCols, db)
+            : undefined,
         parsed,
         ctx,
         onError,
@@ -400,6 +420,8 @@ function ImportBody({ target }: { target: ImportTarget }) {
               isNew={isNew}
               newCols={newCols}
               onNewCols={setNewCols}
+              added={documents ? addedFields : undefined}
+              onAdded={documents ? setAddedFields : undefined}
             />
           )}
 
