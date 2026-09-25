@@ -1,6 +1,12 @@
-import { Copy, ListChecks, X } from "lucide-react";
+import { ChevronDown, Copy, ListChecks, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
 import {
   Select,
@@ -10,13 +16,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { COLUMN_TYPES, LENGTH_TYPES, type ColumnDef } from "./model";
+import {
+  COLUMN_TYPES,
+  LENGTH_TYPES,
+  canAutoIncrement,
+  defaultSuggestions,
+  type ColumnDef,
+} from "./model";
 import { EMPTY_HINT, TD, TH, ROW_PAD, TD_NUM, TH_NUM } from "./grid-styles";
 
 interface Props {
   columns: ColumnDef[];
   /** Only rows whose name contains this (case blind) are shown. */
   query: string;
+  is_pg?: boolean;
   onPatch: (idx: number, f: (c: ColumnDef) => void) => void;
   onRemove: (idx: number) => void;
   onDuplicate: (idx: number) => void;
@@ -27,6 +40,7 @@ interface Props {
 export function ColumnsGrid({
   columns,
   query,
+  is_pg,
   onPatch,
   onRemove,
   onDuplicate,
@@ -49,7 +63,6 @@ export function ColumnsGrid({
           <th className={`${TH} w-24`}>Auto Increment</th>
           <th className={`${TH} w-24`}>Unique</th>
           <th className={`${TH} min-w-36`}>Default</th>
-          <th className={`${TH} min-w-40`}>Check</th>
         </tr>
       </thead>
       <tbody>
@@ -158,6 +171,12 @@ export function ColumnsGrid({
               <div className="flex justify-center">
                 <Checkbox
                   checked={col.auto_increment}
+                  disabled={!canAutoIncrement(col, columns)}
+                  title={
+                    canAutoIncrement(col, columns)
+                      ? undefined
+                      : "Needs an INTEGER column that is the only primary key"
+                  }
                   aria-label={`Column ${idx + 1} auto increments`}
                   onCheckedChange={(v) =>
                     onPatch(idx, (c) => (c.auto_increment = v === true))
@@ -177,32 +196,58 @@ export function ColumnsGrid({
               </div>
             </td>
             <td className={`${TD} ${ROW_PAD}`}>
-              <Input
-                className="font-mono"
-                placeholder="0"
-                aria-label={`Default of column ${idx + 1}`}
-                value={col.default}
-                onChange={(e) =>
-                  onPatch(idx, (c) => (c.default = e.target.value))
-                }
-              />
-            </td>
-            <td className={`${TD} ${ROW_PAD}`}>
-              <Input
-                className="font-mono"
-                placeholder="qty > 0"
-                aria-label={`Check of column ${idx + 1}`}
-                value={col.check}
-                onChange={(e) =>
-                  onPatch(idx, (c) => (c.check = e.target.value))
-                }
-              />
+              {(() => {
+                const options = defaultSuggestions(col, is_pg);
+                return (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      className="font-mono"
+                      placeholder="0"
+                      aria-label={`Default of column ${idx + 1}`}
+                      value={col.default}
+                      onChange={(e) =>
+                        onPatch(idx, (c) => (c.default = e.target.value))
+                      }
+                    />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="iconXs"
+                            disabled={options.length === 0}
+                            aria-label={`Default values for column ${idx + 1}`}
+                            title={
+                              options.length === 0
+                                ? "No suggested defaults"
+                                : "Pick a default"
+                            }
+                          >
+                            <ChevronDown className="size-4" />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end">
+                        {options.map((o) => (
+                          <DropdownMenuItem
+                            key={o}
+                            className="font-mono"
+                            onClick={() => onPatch(idx, (c) => (c.default = o))}
+                          >
+                            {o}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                );
+              })()}
             </td>
           </tr>
         ))}
         {rows.length === 0 && (
           <tr>
-            <td colSpan={11} className={EMPTY_HINT}>
+            <td colSpan={10} className={EMPTY_HINT}>
               <ListChecks className="mr-2 inline size-4" />
               {columns.length === 0
                 ? "No columns yet. Add one, or copy fields from another table."

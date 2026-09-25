@@ -57,7 +57,7 @@ export function tabLabel(
     case "sql":
       return tab.id === 0 ? "SQL" : `SQL ${tab.id + 1}`;
     case "new-table":
-      return tab.id === 0 ? "New table" : `New table ${tab.id + 1}`;
+      return "New table";
     case "mongo":
       return tab.collection;
     case "mongo-console":
