@@ -8,7 +8,8 @@ description = "dh-studio bare proxy: connects the web page to a database, with n
 dh-core = { path = "../dh-core" }
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+futures-util.workspace = true
 tower-http.workspace = true
 axum.workspace = true
 rand.workspace = true

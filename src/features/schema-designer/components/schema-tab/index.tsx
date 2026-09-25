@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, Pencil, X } from "lucide-react";
-import { Accordion } from "@/shared/components/ui/accordion";
+import { Check, Loader2, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -28,16 +27,31 @@ import {
   type IdxDraft,
   type TriggerDraft,
 } from "./drafts";
-import { ColumnsPanel } from "./columns-panel";
-import { IndexesPanel } from "./indexes-panel";
+import { ColumnsPanel, new_col_draft } from "./columns-panel";
+import { IndexesContent } from "./indexes-panel";
 import { ForeignKeysPanel } from "./foreign-keys-panel";
 import { TriggersPanel } from "./triggers-panel";
+import { TabBar } from "../new-table/tab-bar";
 import { DropTableDialog } from "./drop-table-dialog";
 import {
   ApplyChangesDialog,
   type DdlDiffSection,
 } from "@/shared/components/apply-changes-dialog";
 import type { SchemaOp } from "@/shared/api";
+
+const SCHEMA_TABS = [
+  ["columns", "Columns"],
+  ["indexes", "Indexes"],
+  ["foreign-keys", "Foreign Keys"],
+  ["triggers", "Triggers"],
+] as const;
+type SchemaTabId = (typeof SCHEMA_TABS)[number][0];
+const ADD_LABEL: Record<SchemaTabId, string> = {
+  columns: "Add Column",
+  indexes: "Add Index",
+  "foreign-keys": "Add Foreign Key",
+  triggers: "Add Trigger",
+};
 
 interface SchemaTabProps {
   conn_id: string;
@@ -178,6 +192,9 @@ function SchemaEditor({
   const [table_name, setTable_name] = useState(table);
   const [editing_name, setEditing_name] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [tab, setTab] = useState<SchemaTabId>("columns");
+  /** Which tab's add dialog or form is open (opened by the Add button). */
+  const [adding, setAdding] = useState<SchemaTabId | null>(null);
 
   if (loaded_schema !== schema) {
     setLoaded_schema(schema);
@@ -218,6 +235,25 @@ function SchemaEditor({
   };
   const update_trig = (id: string, patch: Partial<TriggerDraft>) => {
     setTrigs((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  };
+
+  // Bring what was just added (a new row, or the open add form) into view at
+  // the bottom of the scrolling list. Only growth scrolls, so a Discard or a
+  // reload leaves the scroll position alone.
+  const list_ref = useRef<HTMLDivElement>(null);
+  const item_total = cols.length + idxs.length + fks.length + trigs.length;
+  const seen_total = useRef(item_total);
+  useEffect(() => {
+    const grew = item_total > seen_total.current;
+    seen_total.current = item_total;
+    if (!grew && adding === null) return;
+    const el = list_ref.current;
+    if (el) el.scrollTo({ top: el.scrollHeight });
+  }, [item_total, adding]);
+
+  const add = () => {
+    if (tab === "columns") setCols((cs) => [...cs, new_col_draft()]);
+    else setAdding(tab);
   };
 
   const discard = () => {
@@ -396,8 +432,8 @@ function SchemaEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="flex flex-col gap-4">
+      <div className="min-h-0 flex-1 p-4">
+        <div className="flex h-full min-h-0 flex-col gap-4">
           {/* Refresh + Drop table live in the status bar (SchemaPaneHandle);
               only the confirm dialog stays mounted here. While an Apply is
               in flight every editor control is locked. */}
@@ -421,46 +457,87 @@ function SchemaEditor({
             </div>
           )}
 
-          <Accordion
-            multiple
-            defaultValue={["columns"]}
-            className={"space-y-2"}
-          >
-            <ColumnsPanel
-              cols={cols}
-              disabled={applying}
-              on_update={update_col}
-              on_replace={setCols}
-            />
-            <IndexesPanel
-              idxs={idxs}
-              columns={cols.filter((c) => !c.dropped).map((c) => c.name.trim())}
-              resolve_col={resolve_col}
-              disabled={applying}
-              on_update={update_idx}
-              on_replace={setIdxs}
-            />
-            <ForeignKeysPanel
-              conn_id={conn_id}
-              database={database}
-              schema_name={schema_name}
-              fks={fks}
-              columns={cols.filter((c) => !c.dropped).map((c) => c.name.trim())}
-              disabled={applying}
-              on_update={(id, patch) =>
-                setFks((fs) =>
-                  fs.map((f) => (f.id === id ? { ...f, ...patch } : f)),
-                )
-              }
-              on_replace={setFks}
-            />
-            <TriggersPanel
-              trigs={trigs}
-              disabled={applying}
-              on_update={update_trig}
-              on_replace={setTrigs}
-            />
-          </Accordion>
+          {/* The tabs and their Add button sit on top of the list, in one
+              box of fixed height, so they read as part of the table and only
+              the rows scroll. */}
+          <div className="flex min-h-56 flex-1 flex-col overflow-hidden rounded-lg border">
+            <div className="flex shrink-0 items-center gap-3 border-b p-1">
+              <TabBar
+                tabs={SCHEMA_TABS}
+                value={tab}
+                onChange={setTab}
+                counts={{
+                  columns: cols.length,
+                  indexes: idxs.length,
+                  "foreign-keys": fks.filter((f) => !f.dropped).length,
+                  triggers: trigs.length,
+                }}
+              />
+              <Button
+                size="sm"
+                className="shrink-0"
+                disabled={applying}
+                onClick={add}
+              >
+                <Plus className="size-4" />
+                {ADD_LABEL[tab]}
+              </Button>
+            </div>
+            <div ref={list_ref} className="min-h-0 flex-1 overflow-auto">
+              {tab === "columns" && (
+                <ColumnsPanel
+                  cols={cols}
+                  disabled={applying}
+                  on_update={update_col}
+                  on_replace={setCols}
+                />
+              )}
+              {tab === "indexes" && (
+                <IndexesContent
+                  idxs={idxs}
+                  columns={cols
+                    .filter((c) => !c.dropped)
+                    .map((c) => c.name.trim())}
+                  resolve_col={resolve_col}
+                  disabled={applying}
+                  on_update={update_idx}
+                  on_replace={setIdxs}
+                  adding={adding === "indexes"}
+                  on_adding_change={(o) => setAdding(o ? "indexes" : null)}
+                />
+              )}
+              {tab === "foreign-keys" && (
+                <ForeignKeysPanel
+                  conn_id={conn_id}
+                  database={database}
+                  schema_name={schema_name}
+                  fks={fks}
+                  columns={cols
+                    .filter((c) => !c.dropped)
+                    .map((c) => c.name.trim())}
+                  disabled={applying}
+                  on_update={(id, patch) =>
+                    setFks((fs) =>
+                      fs.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+                    )
+                  }
+                  on_replace={setFks}
+                  adding={adding === "foreign-keys"}
+                  on_adding_change={(o) => setAdding(o ? "foreign-keys" : null)}
+                />
+              )}
+              {tab === "triggers" && (
+                <TriggersPanel
+                  trigs={trigs}
+                  disabled={applying}
+                  on_update={update_trig}
+                  on_replace={setTrigs}
+                  adding={adding === "triggers"}
+                  on_adding_change={(o) => setAdding(o ? "triggers" : null)}
+                />
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

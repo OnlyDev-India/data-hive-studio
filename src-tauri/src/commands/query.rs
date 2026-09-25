@@ -25,6 +25,35 @@ pub async fn run_mongo(
     .map_err(to_err)
 }
 
+/// Streaming variant of [`run_mongo`]: find, aggregate and bare JSON reads
+/// push their rows and matching documents through the channel as the cursor
+/// yields them, and the result carries neither. Every other command returns
+/// its result inline. A stopped run resolves with `cancelled: true`.
+#[tauri::command]
+pub async fn run_mongo_stream(
+    conn_id: String,
+    database: String,
+    collection: Option<String>,
+    script: String,
+    run_id: Option<String>,
+    channel: tauri::ipc::Channel<QueryChunk>,
+) -> Result<MongoRunResult, String> {
+    crate::db::run_mongo_stream(
+        &conn_id,
+        &database,
+        collection.as_deref(),
+        &script,
+        run_id.as_deref(),
+        move |chunk| {
+            channel
+                .send(chunk)
+                .map_err(|e| crate::db::DbError::InvalidOperation(format!("ipc send failed: {e}")))
+        },
+    )
+    .await
+    .map_err(to_err)
+}
+
 /// Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
 /// `origin` tags the activity-log entry as user- vs app-initiated (only the
 /// SQL editor's own non-streaming fallback passes "user" — see

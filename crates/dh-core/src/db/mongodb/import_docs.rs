@@ -122,7 +122,7 @@ fn from_number(key: &str, n: &serde_json::Number, ty: Option<&str>) -> Result<Bs
 }
 
 /// RFC 3339, or a plain `YYYY-MM-DD` read as midnight UTC.
-fn parse_date(s: &str) -> Option<Bson> {
+pub(super) fn parse_date(s: &str) -> Option<Bson> {
     let t = s.trim();
     let full = if t.len() == 10 { format!("{t}T00:00:00Z") } else { t.replace(' ', "T") };
     bson::DateTime::parse_rfc3339_str(&full)

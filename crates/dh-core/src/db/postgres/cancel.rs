@@ -4,22 +4,24 @@ use sqlx::postgres::PgConnectOptions;
 use std::time::Instant;
 use crate::api::QueryResult;
 use crate::db::runs::Canceller;
-use crate::db::{DbError, DbResult, RunHandle};
+use crate::db::{BatchSink, DbError, DbResult, RunHandle};
 use super::PgAdapter;
 use super::sql_text::{dollar_placeholders, is_select_statement};
 use super::exec::{exec_statement, run_in_schema_tx};
 
 impl PgAdapter {
-    /// The editor's Run for a stoppable run (spec 0006). Takes a dedicated
-    /// pooled connection for the whole run so there is a backend to cancel,
-    /// records that backend's pid, and lets Stop reach it through a separate
-    /// short lived connection running `pg_cancel_backend`.
+    /// The editor's Run. Takes a dedicated pooled connection for
+    /// the whole run so there is a backend to cancel. With a `run`, it
+    /// records that backend's pid and lets Stop reach it through a separate
+    /// short lived connection running `pg_cancel_backend`. A SELECT streams
+    /// its rows to `sink` as the server sends them and resolves without them.
     pub(super) async fn run_sql_cancellable(
         &self,
         database: Option<&str>,
         schema: Option<&str>,
         sql: &str,
-        run: &RunHandle,
+        run: Option<&RunHandle>,
+        sink: BatchSink<'_>,
     ) -> DbResult<QueryResult> {
         let pool = self.pool_for(database).await?;
         let start = Instant::now();
@@ -28,21 +30,26 @@ impl PgAdapter {
         let is_select = is_select_statement(trimmed);
 
         let mut conn = RunConn::acquire(&pool).await?;
-        let armed = self.arm_stop(&mut conn, database, run).await?;
+        let armed = match run {
+            Some(run) => self.arm_stop(&mut conn, database, run).await?,
+            None => true,
+        };
 
         let ran = if !armed {
             // Stop already arrived: never start the statement.
             Err(DbError::Cancelled)
         } else if let Some(schema) = schema {
             // Same transaction local search_path as `run_sql`'s schema path.
-            run_in_schema_tx(&mut conn, schema, trimmed, is_select, start, run).await
+            run_in_schema_tx(&mut conn, schema, trimmed, is_select, start, run, sink).await
         } else {
-            exec_statement(&mut conn, trimmed, is_select, start, run).await
+            exec_statement(&mut conn, trimmed, is_select, start, run, sink).await
         };
 
         // Unregister BEFORE the connection returns to the pool, so a late
         // cancel can never hit a later query that reused this backend.
-        run.finish().await;
+        if let Some(run) = run {
+            run.finish().await;
+        }
         conn.release(conn_reusable(&ran));
         ran
     }

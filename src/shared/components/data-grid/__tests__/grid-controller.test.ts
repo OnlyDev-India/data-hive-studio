@@ -224,3 +224,31 @@ describe("useGridController — reorder_column", () => {
     expect(result.current.view.column_order).toEqual(["a", "b", "d", "c"]);
   });
 });
+
+describe("useGridController — streamed rows", () => {
+  it("counts only row_count entries of an append only rows array, and follows it as it grows", () => {
+    const rows: (string | null)[][] = [
+      ["1", "a"],
+      ["2", "b"],
+      ["3", "c"],
+    ];
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) =>
+        useGridController(baseConfig({ rows, row_count: count })),
+      { initialProps: { count: 2 } },
+    );
+    expect(result.current.row_count).toBe(2);
+
+    // The same array, appended in place, and a bigger count: no copy.
+    rows.push(["4", "d"]);
+    rerender({ count: 4 });
+
+    expect(result.current.row_count).toBe(4);
+    expect(result.current.rows).toBe(rows);
+  });
+
+  it("falls back to the array length when no count is given", () => {
+    const { result } = renderHook(() => useGridController(baseConfig()));
+    expect(result.current.row_count).toBe(2);
+  });
+});

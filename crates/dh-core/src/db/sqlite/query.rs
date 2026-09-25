@@ -231,7 +231,7 @@ async fn stream_select(
     let columns: Vec<String> = prepared.columns().iter().map(|c| c.name().to_string()).collect();
     drop(prepared);
 
-    on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
+    on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new(), documents: None })?;
 
     let mut q = sqlx::query(sql);
     for p in params {
@@ -248,11 +248,11 @@ async fn stream_select(
         batch.push(cells);
         total += 1;
         if batch.len() >= STREAM_BATCH_ROWS {
-            on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
+            on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch), documents: None })?;
         }
     }
     if !batch.is_empty() {
-        on_batch(QueryChunk { columns: None, rows: batch })?;
+        on_batch(QueryChunk { columns: None, rows: batch, documents: None })?;
     }
     Ok((columns, total))
 }

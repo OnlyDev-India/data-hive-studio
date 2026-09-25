@@ -1484,6 +1484,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "dh-core",
+ "futures-util",
  "http-body-util",
  "rand 0.8.7",
  "serde",

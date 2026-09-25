@@ -35,9 +35,17 @@ describe("canCancelRun", () => {
     expect(canCancelRun(undefined)).toBe(false);
   });
 
-  it("does not offer Stop in the web build", async () => {
+  it("offers Stop on the web for PostgreSQL and MongoDB, which stream", async () => {
     const { canCancelRun } = await loadQuery(true);
+    expect(canCancelRun("postgres")).toBe(true);
+    expect(canCancelRun("mongodb")).toBe(true);
     expect(canCancelRun("sqlite")).toBe(false);
+    expect(canCancelRun(undefined)).toBe(false);
+  });
+
+  it("offers Stop on a Plan tab only on the desktop", async () => {
+    expect((await loadQuery(false)).canCancelPlan("postgres")).toBe(true);
+    expect((await loadQuery(true)).canCancelPlan("postgres")).toBe(false);
   });
 });
 
@@ -74,11 +82,18 @@ describe("cancelRun", () => {
     },
   );
 
-  it("rejects in the web build without calling the backend", async () => {
+  it("posts to the cancel route in the web build, not to the backend", async () => {
     const { cancelRun } = await loadQuery(true);
+    const { wcall } = await import("../web");
     const invoke = await tauriInvoke();
+    (wcall as unknown as Mock).mockResolvedValueOnce({ state: "stopped" });
 
-    await expect(cancelRun("local-1", "run-7")).rejects.toThrow(/desktop app/);
+    await expect(cancelRun("h1", "run-7")).resolves.toEqual({
+      state: "stopped",
+    });
+    expect(wcall).toHaveBeenCalledWith("POST", "/v1/c/h1/cancel", {
+      run_id: "run-7",
+    });
     expect(invoke).not.toHaveBeenCalled();
   });
 

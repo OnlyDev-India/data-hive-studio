@@ -1,5 +1,9 @@
 import { useMemo, useCallback, useEffect, useRef, useState } from "react";
-import type { QueryResult, TableSchema } from "@/shared/api";
+import {
+  resultRowCount,
+  type QueryResult,
+  type TableSchema,
+} from "@/shared/api";
 import { useStudioStore, type GridBridge, type JsonRow } from "@/shared/store";
 import { GridBody } from "./grid-body";
 import { GridProvider } from "./grid-context";
@@ -160,6 +164,8 @@ export function QueryResultsGrid({
 
   const ctl = useGridController({
     rows: editable ? edit.display_rows : result.rows,
+    // A streamed result's array can be longer than what was last announced.
+    row_count: editable ? undefined : result.row_count,
     columns: result.columns,
     row_offset: 0,
     editable,
@@ -224,6 +230,7 @@ export function QueryResultsGrid({
       hidden_columns: [...ctl.hidden_columns],
       toggle_column_visibility: ctl.toggle_column_visibility,
       reorder_column: ctl.reorder_column,
+      reveal_column: ctl.reveal_column,
       elapsed_ms: result.elapsed_ms,
       delete_rows: do_delete,
       pending_exists: edit.pending_exists,
@@ -255,6 +262,7 @@ export function QueryResultsGrid({
       ctl.hidden_columns,
       ctl.toggle_column_visibility,
       ctl.reorder_column,
+      ctl.reveal_column,
       do_delete,
       edit,
       editable_source,
@@ -294,7 +302,7 @@ export function QueryResultsGrid({
         <ResultQueryText text={query_text} />
       ) : (
         <div className="min-h-0 flex-1 border" data-selectable>
-          {ctl.rows.length === 0 && !result.error ? (
+          {ctl.row_count === 0 && !result.error ? (
             <p className="text-muted-foreground px-3 py-8 text-center text-sm">
               No rows.
             </p>
@@ -333,7 +341,7 @@ function ResultSummary({
         <SummaryRow
           label={result.is_select ? "Rows returned" : "Rows affected"}
           value={String(
-            result.is_select ? result.rows.length : result.rows_affected,
+            result.is_select ? resultRowCount(result) : result.rows_affected,
           )}
         />
         {message && <SummaryRow label="Message" value={message} />}

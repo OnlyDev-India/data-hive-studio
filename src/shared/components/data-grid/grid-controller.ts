@@ -28,6 +28,10 @@ const CELL_KEY_SEP = cellKey(0, "").slice(1);
 /** Host-provided config for a grid instance. */
 export interface GridControllerConfig {
   rows: (string | null)[][];
+  /** How many entries of `rows` are valid. A streamed result hands the grid
+   *  one append only array that keeps growing, so its own length can run
+   *  ahead of what was last handed over. Omitted means all of `rows`. */
+  row_count?: number;
   columns: string[];
   row_offset: number;
   editable: boolean;
@@ -43,6 +47,8 @@ export interface GridControllerConfig {
    *  the controller itself doesn't know about database/schema. */
   layout_key?: string | null;
   kinds: Record<string, CellKind>;
+  /** Date cells are written as ISO 8601 text (Mongo), not `YYYY-MM-DD HH:MM:SS`. */
+  iso_dates?: boolean;
   types?: Record<string, string>;
   key_kinds?: Record<string, "primary" | "foreign" | "both">;
   /** Column name -> referenced table/column for foreign-key columns. */
@@ -109,6 +115,7 @@ export interface GridControllerConfig {
 export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const {
     rows,
+    row_count,
     columns,
     row_offset,
     editable,
@@ -118,6 +125,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     table,
     layout_key,
     kinds,
+    iso_dates,
     types,
     key_kinds,
     fk_targets,
@@ -220,15 +228,25 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     return pending_rows && pending_rows.length > 0
       ? [...pending_rows.map((p) => p.values), ...base]
       : base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `row_count` is not read here: a streamed result appends to the same `rows` array, so an overlay or a sort copied from it has to be rebuilt when the count grows
   }, [
     client_sort,
     rows,
+    row_count,
     columns,
     sort_keys,
     pending_rows,
     dirty_cells,
     row_offset,
   ]);
+
+  // When nothing was derived (no sort, overlay or pending rows) the grid reads
+  // the caller's own array, which may hold more than `row_count` entries, so
+  // its length is not the row count. A derived array is a copy, so it is.
+  const row_total =
+    rows_to_render === rows
+      ? (row_count ?? rows.length)
+      : rows_to_render.length;
 
   const view = useMemo(
     () =>
@@ -265,12 +283,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   // why) means a hidden (display:none) tab needs no special handling: its
   // scrollTop is preserved by the browser across the toggle, and revealing
   // it just recomputes the range from that already-correct value.
-  const row_virtualizer = useRowWindow(
-    root_ref,
-    rows_to_render.length,
-    ROW_HEIGHT_PX,
-    12,
-  );
+  const row_virtualizer = useRowWindow(root_ref, row_total, ROW_HEIGHT_PX, 12);
 
   // A fresh page/query invalidates the old scroll position; snap back to
   // the top. Deferred to the next animation frame so the spacer (a plain
@@ -336,8 +349,8 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       const body = getComputedStyle(document.body);
       ctx.font = `${body.fontSize} ${body.fontFamily}`;
       let max = 0;
-      for (const row of rows_to_render) {
-        const v = row[ci];
+      for (let r = 0; r < row_total; r++) {
+        const v = rows_to_render[r][ci];
         if (v !== null && v !== undefined) {
           max = Math.max(max, ctx.measureText(String(v)).width);
         }
@@ -353,7 +366,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       );
       on_resize_col(col, fit);
     },
-    [col_index_of, rows_to_render, types, on_resize_col],
+    [col_index_of, rows_to_render, row_total, types, on_resize_col],
   );
 
   // Drag `dragged` next to `target`'s CURRENT position — using
@@ -565,7 +578,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const select_column = useCallback(
     (col: string, opts: { add?: boolean; range?: boolean } = {}) => {
       setEditing(null);
-      const total_rows = rows_to_render.length;
+      const total_rows = row_total;
       if (opts.range && sel_anchor) {
         const [, ac] = sel_anchor;
         const a = col_index_of[ac];
@@ -601,7 +614,28 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       setSelAnchor([0, col]);
       setActiveCell([0, col]);
     },
-    [rows_to_render.length, sel_anchor, col_index_of, col_meta, selected],
+    [row_total, sel_anchor, col_index_of, col_meta, selected],
+  );
+
+  // Select a column and bring its header into view — the columns popover's
+  // click on a name. A hidden column has no header to show, so it is left
+  // alone (its checkbox is how it comes back).
+  const reveal_column = useCallback(
+    (col: string) => {
+      if (col_index_of[col] === undefined) return;
+      select_column(col);
+      const container = root_ref.current;
+      const el = container?.querySelector(`[data-col="${CSS.escape(col)}"]`);
+      if (!container || !el) return;
+      const box = el.getBoundingClientRect();
+      const area = container.getBoundingClientRect();
+      // Pinned columns are sticky and already in view.
+      if (box.left < area.left + GUTTER_W_PX)
+        container.scrollBy({ left: box.left - (area.left + GUTTER_W_PX) });
+      else if (box.right > area.right)
+        container.scrollBy({ left: box.right - area.right });
+    },
+    [col_index_of, select_column],
   );
 
   const start_drag = useCallback(
@@ -662,7 +696,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   const copy_text = useCallback(() => {
     if (selected.size === 0) return;
     const lines: string[] = [];
-    for (let row = 0; row < rows_to_render.length; row++) {
+    for (let row = 0; row < row_total; row++) {
       const line = column_order
         .map((col) => {
           if (selected.has(cellKey(row, col))) {
@@ -677,7 +711,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     }
     const text = lines.join("\n");
     void navigator.clipboard.writeText(text);
-  }, [selected, rows_to_render, column_order, col_index_of]);
+  }, [selected, rows_to_render, row_total, column_order, col_index_of]);
 
   // ---- Paste ----
   // Writes go straight to the raw props (not the guarded `on_pending_edit`/
@@ -715,7 +749,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
         const sep = key.indexOf(CELL_KEY_SEP);
         const row = Number(key.slice(0, sep));
         const col = key.slice(sep + 1);
-        if (row < rows_to_render.length) write_cell(row, col, value);
+        if (row < row_total) write_cell(row, col, value);
       }
       return;
     }
@@ -731,7 +765,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       // overflows the page's current row/column count is silently clamped
       // rather than growing the grid (see DATAGRID_PARITY_PLAN.md's Phase 1
       // note on this).
-      if (row >= rows_to_render.length) break;
+      if (row >= row_total) break;
       const line = grid[i];
       for (let j = 0; j < line.length; j++) {
         const col = column_order[start_ci + j];
@@ -742,7 +776,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   }, [
     editable,
     selected,
-    rows_to_render.length,
+    row_total,
     active_cell,
     sel_anchor,
     col_index_of,
@@ -757,9 +791,9 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       const sep = key.indexOf(CELL_KEY_SEP);
       const row = Number(key.slice(0, sep));
       const col = key.slice(sep + 1);
-      if (row < rows_to_render.length) write_cell(row, col, "");
+      if (row < row_total) write_cell(row, col, "");
     }
-  }, [editable, selected, rows_to_render.length, write_cell]);
+  }, [editable, selected, row_total, write_cell]);
 
   // Routes a generated/bulk value to whichever write path actually produces
   // it: `write_cell` (used everywhere else in this file) always writes a
@@ -789,10 +823,10 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
         const sep = key.indexOf(CELL_KEY_SEP);
         const row = Number(key.slice(0, sep));
         const col = key.slice(sep + 1);
-        if (row < rows_to_render.length) write_selected_cell(row, col, value);
+        if (row < row_total) write_selected_cell(row, col, value);
       }
     },
-    [editable, selected, rows_to_render.length, write_selected_cell],
+    [editable, selected, row_total, write_selected_cell],
   );
 
   // ---- Value-generation (right-click "Fill with…") ----
@@ -807,7 +841,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
           const sep = key.indexOf(CELL_KEY_SEP);
           return { row: Number(key.slice(0, sep)), col: key.slice(sep + 1) };
         })
-        .filter((t) => t.row < rows_to_render.length)
+        .filter((t) => t.row < row_total)
         .sort(
           (a, b) =>
             a.row - b.row ||
@@ -845,7 +879,14 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
         n += 1;
       }
     },
-    [editable, selected, rows_to_render, col_index_of, write_selected_cell],
+    [
+      editable,
+      selected,
+      rows_to_render,
+      row_total,
+      col_index_of,
+      write_selected_cell,
+    ],
   );
 
   // ---- Fill handle drag ----
@@ -867,11 +908,11 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     (row: number, ci: number) => {
       if (!fill_active.current || !fill_source) return;
       setFillTarget({
-        row: Math.max(0, Math.min(row, rows_to_render.length - 1)),
+        row: Math.max(0, Math.min(row, row_total - 1)),
         ci: Math.max(0, Math.min(ci, column_order.length - 1)),
       });
     },
-    [fill_source, rows_to_render.length, column_order.length],
+    [fill_source, row_total, column_order.length],
   );
 
   const stop_fill_drag = useCallback(() => {
@@ -958,7 +999,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     const q = search_query.trim().toLowerCase();
     if (!q) return [];
     const matches: CellId[] = [];
-    for (let r = 0; r < rows_to_render.length; r++) {
+    for (let r = 0; r < row_total; r++) {
       for (const col of column_order) {
         const ci = col_index_of[col];
         if (ci === undefined) continue;
@@ -967,7 +1008,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       }
     }
     return matches;
-  }, [search_query, rows_to_render, column_order, col_index_of]);
+  }, [search_query, rows_to_render, row_total, column_order, col_index_of]);
 
   const search_active_index_clamped =
     search_matches.length === 0
@@ -1020,7 +1061,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
   }, [search_matches.length]);
 
   const handle_keydown = useGridKeyboard({
-    rows: rows_to_render.length,
+    rows: row_total,
     col_meta,
     col_index_of,
     active_cell,
@@ -1158,7 +1199,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       if (!row) return;
       const total_cols = column_order.length;
       const fully_selected: number[] = [];
-      for (let r = 0; r < rows_to_render.length; r++) {
+      for (let r = 0; r < row_total; r++) {
         let n = 0;
         for (const col of column_order) if (selected.has(cellKey(r, col))) n++;
         if (n === total_cols) fully_selected.push(r);
@@ -1206,7 +1247,15 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
       }
       void navigator.clipboard.writeText(text);
     },
-    [rows_to_render, column_order, col_index_of, selected, types, table],
+    [
+      rows_to_render,
+      row_total,
+      column_order,
+      col_index_of,
+      selected,
+      types,
+      table,
+    ],
   );
 
   const menu_clone_row = useCallback(
@@ -1344,6 +1393,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
 
   return {
     rows: rows_to_render,
+    row_count: row_total,
     columns,
     row_offset,
     conn_id,
@@ -1352,6 +1402,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     loading,
     pk_columns,
     kinds,
+    iso_dates,
     types,
     key_kinds,
     fk_targets,
@@ -1381,6 +1432,7 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     start_column_drag,
     column_drag_over,
     select_column,
+    reveal_column,
     on_select: setSelected,
     on_sel_anchor: setSelAnchor,
     on_active_cell: setActiveCell,

@@ -1,19 +1,5 @@
 import { useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  Copy,
-  Pencil,
-  Plus,
-  Trash2,
-  Undo2,
-  Zap,
-} from "lucide-react";
-import {
-  AccordionItem,
-  AccordionPanel,
-  AccordionTrigger,
-} from "@/shared/components/ui/accordion";
+import { Check, ChevronDown, Copy, Pencil, Trash2, Undo2 } from "lucide-react";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -34,6 +20,8 @@ export function TriggersPanel({
   disabled = false,
   on_update,
   on_replace,
+  adding,
+  on_adding_change,
 }: {
   /** Draft triggers for this table (mirrors schema.triggers until edited). */
   trigs: TriggerDraft[];
@@ -41,83 +29,65 @@ export function TriggersPanel({
   disabled?: boolean;
   on_update: (id: string, patch: Partial<TriggerDraft>) => void;
   on_replace: (updater: (ts: TriggerDraft[]) => TriggerDraft[]) => void;
+  /** The add dialog is opened by the tab bar's Add button. */
+  adding: boolean;
+  on_adding_change: (open: boolean) => void;
 }) {
   const [editing, setEditing] = useState<TriggerDraft | null>(null);
-  const [adding, setAdding] = useState(false);
+  const setAdding = on_adding_change;
 
   return (
-    <AccordionItem value="triggers">
-      <AccordionTrigger>
-        <span className="flex items-center gap-2">
-          <Zap className="size-4" />
-          Triggers
-          <Badge variant="muted">{trigs.length}</Badge>
-          {trigs.some(
-            (t) => t.dropped || t.orig_name === null || t.sql !== t.orig_sql,
-          ) && <Badge variant="warning">edited</Badge>}
-        </span>
-      </AccordionTrigger>
-      <AccordionPanel>
-        <div className="overflow-hidden rounded-md border">
-          {trigs.map((t) => (
-            <TriggerRow
-              key={t.id}
-              trig={t}
-              disabled={disabled}
-              on_update={on_update}
-              on_edit={() => setEditing(t)}
-              on_replace={on_replace}
-            />
-          ))}
-          <button
-            type="button"
+    <>
+      <div>
+        {trigs.map((t) => (
+          <TriggerRow
+            key={t.id}
+            trig={t}
             disabled={disabled}
-            className="text-muted-foreground hover:bg-muted/50 flex w-full items-center gap-2 border-t px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => setAdding(true)}
-          >
-            <Plus className="size-3.5" />
-            Add trigger
-          </button>
-        </div>
+            on_update={on_update}
+            on_edit={() => setEditing(t)}
+            on_replace={on_replace}
+          />
+        ))}
+      </div>
 
-        {/* Mounted only while open — fresh textarea state per dialog. */}
-        {adding && (
-          <TriggerSqlDialog
-            open
-            title="Add trigger"
-            description="Write the full CREATE TRIGGER statement — the name is taken from the SQL."
-            sql=""
-            on_close={() => setAdding(false)}
-            on_save={(sql) => {
-              on_replace((ts) => [
-                ...ts,
-                {
-                  id: `n${crypto.randomUUID()}`,
-                  orig_name: null,
-                  orig_sql: null,
-                  sql,
-                  dropped: false,
-                },
-              ]);
-              setAdding(false);
-            }}
-          />
-        )}
-        {editing && (
-          <TriggerSqlDialog
-            open
-            title="Edit trigger"
-            description={`Applies as DROP TRIGGER ${editing.orig_name ?? "(new)"} + the new CREATE TRIGGER.`}
-            sql={editing.sql}
-            on_close={() => setEditing(null)}
-            on_save={(sql) => {
-              on_update(editing.id, { sql });
-              setEditing(null);
-            }}
-          />
-        )}
-      </AccordionPanel>
-    </AccordionItem>
+      {/* Mounted only while open — fresh textarea state per dialog. */}
+      {adding && (
+        <TriggerSqlDialog
+          open
+          title="Add trigger"
+          description="Write the full CREATE TRIGGER statement — the name is taken from the SQL."
+          sql=""
+          on_close={() => setAdding(false)}
+          on_save={(sql) => {
+            on_replace((ts) => [
+              ...ts,
+              {
+                id: `n${crypto.randomUUID()}`,
+                orig_name: null,
+                orig_sql: null,
+                sql,
+                dropped: false,
+              },
+            ]);
+            setAdding(false);
+          }}
+        />
+      )}
+      {editing && (
+        <TriggerSqlDialog
+          open
+          title="Edit trigger"
+          description={`Applies as DROP TRIGGER ${editing.orig_name ?? "(new)"} + the new CREATE TRIGGER.`}
+          sql={editing.sql}
+          on_close={() => setEditing(null)}
+          on_save={(sql) => {
+            on_update(editing.id, { sql });
+            setEditing(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 

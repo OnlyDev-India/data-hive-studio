@@ -5,6 +5,7 @@ import {
   resetWebConnections,
   setWebKey,
   wcall,
+  wstream,
   webClose,
   webConnect,
   webInfo,
@@ -180,5 +181,119 @@ describe("the access key (AC-5)", () => {
     window.removeEventListener(KEY_REJECTED_EVENT, rejected);
     expect(rejected).toHaveBeenCalledOnce();
     expect(webKey()).toBeNull();
+  });
+});
+
+describe("streaming", () => {
+  const encoder = new TextEncoder();
+  const ndjson = (parts: string[], status = 200, then?: "cut"): Response => {
+    // One part per read, so a cut lands after the parts before it were read.
+    const queue = [...parts];
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const part = queue.shift();
+        if (part !== undefined) controller.enqueue(encoder.encode(part));
+        else if (then === "cut") controller.error(new Error("network"));
+        else controller.close();
+      },
+    });
+    return new Response(body, {
+      status,
+      headers: { "Content-Type": "application/x-ndjson" },
+    });
+  };
+  const chunk = (rows: string[][], columns?: string[]) =>
+    JSON.stringify({ t: "chunk", columns, rows }) + "\n";
+  const done = (result: unknown) =>
+    JSON.stringify({ t: "done", result }) + "\n";
+
+  it("hands over chunks as lines arrive, even split across reads, and resolves with the done result", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
+    await webConnect(details);
+    const first = chunk([["1"]], ["a"]);
+    fetchMock.mockResolvedValueOnce(
+      ndjson([
+        first.slice(0, 9),
+        first.slice(9),
+        chunk([["2"]]),
+        done({ ok: 1 }),
+      ]),
+    );
+    const seen: unknown[][] = [];
+
+    const result = await wstream<{ ok: number }>(
+      "/v1/c/h1/sql-stream",
+      { sql: "select 1" },
+      (c) => seen.push(c.rows),
+    );
+
+    expect(seen).toEqual([[["1"]], [["2"]]]);
+    expect(result).toEqual({ ok: 1 });
+  });
+
+  it("throws the message of an error line, after the rows before it", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
+    await webConnect(details);
+    fetchMock.mockResolvedValueOnce(
+      ndjson([
+        chunk([["1"]], ["a"]),
+        JSON.stringify({ t: "error", message: "division by zero" }) + "\n",
+      ]),
+    );
+    const seen: unknown[] = [];
+
+    await expect(
+      wstream("/v1/c/h1/sql-stream", {}, (c) => seen.push(c)),
+    ).rejects.toThrow("division by zero");
+    expect(seen).toHaveLength(1);
+  });
+
+  it.each([
+    ["ends with no closing line", undefined],
+    ["is cut by the network", "cut" as const],
+  ])(
+    "says the connection dropped after N rows when the body %s",
+    async (_n, then) => {
+      fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
+      await webConnect(details);
+      fetchMock.mockResolvedValueOnce(
+        ndjson([chunk([["1"], ["2"], ["3"]], ["a"])], 200, then),
+      );
+
+      await expect(
+        wstream("/v1/c/h1/sql-stream", {}, () => {}),
+      ).rejects.toThrow("The connection dropped after 3 rows.");
+    },
+  );
+
+  it("reconnects once on an unknown handle before the first byte, like any call", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
+    await webConnect(details);
+    fetchMock
+      .mockResolvedValueOnce(unknownHandle())
+      .mockResolvedValueOnce(json(200, { handle: "h2" }))
+      .mockResolvedValueOnce(ndjson([done({ ok: 2 })]));
+
+    const result = await wstream("/v1/c/h1/sql-stream", {}, () => {});
+
+    expect(result).toEqual({ ok: 2 });
+    expect(calls().map((c) => c.url)).toEqual([
+      "/v1/connect",
+      "/v1/c/h1/sql-stream",
+      "/v1/connect",
+      "/v1/c/h2/sql-stream",
+    ]);
+  });
+
+  it("keeps a refusal's status and text when the server answers before streaming", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
+    await webConnect(details);
+    fetchMock.mockResolvedValueOnce(
+      new Response("syntax error near x", { status: 400 }),
+    );
+
+    await expect(wstream("/v1/c/h1/sql-stream", {}, () => {})).rejects.toThrow(
+      "400 — syntax error near x",
+    );
   });
 });

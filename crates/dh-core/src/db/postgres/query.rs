@@ -1,99 +1,30 @@
-use futures_util::TryStreamExt;
-use sqlx::Connection as _;
 use std::time::Instant;
 use crate::api::{QueryChunk, QueryOp, QueryResult};
 use crate::db::read_only::Dialect;
+use crate::db::stream::Collected;
 use crate::db::{BatchSink, DbError, DbResult, RunHandle};
 use super::PgAdapter;
-use super::exec::{bind_all, bind_str, null_error};
+use super::exec::{bind_str, null_error};
 use super::filters::build_select;
-use super::rows::{describe_columns, describe_columns_conn, row_to_vec};
-use super::sql_text::{dollar_placeholders, q};
+use super::rows::{describe_columns, row_to_vec};
+use super::sql_text::dollar_placeholders;
+use super::stream::stream_statement;
 
 impl PgAdapter {
     /// `run_sql` past the read only check. The session itself is also read
     /// only on a read only connection, so a write the check let through (a
     /// data changing CTE) fails here and the caller turns it into the typed
-    /// refusal.
+    /// refusal. Reads the whole result through the same row loop the editor
+    /// streams with, into a collecting sink.
     async fn run_sql_locked(&self, database: Option<&str>, schema: Option<&str>, sql: &str) -> DbResult<QueryResult> {
-        let pool = self.pool_for(database).await?;
-        let start = Instant::now();
-        let converted = dollar_placeholders(sql);
-        let trimmed = converted.trim();
-        let first_word = trimmed
-            .split(|c: char| c == ' ' || c == '\n' || c == '\t')
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let is_select = first_word == "select" || first_word == "with";
-
-        // A target schema (the SQL editor's own picker) resolves every
-        // unqualified name in `sql` through a TRANSACTION-LOCAL search_path
-        // — same mechanism/reasoning as `apply_schema_ops_batch`: SET LOCAL
-        // dies with the transaction, so pooled connections stay clean
-        // (PgBouncer-safe) whether this commits or errors out.
-        if let Some(schema) = schema {
-            let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
-            let mut tx = conn.begin().await.map_err(DbError::SqlEngine)?;
-            sqlx::query(&format!("SET LOCAL search_path = {}", q(schema)))
-                .execute(&mut *tx)
-                .await
-                .map_err(DbError::SqlEngine)?;
-            let result = if is_select {
-                let columns = describe_columns_conn(&mut tx, trimmed).await?;
-                let rows = sqlx::query(trimmed).fetch_all(&mut *tx).await.map_err(DbError::SqlEngine)?;
-                let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
-                QueryResult {
-                    columns,
-                    rows: out,
-                    rows_affected: 0,
-                    is_select: true,
-                    error: null_error(),
-                    elapsed_ms: start.elapsed().as_millis(),
-                    cancelled: false,
-                }
-            } else {
-                let res = sqlx::query(trimmed).execute(&mut *tx).await.map_err(DbError::SqlEngine)?;
-                QueryResult {
-                    columns: vec![],
-                    rows: vec![],
-                    rows_affected: res.rows_affected(),
-                    is_select: false,
-                    error: null_error(),
-                    elapsed_ms: start.elapsed().as_millis(),
-                    cancelled: false,
-                }
-            };
-            tx.commit().await.map_err(DbError::SqlEngine)?;
-            return Ok(result);
-        }
-
-        if is_select {
-            let columns = describe_columns(&pool, trimmed).await?;
-            let rows = sqlx::query(trimmed).fetch_all(&pool).await.map_err(DbError::SqlEngine)?;
-            // Reuse row_to_vec so every type (dates, timestamps, arrays,
-            // booleans, numerics, …) renders as human-readable text.
-            let out: Vec<Vec<Option<String>>> = rows.iter().map(row_to_vec).collect();
-            return Ok(QueryResult {
-                columns,
-                rows: out,
-                rows_affected: 0,
-                is_select: true,
-                error: null_error(),
-                elapsed_ms: start.elapsed().as_millis(),
-                cancelled: false,
-            });
-        }
-        let res = sqlx::query(trimmed).execute(&pool).await.map_err(DbError::SqlEngine)?;
-        Ok(QueryResult {
-            columns: vec![],
-            rows: vec![],
-            rows_affected: res.rows_affected(),
-            is_select: false,
-            error: null_error(),
-            elapsed_ms: start.elapsed().as_millis(),
-            cancelled: false,
-        })
+        let mut collected = Collected::default();
+        let mut sink = |chunk: QueryChunk| {
+            collected.push_chunk(chunk);
+            Ok(())
+        };
+        let result = self.run_sql_cancellable(database, schema, sql, None, &mut sink).await?;
+        drop(sink);
+        Ok(QueryResult { rows: collected.rows, ..result })
     }
 
     pub(super) async fn run_sql(&self, database: Option<&str>, schema: Option<&str>, sql: &str) -> DbResult<QueryResult> {
@@ -181,26 +112,16 @@ impl PgAdapter {
         ));
 
         let display = super::inline_placeholders(&sql, &params, true) + ";";
-        // Describe columns up front so a genuinely empty result still
-        // reports real column names — deriving them from the first
-        // STREAMED row instead (the previous approach here) left `columns`
-        // empty whenever the query matched zero rows, since the loop body
-        // below never ran.
-        let columns = describe_columns(&pool, &sql).await?;
-        on_batch(QueryChunk { columns: Some(columns.clone()), rows: Vec::new() })?;
-
-        let mut stream = bind_all(&sql, &params).fetch(&pool);
-        let mut batch: Vec<Vec<Option<String>>> = Vec::new();
-
-        while let Some(row) = stream.try_next().await.map_err(DbError::SqlEngine)? {
-            batch.push(row_to_vec(&row));
-            if batch.len() >= 500 {
-                on_batch(QueryChunk { columns: None, rows: std::mem::take(&mut batch) })?;
-            }
+        // The same row loop the editor uses: rows go out as the server sends
+        // them, columns come from the first row, and a page with no rows
+        // describes the statement once so it still reports real names.
+        let mut conn = pool.acquire().await.map_err(DbError::SqlEngine)?;
+        let streamed = stream_statement(&mut conn, &sql, &params, None, on_batch).await;
+        if streamed.is_err() {
+            // Do not hand a half read connection back to the pool.
+            drop(conn.detach());
         }
-        if !batch.is_empty() {
-            on_batch(QueryChunk { columns: None, rows: batch })?;
-        }
+        let columns = streamed?.columns;
 
         Ok(super::OpOutcome {
             result: QueryResult {
@@ -227,21 +148,9 @@ impl PgAdapter {
         // Before a canceller is armed, so a refused statement never becomes
         // a run Stop could reach.
         self.guard.check_sql(Dialect::Postgres, sql)?;
-        let result = match run {
-            Some(run) => self
-                .run_sql_cancellable(database, schema, sql, run)
-                .await
-                .map_err(|e| self.guard.refine(e))?,
-            None => self.run_sql(database, schema, sql).await?,
-        };
-        if result.is_select && !result.rows.is_empty() {
-            let chunk = QueryChunk {
-                columns: Some(result.columns.clone()),
-                rows: result.rows.clone(),
-            };
-            on_batch(chunk)?;
-        }
-        Ok(QueryResult { rows: vec![], ..result })
+        self.run_sql_cancellable(database, schema, sql, run, on_batch)
+            .await
+            .map_err(|e| self.guard.refine(e))
     }
 }
 

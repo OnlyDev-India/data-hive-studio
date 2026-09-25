@@ -24,6 +24,11 @@ impl<T: Clone> Registry<T> {
         }
     }
 
+    /// How long a handle may sit unused before it is dropped.
+    pub fn idle(&self) -> Duration {
+        self.idle
+    }
+
     /// The value for `handle`, marked as just used. Also returns whatever
     /// went idle, for the caller to close. An idle handle is unknown.
     pub fn get(&self, handle: &str) -> (Option<T>, Vec<T>) {

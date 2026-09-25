@@ -1,8 +1,7 @@
 use mongodb::action::Action;
-use futures_util::TryStreamExt;
-use crate::db::{DbError, DbResult, RunHandle};
+use crate::db::{BatchSink, DbError, DbResult, RunHandle};
 use super::MongoAdapter;
-use super::convert::flatten_documents;
+use super::stream::read_console_cursor;
 use super::cancel::{mongo_err, run_comment};
 
 impl MongoAdapter {
@@ -15,6 +14,7 @@ impl MongoAdapter {
         s: &str,
         start: std::time::Instant,
         run: Option<&RunHandle>,
+        sink: Option<BatchSink<'_>>,
     ) -> DbResult<crate::api::MongoRunResult> {
         let comment = run_comment(run);
         let col = self.client.database(db).collection::<bson::Document>(coll);
@@ -26,25 +26,18 @@ impl MongoAdapter {
             let mut opts = mongodb::options::FindOptions::builder().build();
             opts.comment = comment.clone();
             opts.limit = Some(50);
-            let mut cursor = col
+            opts.batch_size = Some(super::stream::CURSOR_BATCH);
+            let cursor = col
                 .find(filter.clone())
                 .with_options(opts)
                 .await
                 .map_err(|e| mongo_err(e, run))?;
-            let mut docs: Vec<serde_json::Value> = Vec::new();
-            while let Some(d) = cursor
-                .try_next()
-                .await
-                .map_err(|e| mongo_err(e, run))?
-            {
-                docs.push(Self::document_to_json(d));
-            }
-            let (columns, rows) = flatten_documents(&docs);
+            let (columns, rows, documents) = read_console_cursor(cursor, run, sink).await?;
             return Ok(crate::api::MongoRunResult {
                 command: format!("db.{coll}.find({s})"),
                 columns,
                 rows,
-                documents: docs,
+                documents,
                 is_select: true,
                 elapsed_ms: start.elapsed().as_millis(),
                 ..Default::default()
@@ -59,25 +52,18 @@ impl MongoAdapter {
                     })
                 })
                 .collect::<DbResult<_>>()?;
-            let mut cursor = col
+            let cursor = col
                 .aggregate(stages)
-                    .optional(comment.clone(), |a, c| a.comment(c))
+                .batch_size(super::stream::CURSOR_BATCH)
+                .optional(comment.clone(), |a, c| a.comment(c))
                 .await
                 .map_err(|e| mongo_err(e, run))?;
-            let mut docs: Vec<serde_json::Value> = Vec::new();
-            while let Some(d) = cursor
-                .try_next()
-                .await
-                .map_err(|e| mongo_err(e, run))?
-            {
-                docs.push(Self::document_to_json(d));
-            }
-            let (columns, rows) = flatten_documents(&docs);
+            let (columns, rows, documents) = read_console_cursor(cursor, run, sink).await?;
             return Ok(crate::api::MongoRunResult {
                 command: format!("db.{coll}.aggregate({s})"),
                 columns,
                 rows,
-                documents: docs,
+                documents,
                 is_select: true,
                 elapsed_ms: start.elapsed().as_millis(),
                 ..Default::default()

@@ -10,6 +10,9 @@ pub struct SqlBody {
     pub database: Option<String>,
     #[serde(default)]
     pub schema: Option<String>,
+    /// Names the run for `/cancel`; only the streaming route reads it.
+    #[serde(default)]
+    pub run_id: Option<String>,
 }
 
 /// Explain (spec 0011). `run_id` is accepted and ignored: the web build has no
@@ -38,6 +41,12 @@ pub struct ExecuteOpBody {
     pub database: Option<String>,
     #[serde(default)]
     pub schema: Option<String>,
+}
+
+/// `POST /v1/c/{handle}/cancel`.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CancelBody {
+    pub run_id: String,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -122,6 +131,9 @@ pub struct RunMongoBody {
     #[serde(default)]
     pub collection: Option<String>,
     pub script: String,
+    /// Names the run for `/cancel`; only the streaming route reads it.
+    #[serde(default)]
+    pub run_id: Option<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]

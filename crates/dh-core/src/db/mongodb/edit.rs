@@ -289,40 +289,17 @@ impl MongoAdapter {
                 offset,
             } => {
                 let filter = build_filter(filters, custom_where.as_deref())?;
-                let (columns, rows) = self
-                    .select_page(
+                let columns = self
+                    .select_page_stream(
                         &db,
                         table,
                         filter.clone(),
                         order_by,
                         limit.unwrap_or(50),
                         offset.unwrap_or(0),
+                        on_batch,
                     )
                     .await?;
-                // First chunk carries the column names, later chunks the rows.
-                on_batch(QueryChunk {
-                    columns: Some(columns.clone()),
-                    rows: Vec::new(),
-                })?;
-                let mut batch: Vec<Vec<Option<String>>> = Vec::new();
-                let mut size = 0usize;
-                for row in &rows {
-                    batch.push(row.clone());
-                    size += 1;
-                    if size >= 500 {
-                        on_batch(QueryChunk {
-                            columns: None,
-                            rows: std::mem::take(&mut batch),
-                        })?;
-                        size = 0;
-                    }
-                }
-                if !batch.is_empty() {
-                    on_batch(QueryChunk {
-                        columns: None,
-                        rows: batch,
-                    })?;
-                }
                 Ok(OpOutcome {
                     result: QueryResult {
                         columns,
@@ -347,11 +324,13 @@ impl MongoAdapter {
                 on_batch(QueryChunk {
                     columns: Some(vec![column.clone()]),
                     rows: Vec::new(),
+                    documents: None,
                 })?;
                 for v in vals {
                     on_batch(QueryChunk {
                         columns: None,
                         rows: vec![vec![v]],
+                        documents: None,
                     })?;
                 }
                 Ok(OpOutcome {
@@ -391,32 +370,12 @@ impl MongoAdapter {
         let plan = super::mongo_sql::translate_select(sql)
             .map_err(|e| DbError::InvalidOperation(e.to_string()))?;
         self.arm_kill_op(run).await?;
-        let planned = self.run_select_plan(&db, &plan, run).await;
+        let planned = self.run_select_plan(&db, &plan, run, on_batch).await;
         // Nothing left for a late Stop to reach once the query is over.
         if let Some(run) = run {
             run.finish().await;
         }
-        let (columns, rows) = planned?;
-        on_batch(QueryChunk {
-            columns: Some(columns.clone()),
-            rows: Vec::new(),
-        })?;
-        let mut batch: Vec<Vec<Option<String>>> = Vec::new();
-        for row in rows {
-            batch.push(row);
-            if batch.len() >= 500 {
-                on_batch(QueryChunk {
-                    columns: None,
-                    rows: std::mem::take(&mut batch),
-                })?;
-            }
-        }
-        if !batch.is_empty() {
-            on_batch(QueryChunk {
-                columns: None,
-                rows: batch,
-            })?;
-        }
+        let columns = planned?;
         Ok(QueryResult {
             columns,
             rows: Vec::new(),

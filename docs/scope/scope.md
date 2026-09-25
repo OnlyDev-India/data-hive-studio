@@ -279,11 +279,11 @@ spec [0011](../specs/0011-stream-postgres-mongo-results/index.md)
 code in `crates/dh-core/src/db/postgres`, `crates/dh-core/src/db/mongodb`, `crates/dh-server/src/routes`, `src/shared/api/streaming.ts`
 
 - [x] Design it (spec): `/architect streaming results for postgres and mongodb`
-- [ ] Build it: `/develop streaming results for postgres and mongodb`
-  - [ ] Thread on Postgres, desktop, SQL editor: shared batcher and chunk protocol, Postgres streaming core with Stop keeping rows, one row accumulator with append only rows, rows kept on a late error, real row counts in the activity log — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-13, AC-19, AC-20, AC-21
-  - [ ] MongoDB streaming: one cursor loop with growing columns, SQL editor path with killOp during the stream, console find and aggregate with rows and JSON together — satisfies AC-6, AC-7, AC-8, AC-9, AC-10
-  - [ ] Grid loads and export: Mongo page on the cursor loop, Postgres grid on the shared core, grid and export on the accumulator with final columns — satisfies AC-11, AC-12
-  - [ ] Team server and web: NDJSON stream routes, cancel route on the run registry, idle refresh and cancel on disconnect, page stream reader, Stop on the web, read only refusals before the first byte — satisfies AC-14, AC-15, AC-16, AC-17, AC-18
+- [x] Build it: `/develop streaming results for postgres and mongodb`
+  - [x] Thread on Postgres, desktop, SQL editor: shared batcher and chunk protocol, Postgres streaming core with Stop keeping rows, one row accumulator with append only rows, rows kept on a late error, real row counts in the activity log — satisfies AC-1, AC-2, AC-3, AC-4, AC-5, AC-13, AC-19, AC-20, AC-21
+  - [x] MongoDB streaming: one cursor loop with growing columns, SQL editor path with killOp during the stream, console find and aggregate with rows and JSON together — satisfies AC-6, AC-7, AC-8, AC-9, AC-10
+  - [x] Grid loads and export: Mongo page on the cursor loop, Postgres grid on the shared core, grid and export on the accumulator with final columns — satisfies AC-11, AC-12
+  - [x] Team server and web: NDJSON stream routes, cancel route on the run registry, idle refresh and cancel on disconnect, page stream reader, Stop on the web, read only refusals before the first byte — satisfies AC-14, AC-15, AC-16, AC-17, AC-18
 - [ ] Verify it: `/check verify streaming results for postgres and mongodb`
 - [ ] Test it: `/test streaming results for postgres and mongodb`
 

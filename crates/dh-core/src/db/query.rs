@@ -1,5 +1,6 @@
 use crate::api::{QueryChunk, QueryOp, QueryResult};
-use super::types::{DbError, DbResult};
+use super::adapter::DbAdapter;
+use super::types::{BatchSink, DbError, DbResult};
 use super::activity_log::{activity_rows, op_label};
 use super::runs;
 use super::registry::with_connection;
@@ -176,14 +177,61 @@ pub async fn run_sql_stream(
     let sql = full_sql.clone();
     let database = database.map(str::to_string);
     let schema = schema.map(str::to_string);
-    let mut sink = on_batch;
-    let run = run_id.map(|id| runs::register(conn_id, id));
-    let run_ref = run.as_ref();
+    // Streamed rows never land in the result, so count them on their way out
+    // for the activity log.
+    let streamed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = streamed.clone();
+    let mut inner = on_batch;
+    let mut sink = move |chunk: QueryChunk| {
+        counter.fetch_add(chunk.rows.len(), std::sync::atomic::Ordering::Relaxed);
+        inner(chunk)
+    };
+    let id = conn_id.to_string();
+    let run_id = run_id.map(str::to_string);
     let res = with_connection(conn_id, move |a| async move {
-        let call = a.run_sql_stream(database.as_deref(), schema.as_deref(), &sql, run_ref, &mut sink);
-        runs::until_abandoned(run_ref, call).await
+        run_sql_stream_on(&*a, &id, database.as_deref(), schema.as_deref(), &sql, run_id.as_deref(), &mut sink).await
     })
     .await;
+    match res {
+        Ok(r) if r.cancelled => {
+            crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, &DbError::Cancelled);
+            Ok(r)
+        }
+        Ok(r) => {
+            let rows = if r.is_select {
+                streamed.load(std::sync::atomic::Ordering::Relaxed) as i64
+            } else {
+                activity_rows(&r)
+            };
+            crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, rows);
+            Ok(r)
+        }
+        Err(e) => {
+            crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, &e);
+            Err(e)
+        }
+    }
+}
+
+/// The streaming run itself, on an adapter the caller already holds and with
+/// no activity log: the desktop wrapper above and the team server share it,
+/// so both use the same run registry code. `conn_id` is what Stop names the
+/// run under (the desktop connection id, or the server's handle). A stopped
+/// run resolves as `Ok` with `cancelled: true`; rows already sent to `sink`
+/// stay with the caller.
+pub async fn run_sql_stream_on(
+    a: &dyn DbAdapter,
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    sql: &str,
+    run_id: Option<&str>,
+    sink: BatchSink<'_>,
+) -> DbResult<QueryResult> {
+    let t = std::time::Instant::now();
+    let run = run_id.map(|id| runs::register(conn_id, id));
+    let run_ref = run.as_ref();
+    let res = runs::until_abandoned(run_ref, a.run_sql_stream(database, schema, sql, run_ref, sink)).await;
     // After the adapter has let go of its connection (it finishes the run
     // itself before releasing one); this also covers adapters that ignore
     // `run` and the abandon path above.
@@ -191,21 +239,11 @@ pub async fn run_sql_stream(
         r.finish().await;
     }
     match res {
-        Err(DbError::Cancelled) => {
-            crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, &DbError::Cancelled);
-            Ok(QueryResult {
-                cancelled: true,
-                elapsed_ms: t.elapsed().as_millis(),
-                ..Default::default()
-            })
-        }
-        Ok(r) => {
-            crate::activity::log_stmt_ok(conn_id, "sql", &full_sql, t, activity_rows(&r));
-            Ok(r)
-        }
-        Err(e) => {
-            crate::activity::log_stmt_err(conn_id, "sql", &full_sql, t, &e);
-            Err(e)
-        }
+        Err(DbError::Cancelled) => Ok(QueryResult {
+            cancelled: true,
+            elapsed_ms: t.elapsed().as_millis(),
+            ..Default::default()
+        }),
+        other => other,
     }
 }
