@@ -31,6 +31,7 @@ macro_rules! named_ddl_op {
 mod mongo_json;
 mod mongo_sql;
 mod mongodb;
+mod explain;
 mod postgres;
 mod read_only;
 mod stmt_class;
@@ -55,6 +56,7 @@ pub use catalog::*;
 pub use documents::*;
 pub use query::*;
 pub use ddl::*;
+pub use explain::{explain_mongo, explain_sql, MAX_PLAN_NODES};
 pub use import_rows::*;
 
 use crate::api::QueryChunk;

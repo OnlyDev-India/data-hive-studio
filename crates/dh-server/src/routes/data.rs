@@ -1,6 +1,6 @@
 use super::{json_or, Live, Shared};
 use crate::bodies::{
-    DuplicateBody, ExecuteOpBody, ImportBody, ImportCapabilitiesBody, SchemaOpsBody, SqlBody,
+    DuplicateBody, ExecuteOpBody, ExplainSqlBody, ImportBody, ImportCapabilitiesBody, SchemaOpsBody, SqlBody,
 };
 use axum::extract::State;
 use axum::response::Response;
@@ -29,6 +29,25 @@ pub(super) async fn sql(
     }
     json_or(
         a.run_sql(b.database.as_deref(), b.schema.as_deref(), &b.sql)
+            .await,
+    )
+}
+
+/// A plain Explain never runs the statement, so it is allowed on a read only
+/// server. Explain Analyze does run it (rolled back on PostgreSQL), so it is
+/// refused for anything that is not a plain read, like a normal run.
+pub(super) async fn explain(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<ExplainSqlBody>,
+) -> Response {
+    if b.analyze && sql_class(Dialect::Postgres, &b.sql) != StmtClass::Read {
+        if let Err(r) = st.refuse_writes() {
+            return r;
+        }
+    }
+    json_or(
+        a.explain_sql(b.database.as_deref(), b.schema.as_deref(), &b.sql, b.analyze, None)
             .await,
     )
 }

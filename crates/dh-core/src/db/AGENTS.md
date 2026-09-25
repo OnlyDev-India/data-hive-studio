@@ -18,6 +18,7 @@ rows round-trip through the same text-editing UI as SQL rows.
 | `sqlite/`, `postgres/`, `mongodb/` | Per backend `DbAdapter` implementations, each a folder of topic files with the same names for the same job (`params`, `connect`, `catalog`, `query`, `edit`, `ddl`, `cancel`, `adapter`, `tests`) |
 | `mongo_json/` | MQL extended JSON parser (`parse`) and renderer (`render`) for BSON documents |
 | `mongo_sql/` | Translates SQL shaped queries into Mongo `find`/`aggregate` calls |
+| `explain/` | Turns each engine's explain output into one `PlanNode` tree (`postgres`, `sqlite`, `mongo`), plus `support` (which statements Explain accepts) and `tree` (ids and the node cap). The per backend `explain.rs` files run the call; the types live in `api/common/plan.rs` |
 
 ## Conventions
 
@@ -36,6 +37,10 @@ rows round-trip through the same text-editing UI as SQL rows.
 - For Postgres and MongoDB, `adapter.rs` holds `impl DbAdapter` as one line calls into inherent
   methods in the topic files (SQLite delegates the same way), so a new trait method needs a
   wrapper in `adapter.rs` plus the method itself in a topic file.
+
+- Explain is built in Rust, never in a frontend adapter. An estimate never runs the statement, and a
+  PostgreSQL Explain Analyze always runs inside a transaction that is rolled back, also on error and
+  Stop. A plan is cut at `MAX_PLAN_NODES` (5000) and marked `truncated`.
 
 ## Gotchas
 

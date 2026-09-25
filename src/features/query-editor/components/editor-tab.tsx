@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { ChevronDown, Layers, Loader2, Square, X } from "lucide-react";
+import {
+  ChevronDown,
+  Layers,
+  ListTree,
+  Loader2,
+  Square,
+  X,
+} from "lucide-react";
 import type { Completion } from "@codemirror/autocomplete";
 import { format as formatSql } from "sql-formatter";
 import { Badge } from "@/shared/components/ui/badge";
@@ -25,6 +32,8 @@ import { singleTableSelect } from "@/shared/components/query-editor/sql-editable
 import { singleCollectionQuery } from "@/shared/components/query-editor/mongo-editable";
 import {
   canCancelRun,
+  canExplain,
+  canExplainAnalyze,
   cancelRun,
   catalogOverview,
   listDatabases,
@@ -55,6 +64,9 @@ import {
   substituteBindVariables,
 } from "../lib/bind-variables";
 import { compressSql } from "../lib/compress-sql";
+import { isPlanStale } from "../lib/plan-tree";
+import { usePlanTabs } from "../lib/use-plan-tabs";
+import { PlanView } from "./plan-view";
 import {
   looksLikeMongoWrite,
   MONGO_WRITE_NOTE,
@@ -121,6 +133,8 @@ interface ResultTabSummary {
   has_error: boolean;
   /** The user stopped this run: a neutral dot, not the error color. */
   stopped?: boolean;
+  /** A Plan tab rather than a result: shows a small tree icon. */
+  plan?: boolean;
 }
 
 /** The result-tab strip: a colored status dot, a truncated label, and a
@@ -190,7 +204,7 @@ export function ResultTabStrip({
               tabIndex={0}
               onClick={() => on_select(item.id)}
               className={cn(
-                "flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-sm whitespace-nowrap select-none",
+                "flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-sm whitespace-nowrap select-none",
                 item.id === active_id
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -205,6 +219,7 @@ export function ResultTabStrip({
               ) : (
                 <span className="bg-success size-1.5 shrink-0 rounded-full" />
               )}
+              {item.plan && <ListTree className="size-3 shrink-0" />}
               <span className="truncate">{item.label}</span>
               <Button
                 variant="ghost"
@@ -858,7 +873,10 @@ function SqlEditorBody({
       // very first run) — reuse whatever tab is already active instead of
       // opening one throwaway tab first, so turning the toggle off takes
       // effect on the very next run, not the one after.
-      const reuse_id = reusable_tab_id.current ?? active_id;
+      // A Plan tab (negative id, see `usePlanTabs`) is never a result to reuse.
+      const reuse_id =
+        reusable_tab_id.current ??
+        (active_id !== null && active_id > 0 ? active_id : null);
       if (reuse_id !== null) {
         reusable_tab_id.current = reuse_id;
         setActiveId(reuse_id);
@@ -885,6 +903,73 @@ function SqlEditorBody({
     });
   }, []);
 
+  // Explain: Plan tabs sit beside the result tabs in the strip.
+  const plans = usePlanTabs({
+    conn_id,
+    dialect:
+      conn?.kind === "postgres"
+        ? "postgres"
+        : conn?.kind === "mongodb"
+          ? "mongodb"
+          : "sqlite",
+    database: target_database,
+    keep_all_tabs,
+    on_open: openBottomPanel,
+    on_activate: setActiveId,
+  });
+  // Bind variables go through the same dialog Run uses; cancelling it explains
+  // nothing.
+  const explain_target = useCallback(
+    async (analyze = false) => {
+      const sources = (editorRef.current?.getTargets() ?? [])
+        .map((t) => t.text.trim())
+        .filter(Boolean);
+      if (sources.length === 0) return;
+      const bound = await resolve_bind_variables(sources);
+      if (!bound) return;
+      // Analyze really runs the statement, so a write is confirmed first, once
+      // for the whole selection. A read only connection never asks: the
+      // backend refuses the write, and asking would suggest it could go through.
+      if (analyze && !is_read_only) {
+        const items: ConfirmItem[] = bound
+          .filter((text) => isWriteSql(text))
+          .map((text) => ({
+            text,
+            reasons: [
+              "Explain Analyze runs this statement and then rolls it back. Sequences and triggers can still have effects.",
+            ],
+          }));
+        if (items.length > 0) {
+          const ok = await ask_write_confirm({
+            items,
+            title: "Confirm Explain Analyze",
+            confirm_label: "Run and roll back",
+            description:
+              items.length === 1
+                ? "This statement will run for real, then be rolled back:"
+                : `${items.length} statements will run for real, then be rolled back:`,
+          });
+          if (!ok) return;
+        }
+      }
+      plans.explain(
+        sources.map((source, i) => ({ source, statement: bound[i] })),
+        analyze,
+      );
+    },
+    [plans, resolve_bind_variables, is_read_only, ask_write_confirm],
+  );
+  const close_plan = plans.close;
+  const close_strip_tab = useCallback(
+    (id: number) => {
+      if (id > 0) return close_tab(id);
+      close_plan(id);
+      setActiveId((active) =>
+        active !== id ? active : (tabs.at(-1)?.id ?? null),
+      );
+    },
+    [close_tab, close_plan, tabs],
+  );
   const run_query = useCallback(
     async (id: number, query: string, range?: { from: number; to: number }) => {
       // Only runs Stop can reach get an id (see `canCancelRun`).
@@ -1067,10 +1152,49 @@ function SqlEditorBody({
   ]);
 
   // Drives the toolbar's Run/Stop switch.
+  const plan_patch_run = plans.patch_run;
+  const stop_items = useMemo(
+    () => [
+      ...tabs,
+      ...plans.tabs.map((p) => ({
+        id: p.id,
+        running: p.result === null,
+        run_id: p.run_id,
+        stopping: p.stopping,
+      })),
+    ],
+    [tabs, plans.tabs],
+  );
+  // The tab's own Stop: ends just that plan call, not every run in the editor.
+  const stop_plan = useCallback(
+    (plan: { id: number; run_id: string | null; stopping: boolean }) => {
+      const run_id = plan.run_id;
+      if (!run_id || plan.stopping) return;
+      plan_patch_run(plan.id, run_id, { stopping: true });
+      cancelRun(conn_id, run_id).catch((e) => {
+        plan_patch_run(plan.id, run_id, { stopping: false });
+        useStudioStore.getState().pushNotification({
+          kind: "error",
+          title: "Could not stop the plan",
+          detail: String(e),
+        });
+      });
+    },
+    [conn_id, plan_patch_run],
+  );
+  const patch_any_run = useCallback(
+    (
+      id: number,
+      run_id: string,
+      patch: { stopping?: boolean; winding_down?: boolean },
+    ) =>
+      id < 0 ? plan_patch_run(id, run_id, patch) : patch_run(id, run_id, patch),
+    [plan_patch_run, patch_run],
+  );
   const { running_count, stop_pending, stop_all } = useStopRuns(
     conn_id,
-    tabs,
-    patch_run,
+    stop_items,
+    patch_any_run,
   );
 
   const active = tabs.find((t) => t.id === active_id) ?? null;
@@ -1139,13 +1263,25 @@ function SqlEditorBody({
     clear_sql_tab,
   ]);
 
-  const strip_items: ResultTabSummary[] = tabs.map((t) => ({
-    id: t.id,
-    label: deriveSqlTabLabel(t.sql, target_database) ?? t.label,
-    running: t.running,
-    has_error: !!t.result?.error,
-    stopped: t.stopped,
-  }));
+  const strip_items: ResultTabSummary[] = tabs
+    .map((t) => ({
+      id: t.id,
+      label: deriveSqlTabLabel(t.sql, target_database) ?? t.label,
+      running: t.running,
+      has_error: !!t.result?.error,
+      stopped: t.stopped,
+    }))
+    .concat(
+      plans.tabs.map((p) => ({
+        id: p.id,
+        label: p.label,
+        running: p.result === null,
+        has_error: !!p.result?.error,
+        stopped: !!p.result?.unsupported || !!p.result?.cancelled,
+        plan: true,
+      })),
+    );
+  const active_plan = plans.tabs.find((p) => p.id === active_id) ?? null;
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
@@ -1170,6 +1306,14 @@ function SqlEditorBody({
         running_count={running_count}
         stop_pending={stop_pending}
         on_stop_all={stop_all}
+        on_explain={
+          canExplain(conn?.kind) ? () => void explain_target() : undefined
+        }
+        on_explain_analyze={
+          canExplainAnalyze(conn?.kind)
+            ? () => void explain_target(true)
+            : undefined
+        }
         db_kind={conn?.kind}
         database={supports_multi_db ? database : undefined}
         databases={supports_multi_db ? databases : undefined}
@@ -1191,6 +1335,9 @@ function SqlEditorBody({
           onChange={setSql}
           onRun={() => void run_all()}
           onRunTarget={run_target}
+          onExplain={
+            canExplain(conn?.kind) ? () => void explain_target() : undefined
+          }
           onSelectionChange={setHasSelection}
           onSave={() => void save_sql()}
           tables={effective_tables}
@@ -1241,13 +1388,19 @@ function SqlEditorBody({
               items={strip_items}
               active_id={active_id}
               on_select={setActiveId}
-              on_close={close_tab}
+              on_close={close_strip_tab}
               keep_all_tabs={keep_all_tabs}
               on_toggle_keep_all_tabs={() => setKeepAllTabs((v) => !v)}
               on_hide={hideBottomPanel}
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
-              {active === null ? (
+              {active_plan !== null ? (
+                <PlanView
+                  tab={active_plan}
+                  stale={isPlanStale(active_plan.source, sql_text)}
+                  on_stop={() => stop_plan(active_plan)}
+                />
+              ) : active === null ? (
                 <div className="text-muted-foreground m-6 rounded-md border border-dashed p-10 text-center text-sm">
                   Run a query to see results.
                 </div>
@@ -1396,17 +1549,18 @@ function SqlResults({
       </div>
     );
 
-  if (result.error)
-    return (
-      <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm">
-        {result.error}
-      </div>
-    );
-
   return (
-    <div className="text-muted-foreground m-4 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
-      <Badge>Done</Badge>
-    </div>
+    <>
+      {result.error ? (
+        <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm">
+          {result.error}
+        </div>
+      ) : (
+        <div className="text-muted-foreground m-4 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
+          <Badge>Done</Badge>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1562,6 +1716,18 @@ function MongoEditorBody({
   const [entries, setEntries] = useState<MongoEntry[]>([]);
   const [active_id, setActiveId] = useState<number | null>(null);
   const next_id = useRef(0);
+  // Explain: Plan tabs sit beside the result tabs in the strip. The console
+  // holds one command at a time, so there are no bind variables to ask for,
+  // and Explain only reads, so nothing needs confirming.
+  const [keep_all_tabs, setKeepAllTabs] = useState(false);
+  const plans = usePlanTabs({
+    conn_id,
+    dialect: "mongodb",
+    console_database: db,
+    keep_all_tabs,
+    on_open: openBottomPanel,
+    on_activate: setActiveId,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1728,7 +1894,6 @@ function MongoEditorBody({
   // single-statement runs instead of piling up a new one every time, ON
   // always opens a fresh result tab; a run that actually produces more than one
   // statement still gets one tab each.
-  const [keep_all_tabs, setKeepAllTabs] = useState(false);
   const reusable_entry_id = useRef<number | null>(null);
   const run_in_tab = useCallback(
     (
@@ -1824,6 +1989,47 @@ function MongoEditorBody({
     });
   }, []);
 
+  const explain_target = useCallback(
+    (analyze = false) => {
+      const sources = (editorRef.current?.getTargets() ?? [])
+        .map((t) => strip_comments(t.text))
+        .filter(Boolean);
+      plans.explain(
+        sources.map((source) => ({ source, statement: source })),
+        analyze,
+      );
+    },
+    [plans],
+  );
+  const close_plan = plans.close;
+  const close_strip_tab = useCallback(
+    (id: number) => {
+      if (id > 0) return close_tab(id);
+      close_plan(id);
+      setActiveId((active) =>
+        active !== id ? active : (entries.at(-1)?.id ?? null),
+      );
+    },
+    [close_tab, close_plan, entries],
+  );
+  const plan_patch_run = plans.patch_run;
+  const stop_plan = useCallback(
+    (plan: { id: number; run_id: string | null; stopping: boolean }) => {
+      const run_id = plan.run_id;
+      if (!run_id || plan.stopping) return;
+      plan_patch_run(plan.id, run_id, { stopping: true });
+      cancelRun(conn_id, run_id).catch((e) => {
+        plan_patch_run(plan.id, run_id, { stopping: false });
+        useStudioStore.getState().pushNotification({
+          kind: "error",
+          title: "Could not stop the plan",
+          detail: String(e),
+        });
+      });
+    },
+    [conn_id, plan_patch_run],
+  );
+
   const active = entries.find((e) => e.id === active_id) ?? null;
 
   const pick_and_write = useCallback(async (text: string) => {
@@ -1869,20 +2075,53 @@ function MongoEditorBody({
     clear_sql_tab,
   ]);
 
-  const strip_items: ResultTabSummary[] = entries.map((e) => ({
-    id: e.id,
-    label:
-      deriveMongoTabLabel(e.command, db) ??
-      e.command.split("\n")[0].slice(0, 40),
-    running: e.running,
-    has_error: !!e.result?.error,
-    stopped: e.stopped,
-  }));
+  const strip_items: ResultTabSummary[] = entries
+    .map((e) => ({
+      id: e.id,
+      label:
+        deriveMongoTabLabel(e.command, db) ??
+        e.command.split("\n")[0].slice(0, 40),
+      running: e.running,
+      has_error: !!e.result?.error,
+      stopped: e.stopped,
+    }))
+    .concat(
+      plans.tabs.map((p) => ({
+        id: p.id,
+        label: p.label,
+        running: p.result === null,
+        has_error: !!p.result?.error,
+        stopped: !!p.result?.unsupported || !!p.result?.cancelled,
+        plan: true,
+      })),
+    );
+  const active_plan = plans.tabs.find((p) => p.id === active_id) ?? null;
 
+  const stop_items = useMemo(
+    () => [
+      ...entries,
+      ...plans.tabs.map((p) => ({
+        id: p.id,
+        running: p.result === null,
+        run_id: p.run_id,
+        stopping: p.stopping,
+      })),
+    ],
+    [entries, plans.tabs],
+  );
+  const patch_any_run = useCallback(
+    (
+      id: number,
+      run_id: string,
+      patch: { stopping?: boolean; winding_down?: boolean },
+    ) =>
+      id < 0 ? plan_patch_run(id, run_id, patch) : patch_run(id, run_id, patch),
+    [plan_patch_run, patch_run],
+  );
   const { running_count, stop_pending, stop_all } = useStopRuns(
     conn_id,
-    entries,
-    patch_run,
+    stop_items,
+    patch_any_run,
   );
 
   const editor_pane = (
@@ -1897,6 +2136,8 @@ function MongoEditorBody({
         running_count={running_count}
         stop_pending={stop_pending}
         on_stop_all={stop_all}
+        on_explain={() => explain_target()}
+        on_explain_analyze={() => explain_target(true)}
         db_kind="mongodb"
         database={db}
         databases={databases}
@@ -1915,6 +2156,7 @@ function MongoEditorBody({
           onChange={setScript}
           onRun={() => void run_all()}
           onRunTarget={run_target}
+          onExplain={() => explain_target()}
           onSelectionChange={setHasSelection}
           onSave={() => void save_script()}
           language="js"
@@ -1963,13 +2205,19 @@ function MongoEditorBody({
               items={strip_items}
               active_id={active_id}
               on_select={setActiveId}
-              on_close={close_tab}
+              on_close={close_strip_tab}
               keep_all_tabs={keep_all_tabs}
               on_toggle_keep_all_tabs={() => setKeepAllTabs((v) => !v)}
               on_hide={hideBottomPanel}
             />
             <div className="min-h-0 flex-1 overflow-auto" data-selectable>
-              {!active ? (
+              {active_plan !== null ? (
+                <PlanView
+                  tab={active_plan}
+                  stale={isPlanStale(active_plan.source, script_text)}
+                  on_stop={() => stop_plan(active_plan)}
+                />
+              ) : !active ? (
                 <div className="text-muted-foreground m-4 rounded-md border border-dashed p-10 text-center text-sm">
                   Run a command to see results.
                 </div>

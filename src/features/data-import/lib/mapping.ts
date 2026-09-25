@@ -1,4 +1,7 @@
-import type { ColumnInfo } from "@/shared/api";
+import type { ColumnInfo, DbKind } from "@/shared/api";
+import { typeName } from "./build-create-sql";
+import { inferKind } from "./infer-types";
+import type { ParsedFile } from "./types";
 
 /** For each target column, the index of the file column that feeds it, or
  *  null when nothing does (the column keeps its default). */
@@ -28,4 +31,51 @@ export function unmappedRequired(
   return columns
     .filter((c) => mapping[c.name] == null && c.not_null && c.default === null)
     .map((c) => c.name);
+}
+
+/** A field a document store will create, built from file column `from`. The
+ *  name is the header, made unique against the fields already listed. */
+export function newFieldFor(
+  header: string,
+  from: number,
+  taken: string[],
+  dataType: string,
+): ColumnInfo {
+  const base = header.trim() || `column_${from + 1}`;
+  const lower = new Set(taken.map((t) => t.toLowerCase()));
+  let name = base;
+  for (let n = 2; lower.has(name.toLowerCase()); n++) name = `${base}_${n}`;
+  return {
+    name,
+    data_type: dataType,
+    not_null: false,
+    primary_key: false,
+    default: null,
+  };
+}
+
+/** Document stores: every file column the collection has no field for becomes
+ *  a new field, so nothing is skipped unless the person chooses to. */
+export function addUnmatched(
+  parsed: ParsedFile,
+  columns: ColumnInfo[],
+  mapping: Mapping,
+  db: DbKind | undefined,
+): { mapping: Mapping; added: ColumnInfo[] } {
+  const next: Mapping = { ...mapping };
+  const used = new Set(Object.values(mapping).filter((v) => v !== null));
+  const added: ColumnInfo[] = [];
+  parsed.header.forEach((h, i) => {
+    if (used.has(i)) return;
+    const kind = inferKind(parsed.rows.map((r) => r[i] ?? ""));
+    const field = newFieldFor(
+      h,
+      i,
+      [...columns, ...added].map((c) => c.name),
+      typeName(kind, db),
+    );
+    added.push(field);
+    next[field.name] = i;
+  });
+  return { mapping: next, added };
 }

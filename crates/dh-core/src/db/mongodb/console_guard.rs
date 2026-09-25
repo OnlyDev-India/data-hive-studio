@@ -89,7 +89,7 @@ pub fn mongo_script_class(script: &str) -> StmtClass {
 /// it (a sub pipeline of `$facet` or `$lookup` included). A pipeline that
 /// cannot be read is refused too, because it cannot be checked. Parsed the
 /// same way the console parses it, so both see the same stages.
-fn pipeline_refusal(args: &str) -> Option<String> {
+pub(super) fn pipeline_refusal(args: &str) -> Option<String> {
     let parsed: serde_json::Value =
         match serde_json::from_str(&super::mongo_json::quote_bare_keys(args)) {
             Ok(v) => v,

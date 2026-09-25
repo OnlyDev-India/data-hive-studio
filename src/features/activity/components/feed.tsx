@@ -48,6 +48,10 @@ const KINDS: Record<string, { label: string; cls: string }> = {
     label: "SCHEMA",
     cls: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
   },
+  explain: {
+    label: "EXPLAIN",
+    cls: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400",
+  },
   connect: {
     label: "CONNECT",
     cls: "bg-green-500/15 text-green-600 dark:text-green-400",

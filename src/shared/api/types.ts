@@ -232,6 +232,49 @@ export interface QueryResult {
   cancelled?: boolean;
 }
 
+/** Which engine's explain produced a plan. Mirrors Rust `PlanDialect`. */
+export type PlanDialect = "postgres" | "sqlite" | "mongodb";
+
+/** `estimate` never runs the statement; `analyze` runs it for real timings. */
+export type PlanMode = "estimate" | "analyze";
+
+/** One step of a plan, the same shape for every engine. A value the database
+ *  does not give is `null` and shows as a dash. Mirrors Rust `PlanNode`. */
+export interface PlanNode {
+  /** Unique within its tree: the row key. */
+  id: number;
+  label: string;
+  /** Table, index or collection the step reads. Empty when there is none. */
+  target: string;
+  /** Filters and join conditions, one per line, each with its name. */
+  condition: string;
+  startup_cost: number | null;
+  total_cost: number | null;
+  est_rows: number | null;
+  /** Analyze only. */
+  actual_rows: number | null;
+  actual_time_ms: number | null;
+  loops: number | null;
+  children: PlanNode[];
+}
+
+/** The answer to one Explain call, held by one Plan tab. A database error and
+ *  a statement Explain does not accept arrive here, not as a thrown error. */
+export interface PlanResult {
+  dialect: PlanDialect;
+  mode: PlanMode;
+  /** Exactly the text that was explained. */
+  statement: string;
+  root: PlanNode | null;
+  elapsed_ms: number;
+  cancelled: boolean;
+  /** The tree was cut at 5000 nodes. */
+  truncated: boolean;
+  error: string | null;
+  /** Why the statement was not sent to the database at all. */
+  unsupported: string | null;
+}
+
 /** How a Stop request ended: `stopped` (the run ended after the cancel),
  *  `winding_down` (no confirmation within 3 seconds, the run was abandoned),
  *  `not_running` (nothing to cancel: unknown, finished, or another

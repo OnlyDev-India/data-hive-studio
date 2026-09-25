@@ -193,6 +193,8 @@ pub fn run() {
       commands::execute_op_stream,
       commands::run_sql_stream,
       commands::cancel_run,
+      commands::explain_sql,
+      commands::explain_mongo,
       commands::save_database,
       commands::duplicate_table,
       commands::import_rows,

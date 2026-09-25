@@ -12,6 +12,7 @@ import { TableListItem } from "./table-list-item";
  *  `toggle_tree` in `TablesBrowser`). */
 export function TreeToggleRow({
   icon_badge = false,
+  stateless = false,
   label,
   suffix,
   expanded,
@@ -29,6 +30,9 @@ export function TreeToggleRow({
    *  indicator, on the icon itself rather than a separate trailing dot
    *  (the trailing slot is used for the disconnect/close button instead). */
   icon_badge?: boolean;
+  /** No connected state to show (Mongo: one client serves every database),
+   *  so the database icon keeps its own color and gets no dot. */
+  stateless?: boolean;
   label: React.ReactNode;
   /** Extra content on the right, INSIDE the button itself (unlike
    *  `trailing`, which sits outside it as a separate sibling — a small
@@ -87,7 +91,7 @@ export function TreeToggleRow({
               // every other kind (schema, roles, table/view/procedure/…)
               // always shows its own semantic color, at any depth.
               "[&>svg]:text-muted-foreground":
-                kind === "database" && !icon_badge,
+                kind === "database" && !icon_badge && !stateless,
             })}
           >
             {icon}

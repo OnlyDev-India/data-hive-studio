@@ -576,3 +576,59 @@ mod read_only_tests {
         Arc::new(a).close().await;
     }
 }
+
+/// Explain: a real plan comes back as a tree, and the
+/// statement it explains is never run.
+#[tokio::test]
+async fn explain_returns_a_plan_and_never_runs_the_statement() {
+    let adapter = test_adapter().await;
+    adapter.run_sql("CREATE TABLE t (a INTEGER, b TEXT)", None).await.unwrap();
+    adapter.run_sql("CREATE INDEX t_a ON t (a)", None).await.unwrap();
+    adapter.run_sql("INSERT INTO t VALUES (1, 'x')", None).await.unwrap();
+
+    let plan = adapter.explain_sql("SELECT * FROM t WHERE a = 1;", false, None).await;
+    assert_eq!(plan.error, None);
+    assert_eq!(plan.statement, "SELECT * FROM t WHERE a = 1;");
+    let root = plan.root.expect("a plan tree");
+    assert_eq!(root.label, "SEARCH");
+    assert_eq!(root.target, "t_a on t");
+    assert_eq!(root.condition, "a=?");
+
+    let plan = adapter.explain_sql("DELETE FROM t WHERE a = 1", false, None).await;
+    assert!(plan.root.is_some(), "{:?}", plan.error);
+    let left = adapter.run_sql("SELECT count(*) FROM t", None).await.unwrap();
+    assert_eq!(left.rows[0][0].as_deref(), Some("1"), "Explain must not run the DELETE");
+}
+
+#[tokio::test]
+async fn explain_reports_unsupported_statements_and_database_errors() {
+    let adapter = test_adapter().await;
+    let plan = adapter.explain_sql("CREATE TABLE t (a)", false, None).await;
+    assert!(plan.unsupported.is_some() && plan.root.is_none());
+    let plan = adapter.explain_sql("SELECT * FROM missing", false, None).await;
+    assert!(plan.error.unwrap().contains("no such table"));
+    let plan = adapter.explain_sql("SELECT 1", true, None).await;
+    assert!(plan.error.is_some(), "SQLite has no analyze");
+}
+
+#[tokio::test]
+async fn explain_that_was_stopped_before_it_started_never_touches_the_database() {
+    let adapter = test_adapter().await;
+    crate::db::runs::cancel("t-sqlite-explain", "explain-early").await;
+    let run = crate::db::runs::register("t-sqlite-explain", "explain-early");
+    let plan = adapter.explain_sql("SELECT 1", false, Some(&run)).await;
+    run.finish().await;
+    assert!(plan.cancelled, "{plan:?}");
+    assert!(plan.root.is_none() && plan.error.is_none());
+}
+
+#[tokio::test]
+async fn explain_with_a_run_finishes_it_so_the_id_can_be_reused() {
+    let adapter = test_adapter().await;
+    let run = crate::db::runs::register("t-sqlite-explain", "explain-normal");
+    let plan = adapter.explain_sql("SELECT 1", false, Some(&run)).await;
+    assert!(!plan.cancelled && plan.root.is_some(), "{plan:?}");
+    run.finish().await;
+    let outcome = crate::db::runs::cancel("t-sqlite-explain", "explain-normal").await;
+    assert_eq!(outcome.state, crate::db::CancelState::NotRunning);
+}

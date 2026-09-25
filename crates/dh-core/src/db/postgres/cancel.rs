@@ -28,12 +28,7 @@ impl PgAdapter {
         let is_select = is_select_statement(trimmed);
 
         let mut conn = RunConn::acquire(&pool).await?;
-        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-            .fetch_one(&mut *conn)
-            .await
-            .map_err(DbError::SqlEngine)?;
-        let cancel_options = self.connect_options_for(self.resolve_database(database));
-        let armed = run.set_canceller(pg_canceller(cancel_options, pid)).await;
+        let armed = self.arm_stop(&mut conn, database, run).await?;
 
         let ran = if !armed {
             // Stop already arrived: never start the statement.
@@ -50,6 +45,22 @@ impl PgAdapter {
         run.finish().await;
         conn.release(conn_reusable(&ran));
         ran
+    }
+
+    /// Records the backend's pid and arms Stop for `run` on `conn`. `false`
+    /// means Stop already arrived, so the caller must not start its statement.
+    pub(super) async fn arm_stop(
+        &self,
+        conn: &mut PgConnection,
+        database: Option<&str>,
+        run: &RunHandle,
+    ) -> DbResult<bool> {
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(DbError::SqlEngine)?;
+        let cancel_options = self.connect_options_for(self.resolve_database(database));
+        Ok(run.set_canceller(pg_canceller(cancel_options, pid)).await)
     }
 }
 
@@ -119,7 +130,7 @@ fn pg_canceller(options: PgConnectOptions, pid: i32) -> Canceller {
 /// A run's dedicated pool connection. If the run is dropped mid query (the
 /// 3 second abandon), the connection is detached from the pool instead of
 /// being handed back still busy, so it is never reused dirty.
-struct RunConn {
+pub(super) struct RunConn {
     conn: Option<PoolConnection<Postgres>>,
     dirty: bool,
 }
@@ -132,7 +143,7 @@ impl RunConn {
 
     /// The run ended normally: hand the connection back to the pool, or (if
     /// `reusable` is false, e.g. a broken socket) detach it.
-    fn release(&mut self, reusable: bool) {
+    pub(super) fn release(&mut self, reusable: bool) {
         self.dirty = !reusable;
     }
 }
@@ -163,7 +174,7 @@ impl Drop for RunConn {
 /// Whether a run's connection is safe to hand back to the pool: the server
 /// answered (a result, an SQL error, or our own cancel). Anything else (a
 /// broken socket, a protocol error) is detached instead.
-fn conn_reusable<T>(res: &DbResult<T>) -> bool {
+pub(super) fn conn_reusable<T>(res: &DbResult<T>) -> bool {
     match res {
         Ok(_) | Err(DbError::Cancelled) => true,
         Err(DbError::SqlEngine(sqlx::Error::Database(_))) => true,
@@ -474,5 +485,49 @@ mod stop_tests {
             .expect("the pool must hand out a fresh connection, not the busy one")
             .unwrap();
         assert_eq!(next.rows, vec![vec![Some("1".to_string())]]);
+    }
+    /// Explain Analyze runs the write for real and always rolls it back, also
+    /// when it is stopped mid way, and no session is left in a transaction.
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database, see server::store::test_pg_url"]
+    async fn pg_explain_analyze_rolls_back_a_write_and_a_stopped_one() {
+        let a = PgAdapter::connect(&params(4)).await.unwrap();
+        let table = format!("dh_explain_{}", uuid::Uuid::new_v4().simple());
+        a.run_sql(None, None, &format!("CREATE TABLE public.{table} (a int)")).await.unwrap();
+        a.run_sql(None, None, &format!("INSERT INTO public.{table} VALUES (7)")).await.unwrap();
+
+        let plan = a
+            .explain_sql(None, None, &format!("UPDATE public.{table} SET a = 9"), true, None)
+            .await;
+        assert!(plan.error.is_none() && plan.root.is_some(), "{plan:?}");
+        assert_eq!(plan.root.as_ref().unwrap().actual_rows, Some(1.0));
+
+        let run = runs::register("t-pg", "run-explain-stop");
+        let stopper = stop_later("t-pg", "run-explain-stop", 400);
+        let started = Instant::now();
+        let plan = a
+            .explain_sql(
+                None,
+                None,
+                &format!("UPDATE public.{table} SET a = (SELECT 9 FROM pg_sleep(60))"),
+                true,
+                Some(&run),
+            )
+            .await;
+        run.finish().await;
+        stopper.await.unwrap();
+        assert!(plan.cancelled, "{plan:?}");
+        assert!(started.elapsed() < Duration::from_secs(3));
+
+        let r = a.run_sql(None, None, &format!("SELECT a FROM public.{table}")).await.unwrap();
+        assert_eq!(r.rows, vec![vec![Some("7".to_string())]]);
+        let idle: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction' AND pid <> pg_backend_pid()",
+        )
+        .fetch_one(&a.pool)
+        .await
+        .unwrap();
+        assert_eq!(idle, 0);
+        a.run_sql(None, None, &format!("DROP TABLE public.{table}")).await.unwrap();
     }
 }

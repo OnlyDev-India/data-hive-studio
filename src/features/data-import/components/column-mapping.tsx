@@ -1,5 +1,7 @@
-import type { ColumnInfo } from "@/shared/api";
-import type { Mapping } from "../lib/mapping";
+import type { ColumnInfo, DbKind } from "@/shared/api";
+import { newFieldFor, type Mapping } from "../lib/mapping";
+import { inferKind } from "../lib/infer-types";
+import { typeName } from "../lib/build-create-sql";
 import type { ParsedFile } from "../lib/types";
 
 interface Props {
@@ -7,17 +9,57 @@ interface Props {
   parsed: ParsedFile;
   mapping: Mapping;
   onMapping: (m: Mapping) => void;
+  /** Document stores only: fields this import will create. */
+  db?: DbKind;
+  added?: ColumnInfo[];
+  onAdded?: (a: ColumnInfo[]) => void;
 }
+
+const NEW_FIELD = "\u0000new";
 
 /** One row per file column: pick the target column it feeds, or skip it.
  *  A target column takes only one file column. */
-export function ColumnMapping({ columns, parsed, mapping, onMapping }: Props) {
-  const targetOf = (i: number) =>
-    columns.find((c) => mapping[c.name] === i)?.name ?? "";
+export function ColumnMapping({
+  columns,
+  parsed,
+  mapping,
+  onMapping,
+  db,
+  added,
+  onAdded,
+}: Props) {
+  const canAdd = !!added && !!onAdded;
+  const isAdded = (name: string) => !!added?.some((a) => a.name === name);
+  const targetOf = (i: number) => {
+    const name = columns.find((c) => mapping[c.name] === i)?.name ?? "";
+    return isAdded(name) ? NEW_FIELD : name;
+  };
   function pick(i: number, target: string) {
     const next: Mapping = { ...mapping };
     for (const c of columns) if (next[c.name] === i) next[c.name] = null;
-    if (target !== "") next[target] = i;
+    let keep = added ?? [];
+    if (canAdd) {
+      // Drop the field this file column was creating before, then make a
+      // fresh one if it is asked for again.
+      const old = columns.find((c) => mapping[c.name] === i && isAdded(c.name));
+      if (old) {
+        delete next[old.name];
+        keep = keep.filter((a) => a.name !== old.name);
+      }
+      if (target === NEW_FIELD) {
+        const kind = inferKind(parsed.rows.map((r) => r[i] ?? ""));
+        const field = newFieldFor(
+          parsed.header[i],
+          i,
+          columns.map((c) => c.name),
+          typeName(kind, db),
+        );
+        keep = [...keep, field];
+        next[field.name] = i;
+      }
+      onAdded(keep);
+    }
+    if (target !== "" && target !== NEW_FIELD) next[target] = i;
     onMapping(next);
   }
   return (
@@ -42,12 +84,15 @@ export function ColumnMapping({ columns, parsed, mapping, onMapping }: Props) {
                 onChange={(e) => pick(i, e.target.value)}
               >
                 <option value="">Skip</option>
-                {columns.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                    {c.not_null && c.default === null ? " (required)" : ""}
-                  </option>
-                ))}
+                {canAdd && <option value={NEW_FIELD}>Add as new field</option>}
+                {columns
+                  .filter((c) => !isAdded(c.name))
+                  .map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name}
+                      {c.not_null && c.default === null ? " (required)" : ""}
+                    </option>
+                  ))}
               </select>
             </td>
           </tr>

@@ -8,6 +8,7 @@
 mod interrupt;
 mod catalog;
 mod query;
+mod explain;
 mod edit;
 mod schema_ops;
 mod alter;

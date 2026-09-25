@@ -186,6 +186,9 @@ interface QueryEditorProps {
   onChange: (value: string) => void;
   onRun: () => void;
   onRunTarget: () => void;
+  /** Explain the selection or statement at the cursor. Omitted
+   *  = no shortcut, so an editor that cannot explain leaves the key alone. */
+  onExplain?: () => void;
   /** Fires whenever the selection goes from empty to non-empty or back —
    *  lets the caller phrase "Run selection" vs. "Run query at cursor"
    *  correctly instead of always saying "selection" even when there isn't
@@ -252,6 +255,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       onChange,
       onRun,
       onRunTarget,
+      onExplain,
       onSelectionChange,
       onSave,
       onKeyDown,
@@ -573,6 +577,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
 
     const runBinding = useAppShortcut("editor.run");
     const runTargetBinding = useAppShortcut("editor.runTarget");
+    const explainBinding = useAppShortcut("editor.explain");
     const saveBinding = useAppShortcut("editor.save");
     const searchBinding = useAppShortcut("editor.search");
     const [searchOpen, setSearchOpen] = useState(false);
@@ -582,6 +587,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       { ...searchBinding, handler: () => setSearchOpen(true) },
     ];
     if (onSave) shortcuts.push({ ...saveBinding, handler: onSave });
+    if (onExplain) shortcuts.push({ ...explainBinding, handler: onExplain });
     useShortcuts(shortcuts);
 
     // Hover-over-a-keyword/method documentation (SQL keywords/functions,

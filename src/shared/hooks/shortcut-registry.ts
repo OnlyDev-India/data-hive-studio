@@ -49,6 +49,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     default: { key: "Enter", mod: true, shift: true },
   },
   {
+    id: "editor.explain",
+    label: "Explain statement",
+    default: { key: "e", mod: true, shift: true },
+  },
+  {
     id: "editor.save",
     label: "Save",
     default: { key: "s", mod: true },

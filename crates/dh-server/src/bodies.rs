@@ -12,6 +12,21 @@ pub struct SqlBody {
     pub schema: Option<String>,
 }
 
+/// Explain (spec 0011). `run_id` is accepted and ignored: the web build has no
+/// Stop route yet, so nothing can cancel a remote plan.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ExplainSqlBody {
+    pub sql: String,
+    #[serde(default)]
+    pub analyze: bool,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub run_id: Option<String>,
+}
+
 /// `#[serde(flatten)]` keeps `op`'s own tagged JSON shape at the top level
 /// (`{ kind: "select", table: ..., ... }`) with `database`/`schema` as
 /// sibling fields, rather than nesting the op under its own key.
@@ -107,6 +122,18 @@ pub struct RunMongoBody {
     #[serde(default)]
     pub collection: Option<String>,
     pub script: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ExplainMongoBody {
+    pub database: String,
+    #[serde(default)]
+    pub collection: Option<String>,
+    pub script: String,
+    #[serde(default)]
+    pub analyze: bool,
+    #[serde(default)]
+    pub run_id: Option<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]

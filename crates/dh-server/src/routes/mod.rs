@@ -230,6 +230,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
             post(browse::disconnect_database),
         )
         .route("/v1/c/{handle}/sql", post(data::sql))
+        .route("/v1/c/{handle}/explain", post(data::explain))
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))
         .route("/v1/c/{handle}/duplicate", post(data::duplicate))
@@ -255,6 +256,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
             post(mongo::insert_document),
         )
         .route("/v1/c/{handle}/mongo/run", post(mongo::run))
+        .route("/v1/c/{handle}/mongo/explain", post(mongo::explain))
         .route(
             "/v1/c/{handle}/mongo/collections",
             post(mongo::create_collection),

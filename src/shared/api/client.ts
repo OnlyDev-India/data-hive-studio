@@ -9,6 +9,7 @@ export * from "./read-only";
 export * from "./connection";
 export * from "./import";
 export * from "./query";
+export * from "./explain";
 export * from "./streaming";
 export * from "./local-connections";
 export * from "./workspace-state";

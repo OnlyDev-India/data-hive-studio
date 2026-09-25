@@ -14,6 +14,7 @@ mod exec;
 mod catalog;
 mod objects;
 mod query;
+mod explain;
 mod edit;
 mod ddl;
 mod import_rows;

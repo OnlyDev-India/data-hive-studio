@@ -23,6 +23,7 @@ mod import_rows;
 #[cfg(test)]
 mod import_tests;
 mod ddl;
+mod explain;
 mod adapter;
 #[cfg(test)]
 mod tests;

@@ -17,6 +17,7 @@ const KIND_LABELS: Record<string, string> = {
   ddl: "DDL",
   duplicate: "DUPLICATE",
   schema: "SCHEMA",
+  explain: "EXPLAIN",
   connect: "CONNECT",
   disconnect: "DISCONNECT",
 };
