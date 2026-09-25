@@ -42,8 +42,6 @@ export interface ColumnDef {
   not_null: boolean;
   unique: boolean;
   default: string;
-  /** Optional CHECK expression, e.g. `qty > 0` — emitted as CHECK (expr). */
-  check: string;
 }
 
 export interface FkDef {
@@ -91,7 +89,6 @@ export function newColumn(): ColumnDef {
     not_null: false,
     unique: false,
     default: "",
-    check: "",
   };
 }
 
@@ -139,6 +136,69 @@ export function splitType(raw: string): { data_type: string; length: string } {
   return LENGTH_TYPES.has(base)
     ? { data_type: base, length: m[2].replace(/\s+/g, "") }
     : { data_type: raw.trim().toUpperCase(), length: "" };
+}
+
+/** Ready made values for a column's DEFAULT, from its type and flags. Only
+ *  what the database can take as written: Postgres gets its own functions. */
+export function defaultSuggestions(c: ColumnDef, is_pg?: boolean): string[] {
+  // An identity column fills itself, so a default would be refused.
+  if (c.auto_increment) return [];
+  const out: string[] = [];
+  if (!c.not_null && !c.primary_key) out.push("NULL");
+  switch (c.data_type) {
+    case "INTEGER":
+    case "BIGINT":
+    case "REAL":
+    case "NUMERIC":
+    case "DECIMAL":
+      out.push("0", "1");
+      break;
+    case "TEXT":
+    case "VARCHAR":
+    case "CHAR":
+      out.push("''");
+      break;
+    case "BOOLEAN":
+      out.push("FALSE", "TRUE");
+      break;
+    case "DATE":
+      out.push("CURRENT_DATE");
+      break;
+    case "TIMESTAMP":
+    case "TIMESTAMPTZ":
+      out.push("CURRENT_TIMESTAMP");
+      if (is_pg) out.push("NOW()");
+      break;
+    case "UUID":
+      if (is_pg) out.push("gen_random_uuid()");
+      break;
+    case "JSONB":
+      out.push("'{}'", "'[]'");
+      break;
+  }
+  return out;
+}
+
+/** An identity column must be the table's only primary key, and an INTEGER. */
+export function canAutoIncrement(c: ColumnDef, cols: ColumnDef[]): boolean {
+  return (
+    c.data_type === "INTEGER" &&
+    c.primary_key &&
+    cols.filter((x) => x.primary_key).length === 1
+  );
+}
+
+/** Untick Auto Increment wherever it is no longer allowed, so the form never
+ *  holds a combination the database would refuse. Returns the same array when
+ *  nothing changes. */
+export function normalizeAuto(cols: ColumnDef[]): ColumnDef[] {
+  if (!cols.some((c) => c.auto_increment && !canAutoIncrement(c, cols)))
+    return cols;
+  return cols.map((c) =>
+    c.auto_increment && !canAutoIncrement(c, cols)
+      ? { ...c, auto_increment: false }
+      : c,
+  );
 }
 
 export interface Draft {
@@ -211,8 +271,6 @@ export function buildCreate(d: Draft): Built {
     if (c.unique) def += " UNIQUE";
     const dflt = c.default.trim();
     if (dflt) def += ` DEFAULT ${dflt}`;
-    const chk = c.check.trim();
-    if (chk) def += ` CHECK (${chk})`;
     parts.push(def);
   }
   if (pk_cols.length > 1) {

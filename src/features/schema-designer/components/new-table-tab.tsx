@@ -37,6 +37,7 @@ import {
   newConstraint,
   newFk,
   newIndex,
+  normalizeAuto,
   type ColumnDef,
   type ConstraintDef,
   type FkDef,
@@ -64,7 +65,11 @@ export function NewTableTab({
   on_created,
 }: NewTableTabProps) {
   const [table_name, setTableName] = useState("");
-  const [columns, setColumns] = useState<ColumnDef[]>([defaultColumn()]);
+  const [columns, set_columns] = useState<ColumnDef[]>([defaultColumn()]);
+  // Every edit passes through here so Auto Increment is unticked the moment
+  // a change (another primary key, a different type) makes it invalid.
+  const setColumns = (update: (cols: ColumnDef[]) => ColumnDef[]) =>
+    set_columns((prev) => normalizeAuto(update(prev)));
   const [fks, setFks] = useState<FkDef[]>([]);
   const [indexes, setIndexes] = useState<IndexDef[]>([]);
   const [constraints, setConstraints] = useState<ConstraintDef[]>([]);
@@ -368,7 +373,6 @@ export function NewTableTab({
           c.not_null ||
           c.unique ||
           c.default !== "" ||
-          c.check !== "" ||
           c.length !== ""
         );
       }
@@ -590,6 +594,7 @@ export function NewTableTab({
             <ColumnsGrid
               columns={columns}
               query={query}
+              is_pg={is_pg}
               onPatch={patch}
               onRemove={(idx) =>
                 setColumns((cols) => cols.filter((_, i) => i !== idx))

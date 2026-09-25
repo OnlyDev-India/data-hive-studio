@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCreate,
+  canAutoIncrement,
+  defaultSuggestions,
+  normalizeAuto,
   defaultColumn,
   newColumn,
   newConstraint,
@@ -82,5 +85,62 @@ describe("splitType", () => {
       length: "10,2",
     });
     expect(splitType("integer")).toEqual({ data_type: "INTEGER", length: "" });
+  });
+});
+
+describe("defaultSuggestions", () => {
+  const col = (over: object) => ({ ...newColumn(), ...over });
+
+  it("offers numbers for a number type and NULL while it is nullable", () => {
+    expect(defaultSuggestions(col({ data_type: "INTEGER" }))).toEqual([
+      "NULL",
+      "0",
+      "1",
+    ]);
+  });
+
+  it("drops NULL once the column is not nullable or a primary key", () => {
+    expect(
+      defaultSuggestions(col({ data_type: "TEXT", not_null: true })),
+    ).toEqual(["''"]);
+    expect(
+      defaultSuggestions(col({ data_type: "TEXT", primary_key: true })),
+    ).toEqual(["''"]);
+  });
+
+  it("offers nothing for an auto increment column", () => {
+    expect(
+      defaultSuggestions(col({ data_type: "INTEGER", auto_increment: true })),
+    ).toEqual([]);
+  });
+
+  it("keeps Postgres only functions off other databases", () => {
+    const uuid = col({ data_type: "UUID", not_null: true });
+    expect(defaultSuggestions(uuid)).toEqual([]);
+    expect(defaultSuggestions(uuid, true)).toEqual(["gen_random_uuid()"]);
+    const ts = col({ data_type: "TIMESTAMPTZ", not_null: true });
+    expect(defaultSuggestions(ts, true)).toContain("NOW()");
+    expect(defaultSuggestions(ts)).toEqual(["CURRENT_TIMESTAMP"]);
+  });
+});
+
+describe("normalizeAuto", () => {
+  it("keeps an identity on the only INTEGER primary key", () => {
+    const cols = [defaultColumn()];
+    expect(canAutoIncrement(cols[0], cols)).toBe(true);
+    expect(normalizeAuto(cols)).toBe(cols);
+  });
+
+  it("unticks it when a second column becomes a primary key", () => {
+    const cols = [
+      defaultColumn(),
+      { ...newColumn(), name: "b", primary_key: true },
+    ];
+    expect(normalizeAuto(cols)[0].auto_increment).toBe(false);
+  });
+
+  it("unticks it when the type is no longer INTEGER", () => {
+    const cols = [{ ...defaultColumn(), data_type: "TEXT" }];
+    expect(normalizeAuto(cols)[0].auto_increment).toBe(false);
   });
 });
