@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  KeyRound,
+  Copy,
   Plus,
+  Search,
   SquareArrowOutUpRight,
-  Trash2,
   Upload,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
-import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import {
   Select,
@@ -21,189 +20,30 @@ import {
   catalogOverview,
   listSchemaObjects,
   listSchemasIn,
-  quoteIdent,
   runSql,
   tableSchema,
 } from "@/shared/api";
 import { useStudioStore } from "@/shared/store";
 import { QueryEditor } from "@/features/query-editor";
-
-const COLUMN_TYPES = [
-  "INTEGER",
-  "BIGINT",
-  "TEXT",
-  "REAL",
-  "BLOB",
-  "NUMERIC",
-  "BOOLEAN",
-  "UUID",
-  "JSONB",
-  "DATE",
-  "TIMESTAMP",
-  "TIMESTAMPTZ",
-  "INET",
-];
-
-/** Referential actions SQLite accepts on a foreign key. */
-const FK_ACTIONS = [
-  "NO ACTION",
-  "RESTRICT",
-  "CASCADE",
-  "SET NULL",
-  "SET DEFAULT",
-] as const;
-type FkAction = (typeof FK_ACTIONS)[number];
-
-interface ColumnDef {
-  name: string;
-  data_type: string;
-  primary_key: boolean;
-  auto_increment: boolean;
-  not_null: boolean;
-  unique: boolean;
-  default: string;
-  /** Optional CHECK expression, e.g. `qty > 0` — emitted as CHECK (expr). */
-  check: string;
-}
-
-interface FkDef {
-  column: string;
-  ref_table: string;
-  ref_column: string;
-  on_delete: FkAction;
-  on_update: FkAction;
-}
-
-/** What we know about a table that can be referenced by a foreign key.
- *  SQLite only allows referencing columns that are a PRIMARY KEY or covered
- *  by a single-column UNIQUE index — everything else fails at insert time
- *  with `foreign key mismatch`. */
-interface RefTableMeta {
-  cols: string[];
-  pk: string | null;
-  valid_targets: string[];
-}
-
-function newColumn(): ColumnDef {
-  return {
-    name: "",
-    data_type: "TEXT",
-    primary_key: false,
-    auto_increment: false,
-    not_null: false,
-    unique: false,
-    default: "",
-    check: "",
-  };
-}
-
-function defaultColumn(): ColumnDef {
-  return {
-    ...newColumn(),
-    name: "id",
-    data_type: "INTEGER",
-    primary_key: true,
-    auto_increment: true,
-  };
-}
-
-function newFk(): FkDef {
-  return {
-    column: "",
-    ref_table: "",
-    ref_column: "",
-    on_delete: "NO ACTION",
-    on_update: "NO ACTION",
-  };
-}
-
-function buildCreateSql(
-  table: string,
-  cols: ColumnDef[],
-  fks: FkDef[],
-  schema?: string,
-  is_pg?: boolean,
-): { ok: true; sql: string } | { ok: false; error: string } {
-  const table_name = table.trim();
-  if (!table_name) return { ok: false, error: "Table name is required." };
-  if (cols.length === 0)
-    return { ok: false, error: "Add at least one column." };
-
-  const pk_cols: string[] = [];
-  for (const c of cols) {
-    if (!c.name.trim())
-      return { ok: false, error: "Every column needs a name." };
-    if (c.primary_key) pk_cols.push(c.name.trim());
-  }
-
-  // Postgres has no AUTOINCREMENT keyword (that's SQLite/MySQL) — the
-  // equivalent is GENERATED ALWAYS AS IDENTITY on the column itself.
-  const auto_keyword = is_pg ? "GENERATED ALWAYS AS IDENTITY" : "AUTOINCREMENT";
-  const auto_columns = cols.filter((c) => c.auto_increment).map((c) => c.name);
-  if (auto_columns.length > 0) {
-    const ok =
-      pk_cols.length === 1 &&
-      auto_columns.length === 1 &&
-      pk_cols[0] === auto_columns[0].trim() &&
-      cols.some(
-        (c) =>
-          c.name.trim() === auto_columns[0].trim() && c.data_type === "INTEGER",
-      );
-    if (!ok) {
-      return {
-        ok: false,
-        error: `${auto_keyword} requires a single INTEGER PRIMARY KEY column.`,
-      };
-    }
-  }
-
-  const parts: string[] = [];
-  for (const c of cols) {
-    const col_name = quoteIdent(c.name.trim());
-    const ty = c.data_type.trim() || "TEXT";
-    let def = `${col_name} ${ty}`;
-    // Postgres conventionally places the identity clause right after the
-    // type, before PRIMARY KEY; SQLite requires AUTOINCREMENT to directly
-    // follow PRIMARY KEY.
-    if (is_pg && c.auto_increment) def += ` ${auto_keyword}`;
-    if (c.primary_key && pk_cols.length === 1) {
-      def += " PRIMARY KEY";
-      if (!is_pg && c.auto_increment) def += ` ${auto_keyword}`;
-    }
-    if (c.not_null) def += " NOT NULL";
-    if (c.unique) def += " UNIQUE";
-    const d = c.default.trim();
-    if (d) def += ` DEFAULT ${d}`;
-    const chk = c.check.trim();
-    if (chk) def += ` CHECK (${chk})`;
-    parts.push(def);
-  }
-  if (pk_cols.length > 1) {
-    const names = pk_cols.map((n) => quoteIdent(n)).join(", ");
-    parts.push(`PRIMARY KEY (${names})`);
-  }
-  for (const [i, fk] of fks.entries()) {
-    const label = fks.length > 1 ? `Foreign key #${i + 1}` : "Foreign key";
-    if (!fk.column || !fk.ref_table.trim() || !fk.ref_column.trim()) {
-      return {
-        ok: false,
-        error: `${label} is incomplete — pick the local column and fill in both referenced table and column.`,
-      };
-    }
-    let def = `FOREIGN KEY (${quoteIdent(fk.column)}) REFERENCES ${quoteIdent(fk.ref_table.trim())} (${quoteIdent(fk.ref_column.trim())})`;
-    if (fk.on_delete !== "NO ACTION") def += ` ON DELETE ${fk.on_delete}`;
-    if (fk.on_update !== "NO ACTION") def += ` ON UPDATE ${fk.on_update}`;
-    parts.push(def);
-  }
-
-  const qualified = schema
-    ? `${quoteIdent(schema)}.${quoteIdent(table_name)}`
-    : quoteIdent(table_name);
-  return {
-    ok: true,
-    sql: `CREATE TABLE ${qualified} (\n  ${parts.join(",\n  ")}\n);`,
-  };
-}
+import { ColumnsGrid } from "./new-table/columns-grid";
+import { ConstraintsGrid } from "./new-table/constraints-grid";
+import { CopyFieldsDialog } from "./new-table/copy-fields-dialog";
+import { ForeignKeysGrid } from "./new-table/foreign-keys-grid";
+import { IndexesGrid } from "./new-table/indexes-grid";
+import {
+  buildCreate,
+  defaultColumn,
+  newColumn,
+  newConstraint,
+  newFk,
+  newIndex,
+  type ColumnDef,
+  type ConstraintDef,
+  type FkDef,
+  type IndexDef,
+  type RefTableMeta,
+} from "./new-table/model";
+import { TabBar, type DesignerTab } from "./new-table/tab-bar";
 
 interface NewTableTabProps {
   conn_id: string;
@@ -226,6 +66,11 @@ export function NewTableTab({
   const [table_name, setTableName] = useState("");
   const [columns, setColumns] = useState<ColumnDef[]>([defaultColumn()]);
   const [fks, setFks] = useState<FkDef[]>([]);
+  const [indexes, setIndexes] = useState<IndexDef[]>([]);
+  const [constraints, setConstraints] = useState<ConstraintDef[]>([]);
+  const [tab, setTab] = useState<DesignerTab>("columns");
+  const [query, setQuery] = useState("");
+  const [copying, setCopying] = useState(false);
   const [creating, setCreating] = useState(false);
   // Referencable tables + their columns (fetched lazily per selected table so
   // the FK rows can offer real pickers instead of free-text inputs).
@@ -433,13 +278,15 @@ export function NewTableTab({
   const do_create = async () => {
     if (creating) return;
     const target_schema = is_pg ? schema : undefined;
-    const built = buildCreateSql(
-      table_name,
-      columns,
+    const built = buildCreate({
+      table: table_name,
+      cols: columns,
       fks,
-      target_schema,
+      indexes,
+      constraints,
+      schema: target_schema,
       is_pg,
-    );
+    });
     if (!built.ok) {
       push_notification({
         kind: "error",
@@ -449,8 +296,14 @@ export function NewTableTab({
       return;
     }
     setCreating(true);
+    // Only the first statement (the table) can leave nothing behind; each
+    // index after it is its own statement.
+    let created = false;
     try {
-      await runSql(conn_id, built.sql, "app", target_database);
+      for (const [i, stmt] of built.statements.entries()) {
+        await runSql(conn_id, stmt, "app", target_database);
+        if (i === 0) created = true;
+      }
       push_notification({
         kind: "success",
         title: `Table ${table_name.trim()} created`,
@@ -459,9 +312,16 @@ export function NewTableTab({
       on_modified();
       on_created(table_name.trim(), target_database, target_schema);
     } catch (e) {
+      if (created) {
+        // The table exists now, so the tab must not offer to create it again.
+        on_modified();
+        on_created(table_name.trim(), target_database, target_schema);
+      }
       push_notification({
         kind: "error",
-        title: `Creating ${table_name.trim()} failed`,
+        title: created
+          ? `Table ${table_name.trim()} created, but an index failed`
+          : `Creating ${table_name.trim()} failed`,
         detail: String(e),
       });
     } finally {
@@ -471,14 +331,16 @@ export function NewTableTab({
 
   const preview = useMemo(
     () =>
-      buildCreateSql(
-        table_name,
-        columns,
+      buildCreate({
+        table: table_name,
+        cols: columns,
         fks,
-        is_pg ? schema : undefined,
+        indexes,
+        constraints,
+        schema: is_pg ? schema : undefined,
         is_pg,
-      ),
-    [table_name, columns, fks, is_pg, schema],
+      }),
+    [table_name, columns, fks, indexes, constraints, is_pg, schema],
   );
 
   // Publish the Create action to the action bar — but ONLY while this tab is
@@ -506,12 +368,15 @@ export function NewTableTab({
           c.not_null ||
           c.unique ||
           c.default !== "" ||
-          c.check !== ""
+          c.check !== "" ||
+          c.length !== ""
         );
       }
       return true;
     }) ||
-    fks.length > 0;
+    fks.length > 0 ||
+    indexes.length > 0 ||
+    constraints.length > 0;
   const valid_ref = useRef(valid);
   useEffect(() => {
     valid_ref.current = valid;
@@ -549,9 +414,32 @@ export function NewTableTab({
     openSql(conn_id, preview.sql);
   };
 
+  const add = () => {
+    if (tab === "columns") setColumns((cols) => [...cols, newColumn()]);
+    else if (tab === "indexes") setIndexes((x) => [...x, newIndex()]);
+    else if (tab === "foreign-keys") setFks((x) => [...x, newFk()]);
+    else if (tab === "constraints")
+      setConstraints((x) => [...x, newConstraint()]);
+  };
+  const add_label = {
+    columns: "Add Column",
+    indexes: "Add Index",
+    "foreign-keys": "Add Foreign Key",
+    constraints: "Add Constraint",
+  }[tab];
+  const column_names = columns.map((c) => c.name.trim()).filter(Boolean);
+  const patch_list =
+    <T,>(set: React.Dispatch<React.SetStateAction<T[]>>) =>
+    (idx: number, p: Partial<T>) =>
+      set((xs) => xs.map((x, i) => (i === idx ? { ...x, ...p } : x)));
+  const remove_from =
+    <T,>(set: React.Dispatch<React.SetStateAction<T[]>>) =>
+    (idx: number) =>
+      set((xs) => xs.filter((_, i) => i !== idx));
+
   return (
     // One scroll surface: vertical scrolling belongs to the whole tab;
-    // horizontal overflow stays local to the wide columns grid.
+    // horizontal overflow stays local to the grid.
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-6">
       <div className="flex gap-3">
         <div className="grid flex-1 gap-2">
@@ -637,337 +525,140 @@ export function NewTableTab({
         </div>
       </div>
 
-      {/* shrink-0 matters: a flex item with non-visible overflow loses
-              its automatic min-height and would otherwise be squashed by
-              the flex parent, clipping rows — now it keeps natural height
-              and the tab root scrolls. */}
-      <div className="shrink-0 overflow-x-auto rounded-md border pb-2">
-        <div className="bg-muted text-muted-foreground flex min-w-max items-center gap-2 border-b px-3 py-2 text-xs font-medium">
-          <span className="w-10 shrink-0 text-center">#</span>
-          <span className="w-40 shrink-0">Column</span>
-          <span className="w-28 shrink-0">Type</span>
-          <span className="w-20 shrink-0 text-center">PK</span>
-          <span className="w-24 shrink-0 text-center">Auto</span>
-          <span className="w-20 shrink-0 text-center">Not null</span>
-          <span className="w-20 shrink-0 text-center">Unique</span>
-          <span className="w-28 shrink-0">Default</span>
-          <span className="w-36 shrink-0">Check</span>
-          <span className="w-8 shrink-0" />
-        </div>
-        {columns.map((col, idx) => (
-          <div
-            key={idx}
-            className="flex min-w-max items-center gap-2 border-b px-3 py-1.5 text-sm last:border-0"
-          >
-            <span className="text-muted-foreground w-10 shrink-0 text-center text-xs">
-              {idx + 1}
-            </span>
-            <div className="w-40 shrink-0">
+      {/* The tabs and their tools sit on top of the grid, in one box, so they
+          read as part of the table. */}
+      <div className="flex min-h-56 flex-1 flex-col overflow-hidden rounded-lg border">
+        <div className="flex shrink-0 items-center gap-3 border-b p-2">
+          <TabBar
+            value={tab}
+            onChange={setTab}
+            counts={{
+              indexes: indexes.length,
+              "foreign-keys": fks.length,
+              constraints: constraints.length,
+            }}
+          />
+          {tab === "columns" && (
+            <div className="relative w-44 shrink-0">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
               <Input
-                placeholder="column_name"
-                value={col.name}
-                onChange={(e) => patch(idx, (c) => (c.name = e.target.value))}
+                className="h-7 rounded-full pl-8 text-sm"
+                placeholder="Search column"
+                aria-label="Search column"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
               />
             </div>
-            <div className="w-28 shrink-0">
-              <Select
-                value={col.data_type}
-                onValueChange={(v) =>
-                  patch(idx, (c) => (c.data_type = v ?? ""))
-                }
-              >
-                <SelectTrigger className="w-28" size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {COLUMN_TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex w-20 shrink-0 justify-center">
-              <Checkbox
-                checked={col.primary_key}
-                onCheckedChange={(v) =>
-                  patch(idx, (c) => (c.primary_key = v === true))
-                }
-              />
-            </div>
-            <div className="flex w-24 shrink-0 justify-center">
-              <Checkbox
-                checked={col.auto_increment}
-                onCheckedChange={(v) =>
-                  patch(idx, (c) => (c.auto_increment = v === true))
-                }
-              />
-            </div>
-            <div className="flex w-20 shrink-0 justify-center">
-              <Checkbox
-                checked={col.not_null}
-                onCheckedChange={(v) =>
-                  patch(idx, (c) => (c.not_null = v === true))
-                }
-              />
-            </div>
-            <div className="flex w-20 shrink-0 justify-center">
-              <Checkbox
-                checked={col.unique}
-                onCheckedChange={(v) =>
-                  patch(idx, (c) => (c.unique = v === true))
-                }
-              />
-            </div>
-            <div className="w-28 shrink-0">
-              <Input
-                className="font-mono"
-                placeholder="0"
-                value={col.default}
-                onChange={(e) =>
-                  patch(idx, (c) => (c.default = e.target.value))
-                }
-              />
-            </div>
-            <div className="w-36 shrink-0">
-              <Input
-                className="font-mono"
-                placeholder="qty > 0"
-                value={col.check}
-                onChange={(e) => patch(idx, (c) => (c.check = e.target.value))}
-              />
-            </div>
-            <div className="flex w-8 shrink-0 justify-center">
-              <Button
-                variant="ghost"
-                size="iconXs"
-                aria-label="Remove column"
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={() =>
-                  setColumns((cols) => cols.filter((_, i) => i !== idx))
-                }
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
-        <div className="flex items-center gap-2 px-3 py-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setColumns((cols) => [...cols, newColumn()])}
-          >
-            <Plus className="size-4" />
-            Add column
-          </Button>
-        </div>
-      </div>
-
-      {/* Foreign keys — reference real tables/columns via dropdowns.
-              Same flex treatment as the columns grid: shrink-0 keeps the
-              natural height, x-overflow scrolls locally. */}
-      <div className="shrink-0 overflow-x-auto rounded-md border pb-2">
-        <div className="bg-muted/50 sticky left-0 flex items-center justify-between border-b px-3 py-2">
-          <span className="text-muted-foreground text-xs font-medium">
-            Foreign keys
-            {fks.length > 0 && (
-              <span className="bg-muted ml-2 rounded px-1.5 py-0.5">
-                {fks.length}
-              </span>
-            )}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={table_names.length === 0}
-            title={
-              table_names.length === 0
-                ? "No other tables to reference yet"
-                : undefined
-            }
-            onClick={() => setFks((fks) => [...fks, newFk()])}
-          >
-            <Plus className="size-3.5" />
-            Add foreign key
-          </Button>
-        </div>
-        {fks.length === 0 ? (
-          <p className="text-muted-foreground px-3 py-2 text-xs">
-            None — add one to reference another table. The target column must be
-            that table's primary key (
-            <KeyRound className="inline size-3 text-amber-500" />) or UNIQUE
-            (·U);.
-          </p>
-        ) : (
-          fks.map((fk, idx) => (
-            <div
-              key={idx}
-              className="flex min-w-max items-center gap-2 border-b px-3 py-2 text-sm last:border-0"
+          )}
+          {add_label && (
+            <Button
+              size="sm"
+              className="shrink-0"
+              disabled={tab === "foreign-keys" && table_names.length === 0}
+              title={
+                tab === "foreign-keys" && table_names.length === 0
+                  ? "No other tables to reference yet"
+                  : undefined
+              }
+              onClick={add}
             >
-              <Select
-                value={fk.column || undefined}
-                onValueChange={(v) =>
-                  patch_fk(idx, (k) => (k.column = v ?? ""))
-                }
-              >
-                <SelectTrigger className="w-40" size="sm">
-                  <SelectValue placeholder="local column" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {columns
-                      .filter((c) => c.name.trim())
-                      .map((c) => (
-                        <SelectItem key={c.name} value={c.name.trim()}>
-                          {c.name.trim()}
-                        </SelectItem>
-                      ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <span className="text-muted-foreground">→</span>
-              <Select
-                value={fk.ref_table || undefined}
-                onValueChange={(v) =>
-                  patch_fk(idx, (k) => (k.ref_table = v ?? ""))
-                }
-              >
-                <SelectTrigger className="w-44" size="sm">
-                  <SelectValue placeholder="table" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {table_names.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <span className="text-muted-foreground">.</span>
-              {/* key remounts on table switch: Base UI's Select goes
-                  uncontrolled when value is undefined, so without this it
-                  keeps displaying the previous table's selection. */}
-              <Select
-                key={fk.ref_table}
-                value={fk.ref_column || undefined}
-                disabled={!fk.ref_table}
-                onValueChange={(v) =>
-                  patch_fk(idx, (k) => (k.ref_column = v ?? ""))
-                }
-              >
-                <SelectTrigger className="w-44" size="sm">
-                  <SelectValue
-                    placeholder={
-                      (ref_meta[fk.ref_table]?.cols ?? []).filter((c) =>
-                        ref_meta[fk.ref_table]?.valid_targets.includes(c),
-                      ).length <= 0
-                        ? "No Primary or unique key"
-                        : fk.ref_table
-                          ? "column"
-                          : "pick a table"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {(ref_meta[fk.ref_table]?.cols ?? []).filter((c) =>
-                      ref_meta[fk.ref_table]?.valid_targets.includes(c),
-                    ).length <= 0 && (
-                      <SelectItem key={"empty"} value={"empty"} disabled>
-                        No Primary or unique key
-                      </SelectItem>
-                    )}
-                    {(ref_meta[fk.ref_table]?.cols ?? [])
-                      .filter((c) =>
-                        ref_meta[fk.ref_table]?.valid_targets.includes(c),
-                      )
-                      .map((c) => {
-                        const meta = ref_meta[fk.ref_table];
-                        return (
-                          <SelectItem key={c} value={c}>
-                            {c}
-                            {meta?.pk === c ? (
-                              <KeyRound className="size-4 text-amber-500!" />
-                            ) : (
-                              " ·U"
-                            )}
-                          </SelectItem>
-                        );
-                      })}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                ON DELETE
-                <Select
-                  value={fk.on_delete}
-                  onValueChange={(v) =>
-                    patch_fk(
-                      idx,
-                      (k) => (k.on_delete = (v ?? "NO ACTION") as FkAction),
-                    )
-                  }
-                >
-                  <SelectTrigger className="w-32" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {FK_ACTIONS.map((a) => (
-                        <SelectItem key={a} value={a}>
-                          {a}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                ON UPDATE
-                <Select
-                  value={fk.on_update}
-                  onValueChange={(v) =>
-                    patch_fk(
-                      idx,
-                      (k) => (k.on_update = (v ?? "NO ACTION") as FkAction),
-                    )
-                  }
-                >
-                  <SelectTrigger className="w-32" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {FK_ACTIONS.map((a) => (
-                        <SelectItem key={a} value={a}>
-                          {a}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </label>
-              <Button
-                variant="ghost"
-                size="iconXs"
-                aria-label="Remove foreign key"
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => setFks((fks) => fks.filter((_, i) => i !== idx))}
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-          ))
-        )}
+              <Plus className="size-4" />
+              {add_label}
+            </Button>
+          )}
+          {tab === "columns" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              disabled={table_names.length === 0}
+              title={
+                table_names.length === 0
+                  ? "No other tables to copy from yet"
+                  : undefined
+              }
+              onClick={() => setCopying(true)}
+            >
+              <Copy className="size-4" />
+              Copy Fields from Another Table
+            </Button>
+          )}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          {tab === "columns" && (
+            <ColumnsGrid
+              columns={columns}
+              query={query}
+              onPatch={patch}
+              onRemove={(idx) =>
+                setColumns((cols) => cols.filter((_, i) => i !== idx))
+              }
+              onDuplicate={(idx) =>
+                setColumns((cols) => [
+                  ...cols.slice(0, idx + 1),
+                  // A copy can't also be the primary key or the identity.
+                  {
+                    ...cols[idx],
+                    primary_key: false,
+                    auto_increment: false,
+                  },
+                  ...cols.slice(idx + 1),
+                ])
+              }
+            />
+          )}
+          {tab === "indexes" && (
+            <IndexesGrid
+              indexes={indexes}
+              columns={column_names}
+              onPatch={patch_list(setIndexes)}
+              onRemove={remove_from(setIndexes)}
+            />
+          )}
+          {tab === "foreign-keys" && (
+            <ForeignKeysGrid
+              fks={fks}
+              columns={columns}
+              tableNames={table_names}
+              refMeta={ref_meta}
+              onPatch={patch_fk}
+              onRemove={remove_from(setFks)}
+            />
+          )}
+          {tab === "constraints" && (
+            <ConstraintsGrid
+              constraints={constraints}
+              columns={column_names}
+              onPatch={patch_list(setConstraints)}
+              onRemove={remove_from(setConstraints)}
+            />
+          )}
+        </div>
       </div>
 
-      <div className="bg-background rounded-md border p-3">
+      {copying && (
+        <CopyFieldsDialog
+          connId={conn_id}
+          tables={table_names}
+          database={target_database}
+          schema={is_pg ? schema : undefined}
+          onCopy={(cols) =>
+            setColumns((cs) => {
+              // The untouched seeded `id` column makes way for the copies.
+              const seeded =
+                cs.length === 1 &&
+                cs[0].name === "id" &&
+                cs[0].primary_key &&
+                cs[0].auto_increment;
+              return [...(seeded ? [] : cs), ...cols];
+            })
+          }
+          onClose={() => setCopying(false)}
+        />
+      )}
+
+      <div className="bg-background flex h-44 shrink-0 flex-col rounded-md border p-3">
         <div className="text-muted-foreground mb-1 flex justify-between text-xs font-medium">
           <span>Generated SQL</span>
           <Button
@@ -982,25 +673,27 @@ export function NewTableTab({
             <SquareArrowOutUpRight />
           </Button>
         </div>
-        {preview.ok ? (
-          <QueryEditor
-            value={preview.sql}
-            onChange={() => {}}
-            onRun={() => {}}
-            onRunTarget={() => {}}
-            lintEnabled={false}
-            showLineNumber={false}
-            className="rounded-md"
-            frameLayer={false}
-            autoCompletion={false}
-            placeholder="e.g. age >= 18 AND name LIKE 'a%'"
-            disableWrapping={false}
-            disableEnter
-            disableContextMenu
-          />
-        ) : (
-          <code className="text-destructive">{preview.error}</code>
-        )}
+        <div className="min-h-0 flex-1 overflow-auto">
+          {preview.ok ? (
+            <QueryEditor
+              value={preview.sql}
+              onChange={() => {}}
+              onRun={() => {}}
+              onRunTarget={() => {}}
+              lintEnabled={false}
+              showLineNumber={false}
+              className="rounded-md"
+              frameLayer={false}
+              autoCompletion={false}
+              placeholder="e.g. age >= 18 AND name LIKE 'a%'"
+              disableWrapping={false}
+              disableEnter
+              disableContextMenu
+            />
+          ) : (
+            <code className="text-destructive">{preview.error}</code>
+          )}
+        </div>
       </div>
     </div>
   );
