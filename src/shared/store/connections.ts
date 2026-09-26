@@ -2,7 +2,12 @@ import type { StoreApi } from "zustand";
 import { closeConnection } from "../api/connection";
 import type { ConnectionInfo } from "../api/types";
 import type { SavedConnParams, StudioStore } from "./types";
-import { stableConnKey, stampLegacySqlTabs } from "./workspace-persistence";
+import { tabKey } from "./tab-utils";
+import {
+  savedWorkspaceOf,
+  stableConnKey,
+  stampLegacySqlTabs,
+} from "./workspace-persistence";
 
 type SetState = StoreApi<StudioStore>["setState"];
 
@@ -45,6 +50,15 @@ export function connectionActions(set: SetState) {
     setPendingWorkspaceRestore(map: StudioStore["pendingWorkspaceRestore"]) {
       set({ pendingWorkspaceRestore: map });
     },
+    pausedTabs: {},
+    resumeTab(key: string) {
+      set((state) => {
+        if (!state.pausedTabs[key]) return {};
+        const pausedTabs = { ...state.pausedTabs };
+        delete pausedTabs[key];
+        return { pausedTabs };
+      });
+    },
     openConn(conn: ConnectionInfo) {
       set((state) => {
         const dup = state.open.find(
@@ -83,6 +97,11 @@ export function connectionActions(set: SetState) {
         const pending = stampLegacySqlTabs(saved, conn.id);
         const pendingWorkspaceRestore = { ...state.pendingWorkspaceRestore };
         delete pendingWorkspaceRestore[key];
+        const pausedTabs = { ...state.pausedTabs };
+        for (const tab of pending.workspace.tabs) {
+          if (tab.kind === "table" || tab.kind === "mongo")
+            pausedTabs[tabKey(tab)] = true;
+        }
         return {
           open,
           recent,
@@ -91,6 +110,7 @@ export function connectionActions(set: SetState) {
           workspaces: { ...state.workspaces, [conn.id]: pending.workspace },
           sqlSeeds: { ...state.sqlSeeds, ...pending.sqlSeeds },
           pendingWorkspaceRestore,
+          pausedTabs,
         };
       });
     },
@@ -100,6 +120,15 @@ export function connectionActions(set: SetState) {
     closeConn(id: string) {
       set((state) => {
         const open = state.open.filter((c) => c.id !== id);
+        // Keep its tabs so reconnecting the same target brings them back.
+        const closing = state.open.find((c) => c.id === id);
+        const saved = closing && savedWorkspaceOf(state, closing);
+        const pendingWorkspaceRestore = saved
+          ? {
+              ...state.pendingWorkspaceRestore,
+              [stableConnKey(closing)]: saved,
+            }
+          : state.pendingWorkspaceRestore;
         if (open.length === 0) {
           const workspaces = { ...state.workspaces };
           delete workspaces[id];
@@ -108,6 +137,7 @@ export function connectionActions(set: SetState) {
             activeId: null,
             view: "home",
             workspaces,
+            pendingWorkspaceRestore,
             // The landing page shares the SAME left-panel state as a
             // connection's workspace — without this, disconnecting while
             // viewing Activity leaves the home screen stuck showing it too
@@ -119,6 +149,7 @@ export function connectionActions(set: SetState) {
         return {
           open,
           activeId: state.activeId === id ? open[0].id : state.activeId,
+          pendingWorkspaceRestore,
         };
       });
     },

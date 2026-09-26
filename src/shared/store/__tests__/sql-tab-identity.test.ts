@@ -22,6 +22,31 @@ describe("sql tab key", () => {
   });
 });
 
+describe("nosql console tab label", () => {
+  const tab: StudioTab = {
+    kind: "mongo-console",
+    conn_id: "c",
+    database: "shop",
+    id: 1,
+  };
+
+  it("is console@<database> for the database the console opened on", () => {
+    expect(tabLabel(tab)).toBe("console@shop");
+  });
+
+  it("follows the database the console switched to", () => {
+    expect(tabLabel(tab, null, "analytics")).toBe("console@analytics");
+  });
+
+  it("keeps the saved file name over the database", () => {
+    expect(tabLabel(tab, "report.js", "shop")).toBe("report.js");
+  });
+
+  it("falls back to the numbered label with no database", () => {
+    expect(tabLabel({ ...tab, database: "" })).toBe("NoSQL console 2");
+  });
+});
+
 describe("sql tab label", () => {
   const tab: StudioTab = { kind: "sql", id: 3, conn_id: "c" };
 

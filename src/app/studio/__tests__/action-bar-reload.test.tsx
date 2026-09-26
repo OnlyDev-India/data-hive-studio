@@ -36,7 +36,11 @@ const press_reload = () =>
   fireEvent.keyDown(window, { key: "r", metaKey: true });
 
 beforeEach(() => {
-  useStudioStore.setState({ gridBridges: {}, workspaces: {} } as never);
+  useStudioStore.setState({
+    gridBridges: {},
+    workspaces: {},
+    pausedTabs: {},
+  } as never);
 });
 afterEach(() => {
   cleanup();
@@ -56,5 +60,16 @@ describe("Reload shortcut", () => {
     render(<ActionBar />);
     press_reload();
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("loads a tab a reconnect brought back, before its grid exists", () => {
+    open_table_with_bridge({});
+    useStudioStore.setState({
+      gridBridges: {},
+      pausedTabs: { [tabKey(TAB)]: true },
+    } as never);
+    render(<ActionBar />);
+    press_reload();
+    expect(useStudioStore.getState().pausedTabs).toEqual({});
   });
 });

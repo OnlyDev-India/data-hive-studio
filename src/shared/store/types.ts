@@ -107,6 +107,9 @@ export interface GridBridge {
   /** Render every pending change (insert drafts, cell edits, row deletions)
    *  as runnable SQL statements, or null when nothing is staged. */
   get_pending_sql: () => string | null;
+  /** The same changes as Mongo shell commands for the Mongo console. Only
+   *  Mongo grids set it. */
+  get_pending_nosql?: () => string | null;
   /** Structured list of every buffered change for the apply diff dialog. */
   get_pending_changes: () => PendingChange[];
   refresh: () => void;
@@ -373,6 +376,10 @@ export interface StudioStore {
    *  removes) the matching entry; nothing here ever auto-reconnects. */
   pendingWorkspaceRestore: Record<string, SavedWorkspace>;
   setPendingWorkspaceRestore: (map: Record<string, SavedWorkspace>) => void;
+  /** Table/collection tabs brought back by a reconnect that wait for a
+   *  reload before fetching rows, keyed by tab key. */
+  pausedTabs: Record<string, true>;
+  resumeTab: (key: string) => void;
 
   // View
   view: StudioView;
@@ -475,9 +482,9 @@ export interface StudioStore {
   /** Set alongside sqlSeeds ONLY when the seed came from an actual file on
    *  disk (openFileTab), never from generated content (e.g. action-bar's
    *  "open pending edits as SQL"). When present, the tab treats the seed as
-   *  already-saved (clean baseline + this filename) instead of unsaved new
+   *  already-saved (clean baseline, saves write back to this path) instead of unsaved new
    *  work — same lifecycle as sqlSeeds (set once, deleted by closeTab). */
-  seedFileNames: Record<string, string>;
+  seedFilePaths: Record<string, string>;
 
   /** Generic notification center (action-bar bell). Any feature can push a
    *  notification — e.g. applied schema changes, export results, failed
@@ -555,26 +562,20 @@ export interface StudioStore {
   /** Pinned ids across sources: 'local:<name>' or 'srv:<profile>:<conn>' ('pg.pins'). */
   pins: string[];
   togglePin: (id: string) => void;
-  /** Landing-page prefill request: sidebar click hands connection details to the
-   *  connect form. `kind` routes to the right tab; `n` increments so repeat
-   *  requests re-trigger; `connect` additionally starts connecting right after
-   *  the fields are filled. `edit` puts the form in edit mode — Save updates
-   *  that connection (server-shared or local) instead of creating a new one. */
-  landingPrefill: {
+  /** Opens the home connection form on step two with these values. `edit`
+   *  makes Save update that saved entry; `n` makes a repeat request count. */
+  landingForm: {
     kind: SavedDbKind;
     params: SavedConnParams;
     n: number;
-    connect: boolean;
     edit?: LandingEditTarget;
   } | null;
-  requestLandingPrefill: (
+  requestLandingForm: (
     kind: SavedDbKind,
     params: SavedConnParams,
-    connect?: boolean,
     edit?: LandingEditTarget,
   ) => void;
-  /** Consume the prefill after applying it — prevents replay on remount. */
-  clearLandingPrefill: () => void;
+  clearLandingForm: () => void;
   /** Global Postgres connect-in-flight flag (survives page switches). */
   pgConnecting: boolean;
   setPgConnecting: (v: boolean) => void;
@@ -702,16 +703,16 @@ export interface StudioStore {
     database?: string,
     schema?: string,
   ) => void;
-  /** `seedFileName`, when given, marks `seedText` as loaded from that real
-   *  file (openFileTab) — the tab starts clean (not dirty) and shows this as
-   *  its name, instead of treating the seed as unsaved new work. `paneId`,
+  /** `seedFilePath`, when given, marks `seedText` as loaded from that real
+   *  file (openFileTab) — the tab starts clean (not dirty) and shows its
+   *  name, instead of treating the seed as unsaved new work. `paneId`,
    *  when given, opens (and focuses) that exact pane instead of whichever
    *  pane is currently focused — used when the action was triggered from a
    *  specific pane's own tab strip (see `PaneView`'s `LeafPaneView`). */
   openSql: (
     connId: string,
     seedText?: string,
-    seedFileName?: string,
+    seedFilePath?: string,
     paneId?: string,
   ) => void;
   openNewTable: (connId: string, paneId?: string) => void;
@@ -724,12 +725,12 @@ export interface StudioStore {
   /** Open a MongoDB console tab for the given connection & database.
    *  `seedText`, when given, becomes the new console's initial script —
    *  mirrors `openSql`'s seed mechanism (e.g. opening a picked .js file).
-   *  `seedFileName` — see `openSql`'s doc. `paneId` — see `openSql`'s doc. */
+   *  `seedFilePath` — see `openSql`'s doc. `paneId` — see `openSql`'s doc. */
   openMongoConsole: (
     connId: string,
     database: string,
     seedText?: string,
-    seedFileName?: string,
+    seedFilePath?: string,
     paneId?: string,
   ) => void;
   /** Select `tab` within pane `paneId`, and focus that pane. */

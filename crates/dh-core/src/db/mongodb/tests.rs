@@ -325,3 +325,18 @@ fn a_date_cell_is_written_back_as_a_bson_date() {
     );
     assert_eq!(field_bson(Some("soon"), Some("date")), Bson::String("soon".into()));
 }
+
+/// The grid's "Copy to NoSQL" writes typed values as extended JSON; the
+/// console must read them back as real BSON types, the same ones Apply writes.
+#[test]
+fn console_filter_reads_extended_json_as_bson_types() {
+    let f = parse_filter(
+        r#"{ "_id": { "$oid": "507f1f77bcf86cd799439011" }, "n": { "$numberLong": "5" }, "d": { "$date": "2026-01-01T00:00:00.000Z" }, "x": 5.0 }"#,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(matches!(f.get("_id"), Some(Bson::ObjectId(_))));
+    assert_eq!(f.get("n"), Some(&Bson::Int64(5)));
+    assert!(matches!(f.get("d"), Some(Bson::DateTime(_))));
+    assert_eq!(f.get("x"), Some(&Bson::Double(5.0)));
+}

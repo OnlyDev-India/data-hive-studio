@@ -43,6 +43,7 @@ export interface PaneViewSharedProps {
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_close_others: (tab: StudioTab) => void;
   /** Each takes the id of the pane the action was triggered from — a leaf
    *  binds its own `node.id` (see `LeafPaneView`) so a new tab opens into
    *  (and focuses) THAT pane, not whichever pane last had focus. */
@@ -119,6 +120,7 @@ function LeafPaneView({
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_close_others,
   on_new_sql,
   on_new_table,
   on_new_mongo_console,
@@ -176,6 +178,7 @@ function LeafPaneView({
         on_close_all={on_close_all}
         on_close_to_left={on_close_to_left}
         on_close_to_right={on_close_to_right}
+        on_close_others={on_close_others}
         on_new_sql={() => on_new_sql(node.id)}
         on_new_table={() => on_new_table(node.id)}
         on_new_mongo_console={() => on_new_mongo_console(node.id)}

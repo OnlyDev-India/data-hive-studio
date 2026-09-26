@@ -55,6 +55,17 @@
   --info-light: oklch(0.95 0.08 250);
   --info-dark: oklch(0.35 0.18 250);
   --bson-ctor: oklch(0.42 0.17 292);
+  /* One color per column data type family (grid header type label, and
+   * anywhere else a type is shown). Mapped from type names in
+   * src/shared/theme/data-type-colors.ts. */
+  --type-number: oklch(0.52 0.16 250);
+  --type-text: oklch(0.5 0.14 150);
+  --type-bool: oklch(0.58 0.16 55);
+  --type-datetime: oklch(0.5 0.17 300);
+  --type-json: oklch(0.52 0.18 350);
+  --type-id: oklch(0.55 0.13 85);
+  --type-enum: oklch(0.52 0.12 190);
+  --type-binary: oklch(0.5 0.03 260);
   --selection: oklch(0.65 0.16 55);
   --selection-foreground: oklch(1 0 0);
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
@@ -151,6 +162,14 @@
   --info-light: oklch(0.25 0.08 250);
   --info-dark: oklch(0.75 0.12 250);
   --bson-ctor: oklch(0.8 0.16 292);
+  --type-number: oklch(0.78 0.12 250);
+  --type-text: oklch(0.78 0.13 150);
+  --type-bool: oklch(0.8 0.13 55);
+  --type-datetime: oklch(0.78 0.13 300);
+  --type-json: oklch(0.78 0.13 350);
+  --type-id: oklch(0.83 0.12 85);
+  --type-enum: oklch(0.8 0.1 190);
+  --type-binary: oklch(0.75 0.03 260);
   --selection: oklch(0.55 0.18 55);
   --selection-foreground: oklch(0.205 0 0);
   --scrollbar-thumb: #555;
@@ -233,6 +252,14 @@
   --color-info-foreground: var(--info-foreground);
   --color-info-light: var(--info-light);
   --color-info-dark: var(--info-dark);
+  --color-type-number: var(--type-number);
+  --color-type-text: var(--type-text);
+  --color-type-bool: var(--type-bool);
+  --color-type-datetime: var(--type-datetime);
+  --color-type-json: var(--type-json);
+  --color-type-id: var(--type-id);
+  --color-type-enum: var(--type-enum);
+  --color-type-binary: var(--type-binary);
   --color-selection: var(--selection);
   --color-selection-foreground: var(--selection-foreground);
   --color-chrome: var(--chrome);

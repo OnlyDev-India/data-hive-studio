@@ -61,6 +61,7 @@ interface TabBarProps {
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_close_others: (tab: StudioTab) => void;
   on_new_sql: () => void;
   on_new_table: () => void;
   on_new_mongo_console: () => void;
@@ -85,6 +86,7 @@ export function TabBar({
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_close_others,
   on_new_sql,
   on_new_table,
   on_new_mongo_console,
@@ -163,6 +165,7 @@ export function TabBar({
             on_close_all={on_close_all}
             on_close_to_left={on_close_to_left}
             on_close_to_right={on_close_to_right}
+            on_close_others={on_close_others}
             on_split_right={on_split_right}
             on_split_down={on_split_down}
           />
@@ -196,7 +199,7 @@ export function TabBar({
             {/* Every handler here is wrapped in a no-arg arrow — passed
                 directly, onClick would call it with the click event as the
                 first argument, which for on_new_mongo_console (optional
-                seedText/seedFileName params) silently became a bogus seed
+                seedText/seedFilePath params) silently became a bogus seed
                 (rendered as "[object Object]" once the editor stringified
                 it) instead of a real open-console call. */}
             <DropdownMenuItem onClick={() => on_new_sql()}>
@@ -237,6 +240,7 @@ function TabItem({
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_close_others,
   on_split_right,
   on_split_down,
 }: {
@@ -254,6 +258,7 @@ function TabItem({
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_close_others: (tab: StudioTab) => void;
   on_split_right: (tab: StudioTab) => void;
   on_split_down: (tab: StudioTab) => void;
 }) {
@@ -335,6 +340,12 @@ function TabItem({
         {/* Contextual availability: nothing to close → nothing to click. */}
         <ContextMenuItem disabled={total <= 1} onClick={() => on_close_all()}>
           Close all
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={total <= 1}
+          onClick={() => on_close_others(tab)}
+        >
+          Close others
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

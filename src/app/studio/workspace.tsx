@@ -232,9 +232,9 @@ export default function Workspace({
   );
   /** Opens (or focuses a fresh) Mongo console tab. `seedText`, when given,
    *  becomes the console's initial script — used by openFileTab for a picked
-   *  .js file. `seedFileName` marks it as already-saved to that file. */
+   *  .js file. `seedFilePath` marks it as already-saved to that file. */
   const openMongoConsoleTab = useCallback(
-    (seedText?: string, seedFileName?: string, paneId?: string) => {
+    (seedText?: string, seedFilePath?: string, paneId?: string) => {
       void (async () => {
         const s = useStudioStore.getState();
         let database = s.recentParams[conn_id]?.database ?? "";
@@ -246,7 +246,7 @@ export default function Workspace({
             /* console still opens — `use <db>` sets context */
           }
         }
-        open_mongo_console(conn_id, database, seedText, seedFileName, paneId);
+        open_mongo_console(conn_id, database, seedText, seedFilePath, paneId);
       })();
     },
     [open_mongo_console, conn_id],
@@ -262,9 +262,9 @@ export default function Workspace({
           const file = await pickSqlFile();
           if (!file) return;
           if (file.name.toLowerCase().endsWith(".js")) {
-            openMongoConsoleTab(file.text, file.name, paneId);
+            openMongoConsoleTab(file.text, file.path, paneId);
           } else {
-            open_sql(conn_id, file.text, file.name, paneId);
+            open_sql(conn_id, file.text, file.path, paneId);
           }
         } catch (e) {
           useStudioStore.getState().pushNotification({
@@ -376,7 +376,10 @@ export default function Workspace({
    *  "left"/"right" are scoped to the anchor's own pane (matches the
    *  store's `closeToLeft`/`closeToRight`), not every open tab. */
   const bulkTargets = useCallback(
-    (mode: "all" | "left" | "right", anchor: StudioTab | null): StudioTab[] => {
+    (
+      mode: "all" | "left" | "right" | "others",
+      anchor: StudioTab | null,
+    ): StudioTab[] => {
       if (mode === "all") return tabs;
       if (!anchor) return [];
       const owner = findOwnerLeaf(ws.layout, tabKey(anchor));
@@ -386,7 +389,9 @@ export default function Workspace({
       const keys =
         mode === "left"
           ? owner.tabKeys.slice(0, idx)
-          : owner.tabKeys.slice(idx + 1);
+          : mode === "right"
+            ? owner.tabKeys.slice(idx + 1)
+            : owner.tabKeys.filter((_, i) => i !== idx);
       return keys
         .map((k) => tabsByKey.get(k))
         .filter((t): t is StudioTab => !!t);
@@ -447,46 +452,40 @@ export default function Workspace({
               </div>
             )}
             <div className={landing ? "hidden h-full" : "h-full"}>
-              {tables === null ? (
-                <div className="flex flex-col gap-3 p-6">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-8 w-full" />
-                  ))}
-                </div>
-              ) : (
-                <WorkspaceContent
-                  conn_id={conn_id}
-                  conn={conn}
-                  layout={ws.layout}
-                  focusedPaneId={ws.focusedPaneId}
-                  tabs={tabs}
-                  tabsByKey={tabsByKey}
-                  dirty_keys={
-                    new Set(dirty_keys.split("\u0000").filter(Boolean))
-                  }
-                  revision={revision}
-                  tables={tables}
-                  bump={bump}
-                  bumpTables={bumpTables}
-                  on_object_created={(database, schema, kind) =>
-                    setObjectCreated({ database, schema, kind })
-                  }
-                  openReference={openReference}
-                  openTable={openTable}
-                  on_close={(tab) => requestClose([tab])}
-                  on_close_all={() => requestClose(bulkTargets("all", null))}
-                  on_close_to_left={(tab) =>
-                    requestClose(bulkTargets("left", tab))
-                  }
-                  on_close_to_right={(tab) =>
-                    requestClose(bulkTargets("right", tab))
-                  }
-                  on_new_sql={openNewSql}
-                  on_new_table={openNewTableTab}
-                  on_new_mongo_console={openMongoConsoleTab}
-                  on_open_file={openFileTab}
-                />
-              )}
+              {/* Tabs draw right away; only the sidebar waits on the table list. */}
+              <WorkspaceContent
+                conn_id={conn_id}
+                conn={conn}
+                layout={ws.layout}
+                focusedPaneId={ws.focusedPaneId}
+                tabs={tabs}
+                tabsByKey={tabsByKey}
+                dirty_keys={new Set(dirty_keys.split("\u0000").filter(Boolean))}
+                revision={revision}
+                tables={tables}
+                bump={bump}
+                bumpTables={bumpTables}
+                on_object_created={(database, schema, kind) =>
+                  setObjectCreated({ database, schema, kind })
+                }
+                openReference={openReference}
+                openTable={openTable}
+                on_close={(tab) => requestClose([tab])}
+                on_close_all={() => requestClose(bulkTargets("all", null))}
+                on_close_to_left={(tab) =>
+                  requestClose(bulkTargets("left", tab))
+                }
+                on_close_to_right={(tab) =>
+                  requestClose(bulkTargets("right", tab))
+                }
+                on_close_others={(tab) =>
+                  requestClose(bulkTargets("others", tab))
+                }
+                on_new_sql={openNewSql}
+                on_new_table={openNewTableTab}
+                on_new_mongo_console={openMongoConsoleTab}
+                on_open_file={openFileTab}
+              />
             </div>
           </div>
         </div>
@@ -620,6 +619,7 @@ function WorkspaceContent({
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_close_others,
   on_new_sql,
   on_new_table,
   on_new_mongo_console,
@@ -656,11 +656,12 @@ function WorkspaceContent({
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_close_others: (tab: StudioTab) => void;
   on_new_sql: (paneId?: string) => void;
   on_new_table: (paneId?: string) => void;
   on_new_mongo_console: (
     seedText?: string,
-    seedFileName?: string,
+    seedFilePath?: string,
     paneId?: string,
   ) => void;
   on_open_file: (paneId?: string) => void;
@@ -750,6 +751,7 @@ function WorkspaceContent({
         on_close_all={on_close_all}
         on_close_to_left={on_close_to_left}
         on_close_to_right={on_close_to_right}
+        on_close_others={on_close_others}
         on_new_sql={on_new_sql}
         on_new_table={on_new_table}
         // `on_new_mongo_console` takes optional seed args before its

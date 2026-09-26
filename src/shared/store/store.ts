@@ -317,7 +317,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         },
         // Set alongside sqlSeeds only when the seed came from a real file
         // (openFileTab) — see the doc comment on the type.
-        seedFileNames: {},
+        seedFilePaths: {},
 
         recentParams: (() => {
           try {
@@ -497,9 +497,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             return { pins: next };
           });
         },
-        landingPrefill: null,
-        clearLandingPrefill() {
-          set({ landingPrefill: null });
+        landingForm: null,
+        clearLandingForm() {
+          set({ landingForm: null });
         },
         /** True while a Postgres connect is in flight — GLOBAL so navigating
          *  between home/studio can't lose the spinner or double-connect. */
@@ -513,16 +513,8 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         setMongoConnecting(v) {
           set({ mongoConnecting: v });
         },
-        requestLandingPrefill(kind, params, connect = false, edit) {
-          set(() => ({
-            landingPrefill: {
-              kind,
-              params,
-              n: ++prefill_seq,
-              connect,
-              edit,
-            },
-          }));
+        requestLandingForm(kind, params, edit) {
+          set({ landingForm: { kind, params, n: ++prefill_seq, edit } });
         },
 
         ...activityActions(set),

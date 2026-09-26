@@ -65,7 +65,14 @@ describe("GuardFields", () => {
     expect(confirm).toBeChecked();
     // The base checkbox is a span, so it says "disabled" with ARIA.
     expect(confirm).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText(/always on for production/i)).toBeInTheDocument();
+    await userEvent.hover(
+      screen.getByRole("button", { name: /about confirm before writes/i }),
+    );
+    expect(
+      await screen.findByText(/always on for production/i, undefined, {
+        timeout: 2000,
+      }),
+    ).toBeInTheDocument();
     expect(sent()).toEqual({ read_only: false, env_label: "Production" });
   });
 

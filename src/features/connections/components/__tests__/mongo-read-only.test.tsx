@@ -18,6 +18,7 @@ vi.mock("@/shared/api", async (importOriginal) => ({
 import { useStudioStore } from "@/shared/store";
 import type { SavedConnParams } from "@/shared/store";
 import { Landing } from "../landing";
+import { useConnectionDrafts } from "../../lib/drafts";
 
 const base: SavedConnParams = {
   kind: "mongodb",
@@ -31,13 +32,16 @@ const base: SavedConnParams = {
 
 function prefill(params: SavedConnParams) {
   useStudioStore.setState({
-    landingPrefill: { kind: "mongodb", params, n: 1, connect: false },
+    landingForm: { kind: "mongodb", params, n: 1 },
   });
 }
 
+const openSafety = () =>
+  userEvent.click(screen.getByRole("tab", { name: /safety/i }));
 const readOnlySwitch = () => screen.getByRole("switch", { name: /read only/i });
 
 beforeEach(() => {
+  useConnectionDrafts.getState().reset();
   connectMongo.mockReset().mockResolvedValue({
     id: "m1",
     name: "shop",
@@ -46,7 +50,7 @@ beforeEach(() => {
   useStudioStore.setState({
     savedLocal: {},
     open: [],
-    landingPrefill: null,
+    landingForm: null,
   });
 });
 afterEach(cleanup);
@@ -57,6 +61,7 @@ describe("Landing, MongoDB read only switch", () => {
     render(<Landing />);
 
     await screen.findByDisplayValue("mongo.example");
+    await openSafety();
     expect(readOnlySwitch()).not.toBeChecked();
   });
 
@@ -65,6 +70,7 @@ describe("Landing, MongoDB read only switch", () => {
     render(<Landing />);
 
     await screen.findByDisplayValue("mongo.example");
+    await openSafety();
     expect(readOnlySwitch()).toBeChecked();
   });
 
@@ -73,6 +79,7 @@ describe("Landing, MongoDB read only switch", () => {
     render(<Landing />);
     await screen.findByDisplayValue("mongo.example");
 
+    await openSafety();
     await userEvent.click(readOnlySwitch());
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
 
@@ -99,8 +106,9 @@ describe("Landing, MongoDB read only switch", () => {
     render(<Landing />);
     await screen.findByDisplayValue("mongo.example");
 
+    await openSafety();
     await userEvent.click(readOnlySwitch());
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(useStudioStore.getState().savedLocal["Shop"]).toBeDefined(),

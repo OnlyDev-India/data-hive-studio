@@ -55,6 +55,7 @@ import { nosqlSyntaxLinter } from "./nosql-lint";
 import {
   lucideFoldGutter,
   markRunResult,
+  type RunOutcome,
   statementFrameLayer,
   statementGutter,
 } from "./statement-runner";
@@ -101,10 +102,13 @@ export interface QueryEditorHandle {
    *  underlines them and shows the message on hover, independent of
    *  whatever a separate results panel shows. */
   setErrors: (errors: { from: number; to: number; message: string }[]) => void;
-  /** Marks a statement's run as finished — `range` set and successful shows
-   *  the gutter's checkmark badge on it; `null` clears any existing badge
-   *  (e.g. the run errored, or a different statement ran instead). */
-  markRunResult: (range: { from: number; to: number } | null) => void;
+  /** Marks a statement's run as finished — the gutter shows a check (or a
+   *  red cross for `"error"`) on it; `null` clears any existing badge
+   *  (e.g. the run was stopped). */
+  markRunResult: (
+    range: { from: number; to: number } | null,
+    outcome?: RunOutcome,
+  ) => void;
 }
 
 // `linter(null)` installs the diagnostics state field/underline rendering
@@ -568,10 +572,10 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           setDiagnostics(view.state, [...kept, ...runtimeDiagnostics]),
         );
       },
-      markRunResult: (range) => {
+      markRunResult: (range, outcome) => {
         const view = cmsRef.current?.view;
         if (!view) return;
-        markRunResult(view, range);
+        markRunResult(view, range, outcome);
       },
     }));
 

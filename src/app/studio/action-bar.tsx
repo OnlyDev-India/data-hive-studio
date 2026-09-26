@@ -48,16 +48,24 @@ export function ActionBar() {
   // that knows which tab's grid is showing. Not on the web build, where the
   // same keys reload the whole page (see studio.tsx's leave confirm).
   const reload_binding = useAppShortcut("grid.reload");
+  const paused = useStudioStore((s) =>
+    active_key ? !!s.pausedTabs[active_key] : false,
+  );
+  const resume_tab = useStudioStore((s) => s.resumeTab);
   useShortcuts(
     [
       {
         ...reload_binding,
         handler: () => {
-          if (bridge && !bridge.loading) bridge.refresh();
+          if (paused && active_key) resume_tab(active_key);
+          else if (bridge && !bridge.loading) bridge.refresh();
         },
       },
     ],
-    { enabled: !WEB && !!bridge && paneMode === "data", capture: true },
+    {
+      enabled: !WEB && (!!bridge || paused) && paneMode === "data",
+      capture: true,
+    },
   );
   // New-table tab registers its create action under its tab key — the button
   // shows only while a NEW-TABLE tab is active, enabled only when valid.

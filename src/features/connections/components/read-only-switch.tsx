@@ -1,5 +1,6 @@
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
+import { InfoTip } from "./info-tip";
 
 /** The Read only switch every connection form shows (spec 0007). The hint
  *  says the honest limit: this stops slips made through DH Studio, and only a
@@ -15,7 +16,7 @@ export function ReadOnlySwitch({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex items-center gap-3">
       <Switch
         id={id}
         aria-label="Read only"
@@ -24,15 +25,13 @@ export function ReadOnlySwitch({
         // consumer's setter has no use for.
         onCheckedChange={(next) => onCheckedChange(next)}
       />
-      <div className="grid gap-0.5">
-        <Label htmlFor={id} className="text-sm font-normal">
-          Read only
-        </Label>
-        <p className="text-muted-foreground text-xs">
-          DH Studio refuses every write on this connection. A database role with
-          read only grants is the only hard guarantee.
-        </p>
-      </div>
+      <Label htmlFor={id} className="text-sm font-normal">
+        Read only
+      </Label>
+      <InfoTip label="Read only">
+        DH Studio refuses every write on this connection. A database role with
+        read only grants is the only hard guarantee.
+      </InfoTip>
     </div>
   );
 }

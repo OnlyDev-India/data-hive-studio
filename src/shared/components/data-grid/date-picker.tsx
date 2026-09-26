@@ -164,7 +164,7 @@ function TimeColumn({
     <div
       role="listbox"
       aria-label={label}
-      className="flex max-h-64 w-12 [scrollbar-width:none] flex-col gap-0.5 overflow-y-auto [&::-webkit-scrollbar]:hidden"
+      className="flex max-h-64 w-12 scrollbar-none flex-col gap-0.5 overflow-y-auto [&::-webkit-scrollbar]:hidden"
     >
       {Array.from({ length: count }, (_, n) => (
         <button

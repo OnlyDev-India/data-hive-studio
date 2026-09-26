@@ -5,6 +5,7 @@ import {
   Layers,
   ListTree,
   Loader2,
+  Play,
   Square,
   X,
 } from "lucide-react";
@@ -55,6 +56,7 @@ import {
   type QueryEditorHandle,
 } from "@/shared/components/query-editor";
 import { EditorRunToolbar } from "./editor-run-toolbar";
+import { FileBreadcrumb, useEditorScrolled } from "./file-breadcrumb";
 import type { ConfirmItem } from "@/shared/components/write-confirm-dialog";
 import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
 import { BindVariablesDialog } from "./bind-variables-dialog";
@@ -171,7 +173,7 @@ export function ResultTabStrip({
 }) {
   return (
     <TooltipProvider delay={500}>
-      <div className="bg-background flex shrink-0 items-center gap-1 px-1.5 py-1">
+      <div className="bg-background flex shrink-0 items-center gap-1 border-b px-1.5 py-1">
         <Tooltip>
           <TooltipTrigger
             render={
@@ -258,27 +260,28 @@ export function ResultTabStrip({
 /** Unsaved-text tracking shared by both bodies: `is_dirty` compares the
  *  live text against whatever was last saved (or, for a seed handed over
  *  from a real file via openFileTab, the seed itself — see the
- *  `seedFileNames` check below), `file_name` is what the tab strip shows
- *  once it's been saved at least once. `pick_and_write` does the
- *  kind-specific save-dialog + write; only the resulting path/bytes flow
- *  back here. `open` is the toolbar's "Open" button: loads a picked file
+ *  `seedFilePaths` check below). Like VS Code, `save` writes straight back
+ *  to `file_path` once the tab is tied to a file, and only calls the
+ *  kind-specific `pick_path` save dialog for a tab that has never been
+ *  saved. `open` is the toolbar's "Open" button: loads a picked file
  *  straight into THIS tab (replacing its text) rather than opening a new
  *  one — for that, see `openFileTab` in workspace.tsx instead. */
-function useUnsavedQueryTracking(
+export function useUnsavedQueryTracking(
   tab_key: string,
   text: string,
   set_text: (v: string) => void,
-  pick_and_write: (text: string) => Promise<string | null>,
+  pick_path: () => Promise<string | null>,
 ) {
   const [saved_baseline, setSavedBaseline] = useState(() => {
     const s = useStudioStore.getState();
-    return s.seedFileNames[tab_key] !== undefined
+    return s.seedFilePaths[tab_key] !== undefined
       ? (s.sqlSeeds[tab_key] ?? "")
       : "";
   });
-  const [file_name, setFileName] = useState<string | null>(
-    () => useStudioStore.getState().seedFileNames[tab_key] ?? null,
+  const [file_path, setFilePath] = useState<string | null>(
+    () => useStudioStore.getState().seedFilePaths[tab_key] ?? null,
   );
+  const file_name = file_path ? basename(file_path) : null;
   const is_dirty = text.trim().length > 0 && text !== saved_baseline;
   // `save` always writes the LATEST text even if a stale closure fires
   // after a fast edit — mirrors the pre-merge components' own ref pattern.
@@ -287,19 +290,30 @@ function useUnsavedQueryTracking(
     text_ref.current = text;
   });
   const save = useCallback(async (): Promise<boolean> => {
-    const path = await pick_and_write(text_ref.current);
+    const path = file_path ?? (await pick_path());
     if (!path) return false;
-    setSavedBaseline(text_ref.current);
-    setFileName(basename(path));
+    const saved_text = text_ref.current;
+    try {
+      await writeFile(path, Array.from(new TextEncoder().encode(saved_text)));
+    } catch (e) {
+      useStudioStore.getState().pushNotification({
+        kind: "error",
+        title: "Could not save file",
+        detail: String(e),
+      });
+      return false;
+    }
+    setSavedBaseline(saved_text);
+    setFilePath(path);
     return true;
-  }, [pick_and_write]);
+  }, [file_path, pick_path]);
   const open = useCallback(async () => {
     try {
       const file = await pickSqlFile();
       if (!file) return;
       set_text(file.text);
       setSavedBaseline(file.text);
-      setFileName(file.name);
+      setFilePath(file.path);
     } catch (e) {
       useStudioStore.getState().pushNotification({
         kind: "error",
@@ -308,7 +322,7 @@ function useUnsavedQueryTracking(
       });
     }
   }, [set_text]);
-  return { is_dirty, file_name, save, open };
+  return { is_dirty, file_path, file_name, save, open };
 }
 
 /** What Stop needs to know about one result tab of either editor kind. */
@@ -327,7 +341,7 @@ interface StoppableRun {
  *  adds the "still winding down" note. `patch_run` must apply only while the
  *  tab still belongs to `run_id`, so a late outcome never touches a newer run
  *  in a reused tab. */
-function useStopRuns(
+export function useStopRuns(
   conn_id: string,
   items: StoppableRun[],
   patch_run: (
@@ -337,10 +351,10 @@ function useStopRuns(
   ) => void,
 ) {
   const stoppable = items.filter((t) => t.running && t.run_id);
-  const stop_all = useCallback(() => {
-    for (const t of stoppable) {
+  const stop_one = useCallback(
+    (t: StoppableRun) => {
       const run_id = t.run_id;
-      if (!run_id || t.stopping) continue;
+      if (!run_id || t.stopping) return;
       patch_run(t.id, run_id, { stopping: true });
       cancelRun(conn_id, run_id)
         .then((outcome) => {
@@ -355,12 +369,25 @@ function useStopRuns(
             detail: String(e),
           });
         });
-    }
-  }, [stoppable, conn_id, patch_run]);
+    },
+    [conn_id, patch_run],
+  );
+  const stop_all = useCallback(() => {
+    for (const t of stoppable) stop_one(t);
+  }, [stoppable, stop_one]);
+  // The result pane's own Stop: ends just the run on screen.
+  const stop_run = useCallback(
+    (id: number) => {
+      const t = stoppable.find((r) => r.id === id);
+      if (t) stop_one(t);
+    },
+    [stoppable, stop_one],
+  );
   return {
     running_count: stoppable.length,
     stop_pending: stoppable.every((t) => t.stopping),
     stop_all,
+    stop_run,
   };
 }
 
@@ -387,6 +414,10 @@ interface SqlResultTab {
   /** The database did not confirm the cancel within 3 seconds, so the tab
    *  freed up anyway and it may still be winding the query down. */
   winding_down: boolean;
+  /** `performance.now()` when the current run began, for the loading timer. */
+  started_at?: number;
+  /** Set while a grid Refresh reruns this tab: the old rows stay on show. */
+  refresh?: { previous: QueryResult; started_at: number } | null;
 }
 
 /** Completion hints shared by EVERY SQL tab in the session, keyed by
@@ -973,7 +1004,12 @@ function SqlEditorBody({
     [close_tab, close_plan, tabs],
   );
   const run_query = useCallback(
-    async (id: number, query: string, range?: { from: number; to: number }) => {
+    async (
+      id: number,
+      query: string,
+      range?: { from: number; to: number },
+      previous?: QueryResult | null,
+    ) => {
       // Only runs Stop can reach get an id (see `canCancelRun`).
       const run_id = canCancelRun(conn?.kind) ? crypto.randomUUID() : null;
       const run_started = performance.now();
@@ -982,6 +1018,8 @@ function SqlEditorBody({
       patch_tab(id, {
         running: true,
         result: null,
+        started_at: run_started,
+        refresh: previous ? { previous, started_at: run_started } : null,
         sql: query,
         run_id,
         stopping: false,
@@ -1033,6 +1071,7 @@ function SqlEditorBody({
           running: false,
           stopping: false,
           stopped: true,
+          refresh: null,
           result: {
             ...res,
             ...streamed,
@@ -1068,6 +1107,7 @@ function SqlEditorBody({
         // Stop may have been pressed just as it finished (AC-16): the real
         // result wins, so there is nothing left to stop.
         stopping: false,
+        refresh: null,
         result:
           res.is_select && !res.error && acc.started()
             ? { ...res, ...streamed }
@@ -1078,7 +1118,10 @@ function SqlEditorBody({
           error_ranges.current.set(id, { ...range, message: res.error });
         else error_ranges.current.delete(id);
         sync_errors();
-        editorRef.current?.markRunResult(res.error ? null : range);
+        editorRef.current?.markRunResult(
+          range,
+          res.error ? "error" : "success",
+        );
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; the React Compiler's own preserve-manual-memoization rule requires `.current` specifically here, which exhaustive-deps then (correctly, in the general case) flags as not a valid dependency — a genuine conflict between the two rules, not a missing dependency
@@ -1194,7 +1237,7 @@ function SqlEditorBody({
       id < 0 ? plan_patch_run(id, run_id, patch) : patch_run(id, run_id, patch),
     [plan_patch_run, patch_run],
   );
-  const { running_count, stop_pending, stop_all } = useStopRuns(
+  const { running_count, stop_pending, stop_all, stop_run } = useStopRuns(
     conn_id,
     stop_items,
     patch_any_run,
@@ -1221,18 +1264,14 @@ function SqlEditorBody({
     [active, result],
   );
 
-  const pick_and_write = useCallback(async (text: string) => {
-    const path = await pickSqlSavePath();
-    if (!path) return null;
-    await writeFile(path, Array.from(new TextEncoder().encode(text)));
-    return path;
-  }, []);
   const {
     is_dirty,
+    file_path,
     file_name,
     save: save_sql,
     open: open_sql_file,
-  } = useUnsavedQueryTracking(tab_key, sql_text, setSql, pick_and_write);
+  } = useUnsavedQueryTracking(tab_key, sql_text, setSql, pickSqlSavePath);
+  const editor_scroll = useEditorScrolled();
 
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
@@ -1333,7 +1372,13 @@ function SqlEditorBody({
         on_save={() => void save_sql()}
         on_open={() => void open_sql_file()}
       />
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {file_path && (
+        <FileBreadcrumb path={file_path} scrolled={editor_scroll.scrolled} />
+      )}
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-3"
+        onScrollCapture={editor_scroll.onScrollCapture}
+      >
         <QueryEditor
           ref={editorRef}
           value={sql_text}
@@ -1406,9 +1451,28 @@ function SqlEditorBody({
                   on_stop={() => stop_plan(active_plan)}
                 />
               ) : active === null ? (
-                <div className="text-muted-foreground m-6 rounded-md border border-dashed p-10 text-center text-sm">
-                  Run a query to see results.
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-3 py-8 text-center">
+                  <Play className="text-muted-foreground size-5" />
+                  <p className="text-muted-foreground text-sm">
+                    Run a query to see results.
+                  </p>
                 </div>
+              ) : active.running && active.refresh ? (
+                <SqlResults
+                  conn_id={conn_id}
+                  tab_key={`${tab_key}\u0000${active.id}`}
+                  result={active.refresh.previous}
+                  sql={active.sql}
+                  database={target_database}
+                  on_refresh={() => {}}
+                  loading={{
+                    started_at: active.refresh.started_at,
+                    on_stop: active.run_id
+                      ? () => stop_run(active.id)
+                      : undefined,
+                    stopping: active.stopping,
+                  }}
+                />
               ) : active.running &&
                 active.result &&
                 resultRowCount(active.result) > 0 ? (
@@ -1427,14 +1491,22 @@ function SqlEditorBody({
                   </div>
                 </div>
               ) : active.running ? (
-                <div className="flex flex-col gap-2 pt-4">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="bg-muted h-8 animate-pulse rounded-md"
-                    />
-                  ))}
-                </div>
+                <SqlResults
+                  live
+                  conn_id={conn_id}
+                  tab_key={`${tab_key}\u0000${active.id}`}
+                  result={PENDING_SQL_RESULT}
+                  sql={active.sql}
+                  database={target_database}
+                  on_refresh={() => {}}
+                  loading={{
+                    started_at: active.started_at ?? 0,
+                    on_stop: active.run_id
+                      ? () => stop_run(active.id)
+                      : undefined,
+                    stopping: active.stopping,
+                  }}
+                />
               ) : active.stopped && active.result ? (
                 <div className="flex h-full min-h-0 flex-col">
                   <StoppedNote
@@ -1462,7 +1534,14 @@ function SqlEditorBody({
                   result={active.result}
                   sql={active.sql}
                   database={target_database}
-                  on_refresh={() => void run_query(active.id, active.sql)}
+                  on_refresh={() =>
+                    void run_query(
+                      active.id,
+                      active.sql,
+                      undefined,
+                      active.result,
+                    )
+                  }
                 />
               ) : null}
             </div>
@@ -1528,7 +1607,39 @@ function StoppedNote({
   );
 }
 
-function SqlResults({
+/** Stand in results for a run with nothing back yet, so the result header
+ *  and its actions show under the loading overlay, same as a refresh. */
+const PENDING_SQL_RESULT: QueryResult = {
+  columns: [],
+  rows: [],
+  rows_affected: 0,
+  is_select: true,
+  error: null,
+  elapsed_ms: 0,
+};
+const PENDING_MONGO_RESULT: MongoRunResult = {
+  command: "",
+  columns: [],
+  rows: [],
+  documents: [],
+  rows_affected: 0,
+  is_select: true,
+  message: null,
+  error: null,
+  switch_db: null,
+  elapsed_ms: 0,
+};
+
+/** Each result's editability lookup, kept per result object so switching
+ *  back to a result tab reuses it instead of describing the table again.
+ *  A rerun or refresh makes a new result, so it still describes fresh.
+ *  `null` means the lookup ran and the result is not editable. */
+const editableSourceByResult = new WeakMap<
+  object,
+  QueryResultEditableSource | null
+>();
+
+export function SqlResults({
   result,
   live = false,
   conn_id,
@@ -1536,6 +1647,7 @@ function SqlResults({
   sql,
   database,
   on_refresh,
+  loading,
 }: {
   result: QueryResult;
   /** The run is still streaming rows in: read only, and no editability
@@ -1546,24 +1658,30 @@ function SqlResults({
   sql: string;
   database?: string;
   on_refresh: () => void;
+  loading?: { started_at: number; on_stop?: () => void; stopping?: boolean };
 }) {
   const [editable_source, setEditableSource] =
-    useState<QueryResultEditableSource | null>(null);
+    useState<QueryResultEditableSource | null>(
+      () => editableSourceByResult.get(result) ?? null,
+    );
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a new result invalidates the previous one's editability immediately; the real (async) detection follows below
-    setEditableSource(null);
-    if (!result.is_select || live) return;
+    setEditableSource(editableSourceByResult.get(result) ?? null);
+    if (!result.is_select || live || editableSourceByResult.has(result)) return;
     const hit = singleTableSelect(sql);
     if (!hit) return;
     const { table, schema } = splitSchemaQualified(hit.table);
     let cancelled = false;
     void tableSchema(conn_id, table, database, schema)
       .then((schema_result) => {
-        if (!cancelled) setEditableSource({ table, schema: schema_result });
+        const source = { table, schema: schema_result };
+        editableSourceByResult.set(result, source);
+        if (!cancelled) setEditableSource(source);
       })
       .catch(() => {
         // Not a real table (a view, a typo, …) — stays read-only, same as
         // any other query the detector didn't recognize.
+        editableSourceByResult.set(result, null);
       });
     return () => {
       cancelled = true;
@@ -1574,10 +1692,12 @@ function SqlResults({
   // `result` field) instead of here, matching where the regular table grid
   // shows the same info — the result tab strip's colored dot already covers
   // running/success/error status, so this pane only needs to show content.
-  if (result.is_select)
+  // Failed before any row: the grid shows the error in its own place.
+  const failed = !!result.error && resultRowCount(result) === 0;
+  if (result.is_select || failed)
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden border">
-        {result.error && (
+        {result.error && !failed && (
           // Rows arrived, then the run failed: keep the rows, error on top.
           <div
             role="alert"
@@ -1594,22 +1714,15 @@ function SqlResults({
           editable_source={editable_source}
           database={database}
           on_refresh={on_refresh}
+          loading={loading}
         />
       </div>
     );
 
   return (
-    <>
-      {result.error ? (
-        <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm">
-          {result.error}
-        </div>
-      ) : (
-        <div className="text-muted-foreground m-4 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
-          <Badge>Done</Badge>
-        </div>
-      )}
-    </>
+    <div className="text-muted-foreground m-4 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
+      <Badge>Done</Badge>
+    </div>
   );
 }
 
@@ -1628,6 +1741,8 @@ interface MongoEntry {
   stopping: boolean;
   stopped: boolean;
   winding_down: boolean;
+  started_at?: number;
+  refresh?: { previous: MongoRunResult; started_at: number } | null;
 }
 
 /** Strip `//` comment lines — the console's commands are the real payload. */
@@ -1843,7 +1958,12 @@ function MongoEditorBody({
   );
 
   const run_query = useCallback(
-    async (id: number, text: string, range?: { from: number; to: number }) => {
+    async (
+      id: number,
+      text: string,
+      range?: { from: number; to: number },
+      previous?: MongoRunResult | null,
+    ) => {
       // A run always shows its result, even if the panel was hidden.
       openBottomPanel();
       // Only runs Stop can reach get an id (see `canCancelRun`).
@@ -1852,6 +1972,8 @@ function MongoEditorBody({
       patch(id, {
         running: true,
         result: null,
+        started_at: run_started,
+        refresh: previous ? { previous, started_at: run_started } : null,
         run_id,
         stopping: false,
         stopped: false,
@@ -1922,7 +2044,7 @@ function MongoEditorBody({
         if (res.switch_db) setDb(res.switch_db);
         if (res.error) {
           flag_error(res.error);
-          if (range) editorRef.current?.markRunResult(null);
+          if (range) editorRef.current?.markRunResult(range, "error");
         } else {
           if (range) {
             error_ranges.current.delete(id);
@@ -1963,9 +2085,9 @@ function MongoEditorBody({
               },
         });
         flag_error(message);
-        if (range) editorRef.current?.markRunResult(null);
+        if (range) editorRef.current?.markRunResult(range, "error");
       } finally {
-        patch(id, { running: false, stopping: false });
+        patch(id, { running: false, stopping: false, refresh: null });
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- error_ranges is a stable ref; see the identical note above SqlEditorBody's run_query
@@ -2018,6 +2140,7 @@ function MongoEditorBody({
           stopping: false,
           stopped: false,
           winding_down: false,
+          started_at: performance.now(),
         },
       ]);
       setActiveId(id);
@@ -2124,21 +2247,21 @@ function MongoEditorBody({
 
   const active = entries.find((e) => e.id === active_id) ?? null;
 
-  const pick_and_write = useCallback(async (text: string) => {
+  const pick_path = useCallback(async () => {
     const path = await saveDialog({
       defaultPath: "console.js",
       filters: [{ name: "JavaScript console", extensions: ["js"] }],
     });
-    if (!path || Array.isArray(path)) return null;
-    await writeFile(path, Array.from(new TextEncoder().encode(text)));
-    return path;
+    return !path || Array.isArray(path) ? null : path;
   }, []);
   const {
     is_dirty,
+    file_path,
     file_name,
     save: save_script,
     open: open_script_file,
-  } = useUnsavedQueryTracking(tab_key, script_text, setScript, pick_and_write);
+  } = useUnsavedQueryTracking(tab_key, script_text, setScript, pick_path);
+  const editor_scroll = useEditorScrolled();
 
   const set_sql_tab = useStudioStore((s) => s.setSqlTab);
   const clear_sql_tab = useStudioStore((s) => s.clearSqlTab);
@@ -2152,6 +2275,7 @@ function MongoEditorBody({
       run_target,
       has_selection,
       file_name,
+      database: db,
     });
     return () => clear_sql_tab(tab_key);
   }, [
@@ -2159,6 +2283,7 @@ function MongoEditorBody({
     script_text,
     is_dirty,
     file_name,
+    db,
     save_script,
     run_all,
     run_target,
@@ -2210,7 +2335,7 @@ function MongoEditorBody({
       id < 0 ? plan_patch_run(id, run_id, patch) : patch_run(id, run_id, patch),
     [plan_patch_run, patch_run],
   );
-  const { running_count, stop_pending, stop_all } = useStopRuns(
+  const { running_count, stop_pending, stop_all, stop_run } = useStopRuns(
     conn_id,
     stop_items,
     patch_any_run,
@@ -2241,7 +2366,13 @@ function MongoEditorBody({
         on_save={() => void save_script()}
         on_open={() => void open_script_file()}
       />
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {file_path && (
+        <FileBreadcrumb path={file_path} scrolled={editor_scroll.scrolled} />
+      )}
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-3"
+        onScrollCapture={editor_scroll.onScrollCapture}
+      >
         <QueryEditor
           ref={editorRef}
           value={script_text}
@@ -2310,9 +2441,27 @@ function MongoEditorBody({
                   on_stop={() => stop_plan(active_plan)}
                 />
               ) : !active ? (
-                <div className="text-muted-foreground m-4 rounded-md border border-dashed p-10 text-center text-sm">
-                  Run a command to see results.
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-3 py-8 text-center">
+                  <Play className="text-muted-foreground size-5" />
+                  <p className="text-muted-foreground text-sm">
+                    Run a command to see results.
+                  </p>
                 </div>
+              ) : active.running && active.refresh ? (
+                <MongoResults
+                  entry={{ ...active, result: active.refresh.previous }}
+                  conn_id={conn_id}
+                  tab_key={`${tab_key}\u0000${active.id}`}
+                  database={db}
+                  on_refresh={() => {}}
+                  loading={{
+                    started_at: active.refresh.started_at,
+                    on_stop: active.run_id
+                      ? () => stop_run(active.id)
+                      : undefined,
+                    stopping: active.stopping,
+                  }}
+                />
               ) : active.running &&
                 active.result &&
                 resultRowCount(active.result) > 0 ? (
@@ -2332,9 +2481,21 @@ function MongoEditorBody({
                   </div>
                 </div>
               ) : active.running ? (
-                <div className="flex h-full min-h-0 items-center justify-center p-3">
-                  <Loader2 className="text-muted-foreground size-5 animate-spin" />
-                </div>
+                <MongoResults
+                  live
+                  entry={{ ...active, result: PENDING_MONGO_RESULT }}
+                  conn_id={conn_id}
+                  tab_key={`${tab_key}\u0000${active.id}`}
+                  database={db}
+                  on_refresh={() => {}}
+                  loading={{
+                    started_at: active.started_at ?? 0,
+                    on_stop: active.run_id
+                      ? () => stop_run(active.id)
+                      : undefined,
+                    stopping: active.stopping,
+                  }}
+                />
               ) : active.stopped && active.result ? (
                 <div className="flex h-full min-h-0 flex-col">
                   <StoppedNote
@@ -2363,7 +2524,14 @@ function MongoEditorBody({
                   conn_id={conn_id}
                   tab_key={`${tab_key}\u0000${active.id}`}
                   database={db}
-                  on_refresh={() => void run_query(active.id, active.command)}
+                  on_refresh={() =>
+                    void run_query(
+                      active.id,
+                      active.command,
+                      undefined,
+                      active.result,
+                    )
+                  }
                 />
               ) : null}
             </div>
@@ -2381,6 +2549,7 @@ function MongoResults({
   tab_key,
   database,
   on_refresh,
+  loading,
 }: {
   entry: MongoEntry;
   /** The run is still streaming rows in: no editability lookup per frame. */
@@ -2389,24 +2558,36 @@ function MongoResults({
   tab_key: string;
   database: string;
   on_refresh: () => void;
+  loading?: { started_at: number; on_stop?: () => void; stopping?: boolean };
 }) {
-  const [editable_source, setEditableSource] =
-    useState<QueryResultEditableSource | null>(null);
   const result = entry.result!;
+  const [editable_source, setEditableSource] =
+    useState<QueryResultEditableSource | null>(
+      () => editableSourceByResult.get(result) ?? null,
+    );
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a new result invalidates the previous one's editability immediately; the real (async) detection follows below
-    setEditableSource(null);
-    if (result.error || !result.is_select || live) return;
+    setEditableSource(editableSourceByResult.get(result) ?? null);
+    if (
+      result.error ||
+      !result.is_select ||
+      live ||
+      editableSourceByResult.has(result)
+    )
+      return;
     const hit = singleCollectionQuery(entry.command);
     if (!hit) return;
     let cancelled = false;
     void tableSchema(conn_id, hit.table, database)
       .then((schema) => {
-        if (!cancelled) setEditableSource({ table: hit.table, schema });
+        const source = { table: hit.table, schema };
+        editableSourceByResult.set(result, source);
+        if (!cancelled) setEditableSource(source);
       })
       .catch(() => {
         // Not a real collection (a typo, a view-like aggregation output, …)
         // — stays read-only, same as any other command the detector missed.
+        editableSourceByResult.set(result, null);
       });
     return () => {
       cancelled = true;
@@ -2414,12 +2595,6 @@ function MongoResults({
   }, [entry.command, result, live, conn_id, database]);
 
   const has_rows = result.is_select && resultRowCount(result) > 0;
-  if (result.error && !has_rows)
-    return (
-      <div className="border-destructive/30 bg-destructive/5 text-destructive m-4 rounded-md border px-3 py-2 text-sm whitespace-pre-wrap">
-        {result.error}
-      </div>
-    );
   const query_result: QueryResult = {
     columns: result.columns,
     rows: result.rows,
@@ -2431,7 +2606,7 @@ function MongoResults({
   };
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      {result.error && (
+      {result.error && has_rows && (
         // Rows arrived, then the run failed: keep the rows, error on top.
         <div
           role="alert"
@@ -2445,10 +2620,12 @@ function MongoResults({
         conn_id={conn_id}
         tab_key={tab_key}
         query_text={entry.command}
+        query_language="js"
         message={result.message ?? undefined}
         editable_source={editable_source}
         database={database}
         on_refresh={on_refresh}
+        loading={loading}
       />
     </div>
   );

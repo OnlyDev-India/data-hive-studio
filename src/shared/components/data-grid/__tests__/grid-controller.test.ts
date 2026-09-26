@@ -252,3 +252,30 @@ describe("useGridController — streamed rows", () => {
     expect(result.current.row_count).toBe(2);
   });
 });
+
+describe("useGridController — page changes", () => {
+  it("clears the selection when row_offset changes, so it does not land on the next page's rows", () => {
+    const { result, rerender } = renderHook(
+      ({ row_offset }) => useGridController(baseConfig({ row_offset })),
+      { initialProps: { row_offset: 0 } },
+    );
+    act(() => {
+      result.current.on_select(new Set([cellKey(1, "name")]));
+    });
+    expect(result.current.selected.size).toBe(1);
+    rerender({ row_offset: 50 });
+    expect(result.current.selected.size).toBe(0);
+  });
+
+  it("keeps the selection when the rows refresh on the same page", () => {
+    const { result, rerender } = renderHook(
+      ({ row_offset }) => useGridController(baseConfig({ row_offset })),
+      { initialProps: { row_offset: 50 } },
+    );
+    act(() => {
+      result.current.on_select(new Set([cellKey(1, "name")]));
+    });
+    rerender({ row_offset: 50 });
+    expect(result.current.selected.size).toBe(1);
+  });
+});

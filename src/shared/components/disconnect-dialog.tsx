@@ -28,14 +28,12 @@ export function DisconnectDialog() {
     s.open.find((c) => c.id === s.disconnectPendingId),
   );
 
-  async function handle_disconnect() {
+  function handle_disconnect() {
     if (!pending_id) return;
-    try {
-      await closeConnection(pending_id);
-    } finally {
-      closeConn(pending_id);
-      setPendingId(null);
-    }
+    // Leave the UI first; pool teardown can take seconds on a remote DB.
+    closeConn(pending_id);
+    setPendingId(null);
+    closeConnection(pending_id).catch(() => {});
   }
 
   // Escape already closes the dialog via Base UI's own built-in dialog
