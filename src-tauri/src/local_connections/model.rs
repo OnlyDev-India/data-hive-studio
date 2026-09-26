@@ -53,8 +53,8 @@ pub struct LocalConnMeta {
     #[serde(default)]
     pub server_selection_timeout_secs: Option<u32>,
     /// `Some` means this connection tunnels through SSH — no secrets here,
-    /// those live in the keychain like the main password (see
-    /// `ssh_secret_key`/`get_local_connection_secret`).
+    /// those live in `secret_store` like the main password (see
+    /// `get_local_connection_secret`).
     #[serde(default)]
     pub ssh_host: Option<String>,
     #[serde(default)]
@@ -70,7 +70,7 @@ pub struct LocalConnMeta {
     pub ssh_host_key_fingerprint: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
-    /// False keeps the DB and SSH passwords out of the keychain, so connect
+    /// False keeps the DB and SSH passwords out of the secret store, so connect
     /// asks for them. Older entries have no key and stay remembered.
     #[serde(default = "remembered")]
     pub remember_secret: bool,

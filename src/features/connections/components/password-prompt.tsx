@@ -61,7 +61,7 @@ export function PasswordPrompt({
               {save
                 ? WEB
                   ? "Saved in this browser as plain text."
-                  : "Saved in your system keychain."
+                  : "Saved on this computer, encrypted."
                 : "Not saved. It is kept in memory for this connection only."}
             </DialogDescription>
           </DialogHeader>

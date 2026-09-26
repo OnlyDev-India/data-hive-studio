@@ -95,7 +95,7 @@ export async function connectSaved(
   return connectMongoForm(mongoFormFromSaved(p), kind, beforeOpen);
 }
 
-/** Ask when the password wasn't remembered or the keychain couldn't read it. */
+/** Ask when the password wasn't remembered or isn't saved. */
 export function needsPassword(
   params: {
     kind?: SavedDbKind;

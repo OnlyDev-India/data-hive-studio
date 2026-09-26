@@ -37,6 +37,7 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 29  | Strip the server to a bare no login proxy   | Slice 29 | done        |
 | 30  | Connection form as a two step flow          | Slice 30 | in-progress |
 | 31  | Encrypted local secret storage              | Slice 31 | in-progress |
+| 32  | One line install without OS warnings        | Slice 32 | in-progress |
 | 5   | Table comparison view                       | Slice 5  | planned     |
 | 14  | Saved queries and snippets                  | Slice 14 | planned     |
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
@@ -157,15 +158,31 @@ Saved connection passwords and SSH secrets move out of the macOS Keychain, which
 spec [0013](../specs/0013-encrypted-local-secret-storage/index.md) · code in `src-tauri/src/local_connections`, `src-tauri/src/secret_store`
 
 - [x] Design it (spec): `/architect encrypted local secret storage`
-- [ ] Build it: `/develop encrypted local secret storage`
-  - [ ] One sealed secrets file used by every build, with atomic private writes and its tests running in CI (AC-1 to AC-5, AC-12)
-  - [ ] One time carry over from the Keychain and the old dev files, then delete them (AC-7 to AC-9)
-  - [ ] Lost key reset, newer version read only mode, and the Time Machine exclusion for the key (AC-6, AC-10, AC-11)
-  - [ ] Launch notice command, the notification in the store, and the new prompt copy (AC-9 to AC-11, AC-13)
+- [x] Build it: `/develop encrypted local secret storage`
+  - [x] One sealed secrets file used by every build, with atomic private writes and its tests running in CI (AC-1 to AC-5, AC-12)
+  - [x] One time carry over from the Keychain and the old dev files, then delete them (AC-7 to AC-9)
+  - [x] Lost key reset, newer version read only mode, and the Time Machine exclusion for the key (AC-6, AC-10, AC-11)
+  - [x] Launch notice command, the notification in the store, and the new prompt copy (AC-9 to AC-11, AC-13)
 - [ ] Verify it: `/check verify encrypted local secret storage`
 - [ ] Test it: `/test encrypted local secret storage`
 - [ ] Review it (fresh model): `/check review encrypted local secret storage`
 - [ ] Document it: `/document encrypted local secret storage`
+
+## Slice 32: One line install without OS warnings
+
+### 32. One line install without OS warnings · in-progress
+Unsigned builds trip macOS Gatekeeper ("damaged", fixed today with a Terminal `xattr` step) and Windows SmartScreen. Ad hoc sign the macOS app so a browser download shows "Open Anyway" instead of "damaged", and add a one line install command per OS that downloads the latest release with `curl`, `wget` or PowerShell `irm`, which skips the quarantine mark, and installs it: `install.sh` for macOS and Linux (`.deb`, `.rpm` or AppImage), `install.ps1` for Windows. The design pass settles where the scripts are served from, how they pick the right asset and verify it, and whether Windows installs silently.
+**Done when:** on a clean Mac, Windows PC and Linux box, pasting the one command installs the latest release and the app opens with no Gatekeeper, SmartScreen or Terminal fix step; a DMG downloaded in the browser opens through Open Anyway with no "damaged" message; and the release notes and README show the commands instead of the `xattr` step.
+spec [0014](../specs/0014-one-line-install/index.md) · code in `scripts/install`, `.github/workflows`, `src-tauri/tauri.conf.json`, `README.md`
+
+- [x] Design it (spec): `/architect one line install without OS warnings`
+- [ ] Build it: `/develop one line install without OS warnings`
+  - [ ] Ad hoc signing plus the macOS path of `install.sh`, published and smoke tested by `install-scripts.yml` end to end (AC-1 to AC-3, AC-10, AC-12 to AC-17)
+  - [ ] Linux path of `install.sh` (deb, rpm, AppImage) with its three smoke jobs (AC-4 to AC-6, AC-11 to AC-13, AC-17)
+  - [ ] `install.ps1` for Windows with its smoke job (AC-7 to AC-13, AC-15, AC-17)
+  - [ ] README and release notes show the commands, and the manual browser DMG and Windows wizard checks (AC-1, AC-3, AC-7, AC-18)
+- [ ] Verify it: `/check verify one line install without OS warnings`
+- [ ] Test it: `/test one line install without OS warnings`
 
 ## Slice 5: Table comparison view
 
@@ -217,6 +234,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Connection form extras**: the reference design also shows a standalone connection Color, Notes (with Show on the sidebar row), URL Params, Database information (server version after Test) and Select Visible Databases. Each needs its own design pass; Color and Notes need a new saved field · from spec 0012 · needs a decision · code in `src/features/connections`
 - **Optional master password**: a master password in Settings that locks the slice 31 key, so secrets stay unreadable until you unlock. Changing it locks the key again instead of rewriting every secret; forgetting it loses only the saved secrets. Also the place to move the key into the Keychain once the app has a Developer ID signature · from slice 31 · needs a decision · code in `src-tauri/src/secret_file.rs`, `src/features/settings`
 - **Fetch secrets at connect time**: the app loads every saved secret into webview memory at startup (`hydrateSavedLocal`). Fetch each one only when connecting, so secrets aren't held in memory until needed · from spec 0013 · code in `src/shared/store/store.ts`, `src/features/connections/lib/connect-saved.ts`
+- **Developer ID signing and notarization**: the only way to a plain double click install with no warning at all on macOS 15 and newer. Needs a paid Apple Developer account; then add the signing and notarization secrets the release workflow already notes, plus a Windows code signing certificate for SmartScreen · from slice 32 · needs a decision · code in `.github/workflows/release.yml`, `src-tauri/tauri.conf.json`
+- **Install script lint and uninstall**: run `shellcheck` and PSScriptAnalyzer on the install templates in PR checks, and add an uninstall command if users ask · from spec 0014 · code in `scripts/install`, `.github/workflows/pr-checks.yml`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 ## Legend

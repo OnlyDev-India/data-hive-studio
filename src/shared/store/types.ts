@@ -338,7 +338,7 @@ export interface SavedConnParams extends ConnGuard {
   /** Web build only: keep the database and SSH passwords in this browser's
    *  storage, as plain text. False means they are asked for at connect time. */
   remember_secret?: boolean;
-  /** Desktop only, in memory: the keychain had no readable password, so
+  /** Desktop only, in memory: no saved password was found, so
    *  connecting asks for one. */
   secret_missing?: boolean;
   /** SQLite only: real file path prefilled into the connect form. */
@@ -543,8 +543,8 @@ export interface StudioStore {
   recentParams: Record<string, SavedConnParams>;
   pushRecentParams: (connId: string, params: SavedConnParams) => void;
   /** Locally saved connections keyed by display name. Metadata lives in an
-   *  app-data JSON file and passwords in the OS keychain (see
-   *  `src-tauri/src/local_connections.rs`); this map is the in-memory
+   *  app-data JSON file and passwords in the encrypted secret store (see
+   *  `src-tauri/src/secret_store`); this map is the in-memory
    *  hydration of both, populated by `hydrateSavedLocal`. Each entry
    *  carries a `kind` (`SavedDbKind`) so it reopens correctly. */
   savedLocal: Record<string, SavedConnParams>;

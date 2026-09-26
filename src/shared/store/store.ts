@@ -9,6 +9,8 @@ import {
   listLocalConnections,
   migrateLocalConnections,
   saveLocalConnection as apiSaveLocalConnection,
+  takeSecretStoreNotice,
+  type SecretStoreNotice,
   updateLocalConnection as apiUpdateLocalConnection,
 } from "@/shared/api/local-connections";
 import { WEB } from "@/shared/api/web";
@@ -27,6 +29,31 @@ import {
   loadPendingWorkspaceRestores,
   scheduleWorkspaceSave,
 } from "./workspace-persistence";
+
+export function secretNoticeText(notice: SecretStoreNotice): {
+  title: string;
+  detail: string;
+} {
+  switch (notice.kind) {
+    case "key_reset":
+      return {
+        title: "Saved passwords were cleared",
+        detail:
+          "The key that protects your saved passwords was missing or damaged. Your connections are kept; you'll be asked for each password when you connect.",
+      };
+    case "import_partial":
+      return {
+        title: "Some passwords weren't carried over",
+        detail: `Couldn't read ${notice.names.length} saved passwords from the Keychain: ${notice.names.join(", ")}. You'll be asked for them when you connect.`,
+      };
+    case "newer_version":
+      return {
+        title: "Saved passwords unavailable",
+        detail:
+          "Saved passwords were made by a newer version of DH Studio. Update the app to save passwords.",
+      };
+  }
+}
 
 /** Pre-keychain local-connection data, still readable for a one-time
  *  migration into the backend (see `hydrateSavedLocal`). Never written to
@@ -350,7 +377,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
 
         // Saved connections — ONE map for every kind, keyed by display
         // name. On the desktop, metadata lives in an app-data JSON file and
-        // passwords in the OS keychain (src-tauri/src/local_connections.rs)
+        // passwords in the encrypted secret store (src-tauri/src/secret_store)
         // — see hydrateSavedLocal, called once at startup (Studio's mount
         // effect). Starts empty since Tauri IPC can't be awaited during
         // store creation. The web build keeps them in this browser's
@@ -400,6 +427,16 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             set({ savedLocal: next });
           } catch {
             /* backend not ready yet — leave savedLocal empty rather than crash */
+          }
+          try {
+            const notice = await takeSecretStoreNotice();
+            if (notice)
+              get().pushNotification({
+                kind: "error",
+                ...secretNoticeText(notice),
+              });
+          } catch {
+            /* no notice to show */
           }
         },
         async saveLocal(name, params) {
