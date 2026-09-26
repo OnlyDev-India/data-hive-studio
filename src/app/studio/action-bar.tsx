@@ -209,7 +209,6 @@ export function ActionBar() {
                       }
                     >
                       <Upload className="size-3.5" />
-                      Import
                     </Button>
                   </ActionBarTooltip>
                 )}
