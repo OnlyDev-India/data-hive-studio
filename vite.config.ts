@@ -44,10 +44,19 @@ export default defineConfig(() => ({
   envPrefix: ["VITE_", "TAURI_"],
   build: {
     target: "esnext",
+    // The macOS webview is WebKit, which still needs `-webkit-user-select`.
+    // With an esnext CSS target the minifier drops that prefix, so text
+    // selection turned back on everywhere in release builds.
+    cssTarget: "safari13",
     outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // App chunks can import each other in a cycle, and then a chunk's
+        // top level code may run before a chunk it needs has finished
+        // loading (seen with lucide, then CodeMirror's Facet.define). This
+        // runs every ES module in source order, whatever chunk it lands in.
+        strictExecutionOrder: true,
         // Without this, Rolldown's automatic chunking has split React's
         // CJS-interop wrapper into an app chunk (observed: "store") that
         // another chunk (observed: "utils") also needs — but loads BEFORE,
