@@ -41,21 +41,26 @@ pub fn save_local_connection(
     app: tauri::AppHandle,
     input: LocalConnInput,
 ) -> Result<LocalConnMeta, String> {
-    let password = input
-        .password
-        .clone()
-        .ok_or_else(|| "password is required to save a new connection".to_string())?;
     let meta = meta_from_input(&input)?;
-    save_password(&app, &meta.name, &password)?;
-    if input.ssh_host.is_some() {
-        save_ssh_secrets(
-            &app,
-            &meta.name,
-            &SshSecrets {
-                password: input.ssh_password.clone(),
-                key_passphrase: input.ssh_key_passphrase.clone(),
-            },
-        )?;
+    if meta.remember_secret {
+        let password = input
+            .password
+            .clone()
+            .ok_or_else(|| "password is required to save a new connection".to_string())?;
+        save_password(&app, &meta.name, &password)?;
+        if input.ssh_host.is_some() {
+            save_ssh_secrets(
+                &app,
+                &meta.name,
+                &SshSecrets {
+                    password: input.ssh_password.clone(),
+                    key_passphrase: input.ssh_key_passphrase.clone(),
+                },
+            )?;
+        }
+    } else {
+        delete_password(&app, &meta.name);
+        delete_ssh_secrets(&app, &meta.name);
     }
     let mut map = load_meta_map(&app)?;
     map.insert(meta.name.clone(), meta.clone());
@@ -75,6 +80,16 @@ pub fn update_local_connection(
     }
     let meta = meta_from_input(&input)?;
     let renamed = old_name != meta.name;
+    if !meta.remember_secret {
+        for name in [&old_name, &meta.name] {
+            delete_password(&app, name);
+            delete_ssh_secrets(&app, name);
+        }
+        map.remove(&old_name);
+        map.insert(meta.name.clone(), meta.clone());
+        save_meta_map(&app, &map)?;
+        return Ok(meta);
+    }
     match &input.password {
         Some(pw) => {
             save_password(&app, &meta.name, pw)?;

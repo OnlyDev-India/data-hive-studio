@@ -104,6 +104,7 @@ export function HomeView({
 }) {
   const saved_local = useStudioStore((s) => s.savedLocal);
   const delete_saved = useStudioStore((s) => s.deleteSavedLocal);
+  const update_saved = useStudioStore((s) => s.updateSavedLocal);
   const push_notification = useStudioStore((s) => s.pushNotification);
   const pins = useStudioStore((s) => s.pins);
   const toggle_pin = useStudioStore((s) => s.togglePin);
@@ -496,10 +497,26 @@ export function HomeView({
       <PasswordPrompt
         name={prompt?.name ?? null}
         onCancel={() => setPrompt(null)}
-        onSubmit={async (password) => {
+        onSubmit={async (password, save) => {
           if (!prompt) return;
           await connectSaved(prompt.kind, prompt.params, password);
           setPrompt(null);
+          const saved = saved_local[prompt.name];
+          if (!save || !saved) return;
+          try {
+            await update_saved(prompt.name, prompt.name, {
+              ...saved,
+              password,
+              secret_missing: undefined,
+              remember_secret: true,
+            });
+          } catch (e) {
+            push_notification({
+              kind: "error",
+              title: "Password not saved",
+              detail: String(e),
+            });
+          }
         }}
       />
     </div>

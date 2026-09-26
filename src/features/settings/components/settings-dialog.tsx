@@ -69,8 +69,8 @@ export function SettingsDialog({
                     className={cn(
                       "flex w-full shrink-0 items-center justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                       section === id
-                        ? "bg-primary hover:bg-primary/60 font-medium text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                        ? "bg-primary hover:bg-primary/60 text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                     )}
                   >
                     <Icon className="size-4" />

@@ -95,9 +95,19 @@ export async function connectSaved(
   return connectMongoForm(mongoFormFromSaved(p), kind, beforeOpen);
 }
 
-/** On the web a password that wasn't remembered has to be asked for. */
-export function needsPassword(params: { password?: string }, web: boolean) {
-  return web && !params.password;
+/** Ask when the password wasn't remembered or the keychain couldn't read it. */
+export function needsPassword(
+  params: {
+    kind?: SavedDbKind;
+    password?: string;
+    remember_secret?: boolean;
+    secret_missing?: boolean;
+  },
+  web: boolean,
+) {
+  if (params.kind === "sqlite") return false;
+  if (web) return !params.password;
+  return params.remember_secret === false || params.secret_missing === true;
 }
 
 export function uniqueCopyName(name: string, taken: Record<string, unknown>) {

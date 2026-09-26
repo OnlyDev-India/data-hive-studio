@@ -66,9 +66,7 @@ describe("WebGate (AC-4, AC-5)", () => {
     page();
     await userEvent.type(await screen.findByLabelText("Key"), "s3cret");
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() =>
-      expect(screen.queryByLabelText("Key")).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByLabelText("Key")).toBeNull());
     expect(sessionStorage.getItem("dh.web.key")).toBe("s3cret");
   });
 

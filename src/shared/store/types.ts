@@ -338,6 +338,9 @@ export interface SavedConnParams extends ConnGuard {
   /** Web build only: keep the database and SSH passwords in this browser's
    *  storage, as plain text. False means they are asked for at connect time. */
   remember_secret?: boolean;
+  /** Desktop only, in memory: the keychain had no readable password, so
+   *  connecting asks for one. */
+  secret_missing?: boolean;
   /** SQLite only: real file path prefilled into the connect form. */
   source_path?: string | null;
 }

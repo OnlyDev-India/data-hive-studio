@@ -378,19 +378,23 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               let password = "";
               let ssh_password: string | undefined;
               let ssh_key_passphrase: string | undefined;
-              try {
-                const secret = await getLocalConnectionSecret(meta.name);
-                password = secret.password;
-                ssh_password = secret.ssh_password ?? undefined;
-                ssh_key_passphrase = secret.ssh_key_passphrase ?? undefined;
-              } catch {
-                /* keychain entry missing/unreadable — user re-enters on connect */
-              }
+              let secret_missing: true | undefined;
+              if (meta.remember_secret !== false)
+                try {
+                  const secret = await getLocalConnectionSecret(meta.name);
+                  password = secret.password;
+                  ssh_password = secret.ssh_password ?? undefined;
+                  ssh_key_passphrase = secret.ssh_key_passphrase ?? undefined;
+                } catch {
+                  // Missing or unreadable (e.g. saved by a dev build): ask on connect.
+                  secret_missing = true;
+                }
               next[meta.name] = {
                 ...meta,
                 password,
                 ssh_password,
                 ssh_key_passphrase,
+                secret_missing,
               };
             }
             set({ savedLocal: next });

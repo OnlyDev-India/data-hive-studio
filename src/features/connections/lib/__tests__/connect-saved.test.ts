@@ -178,10 +178,32 @@ describe("connectSaved", () => {
 
 describe("needsPassword", () => {
   // covers: AC-25
-  it("asks only on the web, and only when no password was remembered", () => {
+  it("asks on the web when no password was remembered", () => {
     expect(needsPassword({ password: "" }, true)).toBe(true);
     expect(needsPassword({}, true)).toBe(true);
     expect(needsPassword({ password: "pw" }, true)).toBe(false);
+  });
+
+  it("asks on the desktop when the keychain read failed or it wasn't remembered", () => {
     expect(needsPassword({ password: "" }, false)).toBe(false);
+    expect(needsPassword({ password: "", remember_secret: true }, false)).toBe(
+      false,
+    );
+    expect(needsPassword({ password: "", secret_missing: true }, false)).toBe(
+      true,
+    );
+    expect(
+      needsPassword({ password: "pw", remember_secret: false }, false),
+    ).toBe(true);
+  });
+
+  it("never asks for SQLite", () => {
+    expect(
+      needsPassword(
+        { kind: "sqlite", password: "", secret_missing: true },
+        false,
+      ),
+    ).toBe(false);
+    expect(needsPassword({ kind: "sqlite", password: "" }, true)).toBe(false);
   });
 });

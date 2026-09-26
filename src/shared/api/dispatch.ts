@@ -46,7 +46,8 @@ function dispatchRaw<T>(
   connId: string,
   opts: Parameters<typeof dispatchDbCall>[1],
 ): Promise<T> {
-  if (WEB) return wcall<T>(opts.httpMethod, opts.httpPath(connId), opts.httpBody);
+  if (WEB)
+    return wcall<T>(opts.httpMethod, opts.httpPath(connId), opts.httpBody);
   return invoke<T>(opts.localCmd, opts.args);
 }
 

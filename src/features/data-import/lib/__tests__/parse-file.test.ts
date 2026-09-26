@@ -72,7 +72,10 @@ describe("parseFile", () => {
   it("decodes with the chosen encoding (AC-2)", async () => {
     const bytes = new Uint8Array([
       ...new TextEncoder().encode("name\n"),
-      0x63, 0x61, 0x66, 0xe9,
+      0x63,
+      0x61,
+      0x66,
+      0xe9,
     ]);
     const f = await parseFile(new File([bytes], "t.csv"), {
       ...opts,

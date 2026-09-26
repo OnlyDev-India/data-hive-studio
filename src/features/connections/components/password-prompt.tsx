@@ -8,9 +8,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
+import { WEB } from "@/shared/api/web";
 
-/** Asks for a password that wasn't remembered. It is held in memory only. */
+/** Asks for a password that wasn't remembered, and optionally saves it. */
 export function PasswordPrompt({
   name,
   onSubmit,
@@ -19,15 +21,17 @@ export function PasswordPrompt({
   /** The connection asking, or null when closed. */
   name: string | null;
   /** Rejects with the connect error to show it here. */
-  onSubmit: (password: string) => Promise<void>;
+  onSubmit: (password: string, save: boolean) => Promise<void>;
   onCancel: () => void;
 }) {
   const [password, setPassword] = useState("");
+  const [save, setSave] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const close = () => {
     setPassword("");
+    setSave(false);
     setError(null);
     onCancel();
   };
@@ -37,8 +41,9 @@ export function PasswordPrompt({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(password);
+      await onSubmit(password, save);
       setPassword("");
+      setSave(false);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -53,7 +58,11 @@ export function PasswordPrompt({
           <DialogHeader>
             <DialogTitle>Password for {name}</DialogTitle>
             <DialogDescription>
-              Not saved. It is kept in memory for this connection only.
+              {save
+                ? WEB
+                  ? "Saved in this browser as plain text."
+                  : "Saved in your system keychain."
+                : "Not saved. It is kept in memory for this connection only."}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -64,8 +73,18 @@ export function PasswordPrompt({
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={!!error}
           />
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={save}
+              onCheckedChange={(v) => setSave(v === true)}
+            />
+            Save password
+          </label>
           {error && (
-            <p role="alert" className="text-destructive text-xs break-words">
+            <p
+              role="alert"
+              className="text-destructive wrap-break-words text-xs"
+            >
               {error}
             </p>
           )}
