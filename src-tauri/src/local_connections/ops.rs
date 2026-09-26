@@ -1,7 +1,8 @@
 use tauri::Manager;
 use std::collections::BTreeMap;
+use std::path::Path;
 use super::model::{LocalConnInput, LocalConnMeta, LocalConnectionSecret, meta_from_input};
-use super::secrets::{SshSecrets, delete_password, delete_ssh_secrets, load_password, load_ssh_secrets, save_password, save_ssh_secrets};
+use crate::secret_store::{self, SecretRecord};
 
 fn connections_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -11,6 +12,11 @@ fn connections_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String
 
 fn load_meta_map(app: &tauri::AppHandle) -> Result<BTreeMap<String, LocalConnMeta>, String> {
     let path = connections_path(app)?;
+    load_meta_map_in(path.parent().expect("connections.json has a folder"))
+}
+
+fn load_meta_map_in(dir: &Path) -> Result<BTreeMap<String, LocalConnMeta>, String> {
+    let path = dir.join("connections.json");
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
@@ -19,6 +25,11 @@ fn load_meta_map(app: &tauri::AppHandle) -> Result<BTreeMap<String, LocalConnMet
         return Ok(BTreeMap::new());
     }
     serde_json::from_str(&raw).map_err(|e| e.to_string())
+}
+
+/// Names of the connections saved in `dir`, for the secret store.
+pub(crate) fn saved_names_in(dir: &Path) -> Result<Vec<String>, String> {
+    Ok(load_meta_map_in(dir)?.into_keys().collect())
 }
 
 fn save_meta_map(
@@ -36,36 +47,50 @@ pub fn list_local_connections(app: tauri::AppHandle) -> Result<Vec<LocalConnMeta
     Ok(load_meta_map(&app)?.into_values().collect())
 }
 
+/// The SSH fields only count while the tunnel is on.
+fn ssh_field(input: &LocalConnInput, value: &Option<String>, stored: Option<String>) -> Option<String> {
+    input.ssh_host.as_ref().and(value.clone().or(stored))
+}
+
 #[tauri::command]
 pub fn save_local_connection(
     app: tauri::AppHandle,
     input: LocalConnInput,
 ) -> Result<LocalConnMeta, String> {
     let meta = meta_from_input(&input)?;
+    let store = secret_store::store(&app)?;
     if meta.remember_secret {
         let password = input
             .password
             .clone()
             .ok_or_else(|| "password is required to save a new connection".to_string())?;
-        save_password(&app, &meta.name, &password)?;
-        if input.ssh_host.is_some() {
-            save_ssh_secrets(
-                &app,
-                &meta.name,
-                &SshSecrets {
-                    password: input.ssh_password.clone(),
-                    key_passphrase: input.ssh_key_passphrase.clone(),
-                },
-            )?;
-        }
+        let record = SecretRecord {
+            password: Some(password),
+            ssh_password: ssh_field(&input, &input.ssh_password, None),
+            ssh_key_passphrase: ssh_field(&input, &input.ssh_key_passphrase, None),
+        };
+        store.put(&meta.name, record)?;
     } else {
-        delete_password(&app, &meta.name);
-        delete_ssh_secrets(&app, &meta.name);
+        store.remove(&meta.name)?;
     }
     let mut map = load_meta_map(&app)?;
     map.insert(meta.name.clone(), meta.clone());
     save_meta_map(&app, &map)?;
     Ok(meta)
+}
+
+/// A field left blank keeps the stored one; a secret that was missing stays
+/// missing without an error.
+fn merged_record(input: &LocalConnInput, existing: &SecretRecord) -> SecretRecord {
+    SecretRecord {
+        password: input.password.clone().or(existing.password.clone()),
+        ssh_password: ssh_field(input, &input.ssh_password, existing.ssh_password.clone()),
+        ssh_key_passphrase: ssh_field(
+            input,
+            &input.ssh_key_passphrase,
+            existing.ssh_key_passphrase.clone(),
+        ),
+    }
 }
 
 #[tauri::command]
@@ -79,47 +104,17 @@ pub fn update_local_connection(
         return Err("connection not found".into());
     }
     let meta = meta_from_input(&input)?;
-    let renamed = old_name != meta.name;
-    if !meta.remember_secret {
-        for name in [&old_name, &meta.name] {
-            delete_password(&app, name);
-            delete_ssh_secrets(&app, name);
+    let store = secret_store::store(&app)?;
+    if meta.remember_secret {
+        let existing = store.get(&old_name)?.unwrap_or_default();
+        let record = merged_record(&input, &existing);
+        store.rename(&old_name, &meta.name)?;
+        if record != existing {
+            store.put(&meta.name, record)?;
         }
-        map.remove(&old_name);
-        map.insert(meta.name.clone(), meta.clone());
-        save_meta_map(&app, &map)?;
-        return Ok(meta);
-    }
-    match &input.password {
-        Some(pw) => {
-            save_password(&app, &meta.name, pw)?;
-            if renamed {
-                delete_password(&app, &old_name);
-            }
-        }
-        None => {
-            let pw = load_password(&app, &old_name)?;
-            if renamed {
-                save_password(&app, &meta.name, &pw)?;
-                delete_password(&app, &old_name);
-            }
-        }
-    }
-    // Disabling the tunnel drops any stored SSH secrets; otherwise keep
-    // whichever of password/key-passphrase wasn't provided this time.
-    match &input.ssh_host {
-        None => delete_ssh_secrets(&app, &old_name),
-        Some(_) => {
-            let existing = load_ssh_secrets(&app, &old_name);
-            let secrets = SshSecrets {
-                password: input.ssh_password.clone().or(existing.password),
-                key_passphrase: input.ssh_key_passphrase.clone().or(existing.key_passphrase),
-            };
-            save_ssh_secrets(&app, &meta.name, &secrets)?;
-            if renamed {
-                delete_ssh_secrets(&app, &old_name);
-            }
-        }
+    } else {
+        store.remove(&old_name)?;
+        store.remove(&meta.name)?;
     }
     map.remove(&old_name);
     map.insert(meta.name.clone(), meta.clone());
@@ -132,8 +127,9 @@ pub fn delete_local_connection(app: tauri::AppHandle, name: String) -> Result<()
     let mut map = load_meta_map(&app)?;
     map.remove(&name);
     save_meta_map(&app, &map)?;
-    delete_password(&app, &name);
-    delete_ssh_secrets(&app, &name);
+    if let Ok(store) = secret_store::store(&app) {
+        let _ = store.remove(&name);
+    }
     Ok(())
 }
 
@@ -146,12 +142,14 @@ pub fn get_local_connection_secret(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<LocalConnectionSecret, String> {
-    let password = load_password(&app, &name)?;
-    let ssh = load_ssh_secrets(&app, &name);
+    let record = secret_store::store(&app)?.get(&name)?.unwrap_or_default();
+    let password = record
+        .password
+        .ok_or_else(|| "no stored password for this connection".to_string())?;
     Ok(LocalConnectionSecret {
         password,
-        ssh_password: ssh.password,
-        ssh_key_passphrase: ssh.key_passphrase,
+        ssh_password: record.ssh_password,
+        ssh_key_passphrase: record.ssh_key_passphrase,
     })
 }
 
@@ -165,12 +163,13 @@ pub fn migrate_local_connections(
     entries: Vec<LocalConnInput>,
 ) -> Result<usize, String> {
     let mut map = load_meta_map(&app)?;
+    let store = secret_store::store(&app)?;
     let mut migrated = 0usize;
     for input in entries {
         if map.contains_key(&input.name) {
             continue;
         }
-        let Some(password) = input.password.as_deref() else {
+        let Some(password) = input.password.clone() else {
             continue;
         };
         // Entries from before labels existed carry no guard, so this only
@@ -178,10 +177,59 @@ pub fn migrate_local_connections(
         let Ok(meta) = meta_from_input(&input) else {
             continue;
         };
-        save_password(&app, &meta.name, password)?;
+        store.put(&meta.name, SecretRecord { password: Some(password), ..Default::default() })?;
         map.insert(meta.name.clone(), meta);
         migrated += 1;
     }
     save_meta_map(&app, &map)?;
     Ok(migrated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(extra: serde_json::Value) -> LocalConnInput {
+        let mut base = serde_json::json!({
+            "name": "a", "kind": "postgres", "host": "h", "port": 5432, "user": "u", "database": "d"
+        });
+        base.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(base).unwrap()
+    }
+
+    fn stored() -> SecretRecord {
+        SecretRecord {
+            password: Some("pw".into()),
+            ssh_password: Some("sp".into()),
+            ssh_key_passphrase: Some("kp".into()),
+        }
+    }
+
+    #[test]
+    fn blank_fields_keep_the_stored_secrets() {
+        let edit = input(serde_json::json!({ "ssh_host": "jump" }));
+        assert_eq!(merged_record(&edit, &stored()), stored());
+    }
+
+    #[test]
+    fn new_values_replace_the_stored_ones() {
+        let edit = input(serde_json::json!({ "password": "new", "ssh_host": "jump", "ssh_password": "s2" }));
+        let merged = merged_record(&edit, &stored());
+        assert_eq!(merged.password.as_deref(), Some("new"));
+        assert_eq!(merged.ssh_password.as_deref(), Some("s2"));
+        assert_eq!(merged.ssh_key_passphrase.as_deref(), Some("kp"));
+    }
+
+    #[test]
+    fn turning_the_tunnel_off_clears_the_ssh_fields() {
+        let merged = merged_record(&input(serde_json::json!({})), &stored());
+        assert_eq!(merged.password.as_deref(), Some("pw"));
+        assert!(merged.ssh_password.is_none() && merged.ssh_key_passphrase.is_none());
+    }
+
+    #[test]
+    fn editing_with_a_missing_secret_leaves_it_missing() {
+        let merged = merged_record(&input(serde_json::json!({})), &SecretRecord::default());
+        assert!(merged.is_empty());
+    }
 }

@@ -4,7 +4,7 @@ import type { SavedConnParams } from "../store/types";
 
 /** A saved local connection's metadata — everything `SavedConnParams` has
  *  except the secrets (DB password, SSH password/key passphrase), which
- *  live in the OS keychain (see `src-tauri/src/local_connections.rs`). */
+ *  live in the encrypted secret store (see `src-tauri/src/secret_store`). */
 export type LocalConnMeta = Omit<
   SavedConnParams,
   "password" | "ssh_password" | "ssh_key_passphrase" | "name"
@@ -43,7 +43,7 @@ export async function deleteLocalConnection(name: string): Promise<void> {
   return invoke("delete_local_connection", { name });
 }
 
-/** A saved connection's real secrets from the keychain — the DB password,
+/** A saved connection's real secrets — the DB password,
  *  plus SSH password/key-passphrase when it tunnels through SSH. */
 export interface LocalConnectionSecret {
   password: string;
@@ -51,7 +51,7 @@ export interface LocalConnectionSecret {
   ssh_key_passphrase?: string | null;
 }
 
-/** Fetch a saved connection's real secrets from the keychain — call this
+/** Fetch a saved connection's real secrets — call this
  *  right before actually opening the connection. */
 export async function getLocalConnectionSecret(
   name: string,
@@ -65,4 +65,16 @@ export async function migrateLocalConnections(
   entries: LocalConnInput[],
 ): Promise<number> {
   return invoke("migrate_local_connections", { entries });
+}
+
+/** Something the secret store hit while opening: a reset key, Keychain
+ *  entries it couldn't carry over, or a file from a newer version. */
+export interface SecretStoreNotice {
+  kind: "key_reset" | "import_partial" | "newer_version";
+  names: string[];
+}
+
+/** The store's queued notice, once per launch; `null` after that. */
+export async function takeSecretStoreNotice(): Promise<SecretStoreNotice | null> {
+  return invoke("take_secret_store_notice");
 }

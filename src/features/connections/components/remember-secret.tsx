@@ -20,7 +20,7 @@ export function RememberSecret({
           aria-label={
             WEB
               ? "Remember password in this browser"
-              : "Remember password in the keychain"
+              : "Remember password on this computer"
           }
         />
         Remember password
@@ -28,7 +28,7 @@ export function RememberSecret({
       <InfoTip label="Remember password">
         {WEB
           ? "Saved in this browser as plain text, readable by any script on this page. Off means you type it each time."
-          : "Saved in your system keychain. Off means you type it each time you connect."}
+          : "Saved on this computer, encrypted. Off means you type it each time you connect."}
       </InfoTip>
     </div>
   );

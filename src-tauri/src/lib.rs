@@ -12,7 +12,7 @@ pub mod commands;
 pub mod file_open;
 pub mod local_connections;
 mod legacy_servers;
-mod secret_file;
+pub mod secret_store;
 pub mod updater;
 pub mod workspace_state;
 
@@ -101,6 +101,8 @@ pub fn run() {
       // The team server screens are gone (spec 0010): drop the saved server
       // profiles and their sign in tokens once, silently.
       legacy_servers::cleanup(app.handle());
+
+      app.manage(secret_store::SecretStore::new(app.path().app_data_dir()?));
 
       // The downloaded-but-not-installed update package (see `updater.rs`).
       app.manage(updater::UpdaterState::default());
@@ -211,6 +213,7 @@ pub fn run() {
       local_connections::delete_local_connection,
       local_connections::get_local_connection_secret,
       local_connections::migrate_local_connections,
+      secret_store::take_secret_store_notice,
       file_open::take_pending_open_path,
       updater::updater_download,
       updater::updater_install_and_restart,
