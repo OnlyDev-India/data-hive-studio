@@ -114,17 +114,28 @@ jobs:
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - Data grid: drag to reorder columns, column visibility menu with select all, and column layout remembered between sessions
-            - Data grid: Excel style quick filter on each column listing its distinct values
-            - Data grid: foreign key cells show a readable label from the referenced table
-            - Data grid: staged edit buffer, result view tabs, and a resizable bottom panel that now keeps its own open and size state per tab
-            - SQL editor: bind variable dialog for `:name` and `${name}` placeholders, and function signature help while typing
-            - SQL editor: find bar now supports replace, case sensitive matching, and regular expressions
-            - SQL editor: generated INSERT statements show each value labeled with its column name, with a toggle in the toolbar
-            - Schema designer: DDL changes are reviewed in a grid style diff, and MongoDB collections show a nested field tree
-            - Mongo: richer query editing and BSON support in the editor and backend
-            - Settings: SQL formatting options for keyword case and indent width
-            - Sidebar: Postgres extensions are listed once per database
+            - Connections: a new two step connection form, and tabs pause after a disconnect and pick up where you left off when you reconnect
+            - Connections: mark a connection read only and give it an environment label, shown as a badge in the sidebar
+            - Query editor: Stop a running query on SQLite, PostgreSQL and MongoDB
+            - Query editor: Explain plan view for Postgres, SQLite and MongoDB
+            - Query editor: results stream in batches, and each result shows a summary, the query that produced it, and a file breadcrumb
+            - Import: bring data into tables and collections with a five step wizard and flexible column mapping, also available from the new table tab
+            - New table: tabs for indexes, foreign keys and constraints, and suggested default values
+            - Data grid: a shortcut to reload the table, and a loading state while data loads
+            - Data grid: the column header shows name and type, and the date picker has scrolling hour and minute lists
+            - Table schema view now uses tabs
+            - Updater: updates download inside the app and install when you restart or quit
+            - Windows and Linux: the title bar has the same menus as macOS
+            - Team server: now a simple proxy with no sign in
+
+            **Fixes**
+            - Checkboxes in table cells now work correctly
+            - The import dialog no longer scrolls sideways
+            - Auto Increment can only be turned on for columns that support it
+            - MongoDB date columns use the date and time editor and are saved back as real dates
+            - The grid header and rows keep their height when no columns are visible
+            - The Columns menu selects a column when you click its name, and shows where it will land while you drag it
+            - Smaller fixes in the SQL editor, schema designer, JSON viewer and settings dialog
 
             Full commit history: ${{ github.sha }}
 
@@ -144,3 +155,21 @@ jobs:
           releaseDraft: false
           prerelease: ${{ needs.check-version.outputs.prerelease }}
           args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+  # tauri-action copies the whole release body into latest.json's `notes`,
+  # which the in-app updater shows. Keep only the part above "Full commit
+  # history:" once every build has written its platform entry.
+  trim-updater-notes:
+    name: Trim updater notes
+    needs: [check-version, build]
+    if: ${{ !cancelled() && needs.check-version.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cut latest.json notes at "Full commit history:"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check-version.outputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir out
+          jq '.notes |= (split("Full commit history:")[0] | sub("\\s+$"; ""))' out/latest.json > latest.json
+          gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber
