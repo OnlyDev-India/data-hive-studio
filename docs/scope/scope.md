@@ -36,6 +36,7 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 28  | Split server only code into its own crate   | Slice 28 | done        |
 | 29  | Strip the server to a bare no login proxy   | Slice 29 | done        |
 | 30  | Connection form as a two step flow          | Slice 30 | in-progress |
+| 31  | Encrypted local secret storage              | Slice 31 | in-progress |
 | 5   | Table comparison view                       | Slice 5  | planned     |
 | 14  | Saved queries and snippets                  | Slice 14 | planned     |
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
@@ -148,6 +149,24 @@ spec [0012](../specs/0012-connection-form-two-step/index.md) · code in `src/fea
 - [ ] Verify it: `/check verify connection form as a two step flow`
 - [ ] Test it: `/test connection form as a two step flow`
 
+## Slice 31: Encrypted local secret storage
+
+### 31. Encrypted local secret storage · GA
+Saved connection passwords and SSH secrets move out of the macOS Keychain, which prompts on every launch for an app without a Developer ID signature, into an encrypted file on disk with one storage path for dev and release. A random key made on first launch lives in its own locked file, apart from the secrets. Existing Keychain entries carry over once, then the Keychain is never read again. The design pass settles the file layout, how the one time carry over runs, and what happens when the key file is missing or damaged.
+**Done when:** a fresh install saves and reuses passwords and SSH secrets with no Keychain prompt in dev and release; existing Keychain passwords carry over on the first launch after upgrading and no Keychain prompt appears after that; the key file and the secrets file are readable only by your OS user; and a lost or damaged key file loses only the saved secrets, never the connections, and says so clearly.
+spec [0013](../specs/0013-encrypted-local-secret-storage/index.md) · code in `src-tauri/src/local_connections`, `src-tauri/src/secret_store`
+
+- [x] Design it (spec): `/architect encrypted local secret storage`
+- [ ] Build it: `/develop encrypted local secret storage`
+  - [ ] One sealed secrets file used by every build, with atomic private writes and its tests running in CI (AC-1 to AC-5, AC-12)
+  - [ ] One time carry over from the Keychain and the old dev files, then delete them (AC-7 to AC-9)
+  - [ ] Lost key reset, newer version read only mode, and the Time Machine exclusion for the key (AC-6, AC-10, AC-11)
+  - [ ] Launch notice command, the notification in the store, and the new prompt copy (AC-9 to AC-11, AC-13)
+- [ ] Verify it: `/check verify encrypted local secret storage`
+- [ ] Test it: `/test encrypted local secret storage`
+- [ ] Review it (fresh model): `/check review encrypted local secret storage`
+- [ ] Document it: `/document encrypted local secret storage`
+
 ## Slice 5: Table comparison view
 
 ### 5. Table comparison view · needs a decision · from spec 0003
@@ -196,7 +215,9 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB. Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/import.rs`
 - **Cancel for web imports**: on the web build an import shows a spinner and cannot be cancelled. The run registry and cancel route exist now, so send `run_id` with the import and turn on Cancel for the web · from spec 0008 · code in `src/shared/api/import.ts`, `crates/dh-server/src/routes`
 - **Connection form extras**: the reference design also shows a standalone connection Color, Notes (with Show on the sidebar row), URL Params, Database information (server version after Test) and Select Visible Databases. Each needs its own design pass; Color and Notes need a new saved field · from spec 0012 · needs a decision · code in `src/features/connections`
-- **Master password secret storage**: saved connection passwords and SSH secrets live in the OS keychain in release builds, which needs a signed app this project does not have. Move them to encrypted files on disk with one storage path for dev and release, carrying over existing keychain entries. Open question: a master password typed once per launch, or an app managed key with no prompt? · needs a decision · code in `src-tauri/src/local_connections`, `src-tauri/src/secret_file.rs`
+- **Optional master password**: a master password in Settings that locks the slice 31 key, so secrets stay unreadable until you unlock. Changing it locks the key again instead of rewriting every secret; forgetting it loses only the saved secrets. Also the place to move the key into the Keychain once the app has a Developer ID signature · from slice 31 · needs a decision · code in `src-tauri/src/secret_file.rs`, `src/features/settings`
+- **Fetch secrets at connect time**: the app loads every saved secret into webview memory at startup (`hydrateSavedLocal`). Fetch each one only when connecting, so secrets aren't held in memory until needed · from spec 0013 · code in `src/shared/store/store.ts`, `src/features/connections/lib/connect-saved.ts`
+- **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 ## Legend
 

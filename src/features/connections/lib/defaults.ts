@@ -1,3 +1,4 @@
+import { WEB } from "@/shared/api/web";
 import { EMPTY_GUARD_FORM } from "./guard-form";
 import type {
   MongoFormValues,
@@ -23,7 +24,7 @@ export const PG_DEFAULTS: PgFormValues = {
   port: "5432",
   user: "postgres",
   password: "",
-  remember_secret: false,
+  remember_secret: !WEB,
   database: "",
   ssl_mode: "prefer",
   ssl_ca_file: "",
@@ -44,7 +45,7 @@ export const MONGO_DEFAULTS: MongoFormValues = {
   port: "27017",
   user: "",
   password: "",
-  remember_secret: false,
+  remember_secret: !WEB,
   database: "",
   auth_db: "admin",
   srv: false,

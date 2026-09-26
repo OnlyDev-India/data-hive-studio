@@ -199,14 +199,12 @@ export function PgForm({
         value={v.password}
         onChange={(password) => patch({ password })}
       />
-      {WEB && (
-        <FormRowPlain>
-          <RememberSecret
-            checked={v.remember_secret}
-            onChange={(remember_secret) => patch({ remember_secret })}
-          />
-        </FormRowPlain>
-      )}
+      <FormRowPlain>
+        <RememberSecret
+          checked={v.remember_secret}
+          onChange={(remember_secret) => patch({ remember_secret })}
+        />
+      </FormRowPlain>
       <TextRow
         field="database"
         label="Database"

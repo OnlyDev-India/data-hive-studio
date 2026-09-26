@@ -209,9 +209,7 @@ export function ApplyChangesDialog({
     <Dialog open onOpenChange={(o) => !o && !applying && on_close()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {title}
-          </DialogTitle>
+          <DialogTitle className="flex items-center gap-2">{title}</DialogTitle>
           <DialogDescription>
             {selectable
               ? `${all} staged change${all === 1 ? "" : "s"}. Uncheck anything you don’t want to apply.`

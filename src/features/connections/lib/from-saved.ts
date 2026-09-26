@@ -1,3 +1,4 @@
+import { WEB } from "@/shared/api/web";
 import type { SavedConnParams } from "@/shared/store";
 import { guardToForm } from "./guard-form";
 import { MONGO_DEFAULTS, PG_DEFAULTS } from "./defaults";
@@ -31,7 +32,7 @@ export function pgFormFromSaved(p: SavedConnParams): PgFormValues {
     port: String(p.port),
     user: p.user,
     password: p.password,
-    remember_secret: p.remember_secret ?? false,
+    remember_secret: p.remember_secret ?? !WEB,
     database: p.database,
     ssl_mode: p.ssl_mode ?? PG_DEFAULTS.ssl_mode,
     ssl_ca_file: p.ssl_ca_file ?? "",
@@ -55,7 +56,7 @@ export function mongoFormFromSaved(p: SavedConnParams): MongoFormValues {
     port: String(p.port),
     user: p.user,
     password: p.password,
-    remember_secret: p.remember_secret ?? false,
+    remember_secret: p.remember_secret ?? !WEB,
     database: p.database,
     auth_db: p.auth_db || "admin",
     srv: p.srv ?? false,

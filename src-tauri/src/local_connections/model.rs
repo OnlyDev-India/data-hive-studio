@@ -70,6 +70,10 @@ pub struct LocalConnMeta {
     pub ssh_host_key_fingerprint: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
+    /// False keeps the DB and SSH passwords out of the keychain, so connect
+    /// asks for them. Older entries have no key and stay remembered.
+    #[serde(default = "remembered")]
+    pub remember_secret: bool,
     /// Read only flag and environment label (spec 0007). A connection saved
     /// before this existed has none of the four keys and loads as not read
     /// only, no label.
@@ -142,8 +146,14 @@ pub struct LocalConnInput {
     pub ssh_key_passphrase: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
+    #[serde(default = "remembered")]
+    pub remember_secret: bool,
     #[serde(flatten)]
     pub guard: ConnGuard,
+}
+
+fn remembered() -> bool {
+    true
 }
 
 /// The saved record for `input`. Fails (before anything is written) when the
@@ -180,6 +190,7 @@ pub(super) fn meta_from_input(input: &LocalConnInput) -> Result<LocalConnMeta, S
         ssh_key_file: input.ssh_key_file.clone(),
         ssh_host_key_fingerprint: input.ssh_host_key_fingerprint.clone(),
         source_path: input.source_path.clone(),
+        remember_secret: input.remember_secret,
         guard,
     })
 }
@@ -189,4 +200,16 @@ pub struct LocalConnectionSecret {
     pub password: String,
     pub ssh_password: Option<String>,
     pub ssh_key_passphrase: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalConnMeta;
+
+    #[test]
+    fn older_entries_stay_remembered() {
+        let raw = r#"{"name":"a","kind":"postgres","host":"h","port":5432,"user":"u","database":"d"}"#;
+        let meta: LocalConnMeta = serde_json::from_str(raw).unwrap();
+        assert!(meta.remember_secret);
+    }
 }
