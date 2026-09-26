@@ -1277,7 +1277,11 @@ export function TablesBrowser({
             is_mongo ? ask_duplicate_mongo({ name }) : ask_duplicate({ name })
           }
           on_import={(name) =>
-            open_import({ connId: conn_id, table: name, onImported: on_refresh })
+            open_import({
+              connId: conn_id,
+              table: name,
+              onImported: on_refresh,
+            })
           }
           on_drop={(name) =>
             setConfirmDrop({

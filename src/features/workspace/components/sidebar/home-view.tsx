@@ -9,12 +9,20 @@ import {
   Save,
   Search,
   Trash2,
-  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { WEB } from "@/shared/api/web";
 import { connGuardOf } from "@/shared/api/client";
-import { reopenRecent } from "@/features/connections";
+import {
+  CONNECTED_HOLD_MS,
+  ConnectingDialog,
+  connectSaved,
+  type ConnectingTarget,
+  needsPassword,
+  PasswordPrompt,
+  reopenRecent,
+  uniqueCopyName,
+} from "@/features/connections";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -85,7 +93,7 @@ function Collapse({
  * Landing-page sidebar: everything saveable, grouped by source —
  *   Saved · Pinned (shortcuts) · Recent
  * Each group is collapsible; open groups share the panel height.
- * Single click loads details into the home form; double-click connects.
+ * Single click selects a row; double click or Enter connects.
  */
 export function HomeView({
   search_value,
@@ -96,11 +104,10 @@ export function HomeView({
 }) {
   const saved_local = useStudioStore((s) => s.savedLocal);
   const delete_saved = useStudioStore((s) => s.deleteSavedLocal);
-  const save_local = useStudioStore((s) => s.saveLocal);
   const push_notification = useStudioStore((s) => s.pushNotification);
   const pins = useStudioStore((s) => s.pins);
   const toggle_pin = useStudioStore((s) => s.togglePin);
-  const request_prefill = useStudioStore((s) => s.requestLandingPrefill);
+  const request_form = useStudioStore((s) => s.requestLandingForm);
   const recent = useStudioStore((s) => s.recent);
   const recents_params = useStudioStore((s) => s.recentParams);
 
@@ -114,10 +121,63 @@ export function HomeView({
 
   const home_query = search_value.trim().toLowerCase();
 
-  /** On the web a connection saved without its password has nothing to
-   *  connect with yet: a double-click fills the form and the person types the
-   *  password (kept in memory only). Everywhere else it connects at once. */
-  const can_connect_now = (p: { password?: string }) => !WEB || !!p.password;
+  const [selected, setSelected] = useState<string | null>(null);
+  const [connecting_to, setConnectingTo] = useState<ConnectingTarget | null>(
+    null,
+  );
+  const [prompt, setPrompt] = useState<{
+    name: string;
+    kind: SavedConnParams["kind"];
+    params: SavedConnParams;
+  } | null>(null);
+
+  const connect_direct = async (
+    name: string,
+    kind: SavedConnParams["kind"],
+    params: SavedConnParams,
+  ) => {
+    if (connecting_to) return;
+    if (needsPassword(params, WEB)) {
+      setPrompt({ name, kind, params });
+      return;
+    }
+    setConnectingTo({
+      name,
+      kind,
+      where:
+        kind === "sqlite"
+          ? (params.source_path ?? "")
+          : params.srv
+            ? params.host
+            : `${params.host}:${params.port}`,
+    });
+    try {
+      await connectSaved(kind, params, undefined, async () => {
+        setConnectingTo((t) => t && { ...t, done: true });
+        await new Promise((r) => setTimeout(r, CONNECTED_HOLD_MS));
+      });
+    } catch (e) {
+      push_notification({
+        kind: "error",
+        title: "Connection failed",
+        detail: String(e),
+      });
+    } finally {
+      setConnectingTo(null);
+    }
+  };
+
+  /** Click selects, double click and Enter connect. */
+  const row_events = (id: string, connect: () => void) => ({
+    onClick: () => setSelected(id),
+    onDoubleClick: connect,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      setSelected(id);
+      connect();
+    },
+  });
 
   /** A saved connection bundled with everything the Saved section needs:
    *  its kind (which form it fills) and its pin id. */
@@ -149,25 +209,16 @@ export function HomeView({
     }
   };
 
-  /** `<name> copy`, `<name> copy 2`, … — same numbered-suffix convention
-   *  used for duplicating a table/collection (see `uniqueCopyName` in the
-   *  catalog tree). */
-  const duplicate_saved = async (
+  /** Opens the form with an unsaved copy; nothing is saved until Save. */
+  const duplicate_saved = (
     name: string,
     kind: SavedConnParams["kind"],
     params: SavedConnParams,
   ) => {
-    let target = `${name} copy`;
-    let i = 2;
-    while (target in saved_local) {
-      target = `${name} copy ${i}`;
-      i += 1;
-    }
-    await save_local(target, { ...params, kind, name: target });
-    push_notification({
-      kind: "success",
-      title: "Connection duplicated",
-      detail: target,
+    request_form(kind, {
+      ...params,
+      kind,
+      name: uniqueCopyName(name, saved_local),
     });
   };
 
@@ -191,8 +242,7 @@ export function HomeView({
       connect_title: string;
       /** Read only flag and environment label, for the chip and lock. */
       guard?: ConnGuard;
-      on_click: () => void;
-      on_double_click: () => void;
+      connect: () => void;
     }[] = [];
     for (const id of pins) {
       if (id.startsWith("local:")) {
@@ -208,14 +258,13 @@ export function HomeView({
           source: WEB ? "browser" : "local",
           connect_title: "Double-click to connect",
           guard: connGuardOf(params),
-          on_click: () => request_prefill(kind, { ...params }),
-          on_double_click: () =>
-            request_prefill(kind, { ...params }, can_connect_now(params)),
+          connect: () => void connect_direct(name, kind, params),
         });
       }
     }
     return out;
-  }, [pins, saved_local, home_query, request_prefill]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- connect_direct only reads stable store actions
+  }, [pins, saved_local, home_query]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -246,30 +295,39 @@ export function HomeView({
               const DBIcon = DBIcons[entry.kind] ?? Database;
               return (
                 <li key={entry.id}>
-                  <Button
-                    variant="ghost"
-                    title={entry.connect_title}
-                    onClick={entry.on_click}
-                    onDoubleClick={entry.on_double_click}
-                    className="hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
-                  >
-                    {DBIcon && <DBIcon className="size-4 shrink-0" />}
-                    <span className="truncate font-medium">{entry.label}</span>
-                    {entry.guard && <ConnFlags conn={entry.guard} />}
-                    <span className="text-muted-foreground text-3xs ml-auto shrink-0 uppercase">
-                      {entry.source}
-                    </span>
-                    <span
-                      aria-label="Unpin"
-                      className="text-muted-foreground hover:text-destructive invisible shrink-0 group-hover:visible"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggle_pin(entry.id);
-                      }}
-                    >
-                      <X className="size-3.5" />
-                    </span>
-                  </Button>
+                  <ContextMenu>
+                    <ContextMenuTrigger className="contents">
+                      <Button
+                        variant="ghost"
+                        title={entry.connect_title}
+                        aria-pressed={selected === entry.id}
+                        {...row_events(`pinned:${entry.id}`, entry.connect)}
+                        className={cn(
+                          "hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                          selected === `pinned:${entry.id}` && "bg-accent",
+                        )}
+                      >
+                        {DBIcon && <DBIcon className="size-4 shrink-0" />}
+                        <span className="truncate font-medium">
+                          {entry.label}
+                        </span>
+                        {entry.guard && <ConnFlags conn={entry.guard} />}
+                        <span className="text-muted-foreground text-3xs ml-auto shrink-0 uppercase">
+                          {entry.source}
+                        </span>
+                      </Button>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-52">
+                      <ContextMenuItem onSelect={entry.connect}>
+                        <Plug className="size-3.5" />
+                        Open Connection
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => toggle_pin(entry.id)}>
+                        <Pin className="size-3.5" />
+                        Unpin Connection
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 </li>
               );
             })}
@@ -302,43 +360,20 @@ export function HomeView({
               const row_button = (
                 <Button
                   variant="ghost"
-                  title="Load into the connect form"
-                  onClick={() => request_prefill(kind, { ...params })}
-                  onDoubleClick={() =>
-                    request_prefill(kind, { ...params }, can_connect_now(params))
-                  }
-                  className="hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
+                  title="Double-click to connect"
+                  aria-pressed={selected === pin_id}
+                  {...row_events(
+                    pin_id,
+                    () => void connect_direct(name, kind, params),
+                  )}
+                  className={cn(
+                    "hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                    selected === pin_id && "bg-accent",
+                  )}
                 >
                   <DBIcon className="text-muted-foreground size-4 shrink-0" />
                   <span className="truncate font-medium">{name}</span>
                   <ConnFlags conn={params} />
-                  <span className="ml-auto flex shrink-0 items-center gap-1">
-                    <span
-                      aria-label={`Delete ${name}`}
-                      className="text-muted-foreground hover:text-destructive invisible group-hover:visible"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        delete_saved(name);
-                      }}
-                    >
-                      <X className="size-3.5" />
-                    </span>
-                    <span
-                      aria-label={is_pinned ? `Unpin ${name}` : `Pin ${name}`}
-                      className="hover:text-amber-500"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggle_pin(pin_id);
-                      }}
-                    >
-                      <Pin
-                        className={cn(
-                          "size-3.5",
-                          is_pinned && "fill-amber-400 text-amber-400",
-                        )}
-                      />
-                    </span>
-                  </span>
                 </Button>
               );
               return (
@@ -349,16 +384,14 @@ export function HomeView({
                     </ContextMenuTrigger>
                     <ContextMenuContent className="w-52">
                       <ContextMenuItem
-                        onSelect={() =>
-                          request_prefill(
-                            kind,
-                            { ...params },
-                            can_connect_now(params),
-                          )
-                        }
+                        onSelect={() => void connect_direct(name, kind, params)}
                       >
                         <Plug className="size-3.5" />
                         Open Connection
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => toggle_pin(pin_id)}>
+                        <Pin className="size-3.5" />
+                        {is_pinned ? "Unpin Connection" : "Pin Connection"}
                       </ContextMenuItem>
                       <ContextMenuItem
                         onSelect={() => void copy_saved_name(name)}
@@ -368,19 +401,21 @@ export function HomeView({
                       </ContextMenuItem>
                       <ContextMenuItem
                         onSelect={() =>
-                          request_prefill(kind, { ...params }, false, {
-                            oldName: name,
-                            name,
-                          })
+                          request_form(
+                            kind,
+                            { ...params },
+                            {
+                              oldName: name,
+                              name,
+                            },
+                          )
                         }
                       >
                         <Pencil className="size-3.5" />
                         Edit Connection
                       </ContextMenuItem>
                       <ContextMenuItem
-                        onSelect={() =>
-                          void duplicate_saved(name, kind, params)
-                        }
+                        onSelect={() => duplicate_saved(name, kind, params)}
                       >
                         <CopyPlus className="size-3.5" />
                         Duplicate Connection
@@ -430,42 +465,22 @@ export function HomeView({
                   <Button
                     variant="ghost"
                     title="Double-click to connect"
-                    onClick={() => {
+                    aria-pressed={selected === `recent:${conn.id}`}
+                    {...row_events(`recent:${conn.id}`, () => {
                       const params = recents_params[conn.id];
                       if (conn.kind === "postgres" && params) {
-                        request_prefill("postgres", {
+                        void connect_direct(conn.name, "postgres", {
                           ...params,
                           kind: "postgres",
                         });
-                      } else if (conn.source_path) {
-                        request_prefill("sqlite", {
-                          name: conn.name,
-                          kind: "sqlite",
-                          host: "",
-                          port: 0,
-                          user: "",
-                          password: "",
-                          database: "",
-                          source_path: conn.source_path,
-                          ...connGuardOf(conn),
-                        });
                       } else {
                         void reopenRecent(conn);
                       }
-                    }}
-                    onDoubleClick={() => {
-                      const params = recents_params[conn.id];
-                      if (conn.kind === "postgres" && params) {
-                        request_prefill(
-                          "postgres",
-                          { ...params, kind: "postgres" },
-                          can_connect_now(params),
-                        );
-                      } else {
-                        void reopenRecent(conn);
-                      }
-                    }}
-                    className="hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal"
+                    })}
+                    className={cn(
+                      "hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                      selected === `recent:${conn.id}` && "bg-accent",
+                    )}
                   >
                     <DBIcon className="text-muted-foreground size-4 shrink-0" />
                     <span className="truncate font-medium">{conn.name}</span>
@@ -477,6 +492,16 @@ export function HomeView({
           </ul>
         )}
       </Collapse>
+      <ConnectingDialog target={connecting_to} />
+      <PasswordPrompt
+        name={prompt?.name ?? null}
+        onCancel={() => setPrompt(null)}
+        onSubmit={async (password) => {
+          if (!prompt) return;
+          await connectSaved(prompt.kind, prompt.params, password);
+          setPrompt(null);
+        }}
+      />
     </div>
   );
 }

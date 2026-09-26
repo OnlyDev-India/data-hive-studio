@@ -7,13 +7,16 @@ import { Button } from "@/shared/components/ui/button";
  *  (table-pane.tsx/mongo-collection-pane.tsx) for why the loading state
  *  this reflects can't just be "this component is currently mounted".
  *  `onStop` shows a Stop button; leave it out when the wait can't be given
- *  up on (a schema Apply, the structure fetch). */
+ *  up on (a schema Apply, the structure fetch). `stopping` keeps the button
+ *  disabled while the database confirms the stop. */
 export function QueryLoadingOverlay({
   startedAt,
   onStop,
+  stopping = false,
 }: {
   startedAt: number;
   onStop?: () => void;
+  stopping?: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -33,12 +36,17 @@ export function QueryLoadingOverlay({
           size="sm"
           variant="secondary"
           onClick={onStop}
+          disabled={stopping}
           className={
             "bg-destructive/30 text-destructive hover:bg-destructive/40"
           }
         >
-          <Square className="size-3" />
-          Stop
+          {stopping ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <Square className="size-3" />
+          )}
+          {stopping ? "Stopping…" : "Stop"}
         </Button>
       )}
     </div>

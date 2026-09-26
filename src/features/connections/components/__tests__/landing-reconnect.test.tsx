@@ -24,6 +24,7 @@ vi.mock("@/shared/api/local-connections", async (importOriginal) => ({
 import { useStudioStore } from "@/shared/store";
 import type { SavedConnParams } from "@/shared/store";
 import { Landing } from "../landing";
+import { useConnectionDrafts } from "../../lib/drafts";
 
 const saved: SavedConnParams = {
   kind: "postgres",
@@ -38,17 +39,17 @@ const live = { id: "live1", name: "orders", kind: "postgres" as const };
 
 function editOrders() {
   useStudioStore.setState({
-    landingPrefill: {
+    landingForm: {
       kind: "postgres",
       params: saved,
       n: 1,
-      connect: false,
       edit: { oldName: "Orders", name: "Orders" },
     },
   });
 }
 
 beforeEach(() => {
+  useConnectionDrafts.getState().reset();
   connectPostgres
     .mockReset()
     .mockResolvedValue({ id: "fresh", name: "orders", kind: "postgres" });
@@ -62,7 +63,7 @@ beforeEach(() => {
     activeId: "live1",
     recentParams: { live1: { ...saved, name: "Orders" } },
     workspaces: {},
-    landingPrefill: null,
+    landingForm: null,
   });
 });
 afterEach(cleanup);
@@ -71,13 +72,14 @@ async function loadFormAndTurnOnReadOnly() {
   editOrders();
   render(<Landing />);
   await screen.findByDisplayValue("db.example");
+  await userEvent.click(screen.getByRole("tab", { name: /safety/i }));
   await userEvent.click(screen.getByRole("switch", { name: /read only/i }));
 }
 
 describe("Landing, editing a saved connection that is open", () => {
-  it("saves a local PostgreSQL edit with the Update button", async () => {
+  it("saves a local PostgreSQL edit with the Save button", async () => {
     await loadFormAndTurnOnReadOnly();
-    await userEvent.click(screen.getByRole("button", { name: "Update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(updateLocalConnection).toHaveBeenCalledOnce());
     expect(updateLocalConnection.mock.calls[0][0]).toBe("Orders");
@@ -88,7 +90,7 @@ describe("Landing, editing a saved connection that is open", () => {
 
   it("offers Reconnect now when the open connection no longer matches", async () => {
     await loadFormAndTurnOnReadOnly();
-    await userEvent.click(screen.getByRole("button", { name: "Update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent(/reconnect to apply/i);
@@ -100,7 +102,7 @@ describe("Landing, editing a saved connection that is open", () => {
 
   it("Later leaves the open connection exactly as it was", async () => {
     await loadFormAndTurnOnReadOnly();
-    await userEvent.click(screen.getByRole("button", { name: "Update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await userEvent.click(
       await screen.findByRole("button", { name: /later/i }),
     );
@@ -113,7 +115,7 @@ describe("Landing, editing a saved connection that is open", () => {
 
   it("Reconnect now closes the old connection and connects with the new flag", async () => {
     await loadFormAndTurnOnReadOnly();
-    await userEvent.click(screen.getByRole("button", { name: "Update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await userEvent.click(
       await screen.findByRole("button", { name: /reconnect now/i }),
     );
@@ -135,7 +137,7 @@ describe("Landing, editing a saved connection that is open", () => {
     editOrders();
     render(<Landing />);
     await screen.findByDisplayValue("db.example");
-    await userEvent.click(screen.getByRole("button", { name: "Update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(updateLocalConnection).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -144,7 +146,7 @@ describe("Landing, editing a saved connection that is open", () => {
   it("does not offer it when the connection is not open", async () => {
     useStudioStore.setState({ open: [], recentParams: {} });
     await loadFormAndTurnOnReadOnly();
-    await userEvent.click(screen.getByRole("button", { name: "Update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(updateLocalConnection).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog")).toBeNull();

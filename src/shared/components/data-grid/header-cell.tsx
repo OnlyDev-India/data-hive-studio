@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
+import { dataTypeTextClass } from "@/shared/theme/data-type-colors";
 import { ColumnQuickFilter } from "./column-quick-filter";
 import { cellKey, useGrid } from "./grid-context";
 
@@ -254,7 +255,12 @@ export function HeaderCell({
             <span className="flex min-w-0 flex-col items-start justify-center">
               <span className="max-w-full truncate leading-4">{col}</span>
               {type_label && (
-                <span className="text-muted-foreground/60 text-3xs max-w-full truncate leading-3 font-normal tracking-wide uppercase">
+                <span
+                  className={cn(
+                    "text-3xs max-w-full truncate leading-3 font-normal tracking-wide uppercase opacity-80",
+                    dataTypeTextClass(type_label),
+                  )}
+                >
                   {type_label}
                 </span>
               )}
@@ -293,7 +299,12 @@ export function HeaderCell({
               {type_label && (
                 <>
                   <div className="text-muted-foreground mt-2">Type</div>
-                  <div className="text-info-dark wrap-break-words mt-0.5 font-mono">
+                  <div
+                    className={cn(
+                      "wrap-break-words mt-0.5 font-mono",
+                      dataTypeTextClass(type_label),
+                    )}
+                  >
                     {type_label}
                   </div>
                 </>

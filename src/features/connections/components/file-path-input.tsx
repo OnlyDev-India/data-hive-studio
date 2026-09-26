@@ -15,10 +15,12 @@ export function FilePathInput({
   value,
   onChange,
   placeholder,
+  disabled,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   async function browse() {
     const path = await pickCertFilePath();
@@ -30,10 +32,15 @@ export function FilePathInput({
       <InputGroupInput
         placeholder={placeholder}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
       <InputGroupAddon align="inline-end">
-        <InputGroupButton title="Browse for file" onClick={() => void browse()}>
+        <InputGroupButton
+          title="Browse for file"
+          disabled={disabled}
+          onClick={() => void browse()}
+        >
           <FolderOpen />
         </InputGroupButton>
       </InputGroupAddon>

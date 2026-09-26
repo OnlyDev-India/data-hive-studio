@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCw, Square } from "lucide-react";
+import { AlertCircle, Pause, RefreshCw, Square } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { WEB } from "@/shared/api/web";
 import { useAppShortcut } from "@/shared/hooks/use-shortcut";
@@ -6,7 +6,8 @@ import { formatBinding } from "@/shared/hooks/shortcut-registry";
 import { Kbd, KbdGroup } from "../ui/kbd";
 
 /** What a grid shows in place of rows when its page fetch ended without any:
- *  the user pressed Stop, or the query failed. Both offer the same way out,
+ *  the user pressed Stop, the query failed, or a reconnect brought the tab
+ *  back and it waits for a reload. Both offer the same way out,
  *  reloading, with the reload shortcut spelled out (desktop only: on the web
  *  build the same keys reload the whole page). */
 export function GridLoadState({
@@ -14,12 +15,13 @@ export function GridLoadState({
   error,
   on_reload,
 }: {
-  kind: "stopped" | "error";
+  kind: "stopped" | "error" | "paused";
   error?: string | null;
   on_reload: () => void;
 }) {
   const reload_key = formatBinding(useAppShortcut("grid.reload"));
-  const Icon = kind === "stopped" ? Square : AlertCircle;
+  const Icon =
+    kind === "stopped" ? Square : kind === "paused" ? Pause : AlertCircle;
   return (
     <div
       role={kind === "error" ? "alert" : "status"}
@@ -33,7 +35,11 @@ export function GridLoadState({
         }
       />
       <p className="text-sm">
-        {kind === "stopped" ? "Query stopped." : "Couldn't load the rows."}
+        {kind === "stopped"
+          ? "Query stopped."
+          : kind === "paused"
+            ? "Rows aren't loaded yet."
+            : "Couldn't load the rows."}
       </p>
       {kind === "error" && error && (
         <pre className="border-destructive/30 bg-destructive/5 text-destructive max-h-32 max-w-lg overflow-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap">

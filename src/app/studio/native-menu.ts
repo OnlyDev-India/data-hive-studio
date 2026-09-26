@@ -70,9 +70,9 @@ export function handleMenuAction(id: string) {
           const file = await pickSqlFile();
           if (!file) return;
           if (file.name.toLowerCase().endsWith(".js")) {
-            void openMongoDatabaseAndConsole(conn.id, file.text, file.name);
+            void openMongoDatabaseAndConsole(conn.id, file.text, file.path);
           } else {
-            s.openSql(conn.id, file.text, file.name);
+            s.openSql(conn.id, file.text, file.path);
           }
         } catch (e) {
           useStudioStore.getState().pushNotification({

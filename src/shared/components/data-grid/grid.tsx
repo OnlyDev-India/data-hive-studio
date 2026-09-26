@@ -12,7 +12,6 @@ import {
   createRowAccumulator,
   executeOpStream,
   tableSchema,
-  type QueryOp,
   type QueryResult,
   type TableSchema,
 } from "@/shared/api";
@@ -22,6 +21,7 @@ import { GridLoadState } from "./grid-load-state";
 import { GridProvider } from "./grid-context";
 import type { PendingChange } from "./grid-context";
 import { useGridController } from "./grid-controller";
+import { mongo_delete, mongo_insert, mongo_update } from "./mongo-shell";
 import {
   classify,
   DISTINCT_LIMIT,
@@ -213,8 +213,33 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const [dirty_cells, setDirtyCells] = useState<Map<string, string | null>>(
     new Map(),
   );
-  /** Real row indices (into the current page) marked for deletion, awaiting Apply. */
+  /** Global row indices marked for deletion, awaiting Apply. */
   const [deleted_rows, setDeletedRows] = useState<Set<number>>(new Set());
+  /** Original values of every row with a staged edit or delete, keyed by
+   * global row and captured when the change is first staged. Review, the SQL
+   * preview and Apply read these, so changes staged on another page still
+   * show up and still run after you move away from that page. */
+  const [row_snapshots, setRowSnapshots] = useState<
+    Map<number, Record<string, string | null>>
+  >(new Map());
+  const remember_row = useCallback(
+    (real: number) => {
+      const data = result?.rows[real];
+      if (!result || !data) return;
+      const g = page * page_size + real;
+      setRowSnapshots((cur) =>
+        cur.has(g)
+          ? cur
+          : new Map(cur).set(
+              g,
+              Object.fromEntries(
+                result.columns.map((c, i) => [c, data[i] ?? null]),
+              ),
+            ),
+      );
+    },
+    [result, page, page_size],
+  );
 
   // Run a mutation, clearing any previous error and refreshing on success, or
   // showing the backend error so a failed op is never silently swallowed.
@@ -307,6 +332,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
                   result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
                 const norm = (v: string | null) =>
                   v === null || v === "" ? "" : v;
+                remember_row(local);
                 setDirtyCells((cur) => {
                   const next = new Map(cur);
                   if (norm(value) === norm(original)) next.delete(key);
@@ -326,6 +352,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       setJsonRow,
       on_pending_edit,
       read_only,
+      remember_row,
     ],
   );
   const open_json = useCallback(
@@ -561,62 +588,21 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
 
   const offset = page * page_size;
 
-  // Full original contents of one page-row, used to target updates/deletes.
-  // Pending rows sit at the top of the grid, so real-row lookups are offset
-  // by them.
-  const row_match = useCallback(
-    (row_idx: number): Record<string, string | null> | null => {
-      if (!result || result.columns.length === 0) return null;
-      const ri = row_idx - pending.length;
-      if (ri < 0) return null;
-      const row_data = result.rows[ri];
-      if (!row_data) return null;
-      return Object.fromEntries(
-        result.columns.map((c, i) => [c, row_data[i] ?? null]),
-      );
-    },
-    [result, pending.length],
-  );
-
-  // Target one page-row by primary key alone: every PK column must exist in
-  // the result with a non-null ORIGINAL value. Null when there is no usable
-  // PK (no key, or a key part NULL — possible in SQLite) — callers fall back
-  // to full-row matching. Original values keep the target stable even while
+  // Best targeting for a staged update/delete, read from the row's snapshot
+  // (so it works for rows on any page): primary key alone when every PK
+  // column has a non-null ORIGINAL value, else every column. A NULL key part
+  // is possible in SQLite. Original values keep the target stable even while
   // the user edits key columns of the same batch.
-  const pk_match = useCallback(
-    (row_idx: number): Record<string, string | null> | null => {
-      if (!result || pk_columns.length === 0) return null;
-      const ri = row_idx - pending.length;
-      if (ri < 0) return null;
-      const row_data = result.rows[ri];
-      if (!row_data) return null;
-      const out: Record<string, string | null> = {};
-      for (const c of pk_columns) {
-        const ci = result.columns.indexOf(c);
-        if (ci < 0) return null;
-        const v = row_data[ci] ?? null;
-        if (v === null) return null;
-        out[c] = v;
-      }
-      return out;
-    },
-    [result, pk_columns, pending.length],
-  );
-
-  // Best targeting for updates/deletes: PK when available, else every column.
   const match_for = useCallback(
-    (row_idx: number): Record<string, string | null> | null =>
-      pk_match(row_idx) ?? row_match(row_idx),
-    [pk_match, row_match],
-  );
-
-  // A delete operation targeting one page-row by its best-match columns.
-  const row_delete_op = useCallback(
-    (row_idx: number): QueryOp | null => {
-      const match_row = match_for(row_idx);
-      return match_row ? { kind: "delete", table, match_row } : null;
+    (g: number): Record<string, string | null> | null => {
+      const snap = row_snapshots.get(g);
+      if (!snap) return null;
+      if (pk_columns.length > 0 && pk_columns.every((c) => snap[c] != null)) {
+        return Object.fromEntries(pk_columns.map((c) => [c, snap[c]]));
+      }
+      return snap;
     },
-    [match_for, table],
+    [row_snapshots, pk_columns],
   );
 
   // Delete a single row (context menu). Buffered: the row is marked for
@@ -635,6 +621,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       const real = ri - pending.length;
       if (real < 0) return;
       const g = global_row(real);
+      remember_row(real);
       setDeletedRows((cur) => {
         if (cur.has(g)) return cur;
         const next = new Set(cur);
@@ -642,7 +629,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         return next;
       });
     },
-    [pending.length, global_row],
+    [pending.length, global_row, remember_row],
   );
 
   // Duplicate every row touched by the current selection as drafts (context
@@ -683,13 +670,14 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     (ri: number, col: string) => {
       const real = ri - pending.length;
       if (real < 0) return;
+      remember_row(real);
       setDirtyCells((cur) => {
         const next = new Map(cur);
         next.set(`${col}\u0000${global_row(real)}`, null);
         return next;
       });
     },
-    [pending.length, global_row],
+    [pending.length, global_row, remember_row],
   );
 
   // Buffer a cell edit on a real row. The grid shows the new value immediately
@@ -703,6 +691,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       const original =
         result?.rows[real]?.[result.columns.indexOf(col)] ?? null;
       const norm = (v: string | null) => (v === null || v === "" ? "" : v);
+      remember_row(real);
       setDirtyCells((cur) => {
         const key = `${col}\u0000${global_row(real)}`;
         const next = new Map(cur);
@@ -714,7 +703,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         return next;
       });
     },
-    [pending.length, result, global_row],
+    [pending.length, result, global_row, remember_row],
   );
 
   // Start drafting a new row: pin a blank pending row to the top of the grid
@@ -792,14 +781,15 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         if (sep < 0) continue;
         const col = key.slice(0, sep);
         const g = Number(key.slice(sep + 1));
-        // Only edits targeting a row on the currently rendered page are applied;
-        // edits buffered for rows on other pages are left untouched.
-        const real = g - offset;
-        if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
         if (dels.has(g)) continue;
-        const match_row = match_for(real + ins_len);
+        const match_row = match_for(g);
         if (!match_row) continue;
-        patches.push({ real, col, value });
+        // Only rows on the rendered page are patched in place; rows on other
+        // pages are refetched when you next visit them.
+        const real = g - offset;
+        if (real >= 0 && real < (result?.rows.length ?? 0)) {
+          patches.push({ real, col, value });
+        }
         ops.push(
           executeOp(
             conn_id,
@@ -815,10 +805,16 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         );
       }
       for (const g of dels) {
-        const real = g - offset;
-        if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
-        const op = row_delete_op(real + ins_len);
-        if (op) ops.push(executeOp(conn_id, op, database, schema_name));
+        const match_row = match_for(g);
+        if (!match_row) continue;
+        ops.push(
+          executeOp(
+            conn_id,
+            { kind: "delete", table, match_row },
+            database,
+            schema_name,
+          ),
+        );
       }
       if (ops.length === 0) return;
       const inserted = ins_len;
@@ -836,6 +832,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           setPending([]);
           setDirtyCells(new Map());
           setDeletedRows(new Set());
+          setRowSnapshots(new Map());
           if (inserted > 0 || outcomes.some((r) => r.rows_affected === 0)) {
             // Freshly inserted rows land on the last page; a zero-affected write
             // means the database moved under us. Both need a real refetch.
@@ -870,7 +867,6 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       page_size,
       refresh,
       match_for,
-      row_delete_op,
       offset,
       database,
       schema_name,
@@ -881,12 +877,12 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     setPending([]);
     setDirtyCells(new Map());
     setDeletedRows(new Set());
+    setRowSnapshots(new Map());
     setOpError(null);
   }, []);
 
-  // Structured summary of every buffered change for the apply diff dialog.
-  // Only changes targeting the currently rendered page are listed (edits for
-  // rows on other pages are left out, matching what Apply would execute).
+  // Structured summary of every buffered change for the apply diff dialog,
+  // across every page, read from the row snapshots taken at staging time.
   const build_pending_changes = useCallback((): PendingChange[] => {
     if (!result) return [];
     const cols = result.columns;
@@ -905,32 +901,31 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       if (sep < 0) continue;
       const col = key.slice(0, sep);
       const g = Number(key.slice(sep + 1));
-      const real = g - offset;
-      if (real < 0 || real >= result.rows.length) continue;
       if (deleted_rows.has(g)) continue;
-      const ci = cols.indexOf(col);
+      const snap = row_snapshots.get(g);
+      if (!snap) continue;
       changes.push({
         id: key,
         kind: "update",
         row: g + 1,
         column: col,
-        before: ci >= 0 ? (result.rows[real][ci] ?? null) : null,
+        before: snap[col] ?? null,
         after: value,
       });
     }
     for (const g of deleted_rows) {
-      const real = g - offset;
-      if (real < 0 || real >= result.rows.length) continue;
+      const snap = row_snapshots.get(g);
+      if (!snap) continue;
       changes.push({
         id: `del:${g}`,
         kind: "delete",
         row: g + 1,
-        values: result.rows[real],
-        value_columns: cols,
+        values: Object.values(snap),
+        value_columns: Object.keys(snap),
       });
     }
     return changes;
-  }, [result, pending, dirty_cells, deleted_rows, offset]);
+  }, [result, pending, dirty_cells, deleted_rows, row_snapshots]);
 
   // Render every staged change as runnable SQL — INSERT per drafted row
   // (empty columns omitted so defaults apply), UPDATE per buffered cell edit,
@@ -962,26 +957,56 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       if (sep < 0) continue;
       const col = key.slice(0, sep);
       const g = Number(key.slice(sep + 1));
-      const real = g - offset;
-      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
       if (deleted_rows.has(g)) continue;
-      const match_row = match_for(real + pending.length);
+      const match_row = match_for(g);
       if (!match_row) continue;
       stmts.push(
         `UPDATE ${sql_ident(table)}\nSET ${sql_ident(col)} = ${sql_literal(value)}\nWHERE ${where_of(match_row)};`,
       );
     }
     for (const g of deleted_rows) {
-      const real = g - offset;
-      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
-      const match_row = match_for(real + pending.length);
+      const match_row = match_for(g);
       if (!match_row) continue;
       stmts.push(
         `DELETE FROM ${sql_ident(table)}\nWHERE ${where_of(match_row)};`,
       );
     }
     return stmts.length > 0 ? stmts.join("\n\n") : null;
-  }, [result, pending, dirty_cells, deleted_rows, match_for, table, offset]);
+  }, [result, pending, dirty_cells, deleted_rows, match_for, table]);
+
+  // The same staged changes as Mongo shell commands for the Mongo console,
+  // matched and typed the way Apply does it. Mongo grids only.
+  const build_pending_nosql = useCallback((): string | null => {
+    if (!result || result.columns.length === 0) return null;
+    const cols = result.columns;
+    const types = Object.fromEntries(
+      schema.columns.map((c) => [c.name, c.data_type]),
+    );
+    const stmts: string[] = [];
+    for (const p of pending) {
+      const values = Object.fromEntries(
+        cols.map((c, ci) => [c, p.values[ci] ?? null]),
+      );
+      const stmt = mongo_insert(table, values, types);
+      if (stmt) stmts.push(stmt);
+    }
+    for (const [key, value] of dirty_cells) {
+      const sep = key.indexOf("\u0000");
+      if (sep < 0) continue;
+      const col = key.slice(0, sep);
+      const g = Number(key.slice(sep + 1));
+      if (deleted_rows.has(g)) continue;
+      const match_row = match_for(g);
+      if (!match_row) continue;
+      const stmt = mongo_update(table, match_row, col, value, types);
+      if (stmt) stmts.push(stmt);
+    }
+    for (const g of deleted_rows) {
+      const match_row = match_for(g);
+      if (match_row) stmts.push(mongo_delete(table, match_row));
+    }
+    return stmts.length > 0 ? stmts.join("\n\n") : null;
+  }, [result, schema, pending, dirty_cells, deleted_rows, match_for, table]);
 
   // Header quick-filter's live escalation past the loaded page: a bounded
   // probe first (cheap, and usually enough), unbounded only when the probe
@@ -1208,7 +1233,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     for (const r of rows) {
       const real = r - pending.length;
       if (real < 0) pending_rows.add(r);
-      else real_rows.push(real);
+      else {
+        remember_row(real);
+        real_rows.push(global_row(real));
+      }
     }
     if (pending_rows.size > 0) {
       setPending((cur) => cur.filter((_, i) => !pending_rows.has(i)));
@@ -1226,7 +1254,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         return changed ? next : cur;
       });
     }
-  }, [result, selected_set, pending.length]);
+  }, [result, selected_set, pending.length, global_row, remember_row]);
 
   // Expose this grid to the status bar (limit, pagination, delete, refresh,
   // and per-tab info) keyed by the owning tab.
@@ -1264,6 +1292,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       apply_pending,
       cancel_pending,
       get_pending_sql: build_pending_sql,
+      get_pending_nosql: kind === "mongo" ? build_pending_nosql : undefined,
       get_pending_changes: build_pending_changes,
       delete_rows: () => {
         do_delete();
@@ -1311,6 +1340,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       apply_pending,
       cancel_pending,
       build_pending_sql,
+      build_pending_nosql,
+      kind,
       build_pending_changes,
       table,
       database,
@@ -1341,6 +1372,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         pending: pending.map((p) => ({ values: p.values, dirty: p.dirty })),
       }),
       edit_field: (col, globalRow, value) => {
+        remember_row(globalRow - offset);
         setDirtyCells((cur) => {
           const next = new Map(cur);
           next.set(`${col}\u0000${globalRow}`, value);
@@ -1348,7 +1380,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         });
       },
     }),
-    [bridge, result, offset, dirty_cells, pending],
+    [bridge, result, offset, dirty_cells, pending, remember_row],
   );
 
   useEffect(() => {

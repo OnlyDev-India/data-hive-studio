@@ -43,7 +43,8 @@ export type StudioTab =
  *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`.
  *  A SQL tab without a file is named `sql@<database>` after the database
  *  selected in it (`SqlTabHandleBase.database`); until the editor has
- *  registered one it keeps the generic numbered label. */
+ *  registered one it keeps the generic numbered label. A NoSQL console is
+ *  named `console@<database>` the same way. */
 export function tabLabel(
   tab: StudioTab,
   file_name?: string | null,
@@ -51,6 +52,8 @@ export function tabLabel(
 ): string {
   if (file_name) return file_name;
   if (tab.kind === "sql" && database) return `sql@${database}`;
+  if (tab.kind === "mongo-console" && (database || tab.database))
+    return `console@${database || tab.database}`;
   switch (tab.kind) {
     case "table":
       return tab.name;

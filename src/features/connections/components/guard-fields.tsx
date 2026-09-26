@@ -24,6 +24,7 @@ import {
   type GuardFormValues,
 } from "../lib/guard-form";
 import { ReadOnlySwitch } from "./read-only-switch";
+import { InfoTip } from "./info-tip";
 
 const NONE = "none";
 const CUSTOM = "custom";
@@ -135,10 +136,9 @@ export function GuardFields({
         )}
       </div>
 
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <Checkbox
           id={confirm_id}
-          className="mt-0.5"
           // Production always asks, so the box shows on and cannot be turned
           // off while that label is picked. The stored choice is kept for
           // when the label changes.
@@ -146,16 +146,14 @@ export function GuardFields({
           disabled={production}
           onCheckedChange={(checked) => onChange({ confirm_writes: checked })}
         />
-        <div className="grid gap-0.5">
-          <Label htmlFor={confirm_id} className="text-sm font-normal">
-            Confirm before writes
-          </Label>
-          <p className="text-muted-foreground text-xs">
-            {production
-              ? "Always on for Production."
-              : "Ask before every change to this connection's data or schema."}
-          </p>
-        </div>
+        <Label htmlFor={confirm_id} className="text-sm font-normal">
+          Confirm before writes
+        </Label>
+        <InfoTip label="Confirm before writes">
+          {production
+            ? "Always on for Production."
+            : "Ask before every change to this connection's data or schema."}
+        </InfoTip>
       </div>
     </div>
   );

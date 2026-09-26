@@ -175,6 +175,18 @@ export function useGridController(cfg: GridControllerConfig): GridContextValue {
     initial_layout?.col_widths ?? {},
   );
 
+  // Selection is keyed by page-relative row, so a page flip would otherwise
+  // leave the same positions highlighted on unrelated rows. Reset during
+  // render, like `grid.tsx`'s `prev_query`, to avoid a cascading render.
+  const [prev_row_offset, setPrevRowOffset] = useState(row_offset);
+  if (prev_row_offset !== row_offset) {
+    setPrevRowOffset(row_offset);
+    setSelected(new Set());
+    setSelAnchor(null);
+    setActiveCell(null);
+    setEditing(null);
+  }
+
   // ---- Fill handle (Excel-style, vertical-only — see start_fill_drag) ----
   const fill_active = useRef(false);
   const [fill_source, setFillSource] = useState<SelBounds | null>(null);

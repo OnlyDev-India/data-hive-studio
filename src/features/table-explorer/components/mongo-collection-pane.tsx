@@ -8,6 +8,7 @@ import {
 import { type FilterColumn } from "@/shared/components/data-grid/filter-bar";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
+import { GridLoadState } from "@/shared/components/data-grid/grid-load-state";
 import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
 import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
@@ -97,8 +98,11 @@ export function MongoCollectionPane({
   // Each surface is built the first time its tab is shown, then stays mounted.
   // Opening straight on Schema therefore never runs the data query. Adjusted
   // during render, React's pattern for state derived from a prop.
-  const [data_opened, setDataOpened] = useState(mode === "data");
-  if (mode === "data" && !data_opened) setDataOpened(true);
+  // A tab brought back by a reconnect waits for a reload before its rows.
+  const paused = useStudioStore((s) => !!s.pausedTabs[tab_key]);
+  const resume_tab = useStudioStore((s) => s.resumeTab);
+  const [data_opened, setDataOpened] = useState(mode === "data" && !paused);
+  if (mode === "data" && !paused && !data_opened) setDataOpened(true);
   const [schema_opened, setSchemaOpened] = useState(mode === "schema");
   if (mode === "schema" && !schema_opened) setSchemaOpened(true);
 
@@ -215,6 +219,7 @@ export function MongoCollectionPane({
   // the structure and a schema Apply.
   const is_loading =
     !failed &&
+    !(paused && mode === "data") &&
     (mode === "data"
       ? !gridBridge || !!gridBridge.loading
       : !schema || !!schemaEdit?.busy);
@@ -304,6 +309,9 @@ export function MongoCollectionPane({
             as the SQL TablePane: the grid keeps its rows/scroll and never
             refetches on a mode switch, and the schema editor keeps its
             drafts. */}
+        {paused && mode === "data" && (
+          <GridLoadState kind="paused" on_reload={() => resume_tab(tab_key)} />
+        )}
         {data_opened && (
           <div
             className={cn(

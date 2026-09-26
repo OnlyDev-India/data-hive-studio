@@ -69,23 +69,35 @@ interface WorkspaceSnapshotV1 {
   byConn: Record<string, SavedWorkspace>;
 }
 
+/** A connection's tabs plus their editor text, or null with no tabs. */
+export function savedWorkspaceOf(
+  state: StudioStore,
+  conn: ConnectionInfo,
+): SavedWorkspace | null {
+  const ws = state.workspaces[conn.id];
+  if (!ws || ws.tabs.length === 0) return null;
+  const sqlSeeds: Record<string, string> = {};
+  for (const tab of ws.tabs) {
+    const tk = tabKey(tab);
+    const seed = state.sqlSeeds[tk];
+    if (seed !== undefined) sqlSeeds[tk] = seed;
+  }
+  return { workspace: ws, sqlSeeds };
+}
+
 /** Build the full snapshot to persist — every currently-open connection
  *  that actually has tabs, re-keyed from its ephemeral `conn_id` to a
- *  stable identity so it can be matched up again after a restart. */
+ *  stable identity so it can be matched up again after a restart. Tabs
+ *  still waiting for a reconnect are kept too. */
 export function buildWorkspaceSnapshot(
   state: StudioStore,
 ): WorkspaceSnapshotV1 {
-  const byConn: Record<string, SavedWorkspace> = {};
+  const byConn: Record<string, SavedWorkspace> = {
+    ...state.pendingWorkspaceRestore,
+  };
   for (const conn of state.open) {
-    const ws = state.workspaces[conn.id];
-    if (!ws || ws.tabs.length === 0) continue;
-    const sqlSeeds: Record<string, string> = {};
-    for (const tab of ws.tabs) {
-      const tk = tabKey(tab);
-      const seed = state.sqlSeeds[tk];
-      if (seed !== undefined) sqlSeeds[tk] = seed;
-    }
-    byConn[stableConnKey(conn)] = { workspace: ws, sqlSeeds };
+    const saved = savedWorkspaceOf(state, conn);
+    if (saved) byConn[stableConnKey(conn)] = saved;
   }
   return { version: 1, byConn };
 }

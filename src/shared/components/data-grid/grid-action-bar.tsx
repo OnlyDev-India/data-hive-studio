@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  Braces,
   Check,
   ChevronDown,
   Columns3,
@@ -113,6 +114,7 @@ export function GridActionBar({
   pane_ref,
   filter_bar,
   bulk_edit,
+  disabled = false,
 }: {
   bridge: GridBridge;
   conn_id: string;
@@ -122,12 +124,15 @@ export function GridActionBar({
    *  `columns`/`distinct` mirror `filter_bar`'s own (the pane already has
    *  them for the WHERE filter, no separate fetch needed). */
   bulk_edit?: { columns: FilterColumn[]; distinct: DistinctMap };
+  /** Nothing to act on (the query failed): every button is off. */
+  disabled?: boolean;
 }) {
   const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
     null,
   );
   const [bulk_edit_open, setBulkEditOpen] = useState(false);
   const openSql = useStudioStore((s) => s.openSql);
+  const openMongoConsole = useStudioStore((s) => s.openMongoConsole);
   // Direct Apply skips the review dialog, so on a Production connection (or
   // one with Confirm before writes on) it asks first (spec 0007). Review is
   // itself the confirmation and just wears the environment chip.
@@ -154,14 +159,19 @@ export function GridActionBar({
         {/* No `onClick` — `ColumnVisibilityMenu` renders this button as its
             own popover trigger, so opening/closing is already handled by
             wrapping it, not by a click handler here. */}
-        <GridToolbarButton icon={Columns3} label="Columns" {...props} />
+        <GridToolbarButton
+          icon={Columns3}
+          label="Columns"
+          disabled={disabled}
+          {...props}
+        />
       </ColumnVisibilityMenu>
     ),
     (props) => (
       <GridToolbarButton
         icon={RefreshCw}
         label="Refresh"
-        disabled={bridge.loading}
+        disabled={disabled || bridge.loading}
         onClick={() => bridge.refresh()}
         iconClassName={bridge.loading ? "animate-spin" : undefined}
         {...props}
@@ -213,7 +223,9 @@ export function GridActionBar({
         <GridToolbarButton
           icon={bridge.loading ? Loader2 : Check}
           label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
-          className={cn("bg-primary hover:bg-primary/70 rounded-r-none text-primary-foreground")}
+          className={cn(
+            "bg-primary hover:bg-primary/70 text-primary-foreground rounded-r-none",
+          )}
           iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
           disabled={!bridge.pending_exists || bridge.loading}
           onClick={() => setApplyChanges(bridge.get_pending_changes())}
@@ -256,6 +268,19 @@ export function GridActionBar({
               <FileCode2 className="size-3.5" />
               Copy to SQL
             </DropdownMenuItem>
+            {bridge.get_pending_nosql && bridge.database !== undefined && (
+              <DropdownMenuItem
+                onClick={() => {
+                  const text = bridge.get_pending_nosql?.();
+                  if (text && bridge.database !== undefined) {
+                    openMongoConsole(conn_id, bridge.database, text);
+                  }
+                }}
+              >
+                <Braces className="size-3.5" />
+                Copy to NoSQL
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </>

@@ -22,6 +22,10 @@ import {
   type PaletteKeywords,
 } from "@/shared/store";
 import type { ThemeMode } from "@/shared/theme/theme";
+import { connectSaved, needsPassword } from "@/features/connections";
+import { WEB } from "@/shared/api/web";
+import type { ConnectionInfo } from "@/shared/api";
+import type { SavedConnParams } from "@/shared/store";
 import {
   getActiveSchema,
   listDatabases,
@@ -31,6 +35,7 @@ import {
   type TableInfo,
 } from "@/shared/api";
 import { DBIcons, IconTypeMap } from "@/shared/components/icons/types";
+import { basename } from "@/shared/lib/utils";
 
 export interface PaletteItem {
   id: string;
@@ -166,12 +171,12 @@ export async function resolveMongoDatabase(connId: string): Promise<string> {
 export async function openMongoDatabaseAndConsole(
   connId: string,
   seedText?: string,
-  seedFileName?: string,
+  seedFilePath?: string,
 ) {
   const database = await resolveMongoDatabase(connId);
   useStudioStore
     .getState()
-    .openMongoConsole(connId, database, seedText, seedFileName);
+    .openMongoConsole(connId, database, seedText, seedFilePath);
 }
 
 /** `database`, when given, opens exactly that database (a sibling database
@@ -421,7 +426,8 @@ export function buildOpenTabItems(): PaletteItem[] {
       id: `tab:${key}`,
       label: tabLabel(
         tab,
-        s.sqlTabs[key]?.file_name ?? s.seedFileNames[key],
+        s.sqlTabs[key]?.file_name ??
+          (s.seedFilePaths[key] && basename(s.seedFilePaths[key])),
         s.sqlTabs[key]?.database,
       ),
       section: "Open tabs",
@@ -589,25 +595,71 @@ export function buildTableItems(
 
 /** `conn:` prefix mode (and a section of default quick-open) — switch to
  *  another currently-open connection. */
+/** Whether an open connection is the same target as a saved entry. */
+function isOpenAs(
+  conn: ConnectionInfo,
+  name: string,
+  saved: SavedConnParams,
+  recentParams: Record<string, SavedConnParams>,
+): boolean {
+  if (conn.kind !== (saved.kind || "postgres")) return false;
+  if (!!conn.read_only !== !!saved.read_only) return false;
+  if (conn.kind === "sqlite")
+    return !!conn.source_path && conn.source_path === saved.source_path;
+  const p = recentParams[conn.id];
+  if (!p) return false;
+  if (p.name === name) return true;
+  return (
+    p.host === saved.host &&
+    p.port === saved.port &&
+    p.user === saved.user &&
+    p.database === saved.database
+  );
+}
+
+/** `conn:` prefix mode: open connections switch, saved ones connect first. */
 export function buildConnectionItems(): PaletteItem[] {
   const s = useStudioStore.getState();
   const active_conn = activeConn();
-  return s.open
-    .filter((c) => c.id !== active_conn?.id)
-    .map((c) => {
-      const Icon = DBIcons[c.kind];
+  const icon_of = (kind: string) => {
+    const Icon = DBIcons[kind as keyof typeof DBIcons];
+    return Icon ? <Icon className="size-4" /> : <Plug className="size-4" />;
+  };
+  const connected: PaletteItem[] = s.open.map((c) => ({
+    id: `conn:${c.id}`,
+    label: c.name,
+    hint: c.id === active_conn?.id ? `${c.kind} · current` : c.kind,
+    section: "Connected",
+    icon: icon_of(c.kind),
+    run: () => {
+      s.setActive(c.id);
+      s.setView("workspace");
+    },
+  }));
+  const not_connected: PaletteItem[] = Object.entries(s.savedLocal)
+    .filter(
+      ([name, p]) => !s.open.some((c) => isOpenAs(c, name, p, s.recentParams)),
+    )
+    .map(([name, p]) => {
+      const kind = p.kind || "postgres";
       return {
-        id: `conn:${c.id}`,
-        label: c.name,
-        hint: c.kind,
-        section: "Connections",
-        icon: Icon ? <Icon className="size-4" /> : <Plug className="size-4" />,
-        run: () => {
-          s.setActive(c.id);
-          s.setView("workspace");
+        id: `conn-saved:${name}`,
+        label: name,
+        hint: kind,
+        section: "Not connected",
+        icon: icon_of(kind),
+        run: async () => {
+          if (needsPassword(p, WEB))
+            return "Enter this connection's password from the home screen.";
+          try {
+            await connectSaved(kind, { ...p, name });
+          } catch (e) {
+            return `Connection failed: ${String(e)}`;
+          }
         },
       };
     });
+  return [...connected, ...not_connected];
 }
 
 /** `diss:` prefix mode — disconnect any currently-open connection (not just

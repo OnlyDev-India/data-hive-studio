@@ -13,8 +13,6 @@ vi.mock("@/shared/api", async (importOriginal) => ({
   openDatabasePath,
 }));
 vi.mock("@tauri-apps/api/core", () => mockTauriCore());
-
-// SQLite files are a desktop feature: the web build never offers them.
 vi.mock("@/shared/api/web", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/api/web")>()),
   WEB: false,
@@ -26,35 +24,65 @@ vi.mock("@/shared/lib/platform", async (importOriginal) => ({
 
 import { useStudioStore } from "@/shared/store";
 import { Landing } from "../landing";
+import { useConnectionDrafts } from "../../lib/drafts";
+import { connectSaved } from "../../lib/connect-saved";
 
-const opened = {
-  id: "c1",
-  name: "app.db",
-  kind: "sqlite",
+const saved_file = {
+  name: "Orders",
+  kind: "sqlite" as const,
+  host: "",
+  port: 0,
+  user: "",
+  password: "",
+  database: "",
   source_path: "/d/app.db",
 };
 
 beforeEach(() => {
-  openDatabasePath.mockReset().mockResolvedValue(opened);
-  pickDatabaseFile.mockReset();
-  useStudioStore.setState({ savedLocal: {}, open: [], landingPrefill: null });
+  useConnectionDrafts.getState().reset();
+  openDatabasePath.mockReset().mockResolvedValue({
+    id: "c1",
+    name: "app.db",
+    kind: "sqlite",
+    source_path: "/d/app.db",
+  });
+  pickDatabaseFile.mockReset().mockResolvedValue({
+    path: "/d/app.db",
+    name: "app.db",
+    bytes: [],
+  });
+  useStudioStore.setState({ savedLocal: {}, open: [], landingForm: null });
   localStorage.clear();
 });
 afterEach(cleanup);
 
 const saved = () => useStudioStore.getState().savedLocal;
+const click = (role: string, name: string | RegExp) =>
+  userEvent.click(screen.getByRole(role, { name }));
+const readOnlySwitch = () => screen.getByRole("switch", { name: /read only/i });
+
+async function browseFile() {
+  render(<Landing />);
+  await click("radio", "SQLite");
+  await click("button", "Next");
+  await click("button", "Browse…");
+  await screen.findByText("/d/app.db");
+}
 
 describe("Landing, SQLite", () => {
-  it("saves a browsed file without opening it", async () => {
-    pickDatabaseFile.mockResolvedValue({
-      path: "/d/app.db",
-      name: "app.db",
-      bytes: [],
-    });
-    render(<Landing />);
+  it("shows only Connection and Safety tabs, and Save and Open", async () => {
+    await browseFile();
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Connection",
+      "Safety",
+    ]);
+    expect(screen.queryByRole("button", { name: "Test" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "Browse…" }));
-    await userEvent.click(await screen.findByRole("button", { name: /save/i }));
+  it("saves a browsed file without opening it", async () => {
+    await browseFile();
+    await click("button", "Save");
 
     await waitFor(() => expect(saved()["app.db"]).toBeDefined());
     expect(saved()["app.db"]).toMatchObject({
@@ -65,121 +93,109 @@ describe("Landing, SQLite", () => {
   });
 
   it("uses the typed name when saving", async () => {
-    pickDatabaseFile.mockResolvedValue({
-      path: "/d/app.db",
-      name: "app.db",
-      bytes: [],
-    });
-    render(<Landing />);
-
-    await userEvent.click(screen.getByRole("button", { name: "Browse…" }));
-    await userEvent.type(
-      screen.getByPlaceholderText(/connection name/i),
-      "Orders",
-    );
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await browseFile();
+    await userEvent.type(screen.getByLabelText("Name"), "Orders");
+    await click("button", "Save");
 
     await waitFor(() => expect(saved()["Orders"]).toBeDefined());
   });
 
-  it("opens the browsed file with Open", async () => {
-    pickDatabaseFile.mockResolvedValue({
-      path: "/d/app.db",
-      name: "app.db",
-      bytes: [],
-    });
+  it("asks for a file before saving", async () => {
     render(<Landing />);
+    await click("radio", "SQLite");
+    await click("button", "Next");
+    await click("button", "Save");
 
-    await userEvent.click(screen.getByRole("button", { name: "Browse…" }));
-    await userEvent.click(screen.getByRole("button", { name: "Open" }));
-
-    await waitFor(() =>
-      expect(openDatabasePath).toHaveBeenCalledWith("/d/app.db"),
-    );
+    expect(await screen.findByText("Choose a database file.")).toBeVisible();
+    expect(saved()).toEqual({});
   });
 
-  it("opens a saved SQLite connection when it is double clicked in the sidebar", async () => {
-    render(<Landing />);
+  it("opens the browsed file as a normal, writable one", async () => {
+    await browseFile();
+    await click("button", "Open");
 
-    act(() =>
-      useStudioStore.getState().requestLandingPrefill(
-        "sqlite",
-        {
-          name: "Orders",
-          kind: "sqlite",
-          host: "",
-          port: 0,
-          user: "",
-          password: "",
-          database: "",
-          source_path: "/d/app.db",
-        },
-        true,
-      ),
-    );
-
-    await waitFor(() =>
-      expect(openDatabasePath).toHaveBeenCalledWith("/d/app.db"),
-    );
+    await waitFor(() => expect(openDatabasePath).toHaveBeenCalledOnce());
+    expect(openDatabasePath.mock.calls[0]).toEqual(["/d/app.db"]);
+    expect(useConnectionDrafts.getState().step).toBe("pick");
   });
 
-  it("only loads the file on a single click, without opening it", async () => {
-    render(<Landing />);
+  it("opens and saves read only when the switch is on", async () => {
+    await browseFile();
+    await click("tab", /safety/i);
+    await userEvent.click(readOnlySwitch());
+    await click("button", "Save");
+    await waitFor(() =>
+      expect(saved()["app.db"]).toMatchObject({ read_only: true }),
+    );
 
-    act(() =>
-      useStudioStore.getState().requestLandingPrefill("sqlite", {
-        name: "Orders",
-        kind: "sqlite",
-        host: "",
-        port: 0,
-        user: "",
-        password: "",
-        database: "",
-        source_path: "/d/app.db",
+    await click("button", "Open");
+    await waitFor(() =>
+      expect(openDatabasePath).toHaveBeenCalledWith("/d/app.db", {
+        read_only: true,
       }),
     );
-
-    expect(await screen.findByText("/d/app.db")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/connection name/i)).toHaveValue(
-      "Orders",
-    );
-    expect(openDatabasePath).not.toHaveBeenCalled();
   });
 
-  it("updates the saved connection in place when editing", async () => {
-    useStudioStore.setState({
-      savedLocal: {
-        Orders: {
-          name: "Orders",
-          kind: "sqlite",
-          host: "",
-          port: 0,
-          user: "",
-          password: "",
-          database: "",
-          source_path: "/d/old.db",
-        },
-      },
-    });
+  it("loads a saved read only file into the form without opening it", async () => {
     render(<Landing />);
-
     act(() =>
       useStudioStore
         .getState()
-        .requestLandingPrefill(
+        .requestLandingForm("sqlite", { ...saved_file, read_only: true }),
+    );
+
+    expect(await screen.findByText("/d/app.db")).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("Orders");
+    await click("tab", /safety/i);
+    expect(readOnlySwitch()).toBeChecked();
+    expect(openDatabasePath).not.toHaveBeenCalled();
+  });
+
+  it("shows a file saved before read only existed with the switch off", async () => {
+    render(<Landing />);
+    act(() =>
+      useStudioStore.getState().requestLandingForm("sqlite", saved_file),
+    );
+
+    await screen.findByText("/d/app.db");
+    await click("tab", /safety/i);
+    expect(readOnlySwitch()).not.toBeChecked();
+  });
+
+  it("updates the saved entry in place when editing", async () => {
+    useStudioStore.setState({
+      savedLocal: { Orders: { ...saved_file, read_only: true } },
+    });
+    render(<Landing />);
+    act(() =>
+      useStudioStore
+        .getState()
+        .requestLandingForm(
           "sqlite",
-          { ...saved()["Orders"], source_path: "/d/old.db" },
-          false,
+          { ...saved_file, read_only: true },
           { oldName: "Orders", name: "Orders" },
         ),
     );
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Update" }),
-    );
+    expect(
+      await screen.findByText("Edit Connection · Orders"),
+    ).toBeInTheDocument();
+    await click("tab", /safety/i);
+    await userEvent.click(readOnlySwitch());
+    await click("button", "Save");
 
-    await waitFor(() => expect(Object.keys(saved())).toEqual(["Orders"]));
-    expect(saved()["Orders"].source_path).toBe("/d/old.db");
-    expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+    await waitFor(() => expect(saved()["Orders"]?.read_only).toBe(false));
+    expect(Object.keys(saved())).toEqual(["Orders"]);
+  });
+});
+
+describe("connectSaved, SQLite", () => {
+  it("opens a saved file directly, keeping its read only flag", async () => {
+    await connectSaved("sqlite", { ...saved_file, read_only: true });
+    expect(openDatabasePath).toHaveBeenCalledWith("/d/app.db", {
+      read_only: true,
+    });
+    await connectSaved("sqlite", saved_file);
+    expect(openDatabasePath.mock.calls[1]).toEqual(["/d/app.db"]);
   });
 });

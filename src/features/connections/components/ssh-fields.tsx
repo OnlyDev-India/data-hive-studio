@@ -10,156 +10,192 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { FilePathInput } from "./file-path-input";
 import { WEB } from "@/shared/api/web";
+import type { SshFormValue } from "../lib/form-values";
+import { FilePathInput } from "./file-path-input";
+import { FormRow, FormRowPlain } from "./connection-form/form-row";
 
-export interface SshFormValue {
-  ssh_host: string;
-  ssh_port: string;
-  ssh_user: string;
-  /** "password" | "key". */
-  ssh_auth_mode: string;
-  ssh_password: string;
-  ssh_key_file: string;
-  ssh_key_passphrase: string;
-  ssh_host_key_fingerprint: string;
-}
+const id = (key: string) => `conn-${key}`;
 
-/** The SSH tab's content — shared by the Postgres and MongoDB forms since
- *  the tunnel itself is identical either way (it just forwards a local
- *  port to whatever `host:port` the rest of the form already names). An
- *  empty `ssh_host` means "no tunnel" everywhere else in the app, so the
- *  enable checkbox is really just "is ssh_host non-empty", with a local
- *  `show` flag so unchecking (which clears it) doesn't also throw away
- *  the other fields the user already typed. */
+/** A blank `ssh_host` means no tunnel; `show` keeps the other fields when
+ *  the box is unticked. */
 export function SshFields({
   value,
   onChange,
+  errors = {},
+  disabled = false,
+  note,
 }: {
   value: SshFormValue;
   onChange: (key: keyof SshFormValue, v: string) => void;
+  errors?: Partial<Record<keyof SshFormValue, string>>;
+  /** The whole tunnel is unavailable, `note` says why. */
+  disabled?: boolean;
+  note?: React.ReactNode;
 }) {
   const [show, setShow] = useState(() => value.ssh_host.trim().length > 0);
+  const off = disabled || !show;
+  const keyMode = !WEB && value.ssh_auth_mode === "key";
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Checkbox
-          checked={show}
-          onCheckedChange={(checked) => {
-            setShow(checked);
-            if (!checked) onChange("ssh_host", "");
-          }}
-        />
-        <label className="text-muted-foreground text-sm">
-          Use an SSH tunnel
-        </label>
-      </div>
+      {note}
+      <FormRowPlain>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={id("ssh_on")}
+            checked={show && !disabled}
+            disabled={disabled}
+            onCheckedChange={(checked) => {
+              setShow(checked);
+              if (!checked) onChange("ssh_host", "");
+            }}
+          />
+          <Label htmlFor={id("ssh_on")} className="text-sm font-normal">
+            Use an SSH tunnel
+          </Label>
+        </div>
+      </FormRowPlain>
 
-      {show && (
-        <div className="flex flex-col gap-3 pl-1">
-          <div className="grid grid-cols-[1fr_5rem] gap-2">
+      <>
+        <FormRow label="SSH host" htmlFor={id("ssh_host")} disabled={off}>
+          <div className="flex gap-2">
             <Input
-              placeholder="ssh host (bastion/jump host)"
+              id={id("ssh_host")}
+              disabled={off}
+              className="min-w-0 flex-1"
+              placeholder="bastion or jump host"
               value={value.ssh_host}
               onChange={(e) => onChange("ssh_host", e.target.value)}
             />
             <Input
-              placeholder="22"
+              aria-label="SSH port"
+              disabled={off}
               inputMode="numeric"
+              placeholder="22"
+              className="w-20"
               value={value.ssh_port}
               onChange={(e) => onChange("ssh_port", e.target.value)}
             />
           </div>
+        </FormRow>
+        <FormRow
+          label="SSH user"
+          htmlFor={id("ssh_user")}
+          disabled={off}
+          error={errors.ssh_user}
+        >
           <Input
-            placeholder="ssh user"
+            id={id("ssh_user")}
+            disabled={off}
+            aria-invalid={!!errors.ssh_user}
             value={value.ssh_user}
             onChange={(e) => onChange("ssh_user", e.target.value)}
           />
+        </FormRow>
 
-          {/* The web build tunnels by password only: a key file would have to
-              be read from the server's disk, not yours. */}
-          {!WEB && (
-            <div className="grid gap-1">
-              <Label className="text-muted-foreground text-2xs font-normal">
-                Authentication
-              </Label>
-              <Select
-                value={value.ssh_auth_mode || "password"}
-                onValueChange={(v) =>
-                  onChange("ssh_auth_mode", v ?? "password")
-                }
+        {!WEB && (
+          <FormRow
+            label="Authentication"
+            htmlFor={id("ssh_auth_mode")}
+            disabled={off}
+          >
+            <Select
+              disabled={off}
+              value={value.ssh_auth_mode || "password"}
+              onValueChange={(v) => onChange("ssh_auth_mode", v ?? "password")}
+            >
+              <SelectTrigger
+                id={id("ssh_auth_mode")}
+                className="w-40"
+                size="sm"
               >
-                <SelectTrigger className="w-40" size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="password">Password</SelectItem>
-                  <SelectItem value="key">Private key</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="password">Password</SelectItem>
+                <SelectItem value="key">Private key</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormRow>
+        )}
 
-          {!WEB && value.ssh_auth_mode === "key" ? (
-            <>
-              <div className="grid gap-1">
-                <Label className="text-muted-foreground text-2xs font-normal">
-                  Private key file
-                </Label>
-                <FilePathInput
-                  placeholder="/home/me/.ssh/id_ed25519"
-                  value={value.ssh_key_file}
-                  onChange={(v) => onChange("ssh_key_file", v)}
-                />
-              </div>
+        <FormRow
+          label="SSH password"
+          htmlFor={id("ssh_password")}
+          disabled={off || keyMode}
+        >
+          <Input
+            id={id("ssh_password")}
+            type="password"
+            disabled={off || keyMode}
+            value={value.ssh_password}
+            onChange={(e) => onChange("ssh_password", e.target.value)}
+          />
+        </FormRow>
+        {!WEB && (
+          <>
+            <FormRow
+              label="Private key"
+              disabled={off || !keyMode}
+              error={errors.ssh_key_file}
+            >
+              <FilePathInput
+                disabled={off || !keyMode}
+                placeholder="~/.ssh/id_ed25519"
+                value={value.ssh_key_file}
+                onChange={(v) => onChange("ssh_key_file", v)}
+              />
+            </FormRow>
+            <FormRow
+              label="Passphrase"
+              htmlFor={id("ssh_key_passphrase")}
+              disabled={off || !keyMode}
+              hint="Only if the key is encrypted."
+            >
               <Input
+                id={id("ssh_key_passphrase")}
                 type="password"
-                placeholder="key passphrase (optional, if encrypted)"
+                disabled={off || !keyMode}
                 value={value.ssh_key_passphrase}
                 onChange={(e) => onChange("ssh_key_passphrase", e.target.value)}
               />
-            </>
-          ) : (
-            <Input
-              type="password"
-              placeholder="ssh password"
-              value={value.ssh_password}
-              onChange={(e) => onChange("ssh_password", e.target.value)}
-            />
-          )}
+            </FormRow>
+          </>
+        )}
 
-          {!WEB && (
-            <div className="grid gap-1">
-              <Label className="text-muted-foreground text-2xs font-normal">
-                Pinned host key (optional — leave blank to trust the server's
-                key on each connect; paste a fingerprint here to reject a
-                connection whose key doesn't match)
-              </Label>
-              <div className="flex gap-1">
-                <Input
-                  className="min-w-0 flex-1 font-mono text-xs"
-                  placeholder="SHA256:..."
-                  value={value.ssh_host_key_fingerprint}
-                  onChange={(e) =>
-                    onChange("ssh_host_key_fingerprint", e.target.value)
-                  }
-                />
-                {value.ssh_host_key_fingerprint && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onChange("ssh_host_key_fingerprint", "")}
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
+        {!WEB && (
+          <FormRow
+            label="Pinned host key"
+            htmlFor={id("ssh_host_key_fingerprint")}
+            disabled={off}
+            hint="Optional. Leave blank to trust the server's key on each connect. Paste a fingerprint to reject a connection whose key doesn't match."
+          >
+            <div className="flex gap-1">
+              <Input
+                id={id("ssh_host_key_fingerprint")}
+                disabled={off}
+                className="min-w-0 flex-1 font-mono text-xs"
+                placeholder="SHA256:..."
+                value={value.ssh_host_key_fingerprint}
+                onChange={(e) =>
+                  onChange("ssh_host_key_fingerprint", e.target.value)
+                }
+              />
+              {value.ssh_host_key_fingerprint && !off && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onChange("ssh_host_key_fingerprint", "")}
+                >
+                  Clear
+                </Button>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </FormRow>
+        )}
+      </>
     </div>
   );
 }

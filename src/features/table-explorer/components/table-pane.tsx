@@ -12,6 +12,7 @@ import { usePaneMode, useStudioStore } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
+import { GridLoadState } from "@/shared/components/data-grid/grid-load-state";
 import { GridActionBar } from "@/shared/components/data-grid/grid-action-bar";
 import { SchemaActionBar } from "@/shared/components/data-grid/schema-action-bar";
 import {
@@ -126,8 +127,11 @@ export function TablePane({
   // mounted (the grid keeps its rows and scroll, the schema editor its
   // drafts). Opening straight on Schema therefore never runs the data query.
   // Adjusted during render, React's pattern for state derived from a prop.
-  const [data_opened, setDataOpened] = useState(mode === "data");
-  if (mode === "data" && !data_opened) setDataOpened(true);
+  // A tab brought back by a reconnect waits for a reload before its rows.
+  const paused = useStudioStore((s) => !!s.pausedTabs[tab_key]);
+  const resume_tab = useStudioStore((s) => s.resumeTab);
+  const [data_opened, setDataOpened] = useState(mode === "data" && !paused);
+  if (mode === "data" && !paused && !data_opened) setDataOpened(true);
   const [schema_opened, setSchemaOpened] = useState(mode === "schema");
   if (mode === "schema" && !schema_opened) setSchemaOpened(true);
 
@@ -317,6 +321,7 @@ export function TablePane({
   // the Schema tab on the structure and a schema Apply.
   const is_loading =
     !failed &&
+    !(paused && mode === "data") &&
     (mode === "data" ? !gridBridge || grid_loading : !schema || schema_busy);
   const [loading_start, setLoadingStart] = useState<number | null>(null);
   useEffect(() => {
@@ -406,6 +411,9 @@ export function TablePane({
         {/* Both surfaces stay mounted once built (hidden while inactive): the
             grid keeps its rows/scroll when you visit Schema, and Schema keeps
             its drafts. Revisions still refresh data in the background. */}
+        {paused && mode === "data" && (
+          <GridLoadState kind="paused" on_reload={() => resume_tab(tab_key)} />
+        )}
         {data_opened && (
           <div
             className={cn(
