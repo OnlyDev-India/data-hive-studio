@@ -110,18 +110,18 @@ describe("Grid staged changes across pages", () => {
         filters={[]}
         custom_where=""
         distinct={{}}
-        kind="postgres"
+        kind="sql"
         database="app"
       />,
     );
     await waitFor(() => expect(bridge(tab)?.loading).toBe(false));
     act(() => bridge(tab)!.set_page_size(2));
-    await waitFor(() => expect(ref.current?.session().rows).toEqual(pages[0]));
+    await waitFor(() => expect(ref.current?.session()?.rows).toEqual(pages[0]));
 
     act(() => ref.current!.edit_field("name", 1, "bobby"));
 
     act(() => bridge(tab)!.set_page(1));
-    await waitFor(() => expect(ref.current?.session().rows).toEqual(pages[2]));
+    await waitFor(() => expect(ref.current?.session()?.rows).toEqual(pages[2]));
 
     const changes = bridge(tab)!.get_pending_changes();
     expect(changes).toEqual([
@@ -157,7 +157,7 @@ describe("Grid staged changes across pages", () => {
       />,
     );
     await waitFor(() => expect(bridge(tab)?.loading).toBe(false));
-    await waitFor(() => expect(ref.current?.session().rows.length).toBe(2));
+    await waitFor(() => expect(ref.current?.session()?.rows.length).toBe(2));
 
     act(() => ref.current!.edit_field("name", 1, "bobby"));
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { mockTauriCore } from "@/test/mock-tauri";
 
 const { api, flags } = vi.hoisted(() => ({
@@ -22,6 +22,7 @@ vi.mock("@/shared/api", async (importOriginal) => ({
   ...api,
 }));
 
+import type { ConnectionInfo } from "@/shared/api";
 import { useStudioStore, type SavedConnParams } from "@/shared/store";
 import { pgConnectParams, mongoConnectParams } from "../build-params";
 import { mongoFormFromSaved, pgFormFromSaved } from "../from-saved";
@@ -59,7 +60,7 @@ const sqliteSaved: SavedConnParams = {
   source_path: "/tmp/local.db",
 };
 
-let openConn: ReturnType<typeof vi.fn>;
+let openConn: Mock<(conn: ConnectionInfo) => void>;
 
 beforeEach(() => {
   flags.web = false;

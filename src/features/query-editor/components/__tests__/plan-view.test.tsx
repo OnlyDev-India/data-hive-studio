@@ -56,6 +56,9 @@ function tab(patch: Partial<PlanResult> | null): PlanTab {
             unsupported: null,
             ...patch,
           },
+    mode: "estimate",
+    run_id: null,
+    stopping: false,
   };
 }
 
