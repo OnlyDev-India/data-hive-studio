@@ -178,7 +178,7 @@ spec [0014](../specs/0014-one-line-install/index.md) · code in `scripts/install
 - [x] Design it (spec): `/architect one line install without OS warnings`
 - [ ] Build it: `/develop one line install without OS warnings`
   - [ ] Ad hoc signing plus the macOS path of `install.sh`, published and smoke tested by `install-scripts.yml` end to end (AC-1 to AC-3, AC-10, AC-12 to AC-17)
-  - [ ] Linux path of `install.sh` (deb, rpm, AppImage) with its three smoke jobs (AC-4 to AC-6, AC-11 to AC-13, AC-17)
+  - [x] Linux path of `install.sh` (deb, rpm, AppImage) with its three smoke jobs (AC-4 to AC-6, AC-11 to AC-13, AC-17)
   - [ ] `install.ps1` for Windows with its smoke job (AC-7 to AC-13, AC-15, AC-17)
   - [ ] README and release notes show the commands, and the manual browser DMG and Windows wizard checks (AC-1, AC-3, AC-7, AC-18)
 - [ ] Verify it: `/check verify one line install without OS warnings`

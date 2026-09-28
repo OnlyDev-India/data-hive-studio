@@ -86,9 +86,10 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Unsigned OS build for now (no Apple/Windows CODE-signing secrets
-      # configured). macOS Gatekeeper and Windows SmartScreen will warn on
-      # first launch. To sign later: add APPLE_CERTIFICATE /
+      # No Apple/Windows CODE-signing secrets configured yet: macOS is only
+      # ad hoc signed (bundle.macOS.signingIdentity "-") and Windows is
+      # unsigned, so browser downloads still warn on first launch (the one
+      # line install from install-scripts.yml avoids that). To sign later: add APPLE_CERTIFICATE /
       # APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY / APPLE_ID /
       # APPLE_PASSWORD / APPLE_TEAM_ID and/or WINDOWS_CERTIFICATE /
       # WINDOWS_CERTIFICATE_PASSWORD as repo secrets, then pass them through
@@ -139,19 +140,22 @@ jobs:
 
             Full commit history: ${{ github.sha }}
 
-            **macOS:** these builds aren't notarized yet, so opening the app normally after installing will show "**\"DH Studio\" is damaged and can't be opened**." That's Gatekeeper blocking an unsigned app, not actual corruption. Fix (Terminal, one-time): run
-            ```
-            xattr -cr "/Applications/DH Studio.app"
-            ```
-            (adjust the path if you installed it elsewhere), then open the app normally.
+            **Install**
 
-            **Windows:** SmartScreen will show "Windows protected your PC" since these builds aren't code-signed. Click **More info**, then **Run anyway**. You only need to do this once.
+            macOS and Linux:
+            ```
+            curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sh
+            ```
+            Windows (PowerShell):
+            ```
+            irm https://github.com/${{ github.repository }}/releases/latest/download/install.ps1 | iex
+            ```
+            The command downloads the right file for your computer, checks it against `SHA256SUMS.txt`, installs it and opens DH Studio, with no Gatekeeper or SmartScreen prompt. Run it again any time to update.
 
-            **Linux:** no extra step needed for the `.deb`/`.rpm` — install via your package manager as usual. If you use the `.AppImage` instead, mark it executable first:
-            ```
-            chmod +x "DH Studio_${{ needs.check-version.outputs.version }}_amd64.AppImage"
-            ```
-            then double-click it (or run it) to launch. If it fails with a FUSE error, install `libfuse2` (e.g. `sudo apt install libfuse2` on Ubuntu 22.04+) first.
+            **Downloading from the browser instead?** These builds aren't notarized or code signed yet.
+            - macOS: if the app won't open, go to System Settings, Privacy and Security, and click **Open Anyway** (on macOS 14 and older, right click the app and choose Open).
+            - Windows: SmartScreen shows "Windows protected your PC". Click **More info**, then **Run anyway**. If Smart App Control is on, it may block the app; see the README.
+            - Linux: install the `.deb` or `.rpm` with your package manager. For the `.AppImage`, run `chmod +x` on it first, and install `libfuse2` if it fails with a FUSE error.
           releaseDraft: false
           prerelease: ${{ needs.check-version.outputs.prerelease }}
           args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
@@ -173,3 +177,15 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir out
           jq '.notes |= (split("Full commit history:")[0] | sub("\\s+$"; ""))' out/latest.json > latest.json
           gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber
+
+  # Publishes install.sh, install.ps1 and SHA256SUMS.txt to the release and
+  # smoke tests the one line install on every OS.
+  install-scripts:
+    name: Install scripts
+    needs: [check-version, build]
+    if: needs.build.result == 'success'
+    uses: ./.github/workflows/install-scripts.yml
+    with:
+      tag: ${{ needs.check-version.outputs.tag }}
+    permissions:
+      contents: write

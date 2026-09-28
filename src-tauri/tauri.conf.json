@@ -44,6 +44,9 @@
         "role": "Editor"
       }
     ],
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
