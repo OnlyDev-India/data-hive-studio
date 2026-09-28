@@ -294,12 +294,16 @@ export function workspaceActions(set: SetState) {
     openSql(
       connId: string,
       seedText?: string,
-      seedFileName?: string,
+      seedFilePath?: string,
       paneId?: string,
     ) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);
-        const tab: StudioTab = { kind: "sql", id: cur.nextSqlId };
+        const tab: StudioTab = {
+          kind: "sql",
+          id: cur.nextSqlId,
+          conn_id: connId,
+        };
         const next = addTabToFocusedPane(
           {
             ...cur,
@@ -319,11 +323,11 @@ export function workspaceActions(set: SetState) {
             : {}),
           // Only set when the seed came from a real file — marks it as
           // already-saved instead of unsaved new work.
-          ...(seedFileName !== undefined
+          ...(seedFilePath !== undefined
             ? {
-                seedFileNames: {
-                  ...state.seedFileNames,
-                  [tabKey(tab)]: seedFileName,
+                seedFilePaths: {
+                  ...state.seedFilePaths,
+                  [tabKey(tab)]: seedFilePath,
                 },
               }
             : {}),
@@ -383,7 +387,7 @@ export function workspaceActions(set: SetState) {
       connId: string,
       database: string,
       seedText?: string,
-      seedFileName?: string,
+      seedFilePath?: string,
       paneId?: string,
     ) {
       openTab((state) => {
@@ -410,11 +414,11 @@ export function workspaceActions(set: SetState) {
           ...(seedText !== undefined
             ? { sqlSeeds: { ...state.sqlSeeds, [tabKey(tab)]: seedText } }
             : {}),
-          ...(seedFileName !== undefined
+          ...(seedFilePath !== undefined
             ? {
-                seedFileNames: {
-                  ...state.seedFileNames,
-                  [tabKey(tab)]: seedFileName,
+                seedFilePaths: {
+                  ...state.seedFilePaths,
+                  [tabKey(tab)]: seedFilePath,
                 },
               }
             : {}),
@@ -460,8 +464,8 @@ export function workspaceActions(set: SetState) {
         delete paneModes[key];
         const sqlSeeds = { ...state.sqlSeeds };
         delete sqlSeeds[key];
-        const seedFileNames = { ...state.seedFileNames };
-        delete seedFileNames[key];
+        const seedFilePaths = { ...state.seedFilePaths };
+        delete seedFilePaths[key];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -472,7 +476,7 @@ export function workspaceActions(set: SetState) {
             paneModes,
           }),
           sqlSeeds,
-          seedFileNames,
+          seedFilePaths,
         };
       });
     },

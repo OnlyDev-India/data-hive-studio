@@ -8,6 +8,7 @@ import {
   SHORTCUT_ACTIONS,
   type ShortcutBinding,
 } from "@/shared/hooks/shortcut-registry";
+import { Kbd, KbdGroup } from "@/shared/components/ui/kbd";
 
 /** Modifier keys pressed alone (still composing a combo) never count as a
  *  capture on their own — only a real key finishes recording. */
@@ -85,6 +86,7 @@ export function ShortcutsSection() {
           const effective = overrides[action.id] ?? action.default;
           const is_default = bindingEquals(effective, action.default);
           const recording = recordingId === action.id;
+          const shortcut_keys = formatBinding(effective);
           return (
             <div
               key={action.id}
@@ -98,9 +100,11 @@ export function ShortcutsSection() {
                       Press a key…
                     </span>
                   ) : (
-                    <kbd className="bg-muted text-muted-foreground text-3xs rounded-md border px-1.5 py-0.5 font-medium">
-                      {formatBinding(effective)}
-                    </kbd>
+                    <KbdGroup>
+                      {shortcut_keys.map((key, idx) => (
+                        <Kbd key={idx}>{key}</Kbd>
+                      ))}
+                    </KbdGroup>
                   )}
                   <Button
                     variant="outline"

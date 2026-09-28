@@ -12,6 +12,7 @@ import { TableListItem } from "./table-list-item";
  *  `toggle_tree` in `TablesBrowser`). */
 export function TreeToggleRow({
   icon_badge = false,
+  stateless = false,
   label,
   suffix,
   expanded,
@@ -29,6 +30,9 @@ export function TreeToggleRow({
    *  indicator, on the icon itself rather than a separate trailing dot
    *  (the trailing slot is used for the disconnect/close button instead). */
   icon_badge?: boolean;
+  /** No connected state to show (Mongo: one client serves every database),
+   *  so the database icon keeps its own color and gets no dot. */
+  stateless?: boolean;
   label: React.ReactNode;
   /** Extra content on the right, INSIDE the button itself (unlike
    *  `trailing`, which sits outside it as a separate sibling — a small
@@ -87,7 +91,7 @@ export function TreeToggleRow({
               // every other kind (schema, roles, table/view/procedure/…)
               // always shows its own semantic color, at any depth.
               "[&>svg]:text-muted-foreground":
-                kind === "database" && !icon_badge,
+                kind === "database" && !icon_badge && !stateless,
             })}
           >
             {icon}
@@ -227,6 +231,7 @@ export function LazyTableRows({
   on_view_grants,
   on_copy,
   on_duplicate,
+  on_import,
   on_drop,
   on_refresh_matview,
   is_mongo,
@@ -234,6 +239,7 @@ export function LazyTableRows({
   selected_name,
   on_select,
   disabled,
+  read_only,
 }: {
   state:
     | "loading"
@@ -247,6 +253,7 @@ export function LazyTableRows({
   on_view_grants?: (name: string) => void;
   on_copy?: (name: string) => void;
   on_duplicate?: (name: string) => void;
+  on_import?: (name: string) => void;
   on_drop?: (name: string) => void;
   on_refresh_matview?: (name: string) => void;
   is_mongo?: boolean;
@@ -254,6 +261,8 @@ export function LazyTableRows({
   selected_name?: string | null;
   on_select?: (name: string) => void;
   disabled?: boolean;
+  /** Read only connection (spec 0007): write items are disabled. */
+  read_only?: boolean;
 }) {
   const pad = depthPadding(depth);
   // The owning TreeToggleRow's chevron is the loading indicator now.
@@ -275,6 +284,7 @@ export function LazyTableRows({
             is_mongo={is_mongo}
             is_selected={selected_name === obj.name}
             disabled={disabled}
+            read_only={read_only}
             on_select={on_select && (() => on_select(obj.name))}
             on_open={() => on_open(obj.name)}
             on_view_structure={
@@ -283,6 +293,7 @@ export function LazyTableRows({
             on_view_grants={on_view_grants && (() => on_view_grants(obj.name))}
             on_copy={on_copy && (() => on_copy(obj.name))}
             on_duplicate={on_duplicate && (() => on_duplicate(obj.name))}
+            on_import={on_import && (() => on_import(obj.name))}
             on_drop={on_drop && (() => on_drop(obj.name))}
             on_refresh_matview={
               on_refresh_matview && (() => on_refresh_matview(obj.name))

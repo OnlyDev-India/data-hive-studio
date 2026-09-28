@@ -308,6 +308,10 @@ export function fillSourceCell(
 export interface GridContextValue {
   // Data + schema-derived config.
   rows: (string | null)[][];
+  /** How many entries of `rows` are valid: a streamed result's array can be
+   *  longer than what the grid was last told about. Always read this, never
+   *  `rows.length`. */
+  row_count: number;
   columns: string[];
   row_offset: number;
   conn_id: string;
@@ -317,6 +321,8 @@ export interface GridContextValue {
   loading?: boolean;
   pk_columns: string[];
   kinds: Record<string, CellKind>;
+  /** Date cells are written as ISO 8601 text (Mongo). */
+  iso_dates?: boolean;
   types?: Record<string, string>;
   key_kinds?: Record<string, "primary" | "foreign" | "both">;
   /** Column name -> referenced table/column for foreign-key columns. */
@@ -350,6 +356,9 @@ export interface GridContextValue {
   reorder_column: (dragged: string, target: string) => void;
   hidden_columns: ReadonlySet<string>;
   toggle_column_visibility: (col: string) => void;
+  /** Select the whole of `col` and scroll its header into view (the columns
+   *  popover's click on a name). */
+  reveal_column: (col: string) => void;
   /** Column currently being pointer-dragged (from anywhere in the header,
    *  not a dedicated handle), plus the live pointer position for the
    *  floating ghost badge; `null` when no column drag is in progress. */

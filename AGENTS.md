@@ -35,6 +35,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
 - Large results stream back via a Tauri `Channel` in batches, never loaded fully into memory.
 - MongoDB is first-class: full CRUD grid editing and the SQL editor, never a stripped mode.
 - `tauri.conf.json` is the version source of truth; CI fails if package.json/Cargo.toml drift.
+- No backend `.rs` file over 500 lines outside test blocks: split by job into `foo/mod.rs` plus topic files, and keep public paths through `pub use` (Tauri command modules use `pub use x::*`, so the handler paths in `src-tauri/src/lib.rs` stay unchanged).
 
 ## Context files
 

@@ -2,13 +2,14 @@
 name = "dh-core"
 version = "0.1.0"
 edition = "2021"
-description = "Shared core for dh-studio: database adapters (SQLite, PostgreSQL, MongoDB), wire types, activity log, and the team-server gateway"
+description = "Shared core for dh-studio: database adapters (SQLite, PostgreSQL, MongoDB), wire API types, activity log, and the SSH tunnel"
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
+sqlx = { workspace = true, features = ["macros"] }
 futures-util.workspace = true
+libsqlite3-sys.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 rust_decimal.workspace = true
@@ -16,13 +17,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 log.workspace = true
 tokio.workspace = true
-aes-gcm.workspace = true
-sha2.workspace = true
-rand.workspace = true
 hex.workspace = true
-axum.workspace = true
-tower-http.workspace = true
-reqwest.workspace = true
 mongodb.workspace = true
 bson.workspace = true
 base64.workspace = true

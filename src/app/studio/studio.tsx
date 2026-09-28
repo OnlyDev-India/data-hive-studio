@@ -1,35 +1,21 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
-import {
-  getActivity,
-  serversReleaseConnection,
-  type ActivityEntry,
-} from "@/shared/api";
-import { WEB } from "@/shared/api/web";
-import { canManageOrg } from "@/shared/api/client";
+import { getActivity, type ActivityEntry } from "@/shared/api";
+import { WEB, webRelease } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 import { ActivityBar } from "./activity-bar";
 import { ActionBar } from "./action-bar";
 import { Landing } from "@/features/connections";
 import { NotificationToast } from "@/features/notifications";
-import { AdminConsole } from "@/features/sharing";
 import { Sidebar } from "@/features/workspace";
 import { CommandPalette } from "./command-palette";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 import { UpdateDialog } from "@/features/updater";
-
-/** Per-connection workspaces are code-split away from the shell. */
-const Workspace = lazy(() => import("./workspace"));
+import { ImportDialog } from "@/features/data-import";
+import Workspace from "./workspace";
 
 export function Studio() {
   const open = useStudioStore((s) => s.open);
@@ -41,7 +27,7 @@ export function Studio() {
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
 
   // Web mode: intercept reload shortcuts with an in-app confirm dialog while
-  // at least one server session is connected. No native beforeunload popup —
+  // at least one database is connected. No native beforeunload popup —
   // browsers can't render custom UI on tab close, so only interceptable
   // leave paths (Cmd/Ctrl+R, Shift variants, F5) show the dialog.
   const [leave_open, set_leave_open] = useState(false);
@@ -66,19 +52,7 @@ export function Studio() {
   useEffect(() => {
     if (!WEB) return;
     const release = () => {
-      const openConns = useStudioStore.getState().open;
-      for (const c of openConns) {
-        if (!c.id.startsWith("srv:")) continue;
-        const parts = c.id.split(":");
-        if (parts.length !== 3) continue;
-        const [, profileId, remoteId] = parts;
-        if (!profileId || !remoteId) continue;
-        try {
-          serversReleaseConnection(profileId, remoteId);
-        } catch {
-          /* best-effort on unload */
-        }
-      }
+      for (const c of useStudioStore.getState().open) webRelease(c.id);
     };
     window.addEventListener("pagehide", release);
     window.addEventListener("beforeunload", release);
@@ -86,17 +60,6 @@ export function Studio() {
       window.removeEventListener("pagehide", release);
       window.removeEventListener("beforeunload", release);
     };
-  }, []);
-
-  // Warm the per-connection workspace chunk as soon as the shell mounts —
-  // filling in a connection form and waiting on the connect round-trip
-  // easily takes longer than this chunk takes to fetch, so by the time
-  // `open` actually gains an entry the dynamic import below has already
-  // resolved and Suspense renders it inline with no fallback flash (which
-  // would otherwise blank out the sidebar/activity bar for a moment, since
-  // they're mounted inside Workspace for the connected-view branch).
-  useEffect(() => {
-    void import("./workspace");
   }, []);
 
   // "Open with DH Studio" / double-clicking a .db file with it set as the
@@ -257,22 +220,13 @@ export function Studio() {
 
   const active_conn =
     open.length === 0 ? null : (open.find((c) => c.id === activeId) ?? open[0]);
-  // The admin page exists only while an admin-scoped session is live;
-  // otherwise the shell falls back to the landing view.
-  const admin_available = useStudioStore((s) =>
-    Object.values(s.serverSessions).some((x) =>
-      canManageOrg(x.me, x.profile.org_id),
-    ),
-  );
-  const effective_view = view === "admin" && !admin_available ? "home" : view;
-  const landing = effective_view === "home";
-  const show_admin = effective_view === "admin";
+  const landing = view === "home";
 
   return (
     <div className="bg-muted/20 flex h-full flex-col overflow-hidden border-t">
       <WebWarningBanner />
       <div className="flex min-h-0 flex-1">
-        {open.length === 0 && !show_admin ? (
+        {open.length === 0 ? (
           <>
             <ActivityBar
               home_active={landing}
@@ -308,21 +262,6 @@ export function Studio() {
               <Landing />
             </div>
           </>
-        ) : show_admin ? (
-          <>
-            <ActivityBar
-              home_active={false}
-              tables_active={false}
-              activity_active={false}
-              actions_disabled
-              on_home={on_home}
-              on_tables={show_tables}
-              on_new_table={noop}
-              on_sql={noop}
-              on_activity={show_activity}
-            />
-            <AdminConsole />
-          </>
         ) : (
           open.map((conn) => {
             const is_active = conn.id === active_conn!.id;
@@ -331,15 +270,13 @@ export function Studio() {
                 key={conn.id}
                 className={is_active ? "flex h-full w-full" : "hidden"}
               >
-                <Suspense fallback={<WorkspaceFallback />}>
-                  <Workspace
-                    conn={conn}
-                    landing={landing}
-                    on_home={on_home}
-                    on_tables={show_tables}
-                    on_activity={show_activity}
-                  />
-                </Suspense>
+                <Workspace
+                  conn={conn}
+                  landing={landing}
+                  on_home={on_home}
+                  on_tables={show_tables}
+                  on_activity={show_activity}
+                />
               </div>
             );
           })
@@ -349,16 +286,9 @@ export function Studio() {
       <CommandPalette />
       <DisconnectDialog />
       <UpdateDialog />
+      <ImportDialog />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
-    </div>
-  );
-}
-
-function WorkspaceFallback() {
-  return (
-    <div className="text-muted-foreground flex h-full w-full items-center justify-center text-sm select-none">
-      Loading…
     </div>
   );
 }

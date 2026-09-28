@@ -1,0 +1,128 @@
+use super::{json_or, Live, Shared};
+use crate::bodies::{
+    DuplicateBody, ExecuteOpBody, ExplainSqlBody, ImportBody, ImportCapabilitiesBody, SchemaOpsBody, SqlBody,
+};
+use axum::extract::State;
+use axum::response::Response;
+use axum::Json;
+use dh_core::api::QueryOp;
+use dh_core::db::{sql_class, Dialect, StmtClass};
+
+/// True for the operations that only read.
+pub(super) fn op_reads(op: &QueryOp) -> bool {
+    matches!(
+        op,
+        QueryOp::Select { .. } | QueryOp::Count { .. } | QueryOp::SelectDistinct { .. }
+    )
+}
+
+pub(super) async fn sql(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<SqlBody>,
+) -> Response {
+    // A script is refused as a whole before any statement runs.
+    if sql_class(Dialect::Postgres, &b.sql) != StmtClass::Read {
+        if let Err(r) = st.refuse_writes() {
+            return r;
+        }
+    }
+    json_or(
+        a.run_sql(b.database.as_deref(), b.schema.as_deref(), &b.sql)
+            .await,
+    )
+}
+
+/// A plain Explain never runs the statement, so it is allowed on a read only
+/// server. Explain Analyze does run it (rolled back on PostgreSQL), so it is
+/// refused for anything that is not a plain read, like a normal run.
+pub(super) async fn explain(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<ExplainSqlBody>,
+) -> Response {
+    if b.analyze && sql_class(Dialect::Postgres, &b.sql) != StmtClass::Read {
+        if let Err(r) = st.refuse_writes() {
+            return r;
+        }
+    }
+    json_or(
+        a.explain_sql(b.database.as_deref(), b.schema.as_deref(), &b.sql, b.analyze, None)
+            .await,
+    )
+}
+
+pub(super) async fn op(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<ExecuteOpBody>,
+) -> Response {
+    if !op_reads(&b.op) {
+        if let Err(r) = st.refuse_writes() {
+            return r;
+        }
+    }
+    json_or(
+        a.execute_op(b.database.as_deref(), b.schema.as_deref(), &b.op)
+            .await
+            .map(|o| o.result),
+    )
+}
+
+pub(super) async fn schema_ops(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<SchemaOpsBody>,
+) -> Response {
+    if let Err(r) = st.refuse_writes() {
+        return r;
+    }
+    json_or(
+        a.apply_schema_ops_batch(b.database.as_deref(), b.schema.as_deref(), &b.ops)
+            .await,
+    )
+}
+
+pub(super) async fn duplicate(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<DuplicateBody>,
+) -> Response {
+    if let Err(r) = st.refuse_writes() {
+        return r;
+    }
+    json_or(
+        a.duplicate_table(
+            b.database.as_deref(),
+            b.schema.as_deref(),
+            &b.source,
+            &b.target,
+            b.copy_data,
+        )
+        .await,
+    )
+}
+
+/// The one route with a body limit above the default (see `IMPORT_BODY_LIMIT`
+/// in the router): an import carries the whole file's rows.
+pub(super) async fn import(
+    State(st): State<Shared>,
+    Live(a): Live,
+    Json(b): Json<ImportBody>,
+) -> Response {
+    if let Err(r) = st.refuse_writes() {
+        return r;
+    }
+    json_or(
+        a.import_rows(b.database.as_deref(), b.schema.as_deref(), &b.request)
+            .await,
+    )
+}
+
+/// Writes nothing, so it is allowed on a read only server.
+pub(super) async fn import_capabilities(
+    Live(a): Live,
+    Json(b): Json<ImportCapabilitiesBody>,
+) -> Response {
+    json_or(a.import_capabilities(b.database.as_deref()).await)
+}

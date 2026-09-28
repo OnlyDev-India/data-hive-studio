@@ -35,8 +35,7 @@ export async function pickDatabaseFile(): Promise<{
  * SSL/TLS certificate fields (CA cert, client cert, client key). Unlike
  * `pickDatabaseFile`/`pickSqlFile`, this never reads the file's contents:
  * only the path is needed, since it's read by whichever machine actually
- * makes the connection (this desktop app for a local connection, or the
- * team-server for a shared one) — not by this process.
+ * makes the connection (this desktop app) — not by this process.
  */
 export async function pickCertFilePath(): Promise<string | null> {
   const path = await open({

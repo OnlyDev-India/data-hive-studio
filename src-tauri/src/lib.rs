@@ -11,8 +11,9 @@ pub mod app_menu;
 pub mod commands;
 pub mod file_open;
 pub mod local_connections;
-mod secret_file;
-pub mod servers;
+mod legacy_servers;
+pub mod secret_store;
+pub mod updater;
 pub mod workspace_state;
 
 /// Opens or closes the inspector on the focused window (falling back to
@@ -33,12 +34,26 @@ fn toggle_devtools(app: &tauri::AppHandle) {
   }
 }
 
+/// View → Toggle Developer Tools from the custom Windows/Linux title bar (the
+/// macOS native menu handles the same item in `on_menu_event` below).
+#[tauri::command]
+fn toggle_devtools_window(app: tauri::AppHandle) {
+  toggle_devtools(&app);
+}
+
+/// File → Quit from the custom title bar. The window's own close button only
+/// closes that one window; this exits the whole app like the native Quit item.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+  app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_os::init())
     // `Builder::default()`'s `StateFlags` include DECORATIONS, which
     // restores a saved `decorated` value on top of the window AFTER it's
@@ -82,6 +97,15 @@ pub fn run() {
       // passes the path as a CLI argument on cold start. (macOS instead
       // delivers it via RunEvent::Opened, handled in run() below.)
       file_open::check_argv();
+
+      // The team server screens are gone (spec 0010): drop the saved server
+      // profiles and their sign in tokens once, silently.
+      legacy_servers::cleanup(app.handle());
+
+      app.manage(secret_store::SecretStore::new(app.path().app_data_dir()?));
+
+      // The downloaded-but-not-installed update package (see `updater.rs`).
+      app.manage(updater::UpdaterState::default());
 
       // Hydrate the in-memory activity log from the previous run's
       // persisted snapshot before anything can log a fresh entry.
@@ -170,8 +194,14 @@ pub fn run() {
       commands::execute_op,
       commands::execute_op_stream,
       commands::run_sql_stream,
+      commands::run_mongo_stream,
+      commands::cancel_run,
+      commands::explain_sql,
+      commands::explain_mongo,
       commands::save_database,
       commands::duplicate_table,
+      commands::import_rows,
+      commands::import_capabilities,
       commands::apply_schema_ops,
       commands::read_file,
       commands::write_file,
@@ -183,60 +213,17 @@ pub fn run() {
       local_connections::delete_local_connection,
       local_connections::get_local_connection_secret,
       local_connections::migrate_local_connections,
+      secret_store::take_secret_store_notice,
       file_open::take_pending_open_path,
+      updater::updater_download,
+      updater::updater_install_and_restart,
       #[cfg(target_os = "macos")]
       app_menu::set_menu_context,
+      toggle_devtools_window,
+      quit_app,
       workspace_state::load_workspace_state,
       workspace_state::save_workspace_state,
       workspace_state::clear_workspace_state,
-      servers::servers_list,
-      servers::servers_oauth_providers,
-      servers::servers_oauth_login,
-      servers::servers_reuse_session,
-      servers::servers_org_create_new,
-      servers::servers_org_redeem_invite_new,
-      servers::servers_save_profile,
-      servers::servers_remove,
-      servers::servers_connect,
-      servers::servers_disconnect,
-      servers::server_list_tables,
-      servers::server_list_schemas,
-      servers::server_table_schema,
-      servers::server_mongo_field_tree,
-      servers::server_run_sql,
-      servers::server_execute_op,
-      servers::server_list_databases,
-      servers::server_catalog_overview,
-      servers::server_list_schemas_in,
-      servers::server_list_schema_objects,
-      servers::server_list_roles,
-      servers::server_list_role_details,
-      servers::server_list_extensions,
-      servers::server_active_schema,
-      servers::server_set_active_schema,
-      servers::server_disconnect_database,
-      servers::server_apply_schema_ops_batch,
-      servers::server_duplicate_table,
-      servers::server_list_documents,
-      servers::server_list_documents_ext,
-      servers::server_save_document,
-      servers::server_insert_document,
-      servers::server_run_mongo,
-      servers::server_create_collection,
-      servers::servers_create_connection,
-      servers::servers_update_connection,
-      servers::servers_delete_connection,
-      servers::servers_fetch_credentials,
-      servers::servers_org_members,
-      servers::servers_org_set_member_role,
-      servers::servers_org_remove_member,
-      servers::servers_org_invites_list,
-      servers::servers_org_invite_create,
-      servers::servers_org_invite_revoke,
-      servers::servers_org_audit,
-      servers::servers_grants_list,
-      servers::servers_grant_set,
-      servers::servers_grant_revoke,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
@@ -268,7 +255,18 @@ pub fn run() {
       // (`prevent_exit`) until it finishes, then `exit(0)` — which itself
       // re-fires `ExitRequested`; `EXITING` stops that second pass from
       // spawning another cleanup and deferring forever.
-      if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+      //
+      // A waiting update installs here too, after the databases are closed,
+      // so closing the app applies it (see `updater::install_pending_on_quit`).
+      //
+      // Restart requests (`app.restart()` from `updater_install_and_restart`)
+      // are skipped: `prevent_exit` is ignored for them, so this cleanup task
+      // would race the restart with `exit(0)`, and that command has already
+      // installed and closed the databases itself.
+      if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+        if *code == Some(tauri::RESTART_EXIT_CODE) {
+          return;
+        }
         use std::sync::atomic::{AtomicBool, Ordering};
         static EXITING: AtomicBool = AtomicBool::new(false);
         if !EXITING.swap(true, Ordering::SeqCst) {
@@ -276,6 +274,7 @@ pub fn run() {
           let handle = app_handle.clone();
           tauri::async_runtime::spawn(async move {
             db::close_all().await;
+            updater::install_pending_on_quit(&handle).await;
             handle.exit(0);
           });
         }

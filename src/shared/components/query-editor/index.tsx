@@ -11,7 +11,6 @@ import CodeMirror, {
   EditorView,
   type ReactCodeMirrorRef,
 } from "@uiw/react-codemirror";
-import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
 import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { EditorState, Prec } from "@codemirror/state";
 import { closeCompletion, startCompletion } from "@codemirror/autocomplete";
@@ -50,12 +49,13 @@ import { DelimitedListDialog } from "./delimited-list-dialog";
 import { EditorContextMenu } from "./editor-context-menu";
 import { EditorSearchBar } from "./editor-search-bar";
 import { getTooltipRoot } from "./tooltip-root";
-import { schemaCompletions } from "./sql-completions";
+import { schemaCompletions, sqlLanguageSupport } from "./sql-completions";
 import { sqlLinter } from "./sql-lint";
 import { nosqlSyntaxLinter } from "./nosql-lint";
 import {
   lucideFoldGutter,
   markRunResult,
+  type RunOutcome,
   statementFrameLayer,
   statementGutter,
 } from "./statement-runner";
@@ -102,10 +102,13 @@ export interface QueryEditorHandle {
    *  underlines them and shows the message on hover, independent of
    *  whatever a separate results panel shows. */
   setErrors: (errors: { from: number; to: number; message: string }[]) => void;
-  /** Marks a statement's run as finished — `range` set and successful shows
-   *  the gutter's checkmark badge on it; `null` clears any existing badge
-   *  (e.g. the run errored, or a different statement ran instead). */
-  markRunResult: (range: { from: number; to: number } | null) => void;
+  /** Marks a statement's run as finished — the gutter shows a check (or a
+   *  red cross for `"error"`) on it; `null` clears any existing badge
+   *  (e.g. the run was stopped). */
+  markRunResult: (
+    range: { from: number; to: number } | null,
+    outcome?: RunOutcome,
+  ) => void;
 }
 
 // `linter(null)` installs the diagnostics state field/underline rendering
@@ -187,6 +190,9 @@ interface QueryEditorProps {
   onChange: (value: string) => void;
   onRun: () => void;
   onRunTarget: () => void;
+  /** Explain the selection or statement at the cursor. Omitted
+   *  = no shortcut, so an editor that cannot explain leaves the key alone. */
+  onExplain?: () => void;
   /** Fires whenever the selection goes from empty to non-empty or back —
    *  lets the caller phrase "Run selection" vs. "Run query at cursor"
    *  correctly instead of always saying "selection" even when there isn't
@@ -235,7 +241,7 @@ interface QueryEditorProps {
   frameLayer?: boolean;
   autoCompletion?: boolean;
   disableEnter?: boolean;
-  disableContextMenu?:boolean;
+  disableContextMenu?: boolean;
 }
 
 /**
@@ -253,6 +259,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       onChange,
       onRun,
       onRunTarget,
+      onExplain,
       onSelectionChange,
       onSave,
       onKeyDown,
@@ -273,7 +280,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       frameLayer = true,
       autoCompletion = true,
       disableEnter = false,
-      disableContextMenu=false,
+      disableContextMenu = false,
     },
     ref,
   ) {
@@ -371,6 +378,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     // of which tab/mode is focused, and persists across restarts.
     const editorFontSize = useStudioStore((s) => s.editorFontSize);
     const setEditorFontSize = useStudioStore((s) => s.setEditorFontSize);
+    // Settings → SQL Format → Keyword case also drives keyword suggestions.
+    const keywordCase = useStudioStore((s) => s.sqlFormatKeywordCase);
     const zoomInBinding = useAppShortcut("editor.zoomIn");
     const zoomOutBinding = useAppShortcut("editor.zoomOut");
     const zoomResetBinding = useAppShortcut("editor.zoomReset");
@@ -563,15 +572,16 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           setDiagnostics(view.state, [...kept, ...runtimeDiagnostics]),
         );
       },
-      markRunResult: (range) => {
+      markRunResult: (range, outcome) => {
         const view = cmsRef.current?.view;
         if (!view) return;
-        markRunResult(view, range);
+        markRunResult(view, range, outcome);
       },
     }));
 
     const runBinding = useAppShortcut("editor.run");
     const runTargetBinding = useAppShortcut("editor.runTarget");
+    const explainBinding = useAppShortcut("editor.explain");
     const saveBinding = useAppShortcut("editor.save");
     const searchBinding = useAppShortcut("editor.search");
     const [searchOpen, setSearchOpen] = useState(false);
@@ -581,6 +591,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       { ...searchBinding, handler: () => setSearchOpen(true) },
     ];
     if (onSave) shortcuts.push({ ...saveBinding, handler: onSave });
+    if (onExplain) shortcuts.push({ ...explainBinding, handler: onExplain });
     useShortcuts(shortcuts);
 
     // Hover-over-a-keyword/method documentation (SQL keywords/functions,
@@ -693,7 +704,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         editorSearch,
         editorSearchMatchTheme,
         editorSelectOccurrenceKeymap,
-        sqlLang({ dialect: SQLiteDialect, schema, tables: completions }),
+        sqlLanguageSupport(keywordCase, schema, completions),
         // Register the schema-aware source alongside lang-sql's built-ins.
         EditorState.languageData.of(() => [{ autocomplete: schemaSource }]),
         // Dismiss the completion popup when the user types space.
@@ -746,6 +757,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       disableEnterKeymap,
       textCommandsKeymap,
       fontSizeTheme,
+      keywordCase,
     ]);
 
     return (
@@ -772,10 +784,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           disabled={disableContextMenu}
         >
           <div
-            className={cn(
-              "relative min-h-0 w-full overflow-hidden",
-              className,
-            )}
+            className={cn("relative min-h-0 w-full overflow-hidden", className)}
             style={{ height }}
           >
             <CodeMirror

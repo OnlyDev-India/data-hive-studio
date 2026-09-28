@@ -62,7 +62,11 @@ export function singleTableSelect(sql: string): { table: string } | null {
   if (stmt.type !== "select_stmt") return null;
 
   const clauses = asNodeArray(stmt.clauses);
-  if (clauses.some((c) => c.type === "group_by_clause" || c.type === "having_clause")) {
+  if (
+    clauses.some(
+      (c) => c.type === "group_by_clause" || c.type === "having_clause",
+    )
+  ) {
     return null;
   }
 
@@ -76,9 +80,15 @@ export function singleTableSelect(sql: string): { table: string } | null {
   ) {
     return null;
   }
-  const items = asNodeArray((selectClause.columns as CstNode | undefined)?.items);
+  const items = asNodeArray(
+    (selectClause.columns as CstNode | undefined)?.items,
+  );
   for (const item of items) {
-    if (item.type !== "all_columns" && item.type !== "identifier" && item.type !== "member_expr") {
+    if (
+      item.type !== "all_columns" &&
+      item.type !== "identifier" &&
+      item.type !== "member_expr"
+    ) {
       return null; // function call, computed expression, or an aliased column
     }
   }

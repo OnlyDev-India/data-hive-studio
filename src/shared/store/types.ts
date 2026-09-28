@@ -1,10 +1,10 @@
 import type {
   ActivityEntry,
+  ConnGuard,
   ConnectionInfo,
   ExportPayload,
   QueryOp,
   SavedDbKind,
-  SharedDbKind,
 } from "../api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
@@ -14,7 +14,7 @@ import type { ShortcutBinding } from "../hooks/shortcut-registry";
 import type { DelimitedListSettings } from "@/shared/components/query-editor/delimited-list";
 
 /** Which top-level screen fills the workspace area. */
-export type StudioView = "home" | "workspace" | "admin";
+export type StudioView = "home" | "workspace";
 
 /** A connection's saved tabs/layout + live editor text, as persisted to
  *  (and restored from) workspace_state.json — see
@@ -48,9 +48,18 @@ export const DEFAULT_PALETTE_KEYWORDS: PaletteKeywords = {
 export interface GridBridge {
   rows: number;
   total: number;
-  /** True while the page query (count + rows) is in flight — the action bar
-   *  spins/disables Refresh and the grid blocks edits. */
+  /** True while the COUNT behind `total` is still running. It is not part of
+   *  `loading`: the rows can be on screen well before the count lands, so the
+   *  status bar shows an ellipsis for the total instead of a stale 0. */
+  total_pending?: boolean;
+  /** True while the page rows are in flight — the action bar spins/disables
+   *  Refresh and the grid blocks edits. */
   loading: boolean;
+  /** Gives up on the page fetch in flight: the grid stops waiting, shows its
+   *  "stopped" empty state, and drops whatever the database sends back. Only
+   *  the table grid provides it. It does not cancel the statement on the
+   *  server, which finishes on its own. */
+  stop?: () => void;
   total_pages: number;
   page: number;
   set_page: (p: number) => void;
@@ -61,6 +70,9 @@ export interface GridBridge {
    *  every row touched by the selection, not just a fully-selected one). */
   selected_cell_count: number;
   editable: boolean;
+  /** The connection is read only (spec 0007), which is why `editable` is
+   *  false: the action bar says so on the write buttons it disables. */
+  read_only?: boolean;
   /** The table/collection name this grid is showing. */
   table: string;
   /** Buffer `value` (or NULL) into every currently-selected cell — the
@@ -76,6 +88,9 @@ export interface GridBridge {
    *  the column-visibility popover's own drag-reorder, same action the
    *  header cells' drag handle uses. */
   reorder_column: (dragged: string, target: string) => void;
+  /** Select the whole of `col` and scroll its header into view — the
+   *  column-visibility popover's click on a column's name. */
+  reveal_column: (col: string) => void;
   elapsed_ms: number | null;
   delete_rows: () => void;
   /** True while not-yet-inserted "pending" rows are being drafted. */
@@ -92,6 +107,9 @@ export interface GridBridge {
   /** Render every pending change (insert drafts, cell edits, row deletions)
    *  as runnable SQL statements, or null when nothing is staged. */
   get_pending_sql: () => string | null;
+  /** The same changes as Mongo shell commands for the Mongo console. Only
+   *  Mongo grids set it. */
+  get_pending_nosql?: () => string | null;
   /** Structured list of every buffered change for the apply diff dialog. */
   get_pending_changes: () => PendingChange[];
   refresh: () => void;
@@ -137,6 +155,10 @@ export interface JsonRow {
    *  edits (so the toolbar Apply persists it). Absent ⇒ row is read-only. */
   on_edit?: (col: string, value: string | null) => void;
 }
+
+/** Life of a found update: `available` (known, not downloaded), `downloading`,
+ *  `ready` (downloaded, waiting for Restart or app quit), `installing`. */
+export type UpdatePhase = "available" | "downloading" | "ready" | "installing";
 
 /** Per-connection tab/workspace state. */
 export interface WorkspaceTabs {
@@ -225,6 +247,9 @@ export interface SqlTabHandleBase {
    *  never been saved — the tab strip shows this instead of the generic
    *  "SQL"/"NoSQL console" label once set. */
   file_name?: string | null;
+  /** Database currently selected in this SQL editor — names the tab
+   *  `sql@<database>` in the tab strip (see `tabLabel`). */
+  database?: string;
 }
 
 export type SqlTabHandle = SqlTabHandleBase;
@@ -251,7 +276,7 @@ export interface StudioNotification {
 
 // Connection parameters for one saved connection (PostgreSQL or MongoDB)
 // persisted in localStorage so double-click reconnect works across restarts.
-export interface SavedConnParams {
+export interface SavedConnParams extends ConnGuard {
   /** Optional display name (saved/pinned connections). */
   name?: string;
   /** Which database kind this connection reopens. "documentdb" is stored
@@ -310,14 +335,32 @@ export interface SavedConnParams {
   ssh_host_key_fingerprint?: string;
   ssh_password?: string;
   ssh_key_passphrase?: string;
+  /** Web build only: keep the database and SSH passwords in this browser's
+   *  storage, as plain text. False means they are asked for at connect time. */
+  remember_secret?: boolean;
+  /** Desktop only, in memory: no saved password was found, so
+   *  connecting asks for one. */
+  secret_missing?: boolean;
   /** SQLite only: real file path prefilled into the connect form. */
   source_path?: string | null;
 }
 
 /** What the landing form is editing (when prefill carries an edit target). */
-export type LandingEditTarget =
-  | { source: "server"; profileId: string; remoteId: string; name: string }
-  | { source: "local"; oldName: string; name: string };
+export interface LandingEditTarget {
+  oldName: string;
+  name: string;
+}
+
+/** Where an import lands. `database`/`schema` omitted = the connection's own. */
+export interface ImportTarget {
+  connId: string;
+  /** Omitted when opened from the activity bar: only a new table is offered. */
+  table?: string;
+  database?: string;
+  schema?: string;
+  /** Called after a committed import so the open grid can reload. */
+  onImported?: () => void;
+}
 
 export interface StudioStore {
   // Connections
@@ -336,6 +379,10 @@ export interface StudioStore {
    *  removes) the matching entry; nothing here ever auto-reconnects. */
   pendingWorkspaceRestore: Record<string, SavedWorkspace>;
   setPendingWorkspaceRestore: (map: Record<string, SavedWorkspace>) => void;
+  /** Table/collection tabs brought back by a reconnect that wait for a
+   *  reload before fetching rows, keyed by tab key. */
+  pausedTabs: Record<string, true>;
+  resumeTab: (key: string) => void;
 
   // View
   view: StudioView;
@@ -438,9 +485,9 @@ export interface StudioStore {
   /** Set alongside sqlSeeds ONLY when the seed came from an actual file on
    *  disk (openFileTab), never from generated content (e.g. action-bar's
    *  "open pending edits as SQL"). When present, the tab treats the seed as
-   *  already-saved (clean baseline + this filename) instead of unsaved new
+   *  already-saved (clean baseline, saves write back to this path) instead of unsaved new
    *  work — same lifecycle as sqlSeeds (set once, deleted by closeTab). */
-  seedFileNames: Record<string, string>;
+  seedFilePaths: Record<string, string>;
 
   /** Generic notification center (action-bar bell). Any feature can push a
    *  notification — e.g. applied schema changes, export results, failed
@@ -496,8 +543,8 @@ export interface StudioStore {
   recentParams: Record<string, SavedConnParams>;
   pushRecentParams: (connId: string, params: SavedConnParams) => void;
   /** Locally saved connections keyed by display name. Metadata lives in an
-   *  app-data JSON file and passwords in the OS keychain (see
-   *  `src-tauri/src/local_connections.rs`); this map is the in-memory
+   *  app-data JSON file and passwords in the encrypted secret store (see
+   *  `src-tauri/src/secret_store`); this map is the in-memory
    *  hydration of both, populated by `hydrateSavedLocal`. Each entry
    *  carries a `kind` (`SavedDbKind`) so it reopens correctly. */
   savedLocal: Record<string, SavedConnParams>;
@@ -518,26 +565,20 @@ export interface StudioStore {
   /** Pinned ids across sources: 'local:<name>' or 'srv:<profile>:<conn>' ('pg.pins'). */
   pins: string[];
   togglePin: (id: string) => void;
-  /** Landing-page prefill request: sidebar click hands connection details to the
-   *  connect form. `kind` routes to the right tab; `n` increments so repeat
-   *  requests re-trigger; `connect` additionally starts connecting right after
-   *  the fields are filled. `edit` puts the form in edit mode — Save updates
-   *  that connection (server-shared or local) instead of creating a new one. */
-  landingPrefill: {
+  /** Opens the home connection form on step two with these values. `edit`
+   *  makes Save update that saved entry; `n` makes a repeat request count. */
+  landingForm: {
     kind: SavedDbKind;
     params: SavedConnParams;
     n: number;
-    connect: boolean;
     edit?: LandingEditTarget;
   } | null;
-  requestLandingPrefill: (
+  requestLandingForm: (
     kind: SavedDbKind,
     params: SavedConnParams,
-    connect?: boolean,
     edit?: LandingEditTarget,
   ) => void;
-  /** Consume the prefill after applying it — prevents replay on remount. */
-  clearLandingPrefill: () => void;
+  clearLandingForm: () => void;
   /** Global Postgres connect-in-flight flag (survives page switches). */
   pgConnecting: boolean;
   setPgConnecting: (v: boolean) => void;
@@ -557,24 +598,38 @@ export interface StudioStore {
   disconnectPendingId: string | null;
   setDisconnectPendingId: (id: string | null) => void;
 
+  /** The table the import dialog (spec 0008) is aimed at, or null when it is
+   *  closed. Shared state so the action bar and the sidebar open the same
+   *  singleton dialog (`ImportDialog`, mounted once in `Studio`). */
+  importTarget: ImportTarget | null;
+  openImport: (target: ImportTarget) => void;
+  closeImport: () => void;
+
   /** A newer release than the running version, once the background/on-demand
    *  check (`src/features/updater/update-check.ts`) finds one — null while
-   *  unchecked, up to date, or the check failed. The plugin's actual `Update`
-   *  handle (with `.downloadAndInstall()`) isn't stored here — it's not
-   *  serializable, so it lives in a module-level singleton in that file. */
+   *  unchecked, up to date, or the check failed. The downloaded package
+   *  itself lives in Rust (`src-tauri/src/updater.rs`), never here. */
   updateInfo: { version: string; body: string | null } | null;
   setUpdateInfo: (
     info: { version: string; body: string | null } | null,
   ) => void;
+  /** Where the update is in its life; only meaningful while `updateInfo` is
+   *  set. Never persisted — a relaunch starts over at "available". */
+  updatePhase: UpdatePhase;
+  setUpdatePhase: (phase: UpdatePhase) => void;
+  /** Bytes received so far while `updatePhase` is "downloading"; `total` is
+   *  null when the server did not send a length. */
+  updateProgress: { downloaded: number; total: number | null } | null;
+  setUpdateProgress: (
+    progress: { downloaded: number; total: number | null } | null,
+  ) => void;
+  /** Why the last download or install failed, shown with a Retry button. */
+  updateError: string | null;
+  setUpdateError: (error: string | null) => void;
   /** The update dialog's open state — shown from the title-bar badge or the
    *  Help menu's "Check for Updates…". */
   updateDialogOpen: boolean;
   setUpdateDialogOpen: (open: boolean) => void;
-  /** Version the user chose "Skip" for — persisted so the title-bar badge
-   *  doesn't keep nagging about the SAME release, but reappears once a
-   *  newer one ships. */
-  skippedUpdateVersion: string | null;
-  setSkippedUpdateVersion: (version: string | null) => void;
 
   /** User-customizable trigger prefixes for the command palette's quick-open
    *  sub-modes (Settings → Command Palette). `>` (app commands) is fixed and
@@ -651,16 +706,16 @@ export interface StudioStore {
     database?: string,
     schema?: string,
   ) => void;
-  /** `seedFileName`, when given, marks `seedText` as loaded from that real
-   *  file (openFileTab) — the tab starts clean (not dirty) and shows this as
-   *  its name, instead of treating the seed as unsaved new work. `paneId`,
+  /** `seedFilePath`, when given, marks `seedText` as loaded from that real
+   *  file (openFileTab) — the tab starts clean (not dirty) and shows its
+   *  name, instead of treating the seed as unsaved new work. `paneId`,
    *  when given, opens (and focuses) that exact pane instead of whichever
    *  pane is currently focused — used when the action was triggered from a
    *  specific pane's own tab strip (see `PaneView`'s `LeafPaneView`). */
   openSql: (
     connId: string,
     seedText?: string,
-    seedFileName?: string,
+    seedFilePath?: string,
     paneId?: string,
   ) => void;
   openNewTable: (connId: string, paneId?: string) => void;
@@ -673,12 +728,12 @@ export interface StudioStore {
   /** Open a MongoDB console tab for the given connection & database.
    *  `seedText`, when given, becomes the new console's initial script —
    *  mirrors `openSql`'s seed mechanism (e.g. opening a picked .js file).
-   *  `seedFileName` — see `openSql`'s doc. `paneId` — see `openSql`'s doc. */
+   *  `seedFilePath` — see `openSql`'s doc. `paneId` — see `openSql`'s doc. */
   openMongoConsole: (
     connId: string,
     database: string,
     seedText?: string,
-    seedFileName?: string,
+    seedFilePath?: string,
     paneId?: string,
   ) => void;
   /** Select `tab` within pane `paneId`, and focus that pane. */
@@ -715,46 +770,4 @@ export interface StudioStore {
     tabKey: string,
     mode: "data" | "schema",
   ) => void;
-
-  // Team servers (dh-server profiles)
-  /** One entry per CONNECTED server profile; keyed by profile id. */
-  serverSessions: Record<
-    string,
-    {
-      profile: { id: string; name: string; url: string; org_id: string };
-      me: import("@/shared/api/server-admin").MeResult;
-      /** Granted connections as namespaced ids (`srv:<profile>:<conn>`). */
-      connIds: string[];
-      /** Full shared-connection entries incl. this user's effective access. */
-      connections: {
-        id: string;
-        name: string;
-        kind: SharedDbKind;
-        host: string;
-        port: number;
-        user: string;
-        database: string;
-        ssl_mode?: string | null;
-        /** MongoDB only. */
-        auth_db?: string;
-        srv?: boolean;
-        tls?: boolean;
-        can_read: boolean;
-        can_update: boolean;
-        can_delete: boolean;
-      }[];
-    }
-  >;
-  serverBusy: boolean;
-  connectServer: (profileId: string) => Promise<void>;
-  disconnectServer: (profileId: string) => Promise<void>;
-  /** Re-fetch every connected server's shared-connection catalog (keeps
-   *  open tabs intact). */
-  refreshServers: () => Promise<void>;
-  /** Delete a shared connection on this profile and drop its local entry. */
-  deleteServerConnection: (
-    profileId: string,
-    connId: string,
-    srvId: string,
-  ) => Promise<void>;
 }

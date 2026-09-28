@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpCircle,
   ChevronDown,
+  Loader2,
   Minus,
+  RefreshCw,
   Square,
   SquareStack,
   X,
@@ -15,6 +17,7 @@ import {
   useStudioStore,
 } from "@/shared/store";
 import DisconnectDbBtn from "@/shared/components/disconnect-db-btn";
+import { ConnFlags } from "@/shared/components/env-chip";
 import PanelLeftIcon from "@/shared/components/icons/panel-left";
 import PanelBottomIcon from "@/shared/components/icons/panel-bottom";
 import { Input } from "@/shared/components/ui/input";
@@ -33,6 +36,11 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { TITLE_BAR_MENUS } from "./menu-schema";
+import {
+  editTargetForFocus,
+  rememberEditTarget,
+  TITLE_BAR_ATTR,
+} from "./edit-actions";
 import { handleMenuAction } from "./native-menu";
 import { DBIcons } from "@/shared/components/icons/types";
 
@@ -118,36 +126,60 @@ function BottomPanelToggleButton({ className }: { className?: string }) {
 const UPDATE_CALLOUT_AUTO_DISMISS_MS = 8000;
 
 /** Only rendered once a background/on-demand check has actually found a
- *  newer release (`updateInfo`) that the user hasn't already dismissed via
- *  the dialog's "Skip" (`skippedUpdateVersion`) — a quiet affordance, not a
- *  permanent fixture, matching how `BottomPanelToggleButton` also only
- *  shows real state rather than always occupying the slot.
+ *  newer release (`updateInfo`) — a quiet affordance, not a permanent
+ *  fixture, matching how `BottomPanelToggleButton` also only shows real
+ *  state rather than always occupying the slot. Closing the update popup
+ *  ("Later") never hides it. It follows the update through its phases:
+ *  available, downloading (with percent), and ready (a distinct Restart
+ *  state), and always opens the same popup.
  *
- *  Announces itself once per newly-seen version with a tooltip that opens
- *  on its own (not just on hover) — a small icon appearing in a title bar
- *  is easy to miss entirely, so the first time a given version shows up it
- *  gets a few seconds of an unmissable callout before falling back to a
- *  normal hover tooltip. */
+ *  Announces itself once per newly-seen version, and once more when a
+ *  download becomes ready, with a tooltip that opens on its own (not just on
+ *  hover) — a small icon appearing in a title bar is easy to miss entirely,
+ *  so those moments get a few seconds of an unmissable callout before
+ *  falling back to a normal hover tooltip. */
 function UpdateBadgeButton({ className }: { className?: string }) {
   const updateInfo = useStudioStore((s) => s.updateInfo);
-  const skippedVersion = useStudioStore((s) => s.skippedUpdateVersion);
+  const phase = useStudioStore((s) => s.updatePhase);
+  const progress = useStudioStore((s) => s.updateProgress);
   const setUpdateDialogOpen = useStudioStore((s) => s.setUpdateDialogOpen);
   const [calloutOpen, setCalloutOpen] = useState(false);
-  const announced_version = useRef<string | null>(null);
+  const announced = useRef<string | null>(null);
+
+  const version = updateInfo?.version ?? null;
+  // Changes only for a new version, or when the download becomes ready.
+  const announce_key = version
+    ? phase === "ready"
+      ? `${version}:ready`
+      : version
+    : null;
 
   useEffect(() => {
-    if (!updateInfo || updateInfo.version === skippedVersion) return;
-    if (announced_version.current === updateInfo.version) return;
-    announced_version.current = updateInfo.version;
+    if (!announce_key || announced.current === announce_key) return;
+    announced.current = announce_key;
     setCalloutOpen(true);
     const t = setTimeout(
       () => setCalloutOpen(false),
       UPDATE_CALLOUT_AUTO_DISMISS_MS,
     );
     return () => clearTimeout(t);
-  }, [updateInfo, skippedVersion]);
+  }, [announce_key]);
 
-  if (!updateInfo || updateInfo.version === skippedVersion) return null;
+  if (!updateInfo) return null;
+
+  const percent = progress?.total
+    ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+    : null;
+  const label =
+    phase === "downloading"
+      ? `Downloading update — v${updateInfo.version}${
+          percent !== null ? ` (${percent}%)` : ""
+        }`
+      : phase === "ready"
+        ? `Update ready, restart to install — v${updateInfo.version}`
+        : phase === "installing"
+          ? `Installing update — v${updateInfo.version}`
+          : `Update available — v${updateInfo.version}`;
 
   return (
     <TooltipProvider delay={300}>
@@ -156,20 +188,27 @@ function UpdateBadgeButton({ className }: { className?: string }) {
           render={
             <button
               type="button"
-              aria-label={`Update available — v${updateInfo.version}`}
-              className={cn(className, "text-primary")}
+              aria-label={label}
+              className={cn(
+                className,
+                phase === "ready" ? "text-emerald-500" : "text-primary",
+              )}
               onClick={() => {
                 setCalloutOpen(false);
                 setUpdateDialogOpen(true);
               }}
             >
-              <ArrowUpCircle className="size-4" />
+              {phase === "downloading" || phase === "installing" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : phase === "ready" ? (
+                <RefreshCw className="size-4" />
+              ) : (
+                <ArrowUpCircle className="size-4" />
+              )}
             </button>
           }
         />
-        <TooltipContent side="bottom">
-          Update available — v{updateInfo.version}
-        </TooltipContent>
+        <TooltipContent side="bottom">{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -226,6 +265,7 @@ function ConnectionSwitcher() {
             >
               {ActiveIcon && <ActiveIcon className="size-3.5 shrink-0" />}
               <span className="min-w-0 truncate">{active.name}</span>
+              <ConnFlags conn={active} />
               <ChevronDown className="size-3 shrink-0 opacity-60" />
             </button>
           }
@@ -271,6 +311,7 @@ function ConnectionSwitcher() {
                   <span className="flex min-w-0 items-center gap-2">
                     {Icon && <Icon className="size-3.5 shrink-0" />}
                     <span className="truncate">{conn.name}</span>
+                    <ConnFlags conn={conn} />
                   </span>
                   <DisconnectDbBtn conn={conn} />
                 </DropdownMenuItem>
@@ -350,7 +391,10 @@ function WindowsLinuxTitleBar() {
   };
 
   return (
-    <div className="bg-background flex h-9 shrink-0 items-stretch border-b text-sm select-none">
+    <div
+      {...{ [TITLE_BAR_ATTR]: "" }}
+      className="bg-background flex h-9 shrink-0 items-stretch border-b text-sm select-none"
+    >
       {/* Section 1 — menu */}
       <div className="flex items-center gap-0.5 px-1">
         {TITLE_BAR_MENUS.map((menu) => (
@@ -360,12 +404,22 @@ function WindowsLinuxTitleBar() {
                 <button
                   type="button"
                   className="hover:bg-muted rounded px-2 py-1.5 text-xs font-medium outline-none"
+                  // Before the click moves focus onto this button: the Edit
+                  // items need to know which field the user was in.
+                  onMouseDown={rememberEditTarget}
+                  onKeyDown={rememberEditTarget}
                 >
                   {menu.label}
                 </button>
               }
             />
-            <DropdownMenuContent align="start" className={"w-full"}>
+            <DropdownMenuContent
+              align="start"
+              className={"w-full"}
+              finalFocus={
+                menu.actsOnFocusedField ? editTargetForFocus : undefined
+              }
+            >
               {menu.items.map((item, i) => {
                 if ("separator" in item)
                   return <DropdownMenuSeparator key={i} />;

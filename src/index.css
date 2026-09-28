@@ -55,6 +55,17 @@
   --info-light: oklch(0.95 0.08 250);
   --info-dark: oklch(0.35 0.18 250);
   --bson-ctor: oklch(0.42 0.17 292);
+  /* One color per column data type family (grid header type label, and
+   * anywhere else a type is shown). Mapped from type names in
+   * src/shared/theme/data-type-colors.ts. */
+  --type-number: oklch(0.52 0.16 250);
+  --type-text: oklch(0.5 0.14 150);
+  --type-bool: oklch(0.58 0.16 55);
+  --type-datetime: oklch(0.5 0.17 300);
+  --type-json: oklch(0.52 0.18 350);
+  --type-id: oklch(0.55 0.13 85);
+  --type-enum: oklch(0.52 0.12 190);
+  --type-binary: oklch(0.5 0.03 260);
   --selection: oklch(0.65 0.16 55);
   --selection-foreground: oklch(1 0 0);
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
@@ -70,6 +81,29 @@
   --editor-toolbar: oklch(0.985 0 0);
   --gutter: oklch(0.965 0 0);
   --sidebar-header: oklch(0.985 0 0);
+
+  /* Environment label colours (spec 0007): a connection's chip is `--env-<key>`
+   * with text in `--env-<key>-fg`. Production is red, Staging amber and
+   * Development green; a custom label picks any of the 8 keys. Text on every
+   * chip is 4.5:1 or better in both themes. Keep the key list in step with
+   * `ENV_COLORS` in src/shared/api/env.ts and `ENV_COLOR_KEYS` in
+   * crates/dh-core/src/api/common.rs. */
+  --env-red: oklch(0.5 0.19 27);
+  --env-red-fg: oklch(0.99 0 0);
+  --env-orange: oklch(0.55 0.14 50);
+  --env-orange-fg: oklch(0.99 0 0);
+  --env-amber: oklch(0.83 0.15 85);
+  --env-amber-fg: oklch(0.2 0.03 60);
+  --env-green: oklch(0.5 0.11 150);
+  --env-green-fg: oklch(0.99 0 0);
+  --env-teal: oklch(0.5 0.075 195);
+  --env-teal-fg: oklch(0.99 0 0);
+  --env-blue: oklch(0.5 0.16 255);
+  --env-blue-fg: oklch(0.99 0 0);
+  --env-purple: oklch(0.5 0.19 300);
+  --env-purple-fg: oklch(0.99 0 0);
+  --env-grey: oklch(0.48 0.01 285);
+  --env-grey-fg: oklch(0.99 0 0);
 
   /* Runtime-overridable indirection for `--font-sans` below — same pattern
    * `--color-primary: var(--primary)` uses for accent colors, so
@@ -128,6 +162,14 @@
   --info-light: oklch(0.25 0.08 250);
   --info-dark: oklch(0.75 0.12 250);
   --bson-ctor: oklch(0.8 0.16 292);
+  --type-number: oklch(0.78 0.12 250);
+  --type-text: oklch(0.78 0.13 150);
+  --type-bool: oklch(0.8 0.13 55);
+  --type-datetime: oklch(0.78 0.13 300);
+  --type-json: oklch(0.78 0.13 350);
+  --type-id: oklch(0.83 0.12 85);
+  --type-enum: oklch(0.8 0.1 190);
+  --type-binary: oklch(0.75 0.03 260);
   --selection: oklch(0.55 0.18 55);
   --selection-foreground: oklch(0.205 0 0);
   --scrollbar-thumb: #555;
@@ -138,6 +180,25 @@
   --editor-toolbar: oklch(0.215 0.005 285);
   --gutter: oklch(0.205 0.004 285);
   --sidebar-header: oklch(0.215 0.005 285);
+
+  /* Environment label colours, dark theme: a little lighter so the chip
+   * stands off the dark surface, text still 4.5:1 or better. */
+  --env-red: oklch(0.56 0.19 27);
+  --env-red-fg: oklch(0.99 0 0);
+  --env-orange: oklch(0.56 0.14 50);
+  --env-orange-fg: oklch(0.99 0 0);
+  --env-amber: oklch(0.78 0.14 85);
+  --env-amber-fg: oklch(0.2 0.03 60);
+  --env-green: oklch(0.54 0.11 150);
+  --env-green-fg: oklch(0.99 0 0);
+  --env-teal: oklch(0.54 0.075 195);
+  --env-teal-fg: oklch(0.99 0 0);
+  --env-blue: oklch(0.55 0.16 255);
+  --env-blue-fg: oklch(0.99 0 0);
+  --env-purple: oklch(0.56 0.19 300);
+  --env-purple-fg: oklch(0.99 0 0);
+  --env-grey: oklch(0.54 0.01 285);
+  --env-grey-fg: oklch(0.99 0 0);
 }
 
 @theme inline {
@@ -191,6 +252,14 @@
   --color-info-foreground: var(--info-foreground);
   --color-info-light: var(--info-light);
   --color-info-dark: var(--info-dark);
+  --color-type-number: var(--type-number);
+  --color-type-text: var(--type-text);
+  --color-type-bool: var(--type-bool);
+  --color-type-datetime: var(--type-datetime);
+  --color-type-json: var(--type-json);
+  --color-type-id: var(--type-id);
+  --color-type-enum: var(--type-enum);
+  --color-type-binary: var(--type-binary);
   --color-selection: var(--selection);
   --color-selection-foreground: var(--selection-foreground);
   --color-chrome: var(--chrome);

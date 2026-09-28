@@ -121,6 +121,14 @@ export const appEditorTheme = EditorView.theme({
     color: "var(--success)",
     opacity: 1,
   },
+  ".cm-statement-run--error": {
+    color: "var(--success)",
+    opacity: 1,
+  },
+  ".cm-statement-run--error .cm-statement-run-badge": {
+    background: "var(--destructive)",
+    color: "white",
+  },
   ".cm-statement-run-badge": {
     position: "absolute",
     bottom: "-2px",
@@ -174,6 +182,14 @@ export const appEditorExtensions = [
 // editor theme is fixed to One Dark.
 export const sqlHighlightStyle = oneDarkHighlightStyle;
 export const jsHighlightStyle = oneDarkHighlightStyle;
+
+// For chrome that sits flush on the editor (the file breadcrumb), so it
+// reads as part of the editor surface rather than the app around it.
+export const editorSurfaceColors = {
+  background: color.background,
+  foreground: color.ivory,
+  muted: color.stone,
+};
 
 // The full set of editor themes this app will eventually offer (Settings >
 // Editor, not built yet). Typed now so that picker has the full list ready

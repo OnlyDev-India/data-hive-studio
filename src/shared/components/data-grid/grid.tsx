@@ -9,17 +9,19 @@ import {
 } from "react";
 import {
   executeOp,
+  createRowAccumulator,
   executeOpStream,
   tableSchema,
-  type QueryOp,
   type QueryResult,
   type TableSchema,
 } from "@/shared/api";
 import { useStudioStore, type GridBridge, type JsonRow } from "@/shared/store";
 import { GridBody } from "./grid-body";
+import { GridLoadState } from "./grid-load-state";
 import { GridProvider } from "./grid-context";
 import type { PendingChange } from "./grid-context";
 import { useGridController } from "./grid-controller";
+import { mongo_delete, mongo_insert, mongo_update } from "./mongo-shell";
 import {
   classify,
   DISTINCT_LIMIT,
@@ -53,7 +55,10 @@ export interface GridHandle {
 interface GridProps {
   conn_id: string;
   table: string;
-  schema: TableSchema;
+  /** `null` while the table's structure is still being fetched: the rows are
+   *  fetched and shown without it (their columns come from the query), and
+   *  editing stays off until it arrives. */
+  schema: TableSchema | null;
   revision: number;
   tab_key: string;
   filters: GridFilter[];
@@ -108,6 +113,28 @@ export function sql_literal(v: string | null): string {
 const EMPTY_ROWS: (string | null)[][] = [];
 const EMPTY_COLUMNS: string[] = [];
 
+// The column that labels a referenced table's rows in an FK cell. Working it
+// out costs a full `tableSchema` per referenced table (seven catalog queries
+// on Postgres) and the answer only changes when that table's columns do, so
+// it is kept for a few minutes instead of being re-fetched on every table
+// open — `tableSchema`'s own dedupe only merges calls made within 300 ms.
+const FK_LABEL_COL_TTL_MS = 5 * 60 * 1000;
+const fk_label_col_cache = new Map<
+  string,
+  { col: string | null; at: number }
+>();
+
+// Stand-in for a table structure that has not arrived yet: every value the
+// grid derives from the schema (keys, types, FKs) comes out empty. Module
+// level so its identity is stable across renders.
+const NO_SCHEMA: TableSchema = {
+  kind: "table",
+  columns: [],
+  foreign_keys: [],
+  indexes: [],
+  triggers: [],
+};
+
 // Double-quoted identifier (works for SQLite and Postgres alike).
 export function sql_ident(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
@@ -128,7 +155,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   {
     conn_id,
     table,
-    schema,
+    schema: schema_prop,
     revision,
     tab_key,
     filters,
@@ -145,6 +172,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   },
   ref,
 ) {
+  const schema = schema_prop ?? NO_SCHEMA;
   const [page, setPage] = useState(0);
   const [page_size, setPageSize] = useState(50);
   const [local_rev, setLocalRev] = useState(0);
@@ -153,7 +181,18 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   /** Last fetched total + the fetch identity it belongs to — lets page flips
    *  and sorts skip the COUNT round trip entirely. */
   const count_cache = useRef<{ key: string; total: number } | null>(null);
+  /** The COUNT runs alongside the page but is NOT part of `loading`: on a
+   *  big Mongo collection or a remote Postgres it can outlast the rows by
+   *  many seconds, and the grid must not look busy once the rows are up. */
+  const [count_pending, setCountPending] = useState(false);
   const [loading, setLoading] = useState(true);
+  /** How the last page fetch ended when it produced no rows: the user gave up
+   *  on it (`stopped`), or the query failed (`load_error`). Either leaves the
+   *  grid on an empty state that offers a reload. */
+  const [stopped, setStopped] = useState(false);
+  const [load_error, setLoadError] = useState<string | null>(null);
+  /** Gives up on the fetch in flight; set by the fetch effect. */
+  const stop_fetch = useRef<(() => void) | null>(null);
   const [op_running, setOpRunning] = useState(false);
   /** External busy signal (e.g. a schema Apply is in flight) — treated the
    *  same as a data fetch: overlay + edit lock. */
@@ -174,8 +213,33 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const [dirty_cells, setDirtyCells] = useState<Map<string, string | null>>(
     new Map(),
   );
-  /** Real row indices (into the current page) marked for deletion, awaiting Apply. */
+  /** Global row indices marked for deletion, awaiting Apply. */
   const [deleted_rows, setDeletedRows] = useState<Set<number>>(new Set());
+  /** Original values of every row with a staged edit or delete, keyed by
+   * global row and captured when the change is first staged. Review, the SQL
+   * preview and Apply read these, so changes staged on another page still
+   * show up and still run after you move away from that page. */
+  const [row_snapshots, setRowSnapshots] = useState<
+    Map<number, Record<string, string | null>>
+  >(new Map());
+  const remember_row = useCallback(
+    (real: number) => {
+      const data = result?.rows[real];
+      if (!result || !data) return;
+      const g = page * page_size + real;
+      setRowSnapshots((cur) =>
+        cur.has(g)
+          ? cur
+          : new Map(cur).set(
+              g,
+              Object.fromEntries(
+                result.columns.map((c, i) => [c, data[i] ?? null]),
+              ),
+            ),
+      );
+    },
+    [result, page, page_size],
+  );
 
   // Run a mutation, clearing any previous error and refreshing on success, or
   // showing the backend error so a failed op is never silently swallowed.
@@ -207,6 +271,12 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   const setGridBridge = useStudioStore((s) => s.setGridBridge);
   const clearGridBridge = useStudioStore((s) => s.clearGridBridge);
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
+  // A read only connection (spec 0007) opens the grid not editable: no staged
+  // edits, no add, clone or delete row. The backend refuses those writes too,
+  // this just says so up front.
+  const read_only = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.read_only ?? false,
+  );
   const setBottomPanelOpenFor = useStudioStore((s) => s.setBottomPanelOpenFor);
   // The JSON viewer shows the ACTIVE tab's row; publishing under this scope
   // (connection + tab) keeps one tab's selection from leaking into another.
@@ -248,23 +318,28 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         col_types: Object.fromEntries(
           schema.columns.map((c) => [c.name, c.data_type]),
         ),
-        on_edit: row.is_pending
-          ? (col, value) => on_pending_edit(row.row_number, col, value)
-          : (col, value) => {
-              const real = row.row_number - 1;
-              const key = `${col}\u0000${real}`;
-              const local = real - page * page_size;
-              const original =
-                result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
-              const norm = (v: string | null) =>
-                v === null || v === "" ? "" : v;
-              setDirtyCells((cur) => {
-                const next = new Map(cur);
-                if (norm(value) === norm(original)) next.delete(key);
-                else next.set(key, value);
-                return next;
-              });
-            },
+        // No write-back hook on a read only connection, which is what makes
+        // the JSON viewer read only too.
+        on_edit: read_only
+          ? undefined
+          : row.is_pending
+            ? (col, value) => on_pending_edit(row.row_number, col, value)
+            : (col, value) => {
+                const real = row.row_number - 1;
+                const key = `${col}\u0000${real}`;
+                const local = real - page * page_size;
+                const original =
+                  result?.rows[local]?.[result.columns.indexOf(col)] ?? null;
+                const norm = (v: string | null) =>
+                  v === null || v === "" ? "" : v;
+                remember_row(local);
+                setDirtyCells((cur) => {
+                  const next = new Map(cur);
+                  if (norm(value) === norm(original)) next.delete(key);
+                  else next.set(key, value);
+                  return next;
+                });
+              },
       });
     },
     [
@@ -276,6 +351,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       page_size,
       setJsonRow,
       on_pending_edit,
+      read_only,
+      remember_row,
     ],
   );
   const open_json = useCallback(
@@ -290,7 +367,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // Editing is enabled for real tables; Postgres views/matviews open
   // read-only. Updates/deletes target rows by primary key when one exists,
   // else by their full original contents.
-  const editable = (schema.kind || "table") === "table";
+  // Nothing is editable until the structure is known: without the primary key
+  // an edit would have to match rows by their whole contents.
+  const editable =
+    schema_prop !== null && (schema.kind || "table") === "table" && !read_only;
 
   // Columns the database will want to assign itself: primary keys plus columns
   // covered by a UNIQUE index. Cloned drafts leave these empty so inserting
@@ -350,10 +430,27 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       return;
     }
     let cancelled = false;
-    const PREFERRED = ["name", "title", "label", "display_name", "username", "email"];
+    const PREFERRED = [
+      "name",
+      "title",
+      "label",
+      "display_name",
+      "username",
+      "email",
+    ];
     void (async () => {
       const entries = await Promise.all(
         fk_table_names.map(async (t) => {
+          const cache_key = [
+            conn_id,
+            database ?? "",
+            schema_name ?? "",
+            t,
+          ].join("\u0000");
+          const cached = fk_label_col_cache.get(cache_key);
+          if (cached && Date.now() - cached.at < FK_LABEL_COL_TTL_MS) {
+            return [t, cached.col] as const;
+          }
           try {
             const s = await tableSchema(conn_id, t, database, schema_name);
             const pk = new Set(
@@ -363,7 +460,9 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
             const preferred = non_pk.find((c) =>
               PREFERRED.includes(c.name.toLowerCase()),
             );
-            return [t, (preferred ?? non_pk[0])?.name ?? null] as const;
+            const col = (preferred ?? non_pk[0])?.name ?? null;
+            fk_label_col_cache.set(cache_key, { col, at: Date.now() });
+            return [t, col] as const;
           } catch {
             return [t, null] as const;
           }
@@ -457,10 +556,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           // Other arrays fall through to plain text editing.
           c.is_array && (c.enum_values?.length ?? 0) > 0
             ? ("array" as CellKind)
-            : classify(c.data_type.toLowerCase()),
+            : classify(c.data_type.toLowerCase(), kind === "mongo"),
         ]),
       ),
-    [schema],
+    [schema, kind],
   );
   const kindsTyped = kinds as Record<string, CellKind>;
 
@@ -489,62 +588,21 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
 
   const offset = page * page_size;
 
-  // Full original contents of one page-row, used to target updates/deletes.
-  // Pending rows sit at the top of the grid, so real-row lookups are offset
-  // by them.
-  const row_match = useCallback(
-    (row_idx: number): Record<string, string | null> | null => {
-      if (!result || result.columns.length === 0) return null;
-      const ri = row_idx - pending.length;
-      if (ri < 0) return null;
-      const row_data = result.rows[ri];
-      if (!row_data) return null;
-      return Object.fromEntries(
-        result.columns.map((c, i) => [c, row_data[i] ?? null]),
-      );
-    },
-    [result, pending.length],
-  );
-
-  // Target one page-row by primary key alone: every PK column must exist in
-  // the result with a non-null ORIGINAL value. Null when there is no usable
-  // PK (no key, or a key part NULL — possible in SQLite) — callers fall back
-  // to full-row matching. Original values keep the target stable even while
+  // Best targeting for a staged update/delete, read from the row's snapshot
+  // (so it works for rows on any page): primary key alone when every PK
+  // column has a non-null ORIGINAL value, else every column. A NULL key part
+  // is possible in SQLite. Original values keep the target stable even while
   // the user edits key columns of the same batch.
-  const pk_match = useCallback(
-    (row_idx: number): Record<string, string | null> | null => {
-      if (!result || pk_columns.length === 0) return null;
-      const ri = row_idx - pending.length;
-      if (ri < 0) return null;
-      const row_data = result.rows[ri];
-      if (!row_data) return null;
-      const out: Record<string, string | null> = {};
-      for (const c of pk_columns) {
-        const ci = result.columns.indexOf(c);
-        if (ci < 0) return null;
-        const v = row_data[ci] ?? null;
-        if (v === null) return null;
-        out[c] = v;
-      }
-      return out;
-    },
-    [result, pk_columns, pending.length],
-  );
-
-  // Best targeting for updates/deletes: PK when available, else every column.
   const match_for = useCallback(
-    (row_idx: number): Record<string, string | null> | null =>
-      pk_match(row_idx) ?? row_match(row_idx),
-    [pk_match, row_match],
-  );
-
-  // A delete operation targeting one page-row by its best-match columns.
-  const row_delete_op = useCallback(
-    (row_idx: number): QueryOp | null => {
-      const match_row = match_for(row_idx);
-      return match_row ? { kind: "delete", table, match_row } : null;
+    (g: number): Record<string, string | null> | null => {
+      const snap = row_snapshots.get(g);
+      if (!snap) return null;
+      if (pk_columns.length > 0 && pk_columns.every((c) => snap[c] != null)) {
+        return Object.fromEntries(pk_columns.map((c) => [c, snap[c]]));
+      }
+      return snap;
     },
-    [match_for, table],
+    [row_snapshots, pk_columns],
   );
 
   // Delete a single row (context menu). Buffered: the row is marked for
@@ -563,6 +621,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       const real = ri - pending.length;
       if (real < 0) return;
       const g = global_row(real);
+      remember_row(real);
       setDeletedRows((cur) => {
         if (cur.has(g)) return cur;
         const next = new Set(cur);
@@ -570,7 +629,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         return next;
       });
     },
-    [pending.length, global_row],
+    [pending.length, global_row, remember_row],
   );
 
   // Duplicate every row touched by the current selection as drafts (context
@@ -611,13 +670,14 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     (ri: number, col: string) => {
       const real = ri - pending.length;
       if (real < 0) return;
+      remember_row(real);
       setDirtyCells((cur) => {
         const next = new Map(cur);
         next.set(`${col}\u0000${global_row(real)}`, null);
         return next;
       });
     },
-    [pending.length, global_row],
+    [pending.length, global_row, remember_row],
   );
 
   // Buffer a cell edit on a real row. The grid shows the new value immediately
@@ -631,6 +691,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       const original =
         result?.rows[real]?.[result.columns.indexOf(col)] ?? null;
       const norm = (v: string | null) => (v === null || v === "" ? "" : v);
+      remember_row(real);
       setDirtyCells((cur) => {
         const key = `${col}\u0000${global_row(real)}`;
         const next = new Map(cur);
@@ -642,7 +703,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         return next;
       });
     },
-    [pending.length, result, global_row],
+    [pending.length, result, global_row, remember_row],
   );
 
   // Start drafting a new row: pin a blank pending row to the top of the grid
@@ -720,14 +781,15 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         if (sep < 0) continue;
         const col = key.slice(0, sep);
         const g = Number(key.slice(sep + 1));
-        // Only edits targeting a row on the currently rendered page are applied;
-        // edits buffered for rows on other pages are left untouched.
-        const real = g - offset;
-        if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
         if (dels.has(g)) continue;
-        const match_row = match_for(real + ins_len);
+        const match_row = match_for(g);
         if (!match_row) continue;
-        patches.push({ real, col, value });
+        // Only rows on the rendered page are patched in place; rows on other
+        // pages are refetched when you next visit them.
+        const real = g - offset;
+        if (real >= 0 && real < (result?.rows.length ?? 0)) {
+          patches.push({ real, col, value });
+        }
         ops.push(
           executeOp(
             conn_id,
@@ -743,10 +805,16 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         );
       }
       for (const g of dels) {
-        const real = g - offset;
-        if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
-        const op = row_delete_op(real + ins_len);
-        if (op) ops.push(executeOp(conn_id, op, database, schema_name));
+        const match_row = match_for(g);
+        if (!match_row) continue;
+        ops.push(
+          executeOp(
+            conn_id,
+            { kind: "delete", table, match_row },
+            database,
+            schema_name,
+          ),
+        );
       }
       if (ops.length === 0) return;
       const inserted = ins_len;
@@ -764,6 +832,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           setPending([]);
           setDirtyCells(new Map());
           setDeletedRows(new Set());
+          setRowSnapshots(new Map());
           if (inserted > 0 || outcomes.some((r) => r.rows_affected === 0)) {
             // Freshly inserted rows land on the last page; a zero-affected write
             // means the database moved under us. Both need a real refetch.
@@ -798,7 +867,6 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       page_size,
       refresh,
       match_for,
-      row_delete_op,
       offset,
       database,
       schema_name,
@@ -809,12 +877,12 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     setPending([]);
     setDirtyCells(new Map());
     setDeletedRows(new Set());
+    setRowSnapshots(new Map());
     setOpError(null);
   }, []);
 
-  // Structured summary of every buffered change for the apply diff dialog.
-  // Only changes targeting the currently rendered page are listed (edits for
-  // rows on other pages are left out, matching what Apply would execute).
+  // Structured summary of every buffered change for the apply diff dialog,
+  // across every page, read from the row snapshots taken at staging time.
   const build_pending_changes = useCallback((): PendingChange[] => {
     if (!result) return [];
     const cols = result.columns;
@@ -833,32 +901,31 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       if (sep < 0) continue;
       const col = key.slice(0, sep);
       const g = Number(key.slice(sep + 1));
-      const real = g - offset;
-      if (real < 0 || real >= result.rows.length) continue;
       if (deleted_rows.has(g)) continue;
-      const ci = cols.indexOf(col);
+      const snap = row_snapshots.get(g);
+      if (!snap) continue;
       changes.push({
         id: key,
         kind: "update",
         row: g + 1,
         column: col,
-        before: ci >= 0 ? (result.rows[real][ci] ?? null) : null,
+        before: snap[col] ?? null,
         after: value,
       });
     }
     for (const g of deleted_rows) {
-      const real = g - offset;
-      if (real < 0 || real >= result.rows.length) continue;
+      const snap = row_snapshots.get(g);
+      if (!snap) continue;
       changes.push({
         id: `del:${g}`,
         kind: "delete",
         row: g + 1,
-        values: result.rows[real],
-        value_columns: cols,
+        values: Object.values(snap),
+        value_columns: Object.keys(snap),
       });
     }
     return changes;
-  }, [result, pending, dirty_cells, deleted_rows, offset]);
+  }, [result, pending, dirty_cells, deleted_rows, row_snapshots]);
 
   // Render every staged change as runnable SQL — INSERT per drafted row
   // (empty columns omitted so defaults apply), UPDATE per buffered cell edit,
@@ -890,26 +957,56 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       if (sep < 0) continue;
       const col = key.slice(0, sep);
       const g = Number(key.slice(sep + 1));
-      const real = g - offset;
-      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
       if (deleted_rows.has(g)) continue;
-      const match_row = match_for(real + pending.length);
+      const match_row = match_for(g);
       if (!match_row) continue;
       stmts.push(
         `UPDATE ${sql_ident(table)}\nSET ${sql_ident(col)} = ${sql_literal(value)}\nWHERE ${where_of(match_row)};`,
       );
     }
     for (const g of deleted_rows) {
-      const real = g - offset;
-      if (real < 0 || real >= (result?.rows.length ?? 0)) continue;
-      const match_row = match_for(real + pending.length);
+      const match_row = match_for(g);
       if (!match_row) continue;
       stmts.push(
         `DELETE FROM ${sql_ident(table)}\nWHERE ${where_of(match_row)};`,
       );
     }
     return stmts.length > 0 ? stmts.join("\n\n") : null;
-  }, [result, pending, dirty_cells, deleted_rows, match_for, table, offset]);
+  }, [result, pending, dirty_cells, deleted_rows, match_for, table]);
+
+  // The same staged changes as Mongo shell commands for the Mongo console,
+  // matched and typed the way Apply does it. Mongo grids only.
+  const build_pending_nosql = useCallback((): string | null => {
+    if (!result || result.columns.length === 0) return null;
+    const cols = result.columns;
+    const types = Object.fromEntries(
+      schema.columns.map((c) => [c.name, c.data_type]),
+    );
+    const stmts: string[] = [];
+    for (const p of pending) {
+      const values = Object.fromEntries(
+        cols.map((c, ci) => [c, p.values[ci] ?? null]),
+      );
+      const stmt = mongo_insert(table, values, types);
+      if (stmt) stmts.push(stmt);
+    }
+    for (const [key, value] of dirty_cells) {
+      const sep = key.indexOf("\u0000");
+      if (sep < 0) continue;
+      const col = key.slice(0, sep);
+      const g = Number(key.slice(sep + 1));
+      if (deleted_rows.has(g)) continue;
+      const match_row = match_for(g);
+      if (!match_row) continue;
+      const stmt = mongo_update(table, match_row, col, value, types);
+      if (stmt) stmts.push(stmt);
+    }
+    for (const g of deleted_rows) {
+      const match_row = match_for(g);
+      if (match_row) stmts.push(mongo_delete(table, match_row));
+    }
+    return stmts.length > 0 ? stmts.join("\n\n") : null;
+  }, [result, schema, pending, dirty_cells, deleted_rows, match_for, table]);
 
   // Header quick-filter's live escalation past the loaded page: a bounded
   // probe first (cheap, and usually enough), unbounded only when the probe
@@ -950,6 +1047,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     table,
     layout_key: `${conn_id}::${database ?? ""}::${schema_name ?? ""}::${table}`,
     kinds: kindsTyped,
+    iso_dates: kind === "mongo",
     types: column_types,
     key_kinds,
     fk_targets,
@@ -958,7 +1056,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     on_modified: () => {}, // edits are buffered; nothing to reload on editor close
     on_set_null: set_null,
     on_delete_row: delete_row,
-    on_clone_row: clone_into_pending,
+    on_clone_row: read_only ? undefined : clone_into_pending,
     pending_rows: pending,
     on_pending_edit,
     on_remove_pending: remove_pending,
@@ -977,28 +1075,37 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
   // same details (filters / raw WHERE / sort / pagination).
   useEffect(() => {
     let cancelled = false;
-    // Accumulate streamed rows and flush to state at most once per frame so
-    // fast local results don't trigger a render per batch.
-    const acc: { cols: string[] | null; rows: (string | null)[][] } = {
-      cols: null,
-      rows: [],
-    };
-    let raf = 0;
-    const flush = () => {
-      raf = 0;
+    // Streamed rows collect in one accumulator that flushes to state at most
+    // once per frame, so fast local results don't trigger a render per batch.
+    // It also grows the columns when a Mongo page shows a new field late, and
+    // pads every row to the final column count.
+    const acc = createRowAccumulator((snapshot) => {
       if (cancelled) return;
       // Hold the previous page on screen until real rows exist — avoids a
       // "No rows." flash between the header chunk and the first batch.
-      if (acc.rows.length === 0) return;
+      if (snapshot.row_count === 0) return;
       setResult({
-        columns: acc.cols ?? [],
-        rows: [...acc.rows],
+        columns: snapshot.columns,
+        rows: snapshot.rows.slice(0, snapshot.row_count),
         rows_affected: 0,
         is_select: true,
         error: null,
         elapsed_ms: 0,
       });
+    });
+    // Stop: abandon this fetch. Its rows and count are dropped when they
+    // arrive (`cancelled`), the grid goes back to an empty "stopped" state.
+    // The statements themselves are not cancelled on the server.
+    const give_up = () => {
+      if (cancelled) return;
+      cancelled = true;
+      acc.finish();
+      setResult(null);
+      setLoading(false);
+      setCountPending(false);
+      setStopped(true);
     };
+    stop_fetch.current = give_up;
     void (async () => {
       try {
         // The total only changes with data/filters/schema — NOT with paging
@@ -1007,6 +1114,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         // Every run of this effect IS a fetch — flag it so the refresh button
         // spins, the overlay blocks edits, and the action bar reflects it.
         setLoading(true);
+        setStopped(false);
+        setLoadError(null);
         const count_key = JSON.stringify([
           conn_id,
           table,
@@ -1016,52 +1125,68 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
           local_rev,
         ]);
         const need_count = count_cache.current?.key !== count_key;
-        const [pageMeta, totalRes] = await Promise.all([
-          executeOpStream(
+        // Started first so it overlaps the page fetch, but deliberately not
+        // awaited: `loading` ends when the ROWS are ready, and the total
+        // fills in whenever the count lands. A failed count leaves the
+        // previous total (the rows still show) instead of discarding the page.
+        if (need_count) {
+          setCountPending(true);
+          void executeOp(
             conn_id,
             {
-              kind: "select",
+              kind: "count",
               table,
               filters,
               custom_where: user_where,
-              order_by: wire_order_by(ctl.sort_keys),
-              limit: page_size,
-              offset,
-            },
-            (chunk) => {
-              if (chunk.columns) acc.cols = chunk.columns;
-              if (chunk.rows.length > 0) {
-                acc.rows.push(...chunk.rows);
-                if (!raf) raf = requestAnimationFrame(flush);
-              }
             },
             database,
             schema_name,
-          ),
-          need_count
-            ? executeOp(
-                conn_id,
-                {
-                  kind: "count",
-                  table,
-                  filters,
-                  custom_where: user_where,
-                },
-                database,
-                schema_name,
-              )
-            : Promise.resolve(null),
-        ]);
-        if (raf) cancelAnimationFrame(raf);
-        raf = 0;
+          )
+            .then((totalRes) => {
+              if (cancelled) return;
+              const next_total = Number(totalRes.rows?.[0]?.[0]) || 0;
+              count_cache.current = { key: count_key, total: next_total };
+              setTotal(next_total);
+            })
+            .catch(() => {})
+            .finally(() => {
+              if (!cancelled) setCountPending(false);
+            });
+        } else {
+          setCountPending(false);
+        }
+        const pageMeta = await executeOpStream(
+          conn_id,
+          {
+            kind: "select",
+            table,
+            filters,
+            custom_where: user_where,
+            order_by: wire_order_by(ctl.sort_keys),
+            limit: page_size,
+            offset,
+          },
+          acc.push,
+          database,
+          schema_name,
+        );
+        const streamed = acc.finish();
         if (cancelled) return;
-        // The resolved metadata is authoritative (columns/elapsed); pair it
-        // with the accumulated rows.
-        setResult({ ...pageMeta, rows: acc.rows });
-        if (totalRes) {
-          const next_total = Number(totalRes.rows?.[0]?.[0]) || 0;
-          count_cache.current = { key: count_key, total: next_total };
-          setTotal(next_total);
+        // The resolved metadata is authoritative (elapsed); pair it with the
+        // accumulated rows and the columns they ended with.
+        setResult({
+          ...pageMeta,
+          columns:
+            streamed.columns.length > 0 ? streamed.columns : pageMeta.columns,
+          rows: streamed.rows,
+        });
+      } catch (e) {
+        // A failed page (bad WHERE, dropped connection) used to leave a blank
+        // grid with nothing said. Drop the previous page too: it belongs to
+        // a different filter/sort/page than the one that just failed.
+        if (!cancelled) {
+          setResult(null);
+          setLoadError(String(e));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -1069,7 +1194,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     })();
     return () => {
       cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
+      acc.finish();
+      if (stop_fetch.current === give_up) stop_fetch.current = null;
     };
   }, [
     conn_id,
@@ -1107,7 +1233,10 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     for (const r of rows) {
       const real = r - pending.length;
       if (real < 0) pending_rows.add(r);
-      else real_rows.push(real);
+      else {
+        remember_row(real);
+        real_rows.push(global_row(real));
+      }
     }
     if (pending_rows.size > 0) {
       setPending((cur) => cur.filter((_, i) => !pending_rows.has(i)));
@@ -1125,7 +1254,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         return changed ? next : cur;
       });
     }
-  }, [result, selected_set, pending.length]);
+  }, [result, selected_set, pending.length, global_row, remember_row]);
 
   // Expose this grid to the status bar (limit, pagination, delete, refresh,
   // and per-tab info) keyed by the owning tab.
@@ -1133,6 +1262,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     () => ({
       rows: result?.rows.length ?? 0,
       total,
+      total_pending: count_pending,
       total_pages,
       page,
       set_page: setPage,
@@ -1148,8 +1278,12 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       hidden_columns: [...ctl.hidden_columns],
       toggle_column_visibility: ctl.toggle_column_visibility,
       reorder_column: ctl.reorder_column,
+      reveal_column: ctl.reveal_column,
       editable: editable && !show_loading,
+      read_only,
       loading: show_loading,
+      // Only the page fetch can be given up on, not a write in flight.
+      stop: () => stop_fetch.current?.(),
       elapsed_ms: result?.elapsed_ms ?? null,
       pending_exists:
         pending.length > 0 || dirty_cells.size > 0 || deleted_rows.size > 0,
@@ -1158,6 +1292,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       apply_pending,
       cancel_pending,
       get_pending_sql: build_pending_sql,
+      get_pending_nosql: kind === "mongo" ? build_pending_nosql : undefined,
       get_pending_changes: build_pending_changes,
       delete_rows: () => {
         do_delete();
@@ -1188,10 +1323,12 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
     [
       result,
       total,
+      count_pending,
       total_pages,
       page,
       page_size,
       editable,
+      read_only,
       show_loading,
       do_delete,
       refresh,
@@ -1203,6 +1340,8 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       apply_pending,
       cancel_pending,
       build_pending_sql,
+      build_pending_nosql,
+      kind,
       build_pending_changes,
       table,
       database,
@@ -1217,6 +1356,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       ctl.hidden_columns,
       ctl.toggle_column_visibility,
       ctl.reorder_column,
+      ctl.reveal_column,
     ],
   );
 
@@ -1232,6 +1372,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         pending: pending.map((p) => ({ values: p.values, dirty: p.dirty })),
       }),
       edit_field: (col, globalRow, value) => {
+        remember_row(globalRow - offset);
         setDirtyCells((cur) => {
           const next = new Map(cur);
           next.set(`${col}\u0000${globalRow}`, value);
@@ -1239,7 +1380,7 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
         });
       },
     }),
-    [bridge, result, offset, dirty_cells, pending],
+    [bridge, result, offset, dirty_cells, pending, remember_row],
   );
 
   useEffect(() => {
@@ -1263,7 +1404,16 @@ export const Grid = forwardRef<GridHandle, GridProps>(function Grid(
       <div className="relative min-h-0 flex-1 border" data-selectable>
         {/* Spinners for both first load and refetch live in table-pane's
           overlay; this box just keeps its height so nothing jumps. */}
-        {!result ? null : (
+        {!result ? (
+          !show_loading &&
+          (stopped || load_error !== null) && (
+            <GridLoadState
+              kind={stopped ? "stopped" : "error"}
+              error={load_error}
+              on_reload={bridge.refresh}
+            />
+          )
+        ) : (
           <GridProvider
             value={{
               ...ctl,

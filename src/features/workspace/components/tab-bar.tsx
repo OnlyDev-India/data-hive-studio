@@ -25,6 +25,7 @@ import {
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
 import { cn } from "@/shared/lib/utils";
+import { envColorKey, type ConnGuard } from "@/shared/api";
 import {
   tabEquals,
   tabKey,
@@ -44,6 +45,10 @@ interface TabBarProps {
    *  SQL editor/table creation stay visible regardless of kind (Mongo is
    *  full-featured, not SQL-restricted — see the SQL-on-Mongo work). */
   is_mongo: boolean;
+  /** The connection these tabs belong to: its environment chip and lock lead
+   *  the strip, and each tab takes a thin edge in the environment colour
+   *  (spec 0007). Absent or plain → the strip looks as it always did. */
+  conn?: ConnGuard | null;
   tabs: StudioTab[];
   active: StudioTab | null;
   /** Keys of tabs holding unapplied work — shown as a dot until hovered. */
@@ -56,6 +61,7 @@ interface TabBarProps {
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_close_others: (tab: StudioTab) => void;
   on_new_sql: () => void;
   on_new_table: () => void;
   on_new_mongo_console: () => void;
@@ -70,6 +76,7 @@ interface TabBarProps {
 export function TabBar({
   paneId,
   is_mongo,
+  conn,
   tabs,
   active,
   dirty_keys,
@@ -79,6 +86,7 @@ export function TabBar({
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_close_others,
   on_new_sql,
   on_new_table,
   on_new_mongo_console,
@@ -145,6 +153,7 @@ export function TabBar({
         return (
           <TabItem
             key={key}
+            env_color={conn ? envColorKey(conn) : null}
             pane_id={paneId}
             tab={tab}
             index={idx}
@@ -156,6 +165,7 @@ export function TabBar({
             on_close_all={on_close_all}
             on_close_to_left={on_close_to_left}
             on_close_to_right={on_close_to_right}
+            on_close_others={on_close_others}
             on_split_right={on_split_right}
             on_split_down={on_split_down}
           />
@@ -189,7 +199,7 @@ export function TabBar({
             {/* Every handler here is wrapped in a no-arg arrow — passed
                 directly, onClick would call it with the click event as the
                 first argument, which for on_new_mongo_console (optional
-                seedText/seedFileName params) silently became a bogus seed
+                seedText/seedFilePath params) silently became a bogus seed
                 (rendered as "[object Object]" once the editor stringified
                 it) instead of a real open-console call. */}
             <DropdownMenuItem onClick={() => on_new_sql()}>
@@ -220,6 +230,7 @@ export function TabBar({
 function TabItem({
   pane_id,
   tab,
+  env_color,
   index,
   total,
   active,
@@ -229,11 +240,14 @@ function TabItem({
   on_close_all,
   on_close_to_left,
   on_close_to_right,
+  on_close_others,
   on_split_right,
   on_split_down,
 }: {
   pane_id: string;
   tab: StudioTab;
+  /** Palette key of the connection's environment label, if it has one. */
+  env_color: string | null;
   /** Strip position of this tab (0-based) and the total tab count. */
   index: number;
   total: number;
@@ -244,11 +258,13 @@ function TabItem({
   on_close_all: () => void;
   on_close_to_left: (tab: StudioTab) => void;
   on_close_to_right: (tab: StudioTab) => void;
+  on_close_others: (tab: StudioTab) => void;
   on_split_right: (tab: StudioTab) => void;
   on_split_down: (tab: StudioTab) => void;
 }) {
   const key = tabKey(tab);
   const file_name = useStudioStore((s) => s.sqlTabs[key]?.file_name);
+  const database = useStudioStore((s) => s.sqlTabs[key]?.database);
   const dragging = useStudioStore(
     (s) => !!s.dragTab && tabKey(s.dragTab.tab) === key,
   );
@@ -263,6 +279,11 @@ function TabItem({
             data-tab-key={key}
             data-tab-index={index}
             data-tab-pane={pane_id}
+            style={
+              env_color
+                ? { boxShadow: `inset 0 2px 0 var(--env-${env_color})` }
+                : undefined
+            }
             onClick={() => on_select(tab)}
             className={cn(
               "relative flex max-w-[16rem] min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-b-2 px-2.5 py-1.5 text-sm whitespace-nowrap select-none",
@@ -275,7 +296,7 @@ function TabItem({
           >
             {tabTypeIcon}
             <span className="max-w-56 truncate">
-              {tabLabel(tab, file_name)}
+              {tabLabel(tab, file_name, database)}
             </span>
             {/* Dirty tabs show a dot; hovering it reveals the close X. */}
             {dirty ? (
@@ -319,6 +340,12 @@ function TabItem({
         {/* Contextual availability: nothing to close → nothing to click. */}
         <ContextMenuItem disabled={total <= 1} onClick={() => on_close_all()}>
           Close all
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={total <= 1}
+          onClick={() => on_close_others(tab)}
+        >
+          Close others
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

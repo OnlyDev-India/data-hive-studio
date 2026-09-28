@@ -5,6 +5,7 @@ export {
   type StudioView,
   type WorkspaceTabs,
   type GridBridge,
+  type ImportTarget,
   type JsonRow,
   type SchemaEditHandle,
   type SchemaPaneHandle,
@@ -12,6 +13,7 @@ export {
   type SavedConnParams,
   type LandingEditTarget,
   type PaletteKeywords,
+  type UpdatePhase,
 } from "./types";
 export type { ShortcutBinding } from "../hooks/shortcut-registry";
 export {
@@ -22,5 +24,10 @@ export {
   useWorkspace,
 } from "./hooks";
 export { tabEquals, tabKey, tabLabel, type StudioTab } from "./tab-utils";
+export {
+  listUnappliedWork,
+  listUnappliedWorkFor,
+  summarizeUnappliedWork,
+} from "./unapplied-work";
 export { findOwnerLeaf, type PaneNode } from "./pane-layout";
 export { stableConnKey } from "./workspace-persistence";

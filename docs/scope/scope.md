@@ -1,41 +1,47 @@
 # Scope: DH Studio
 
-A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with an optional team server for shared connections and org management.
+A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with an optional bare server and web UI that only connect to databases (no login, sharing, orgs or groups for now, see slice 29).
 
 **Build approach:** Tracer Bullet (each feature built end to end through every layer, working).
 **Workflow:** Beta (after `/develop`, run `/check verify` then `/test`). The project default level of rigor. `/architect` is the recommended first stop for a feature with a real decision, but skippable when you already know the build. Any feature can carry its own tag (e.g. `· GA`) to do more or less.
 
-_These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use `/develop` and skip `/architect`. You decide when a feature is `done`._
+*These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use* `/develop` *and skip* `/architect`*. You decide when a feature is* `done`*.*
 
 ## At a glance
 
-| # | Feature | Phase | Status |
-|---|---------|-------|--------|
-| A | Connections | Existing | existing |
-| B | Table explorer | Existing | existing |
-| C | Query editor | Existing | existing |
-| D | Schema designer | Existing | existing |
-| E | Workspace shell | Existing | existing |
-| F | Activity log | Existing | existing |
-| G | Data inspector | Existing | existing |
-| H | Data export | Existing | existing |
-| I | Team sharing | Existing | existing |
-| J | Settings | Existing | existing |
-| K | Notifications | Existing | existing |
-| L | Auto updater | Existing | existing |
-| M | Data grid | Existing | existing |
-| N | Shared query editor components | Existing | existing |
-| O | DB adapter layer | Existing | existing |
-| P | Team server | Existing | existing |
-| Q | Native shell | Existing | existing |
-| R | Command palette | Existing | existing |
-| 1 | MongoDB nested schema view | Slice 1 | done |
-| 2 | Per tab bottom panel state | Slice 2 | done |
-| 3 | Cross connection tab key collisions | Slice 3 | done |
-| 4 | Diff viewer grid redesign | Slice 4 | done |
-| 5 | Table comparison view | Slice 5 | done |
-| 6 | Query editor find and replace | Slice 6 | done |
-| 7 | Column labels in generated INSERT SQL | Slice 7 | done |
+| #   | Feature                                     | Phase    | Status      |
+| --- | ------------------------------------------- | -------- | ----------- |
+| A   | Connections                                 | Existing | existing    |
+| B   | Table explorer                              | Existing | existing    |
+| C   | Query editor                                | Existing | existing    |
+| D   | Schema designer                             | Existing | existing    |
+| E   | Workspace shell                             | Existing | existing    |
+| F   | Activity log                                | Existing | existing    |
+| G   | Data inspector                              | Existing | existing    |
+| H   | Data export                                 | Existing | existing    |
+| J   | Settings                                    | Existing | existing    |
+| K   | Notifications                               | Existing | existing    |
+| L   | Auto updater                                | Existing | existing    |
+| M   | Data grid                                   | Existing | existing    |
+| N   | Shared query editor components              | Existing | existing    |
+| O   | DB adapter layer                            | Existing | existing    |
+| P   | Team server                                 | Existing | existing    |
+| Q   | Native shell                                | Existing | existing    |
+| R   | Command palette                             | Existing | existing    |
+| 10  | Stop a running query                        | Slice 10 | done        |
+| 11  | Read only and environment labels            | Slice 11 | done        |
+| 12  | Import data                                 | Slice 12 | done        |
+| 13  | Explain plan viewer                         | Slice 13 | done        |
+| 17  | Streaming results for Postgres and MongoDB  | Slice 17 | done        |
+| 28  | Split server only code into its own crate   | Slice 28 | done        |
+| 29  | Strip the server to a bare no login proxy   | Slice 29 | done        |
+| 30  | Connection form as a two step flow          | Slice 30 | in-progress |
+| 31  | Encrypted local secret storage              | Slice 31 | in-progress |
+| 32  | One line install without OS warnings        | Slice 32 | in-progress |
+| 5   | Table comparison view                       | Slice 5  | planned     |
+| 14  | Saved queries and snippets                  | Slice 14 | planned     |
+| 15  | Mongo aggregation builder                   | Slice 15 | planned     |
+| 16  | ER diagram                                  | Slice 16 | planned     |
 
 ## Existing
 
@@ -63,9 +69,6 @@ JSON/BSON document viewer with tree navigation, syntax highlighting, and search.
 ### H. Data export · existing
 Export query or table data to Excel, CSV, JSON, SQL inserts, or Markdown, filtered or in full. code in `src/features/data-export`
 
-### I. Team sharing · existing
-Team server features: org management, member and invite panels, admin dashboard, audit log viewing. code in `src/features/sharing`
-
 ### J. Settings · existing
 App configuration: appearance, command palette, keyboard shortcuts, SQL formatting, about. code in `src/features/settings`
 
@@ -85,7 +88,7 @@ CodeMirror based SQL/Mongo editing: syntax highlighting, bind variable detection
 Shared Rust database layer: per backend adapters for SQLite, PostgreSQL, and MongoDB, plus the Mongo BSON parser/renderer. code in `crates/dh-core/src/db`
 
 ### P. Team server · existing
-Optional Axum REST API: OAuth sign in, encrypted connection vault, org and permission management. code in `crates/dh-server`
+Optional Axum server and web UI that only connects to databases, with no login, orgs or sharing (reshaped by slice 29). code in `crates/dh-server`, `src/web`
 
 ### Q. Native shell · existing
 Tauri native shell: app menu, commands, local connection state, activity store, file open. code in `src-tauri`
@@ -93,111 +96,153 @@ Tauri native shell: app menu, commands, local connection state, activity store, 
 ### R. Command palette · existing
 Keyboard driven navigation: filter and open connections, tables, and tabs, run commands. code in `src/app/studio/command-palette.tsx`
 
-## Slice 1: MongoDB nested schema view
+## Done
 
-### 1. MongoDB nested schema view · done
-Right now a Mongo collection's schema view (`mongo-schema-editor.tsx`) only shows rename and indexes, and the backend's field inference (`inferred_schema` in `mongodb.rs`) only samples top level field names and their most common type. Show the real nested shape too, so a collection with embedded objects and arrays reads as a proper JSON schema, not a flat field list.
-**Done when:** opening a Mongo collection's schema view shows nested object and array fields (not just top level ones) with their inferred types, for realistic embedded documents, without breaking the existing rename/index workflow.
-spec [0001](../specs/0001-mongodb-nested-schema-view/index.md) · code in `crates/dh-core/src/db/mongodb.rs`, `src/features/schema-designer/components/schema-tab/fields-tree.tsx`
-- [x] Design it (spec): `/architect mongodb nested schema view`
-- [x] Build it: `/develop mongodb nested schema view`
-  - [x] Backend `field_tree`: `DbAdapter` trait method + `MongoAdapter` override, `mongo_field_tree` Tauri command registered in `lib.rs`, and team server route/command parity — satisfies AC-1, AC-8
-  - [x] Frontend wiring: API wrapper + `FieldShape` type, and the new read only tree component replacing the flat "Inferred fields" table — satisfies AC-1
-  - [x] Nested inference depth: presence/optional tracking scoped to the parent, array element type union, mixed top level type stays single value — satisfies AC-2, AC-3, AC-4
-  - [x] Size guards: 50 key truncation, empty container labels, 6 level depth cap, global node budget — satisfies AC-1, AC-5, AC-6
-  - [x] Lazy fetch + caching on the Schema tab, isolated error state, and a regression pass on rename/index/grid headers — satisfies AC-7, AC-9, AC-10
-- [x] Verify it: `/check verify mongodb nested schema view`
-- [x] Test it: `/test mongodb nested schema view`
+Shipped and committed. The milestone detail lives in each spec's `## Build plan`. Where verify and test were not run, the note says so; run them any time if you want the extra check.
 
-## Slice 2: Per tab bottom panel state
+### 10. Stop a running query · done
+A Stop button in the editor cancels a running query on SQLite, PostgreSQL, and MongoDB (desktop and web), and the tab shows it was stopped, not failed.
+spec [0006](../specs/0006-stop-running-query/index.md) · code in `src/features/query-editor/components/editor-run-toolbar.tsx`, `crates/dh-core/src/db/runs.rs`
 
-### 2. Per tab bottom panel state · done
-The bottom panel (the results/JSON split shared by editor, table, and Mongo collection tabs) is one global open or closed flag in the store today, so opening, closing, or resizing it in one tab leaks into every other tab, including ones opened afterward. Give each tab its own independent state.
-**Done when:** opening, closing, or resizing the bottom panel in one tab never changes it in any other open tab, whether that tab was opened before or after.
-spec [0002](../specs/0002-per-tab-bottom-panel-state.md)
-- [x] Design it (spec): `/architect per tab bottom panel state`
-- [x] Build it: `/develop per tab bottom panel state`
-  - [x] Store shape: widen `bottomPanelOpen` to a connection scoped per tab map, plus active tab resolving convenience wrappers for global chrome — satisfies AC-1, AC-3, AC-4
-  - [x] Resize key fix: `useBottomPanelSize` takes `conn_id` too and uses the same composite key for its layout storage, updated at all four call sites — satisfies AC-2, AC-6
-  - [x] Wire chrome and existing entry points: title bar toggle, native menu command, grid "view as JSON", JSON viewer close — satisfies AC-1, AC-4, AC-5
-  - [x] Verification pass across all six acceptance criteria, including the two connections same tab shape case — satisfies AC-1 through AC-6
-  - code in `src/shared/store/store.ts`, `src/shared/store/types.ts`, `src/shared/store/hooks.ts`, `src/shared/hooks/use-bottom-panel-size.ts`, `src/app/studio/title-bar.tsx`, `src/shared/components/data-grid/grid.tsx`, `src/features/inspector/components/json-viewer/index.tsx`, `src/features/query-editor/components/editor-tab.tsx`, `src/features/table-explorer/components/table-pane.tsx`, `src/features/table-explorer/components/mongo-collection-pane.tsx`
-- [x] Verify it: `/check verify per tab bottom panel state`
-- [x] Test it: `/test per tab bottom panel state`
+### 11. Read only and environment labels · done · GA
+A connection can be read only (writes refused on every database, from the editor, grid, and schema designer) and carry a coloured environment label shown wherever the connection appears.
+spec [0007](../specs/0007-read-only-environment-labels/index.md) · code in `src/features/connections`, `crates/dh-core/src/db/read_only.rs`, `src/shared/components/env-chip.tsx`, `src/shared/hooks/use-write-confirm.tsx`
+Skipped: verify, test, review, document.
 
-## Slice 3: Cross connection tab key collisions
+### 12. Import data · done · GA
+Import CSV, JSON, JSON Lines, or Excel into a table or collection (or a new table) with mapping, preview, bad row reports, and a rollback on databases with transactions.
+spec [0008](../specs/0008-import-data/index.md) · code in `src/features/data-import`, `crates/dh-core/src/db/import.rs`
+Skipped: verify, test, review, document.
 
-### 3. Cross connection tab key collisions · done
-`gridBridges`, `schemaEdits`, `schemaPanes`, and `newTables` are keyed by the bare tab key, which does not fold in the connection id for a sql, table, or new table tab. Two different open connections can each have a tab that produces the same key (for example, two "SQL 1" console tabs), so these four maps can leak one connection's handle into another's tab. `jsonRows` already fixed this for its own map by folding the connection id into the key; these four still carry the collision. Surfaced as a follow up while designing spec 0002 (per tab bottom panel state); not part of that spec's own scope.
-**Done when:** no two tabs, in the same or different connections, can share an entry in `gridBridges`, `schemaEdits`, `schemaPanes`, or `newTables`, even when their bare tab keys are identical.
-- [x] Design it (spec): `/architect cross connection tab key collisions`
+### 13. Explain plan viewer · done
+An Explain action shows a readable plan tree for PostgreSQL, SQLite, and MongoDB, with Explain Analyze, Stop, and an optional plan after each result.
+spec [0011](../specs/0011-explain-plan-viewer/index.md) · code in `src/features/query-editor`, `crates/dh-core/src/db/explain`
+Skipped: verify, test.
 
-## Slice 4: Diff viewer grid redesign
+### 17. Streaming results for Postgres and MongoDB · done
+PostgreSQL and MongoDB stream rows as they arrive, the way SQLite does, and stopping keeps the rows already shown.
+spec [0011](../specs/0011-stream-postgres-mongo-results/index.md) · code in `crates/dh-core/src/db/stream.rs`, `crates/dh-server/src/routes/stream.rs`, `src/shared/api/streaming.ts`
+Skipped: verify, test.
 
-### 4. Diff viewer grid redesign · done
-The shared review before apply dialog (`apply-changes-dialog.tsx`) already shows data grid row edits as a proper grid (`RowDiffGrid`), but schema designer DDL changes still show as text style diff hunks (`DiffHunk`/`DiffLine`, before and after lines with plus/minus signs). Redesign that DDL review into the same grid format, so schema designer and data grid reviews share one visual language.
-**Done when:** reviewing a schema designer DDL change (new or altered columns, indexes, and so on) shows a grid formatted diff, not text hunks, with no change to the review before apply flow or the atomic schema transaction behavior, and no regression to the existing row diff grid used for grid edits.
-spec [0003](../specs/0003-diff-viewer-grid-redesign.md)
-- [x] Design it (spec): `/architect diff viewer grid redesign`
-- [x] Build it: `/develop diff viewer grid redesign`
-  - [x] Structured DDL diff data: new `DdlDiffSection`/row types, `describe_schema_changes` rewritten to emit them instead of flattened `DiffChange` lines — satisfies AC-2, AC-3
-  - [x] New `DdlDiffGrid` renderer in `apply-changes-dialog.tsx` (properties table, structured column table, named+definition table, full width trigger rows) plus the new `ddl` prop — satisfies AC-1, AC-2, AC-3, AC-4
-  - [x] Wire both callers end to end: `schema-tab/index.tsx` (SQL) first, then `mongo-schema-editor.tsx` (Mongo) onto the same shape — satisfies AC-1, AC-5, AC-6
-  - [x] Cleanup + regression: delete the dead `DiffChange`/`DiffHunk`/`DiffLine` code, confirm `RowDiffGrid` (row edit review) is unaffected — satisfies AC-7, AC-8
-  - code in `src/shared/components/apply-changes-dialog.tsx`, `src/features/schema-designer/components/schema-tab/drafts.ts`, `src/features/schema-designer/components/schema-tab/index.tsx`, `src/features/schema-designer/components/mongo-schema-editor.tsx`
-- [x] Verify it: `/check verify diff viewer grid redesign`
-- [x] Test it: `/test diff viewer grid redesign`
+### 28. Split server only code into its own crate · done · Alpha
+`src-tauri` no longer compiles server only code: `dh-core` has no server module. Slice 29 finished the job by deleting the in between `dh-server-client` crate.
+code in `crates/dh-server`
+Skipped: verify.
+
+### 29. Strip the server to a bare no login proxy · done
+The server and web UI only connect to databases: an access key and Host check guard it, and every accounts, orgs, grants, and sharing piece is gone from server and desktop.
+spec [0010](../specs/0010-bare-no-login-proxy/index.md) · code in `crates/dh-server`, `src/web`, `src-tauri/src/legacy_servers.rs`
+Skipped: verify, test.
+
+## Slice 30: Connection form as a two step flow
+
+### 30. Connection form as a two step flow · in-progress
+The new connection landing becomes a flow: pick the database first, then a calm single column form for that database, with SSH, SSL, and advanced options reachable without the old tab strip. Editing a saved connection opens straight on its form.
+**Done when:** a new connection starts on a database picker with no tabs, Next shows a single column form for that database with only the fields it needs visible by default, SSH, SSL and advanced options are reachable without tabs, Previous returns to the picker keeping what you typed, editing a saved connection opens directly on its form, and Test and Save & Connect work for every database as they do today.
+spec [0012](../specs/0012-connection-form-two-step/index.md) · code in `src/features/connections/components`
+
+- [x] Design it (spec): `/architect connection form as a two step flow`
+- [x] Build it: `/develop connection form as a two step flow`
+  - [x] Lift defaults, payload builders, URL import and validation into tested lib files, plus the drafts hook (AC-8, AC-11, AC-16, AC-17, AC-19, AC-20)
+  - [x] Card shell, kind picker, and the PostgreSQL form end to end (AC-1 to AC-5, AC-9, AC-10, AC-12 to AC-15, AC-21, AC-27)
+  - [x] MongoDB, DocumentDB and SQLite forms, and edit mode through the new store action (AC-6, AC-7, AC-9, AC-11, AC-12, AC-14, AC-18)
+  - [x] Sidebar: select on single click, direct connect, web password prompt, Duplicate opens the form, landing tests rewritten (AC-16, AC-18, AC-22 to AC-26)
+- [ ] Verify it: `/check verify connection form as a two step flow`
+- [ ] Test it: `/test connection form as a two step flow`
+
+## Slice 31: Encrypted local secret storage
+
+### 31. Encrypted local secret storage · GA
+Saved connection passwords and SSH secrets move out of the macOS Keychain, which prompts on every launch for an app without a Developer ID signature, into an encrypted file on disk with one storage path for dev and release. A random key made on first launch lives in its own locked file, apart from the secrets. Existing Keychain entries carry over once, then the Keychain is never read again. The design pass settles the file layout, how the one time carry over runs, and what happens when the key file is missing or damaged.
+**Done when:** a fresh install saves and reuses passwords and SSH secrets with no Keychain prompt in dev and release; existing Keychain passwords carry over on the first launch after upgrading and no Keychain prompt appears after that; the key file and the secrets file are readable only by your OS user; and a lost or damaged key file loses only the saved secrets, never the connections, and says so clearly.
+spec [0013](../specs/0013-encrypted-local-secret-storage/index.md) · code in `src-tauri/src/local_connections`, `src-tauri/src/secret_store`
+
+- [x] Design it (spec): `/architect encrypted local secret storage`
+- [x] Build it: `/develop encrypted local secret storage`
+  - [x] One sealed secrets file used by every build, with atomic private writes and its tests running in CI (AC-1 to AC-5, AC-12)
+  - [x] One time carry over from the Keychain and the old dev files, then delete them (AC-7 to AC-9)
+  - [x] Lost key reset, newer version read only mode, and the Time Machine exclusion for the key (AC-6, AC-10, AC-11)
+  - [x] Launch notice command, the notification in the store, and the new prompt copy (AC-9 to AC-11, AC-13)
+- [ ] Verify it: `/check verify encrypted local secret storage`
+- [ ] Test it: `/test encrypted local secret storage`
+- [ ] Review it (fresh model): `/check review encrypted local secret storage`
+- [ ] Document it: `/document encrypted local secret storage`
+
+## Slice 32: One line install without OS warnings
+
+### 32. One line install without OS warnings · in-progress
+Unsigned builds trip macOS Gatekeeper ("damaged", fixed today with a Terminal `xattr` step) and Windows SmartScreen. Ad hoc sign the macOS app so a browser download shows "Open Anyway" instead of "damaged", and add a one line install command per OS that downloads the latest release with `curl`, `wget` or PowerShell `irm`, which skips the quarantine mark, and installs it: `install.sh` for macOS and Linux (`.deb`, `.rpm` or AppImage), `install.ps1` for Windows. The design pass settles where the scripts are served from, how they pick the right asset and verify it, and whether Windows installs silently.
+**Done when:** on a clean Mac, Windows PC and Linux box, pasting the one command installs the latest release and the app opens with no Gatekeeper, SmartScreen or Terminal fix step; a DMG downloaded in the browser opens through Open Anyway with no "damaged" message; and the release notes and README show the commands instead of the `xattr` step.
+spec [0014](../specs/0014-one-line-install/index.md) · code in `scripts/install`, `.github/workflows`, `src-tauri/tauri.conf.json`, `README.md`
+
+- [x] Design it (spec): `/architect one line install without OS warnings`
+- [ ] Build it: `/develop one line install without OS warnings`
+  - [ ] Ad hoc signing plus the macOS path of `install.sh`, published and smoke tested by `install-scripts.yml` end to end (AC-1 to AC-3, AC-10, AC-12 to AC-17)
+  - [x] Linux path of `install.sh` (deb, rpm, AppImage) with its three smoke jobs (AC-4 to AC-6, AC-11 to AC-13, AC-17)
+  - [ ] `install.ps1` for Windows with its smoke job (AC-7 to AC-13, AC-15, AC-17)
+  - [ ] README and release notes show the commands, and the manual browser DMG and Windows wizard checks (AC-1, AC-3, AC-7, AC-18)
+- [ ] Verify it: `/check verify one line install without OS warnings`
+- [ ] Test it: `/test one line install without OS warnings`
 
 ## Slice 5: Table comparison view
 
-### 5. Table comparison view · done · from spec 0003
-Compare two existing tables side by side, both their structure (columns, indexes, and so on) and their data (rows), reusing the same grid visual language the diff viewer redesign introduces. Surfaced while designing spec 0003 (diff viewer grid redesign); the redesign deliberately keeps its new grid renderer embedded in `apply-changes-dialog.tsx` rather than extracting it early, so this feature's own design pass needs to settle where the comparison view lives and how it reuses that rendering without the dialog's apply/selection semantics.
+### 5. Table comparison view · needs a decision · from spec 0003
+Compare two tables side by side, both structure (columns, indexes, and so on) and data (rows), in the same grid format as the review before apply dialog. The design pass settles where the view lives and how it reuses that dialog's grid renderer without its apply and selection behaviour.
 **Done when:** picking two tables shows their structural differences and their data differences, in the same grid format the review before apply dialog already uses.
-- [x] Design it (spec): `/architect table comparison view`
 
-## Slice 6: Query editor find and replace
+- [ ] Design it (spec): `/architect table comparison view`
 
-### 6. Query editor find and replace · done
-Right now the query editor's find bar (`editor-search-bar.tsx`) only searches, it has no replace, and no way to match case sensitively or by a regular expression pattern. Add a replace field next to find, plus a case sensitive toggle and a regular expression toggle, so the find bar can match and replace text the way a regular code editor does.
-**Done when:** opening find in the query editor lets you turn on case sensitive matching and regular expression matching, and replace the current match or every match, from the same find bar.
-code in `src/shared/components/query-editor/editor-search-bar.tsx`, `src/shared/components/query-editor/editor-context-menu.tsx`
-- [x] Build it: `/develop query editor find and replace`
-- [x] Verify it: `/check verify query editor find and replace`
-- [x] Test it: `/test query editor find and replace`
+## Slice 14: Saved queries and snippets
 
-## Slice 7: Column labels in generated INSERT SQL
+### 14. Saved queries and snippets
+A per connection library of named saved queries and snippets you can search, insert into the editor, edit, and delete, kept across restarts.
+**Done when:** you can save the current editor text under a name, find it later from a searchable list, insert it into any editor tab for that connection, and it is still there after restarting the app.
+code in `src/features/query-editor`, `src/features/workspace/components/sidebar`
 
-### 7. Column labels in generated INSERT SQL · done
-When a generated INSERT statement is opened in the query editor (for example from the grid's Copy to SQL action), a long row is hard to read since a value's matching column only shows up by position, in the column list far above. Show each column's name as a label right before its value in the VALUES list, the way the reference image shows, so a value reads together with its column without counting position. The statement text itself must stay exactly as it is now, still valid SQL you can run as is, so this has to be a visual label the editor draws, not text written into the statement.
-**Done when:** opening a generated INSERT statement in the query editor shows each value in the VALUES list labeled with its column name right beside it, and the statement still runs unchanged when you execute it.
-spec [0004](../specs/0004-insert-column-labels.md)
-code in `src/shared/components/query-editor/insert-column-labels.ts`, `src/shared/components/query-editor/index.tsx`, `src/features/query-editor/components/editor-run-toolbar.tsx`, `src/features/query-editor/components/editor-tab.tsx`
-- [x] Design it (spec): `/architect column labels in generated insert sql`
-- [x] Build it: `/develop column labels in generated insert sql`
-  - [x] Decoration extension: parse the SQL tab with `sql-parser-cst` (mirroring `sql-lint.ts`) and render one CodeMirror widget label per value, mirroring `inline-diagnostics.ts` — satisfies AC-1, AC-2, AC-3, AC-4, AC-7
-  - [x] Wire it into the SQL editor's extensions (not the Mongo console branch) behind a `showInsertLabels` prop — satisfies AC-1, AC-8
-  - [x] Per-tab on/off toggle in the editor toolbar, mirroring the existing lint toggle — satisfies AC-5
-  - [x] Regression pass: read-only views (Activity tab preview), multi-row VALUES, no-column-list fallback, malformed SQL, and the three existing INSERT-generating code paths left untouched — satisfies AC-6, AC-7
-- [x] Verify it: `/check verify column labels in generated insert sql`
-- [x] Test it: `/test column labels in generated insert sql`
+- [ ] Build it: `/develop saved queries and snippets`
+- [ ] Verify it: `/check verify saved queries and snippets`
+- [ ] Test it: `/test saved queries and snippets`
+
+## Slice 15: Mongo aggregation builder
+
+### 15. Mongo aggregation builder · needs a decision
+A visual builder for Mongo pipelines: add stages one by one (match, group, sort, project, lookup, and so on), see each stage's output, and send the pipeline to the editor or the grid. The design pass settles how much of the pipeline language the first cut covers and how stage previews stay cheap on large collections.
+**Done when:** you can build a multi stage aggregation for a Mongo collection stage by stage, see the result after each stage, and run or copy the final pipeline.
+code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `crates/dh-core/src/db/mongodb`
+
+- [ ] Design it (spec): `/architect mongo aggregation builder`
+
+## Slice 16: ER diagram
+
+### 16. ER diagram · needs a decision
+A diagram of a database or schema: tables as boxes with their columns, joined by foreign keys, and a click opens that table. The design pass settles drawing and layout, how it copes with hundreds of tables, and image export.
+**Done when:** opening the diagram for a PostgreSQL or SQLite schema shows its tables and foreign key links, and clicking a table opens it, with a large schema still usable.
+code in `src/features/schema-designer`, `src/features/workspace/components/sidebar`
+
+- [ ] Design it (spec): `/architect er diagram`
+
+## Deferred
+
+Out of scope for the current build pass, kept so the plan stays honest.
+
+- **Stopped status in the activity log**: a stopped query is logged as a failed entry with the message "Stopped by user". Give the activity record a real "stopped" status so stopped runs leave the failed filter · from spec 0006 · code in `crates/dh-core/src/activity.rs`
+- **Break up the longest backend functions**: the file split moved long functions whole, so MongoDB `run_db_call`, `table_schema`, and `apply_schema_ops_batch` stay long. Cut them by step · from spec 0009 · code in `crates/dh-core/src/db`
+- **Row cap and load more for huge results**: streamed results have no row cap, so a runaway SELECT can fill app memory and Stop is the only guard. Add a cap with a load more cursor, and backpressure on the desktop channel, if memory pressure shows up · from spec 0011 · code in `src/shared/api/streaming.ts`, `crates/dh-core/src/db`
+- **Import upsert and skip duplicates**: import is insert only, so a clash with an existing key is a bad row. Add Skip duplicates and an Update on duplicate (upsert) mode, with a key to match on and separate Mongo handling · from spec 0008 · code in `src/features/data-import`, `crates/dh-core/src/db/import.rs`
+- **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB. Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/import.rs`
+- **Cancel for web imports**: on the web build an import shows a spinner and cannot be cancelled. The run registry and cancel route exist now, so send `run_id` with the import and turn on Cancel for the web · from spec 0008 · code in `src/shared/api/import.ts`, `crates/dh-server/src/routes`
+- **Connection form extras**: the reference design also shows a standalone connection Color, Notes (with Show on the sidebar row), URL Params, Database information (server version after Test) and Select Visible Databases. Each needs its own design pass; Color and Notes need a new saved field · from spec 0012 · needs a decision · code in `src/features/connections`
+- **Optional master password**: a master password in Settings that locks the slice 31 key, so secrets stay unreadable until you unlock. Changing it locks the key again instead of rewriting every secret; forgetting it loses only the saved secrets. Also the place to move the key into the Keychain once the app has a Developer ID signature · from slice 31 · needs a decision · code in `src-tauri/src/secret_file.rs`, `src/features/settings`
+- **Fetch secrets at connect time**: the app loads every saved secret into webview memory at startup (`hydrateSavedLocal`). Fetch each one only when connecting, so secrets aren't held in memory until needed · from spec 0013 · code in `src/shared/store/store.ts`, `src/features/connections/lib/connect-saved.ts`
+- **Developer ID signing and notarization**: the only way to a plain double click install with no warning at all on macOS 15 and newer. Needs a paid Apple Developer account; then add the signing and notarization secrets the release workflow already notes, plus a Windows code signing certificate for SmartScreen · from slice 32 · needs a decision · code in `.github/workflows/release.yml`, `src-tauri/tauri.conf.json`
+- **Install script lint and uninstall**: run `shellcheck` and PSScriptAnalyzer on the install templates in PR checks, and add an uninstall command if users ask · from spec 0014 · code in `scripts/install`, `.github/workflows/pr-checks.yml`
+- **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 ## Legend
 
-**The decision box.** Every feature carries exactly one, the sub-task whose label ends with `(spec)`. Its wording varies, so skills locate it by that `(spec)` suffix, never by an exact label. Every other box is an execution box and `/architect` never ticks one.
-
-**Feature lifecycle**: the scope updates as a feature moves; each row is what it shows and who sets it:
-
-| State | Set by | The feature shows |
-|---|---|---|
-| `planned` · needs a decision | `/scope` | one box: `Design it (spec): /architect <feature>` |
-| `in-progress` (designed) | **`/architect` at spec capture** | `Design it` ticked; spec linked; `Build it: /develop <feature>` + **2 to 5 milestones**; the tier's closing boxes (`Verify it`, `Test it` at Beta); any surfaced follow-up enrolled |
-| `in-progress` (building) | `/develop` | milestone sub-boxes tick one by one; code pointer filled |
-| `in-progress` (verified) | `/check verify` | `Build it` + milestones ticked; `Verify it` ticked |
-| `done` | **you, when you decide it is** (any skill sets it when you say so); `/sync` reconciles | boxes you ran ticked, skipped ones marked skipped; at this project's Beta tier, after `/test` is the suggested point to call it done |
-
 - **Next step** = the first unticked box (always a command or a tracked milestone).
-- **needs a decision** = run `/architect` first; otherwise straight to `/develop`. The tag drops once the spec is captured.
-- **Atomic build tasks live in the spec's `## Build plan`, not here**: the scope carries only the milestone rollup.
-- **Status** `planned` → `in-progress` → `done`, plus `existing` (pre-workflow) and `dropped` (de-scoped, kept for history).
-- **Workflow tier tag** beside a heading (e.g. `· GA`, `· Prototype`) sets that one feature's rigor above or below the project default; no tag inherits the default (Beta).
+- **needs a decision** = run `/architect` first; otherwise straight to `/develop`. The tag drops once the spec is captured. The decision box is the one whose label ends with `(spec)`.
+- **Atomic build tasks live in the spec's** `## Build plan`**, not here**: the scope carries only the milestone rollup, and a done feature keeps just its intent and pointers.
+- **Status** `planned` → `in-progress` → `done`, plus `existing` (pre-workflow) and `dropped` (de-scoped, kept for history). You decide when a feature is `done`; at this project's Beta tier, after `/test` is the suggested point.
+- **Workflow tier tag** beside a heading (e.g. `· GA`, `· Alpha`) sets that one feature's rigor above or below the project default; no tag inherits the default (Beta).
 - **Pointer line** (`spec <n> · code in <path>`): the spec link added by `/architect`, the code path by `/develop`.

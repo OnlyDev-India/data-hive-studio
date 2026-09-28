@@ -18,7 +18,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
-import { executeOpStream, type QueryOp } from "@/shared/api";
+import {
+  createRowAccumulator,
+  executeOpStream,
+  type QueryOp,
+} from "@/shared/api";
 import { useStudioStore, type GridBridge } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
 import { saveExport, type ExportFormat } from "../lib/export";
@@ -81,20 +85,23 @@ export function ExportMenu({
       } else {
         op = { kind: "select", table: base.table };
       }
-      const acc: (string | null)[][] = [];
+      const acc = createRowAccumulator();
       const meta = await executeOpStream(
         conn_id,
         op,
-        (chunk) => {
-          acc.push(...chunk.rows);
-        },
+        acc.push,
         bridge.database,
         bridge.schema_name,
       );
+      // The header is the final column list (a Mongo collection can add
+      // columns while streaming) and every row is padded to it.
+      const streamed = acc.finish();
+      const columns =
+        streamed.columns.length > 0 ? streamed.columns : meta.columns;
       const payload = {
         ...base,
-        columns: meta.columns.length > 0 ? meta.columns : base.columns,
-        rows: acc,
+        columns: columns.length > 0 ? columns : base.columns,
+        rows: streamed.rows,
       };
       await saveExport(
         payload,

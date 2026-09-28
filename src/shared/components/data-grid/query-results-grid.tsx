@@ -1,13 +1,18 @@
+import { AlertCircle } from "lucide-react";
 import { useMemo, useCallback, useEffect, useRef, useState } from "react";
-import type { QueryResult, TableSchema } from "@/shared/api";
+import { type QueryResult, type TableSchema } from "@/shared/api";
 import { useStudioStore, type GridBridge, type JsonRow } from "@/shared/store";
 import { GridBody } from "./grid-body";
 import { GridProvider } from "./grid-context";
 import { useGridController } from "./grid-controller";
 import { useGridEditBuffer } from "./use-grid-edit-buffer";
 import { GridActionBar } from "./grid-action-bar";
+import { QueryLoadingOverlay } from "./query-loading-overlay";
 import { ResultViewTabs, type ResultView } from "./result-view-tabs";
+import { ResultSummary } from "./result-summary";
+import { ResultQueryView } from "./result-query-view";
 import { classify, type CellKind } from "./types";
+import { cn } from "@/shared/lib/utils";
 
 /** The host (`SqlResults`/`MongoResults` in editor-tab.tsx) resolved this
  *  result to a single, real table/collection — its schema is what makes
@@ -35,11 +40,13 @@ export function QueryResultsGrid({
   conn_id,
   tab_key,
   query_text,
+  query_language,
   message,
   editable_source,
   database,
   schema_name,
   on_refresh,
+  loading,
 }: {
   result: QueryResult;
   conn_id: string;
@@ -47,6 +54,8 @@ export function QueryResultsGrid({
   /** The exact statement/command that produced this result — shown in the
    *  Query view. */
   query_text: string;
+  /** Highlighting for the Query view; Mongo console commands are JS. */
+  query_language?: "sql" | "js";
   /** Extra free-text status (e.g. Mongo's own "switched database" message),
    *  shown in the Summary view when present. */
   message?: string;
@@ -57,11 +66,18 @@ export function QueryResultsGrid({
    *  offered — there's no live pagination to patch in place after an Apply,
    *  so a fresh re-run is how the grid reflects the write. */
   on_refresh?: () => void;
+  /** A refresh is running: the rows stay, covered by the timer and Stop. */
+  loading?: { started_at: number; on_stop?: () => void; stopping?: boolean };
 }) {
   const pane_ref = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ResultView>("result");
 
   const setJsonRow = useStudioStore((s) => s.setJsonRow);
+  // A read only connection (spec 0007) never offers editing, whatever the
+  // query returned.
+  const read_only = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.read_only ?? false,
+  );
   const json_scope = `${conn_id}\u0000${tab_key}`;
   const sync_json = useCallback(
     (row: JsonRow) => setJsonRow(json_scope, { ...row, kind: "sql" }),
@@ -86,6 +102,7 @@ export function QueryResultsGrid({
   // present in what the query returned — see `QueryResultEditableSource`'s
   // own doc comment.
   const editable =
+    !read_only &&
     !!editable_source &&
     !!on_refresh &&
     pk_columns.length > 0 &&
@@ -95,7 +112,9 @@ export function QueryResultsGrid({
     if (!editable_source) {
       // No declared types for a plain read-only result — fine, cells stay
       // read-only either way.
-      return Object.fromEntries(result.columns.map((c) => [c, "text" as CellKind]));
+      return Object.fromEntries(
+        result.columns.map((c) => [c, "text" as CellKind]),
+      );
     }
     return Object.fromEntries(
       editable_source.schema.columns.map((c) => [
@@ -152,6 +171,8 @@ export function QueryResultsGrid({
 
   const ctl = useGridController({
     rows: editable ? edit.display_rows : result.rows,
+    // A streamed result's array can be longer than what was last announced.
+    row_count: editable ? undefined : result.row_count,
     columns: result.columns,
     row_offset: 0,
     editable,
@@ -202,20 +223,22 @@ export function QueryResultsGrid({
     () => ({
       rows: edit.display_rows.length,
       total: edit.display_rows.length,
-      loading: edit.op_running,
+      loading: edit.op_running || !!loading,
       total_pages: 1,
       page: 0,
       set_page: () => {},
       page_size: Math.max(edit.display_rows.length, 1),
       set_page_size: () => {},
       selected_cell_count: ctl.selected.size,
-      editable: true,
+      editable,
+      read_only,
       table: editable_source?.table ?? "",
       bulk_edit_selection: ctl.bulk_edit_selection,
       all_columns: ctl.view.full_column_order,
       hidden_columns: [...ctl.hidden_columns],
       toggle_column_visibility: ctl.toggle_column_visibility,
       reorder_column: ctl.reorder_column,
+      reveal_column: ctl.reveal_column,
       elapsed_ms: result.elapsed_ms,
       delete_rows: do_delete,
       pending_exists: edit.pending_exists,
@@ -241,12 +264,16 @@ export function QueryResultsGrid({
     }),
     [
       result,
+      editable,
+      read_only,
+      loading,
       ctl.selected.size,
       ctl.bulk_edit_selection,
       ctl.view.full_column_order,
       ctl.hidden_columns,
       ctl.toggle_column_visibility,
       ctl.reorder_column,
+      ctl.reveal_column,
       do_delete,
       edit,
       editable_source,
@@ -257,94 +284,78 @@ export function QueryResultsGrid({
     ],
   );
 
+  // Failed before any row came back: the error takes the grid's place.
+  const failed = !!result.error && ctl.row_count === 0;
+
   return (
     <div ref={pane_ref} className="flex min-h-0 flex-1 flex-col">
-      <div className="bg-background flex min-h-8 shrink-0 items-center justify-between gap-1 border-b px-2">
-        <ResultViewTabs active={view} on_change={setView} />
-        {editable && (
-          <GridActionBar
-            bridge={bridge}
-            conn_id={conn_id}
-            pane_ref={pane_ref}
-            bulk_edit={
-              editable_source
-                ? {
-                    columns: editable_source.schema.columns.map((c) => ({
-                      name: c.name,
-                      data_type: c.data_type,
-                    })),
-                    distinct: {},
-                  }
-                : undefined
-            }
-          />
+      <div
+        className={cn(
+          "bg-background flex min-h-8 shrink-0 items-center justify-between gap-1 px-2",
+          { "border-b": view },
         )}
+      >
+        <ResultViewTabs active={view} on_change={setView} />
+        <GridActionBar
+          bridge={bridge}
+          conn_id={conn_id}
+          pane_ref={pane_ref}
+          disabled={failed}
+          bulk_edit={
+            editable_source
+              ? {
+                  columns: editable_source.schema.columns.map((c) => ({
+                    name: c.name,
+                    data_type: c.data_type,
+                  })),
+                  distinct: {},
+                }
+              : undefined
+          }
+        />
       </div>
       {view === "summary" ? (
-        <ResultSummary result={result} message={message} />
+        <ResultSummary
+          result={result}
+          query_text={query_text}
+          message={message}
+          on_view_query={() => setView("query")}
+        />
       ) : view === "query" ? (
-        <ResultQueryText text={query_text} />
+        <ResultQueryView text={query_text} language={query_language} />
       ) : (
-        <div className="min-h-0 flex-1 border" data-selectable>
-          {ctl.rows.length === 0 && !result.error ? (
-            <p className="text-muted-foreground px-3 py-8 text-center text-sm">
-              No rows.
-            </p>
+        <div className="relative min-h-0 flex-1 border" data-selectable>
+          {failed ? (
+            <div
+              role="alert"
+              className="flex h-full flex-col items-center justify-center gap-3 px-3 py-8 text-center"
+            >
+              <AlertCircle className="text-destructive size-5" />
+              <p className="text-sm">The query failed.</p>
+              <pre className="border-destructive/30 bg-destructive/5 text-destructive max-h-64 max-w-2xl overflow-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap">
+                {result.error}
+              </pre>
+            </div>
+          ) : ctl.row_count === 0 ? (
+            !loading && (
+              <p className="text-muted-foreground px-3 py-8 text-center text-sm">
+                No rows.
+              </p>
+            )
           ) : (
             <GridProvider value={ctl}>
               <GridBody />
             </GridProvider>
           )}
+          {loading && (
+            <QueryLoadingOverlay
+              startedAt={loading.started_at}
+              onStop={loading.on_stop}
+              stopping={loading.stopping}
+            />
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b py-1.5 text-sm last:border-b-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono">{value}</span>
-    </div>
-  );
-}
-
-function ResultSummary({
-  result,
-  message,
-}: {
-  result: QueryResult;
-  message?: string;
-}) {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto p-3">
-      <div className="max-w-md">
-        <SummaryRow label="Status" value={result.error ? "Error" : "OK"} />
-        <SummaryRow label="Elapsed" value={`${result.elapsed_ms} ms`} />
-        <SummaryRow
-          label={result.is_select ? "Rows returned" : "Rows affected"}
-          value={String(
-            result.is_select ? result.rows.length : result.rows_affected,
-          )}
-        />
-        {message && <SummaryRow label="Message" value={message} />}
-      </div>
-      {result.error && (
-        <pre className="border-destructive/30 bg-destructive/5 text-destructive mt-3 max-w-2xl overflow-x-auto rounded-md border p-2.5 text-xs whitespace-pre-wrap">
-          {result.error}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function ResultQueryText({ text }: { text: string }) {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto p-3">
-      <pre className="bg-muted/40 max-w-full overflow-x-auto rounded-md border p-2.5 font-mono text-xs whitespace-pre-wrap">
-        {text}
-      </pre>
     </div>
   );
 }

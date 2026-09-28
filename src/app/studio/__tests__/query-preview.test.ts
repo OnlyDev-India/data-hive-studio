@@ -133,8 +133,6 @@ describe("formatQueryPreview (Mongo)", () => {
         20,
         true,
       ),
-    ).toBe(
-      "db.users.find({}).sort({ status: 1, createdAt: -1 }).limit(20)",
-    );
+    ).toBe("db.users.find({}).sort({ status: 1, createdAt: -1 }).limit(20)");
   });
 });

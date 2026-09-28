@@ -16,7 +16,12 @@ export type StudioTab =
       database?: string;
       schema?: string;
     }
-  | { kind: "sql"; id: number }
+  /** `conn_id` keeps the key unique across connections: `id` is a
+   *  per-connection counter, and the store's per-tab maps (`sqlSeeds`,
+   *  `sqlTabs`, ...) are global, so `sql:0` in two connections used to be
+   *  the same entry. Absent only on tabs saved before this field existed
+   *  (see `stampLegacySqlTabs`). */
+  | { kind: "sql"; id: number; conn_id?: string }
   | { kind: "new-table"; id: number }
   | {
       kind: "mongo";
@@ -35,16 +40,27 @@ export type StudioTab =
   | { kind: "roles" };
 
 /** `file_name`, when set, overrides the generic label for "sql"/"mongo-console"
- *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`. */
-export function tabLabel(tab: StudioTab, file_name?: string | null): string {
+ *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`.
+ *  A SQL tab without a file is named `sql@<database>` after the database
+ *  selected in it (`SqlTabHandleBase.database`); until the editor has
+ *  registered one it keeps the generic numbered label. A NoSQL console is
+ *  named `console@<database>` the same way. */
+export function tabLabel(
+  tab: StudioTab,
+  file_name?: string | null,
+  database?: string | null,
+): string {
   if (file_name) return file_name;
+  if (tab.kind === "sql" && database) return `sql@${database}`;
+  if (tab.kind === "mongo-console" && (database || tab.database))
+    return `console@${database || tab.database}`;
   switch (tab.kind) {
     case "table":
       return tab.name;
     case "sql":
       return tab.id === 0 ? "SQL" : `SQL ${tab.id + 1}`;
     case "new-table":
-      return tab.id === 0 ? "New table" : `New table ${tab.id + 1}`;
+      return "New table";
     case "mongo":
       return tab.collection;
     case "mongo-console":
@@ -61,7 +77,7 @@ export function tabKey(tab: StudioTab): string {
     case "table":
       return `table:${tab.tabId}:${tab.database ?? ""}.${tab.schema ?? ""}.${tab.name}`;
     case "sql":
-      return `sql:${tab.id}`;
+      return tab.conn_id ? `sql:${tab.conn_id}:${tab.id}` : `sql:${tab.id}`;
     case "new-table":
       return `new-table:${tab.id}`;
     case "mongo":

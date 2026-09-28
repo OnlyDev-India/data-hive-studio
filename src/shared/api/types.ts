@@ -12,11 +12,23 @@ export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb" | "documentdb";
  *  rather than re-listing kinds so adding one only means editing `DbKind`. */
 export type SavedDbKind = Exclude<DbKind, "mysql">;
 
-/** Kinds a team-server-shared connection can be — `DbKind` minus "mysql"
- *  and "sqlite" (neither is supported as a shared connection). */
-export type SharedDbKind = Exclude<DbKind, "mysql" | "sqlite">;
+/** How careful to be with a connection (spec 0007). Mirrors the Rust
+ *  `ConnGuard`, which flattens these four fields into every struct that saves,
+ *  describes or opens a connection. A connection saved before this existed has
+ *  none of them: read that as not read only, no label. */
+export interface ConnGuard {
+  /** Writes are refused by the backend. Fixed for a live connection: changing
+   *  it means saving, then reconnecting. */
+  read_only?: boolean;
+  /** Environment name shown as a chip (Production, Staging, or custom). */
+  env_label?: string | null;
+  /** Palette key for a custom label's colour. */
+  env_color?: string | null;
+  /** Ask before every write, even without a Production label. */
+  confirm_writes?: boolean;
+}
 
-export interface ConnectionInfo {
+export interface ConnectionInfo extends ConnGuard {
   id: string;
   name: string;
   kind: DbKind;
@@ -215,6 +227,75 @@ export interface QueryResult {
   is_select: boolean;
   error: string | null;
   elapsed_ms: number;
+  /** The user stopped this run (spec 0006). Not an error: rows already
+   *  streamed stay with the caller. Absent from an older server's reply. */
+  cancelled?: boolean;
+  /** A streamed result: how many entries of `rows` are valid. `rows` is one
+   *  append only array shared by every update of the run, so its length can
+   *  run ahead of what was last handed to the UI. Absent means every entry
+   *  counts (`rows.length`). */
+  row_count?: number;
+}
+
+/** How many rows of `result` are valid, streamed or not. */
+export function resultRowCount(result: {
+  rows: unknown[];
+  row_count?: number;
+}): number {
+  return result.row_count ?? result.rows.length;
+}
+
+/** Which engine's explain produced a plan. Mirrors Rust `PlanDialect`. */
+export type PlanDialect = "postgres" | "sqlite" | "mongodb";
+
+/** `estimate` never runs the statement; `analyze` runs it for real timings. */
+export type PlanMode = "estimate" | "analyze";
+
+/** One step of a plan, the same shape for every engine. A value the database
+ *  does not give is `null` and shows as a dash. Mirrors Rust `PlanNode`. */
+export interface PlanNode {
+  /** Unique within its tree: the row key. */
+  id: number;
+  label: string;
+  /** Table, index or collection the step reads. Empty when there is none. */
+  target: string;
+  /** Filters and join conditions, one per line, each with its name. */
+  condition: string;
+  startup_cost: number | null;
+  total_cost: number | null;
+  est_rows: number | null;
+  /** Analyze only. */
+  actual_rows: number | null;
+  actual_time_ms: number | null;
+  loops: number | null;
+  children: PlanNode[];
+}
+
+/** The answer to one Explain call, held by one Plan tab. A database error and
+ *  a statement Explain does not accept arrive here, not as a thrown error. */
+export interface PlanResult {
+  dialect: PlanDialect;
+  mode: PlanMode;
+  /** Exactly the text that was explained. */
+  statement: string;
+  root: PlanNode | null;
+  elapsed_ms: number;
+  cancelled: boolean;
+  /** The tree was cut at 5000 nodes. */
+  truncated: boolean;
+  error: string | null;
+  /** Why the statement was not sent to the database at all. */
+  unsupported: string | null;
+}
+
+/** How a Stop request ended: `stopped` (the run ended after the cancel),
+ *  `winding_down` (no confirmation within 3 seconds, the run was abandoned),
+ *  `not_running` (nothing to cancel: unknown, finished, or another
+ *  connection's run). */
+export type CancelState = "stopped" | "winding_down" | "not_running";
+
+export interface CancelOutcome {
+  state: CancelState;
 }
 
 export function prettyKind(kind: DbKind): string {
@@ -417,4 +498,61 @@ export interface ExportPayload {
   rows: (string | null)[][];
   /** Declared column types ("INTEGER", "BOOLEAN", …) for typed output. */
   types?: Record<string, string>;
+}
+
+// ---- Import (spec 0008) ----------------------------------------------------
+// Mirrors `crates/dh-core/src/api/common/import.rs`.
+
+/** A parsed, mapped cell. JSON null is SQL NULL. */
+export type ImportCell = string | number | boolean | null | object;
+
+/** What to do when some rows fail: commit nothing, or commit the good rows. */
+export type ImportOnError = "rollback" | "skip";
+
+export type ImportData =
+  | { kind: "rows"; columns: string[]; rows: ImportCell[][] }
+  | { kind: "docs"; docs: Record<string, unknown>[] };
+
+export interface ImportRequest {
+  table: string;
+  /** One `CREATE TABLE`, run first inside the import transaction. */
+  create_sql?: string | null;
+  data: ImportData;
+  on_error: ImportOnError;
+  /** Run everything, then always roll back (the Check button). */
+  dry_run: boolean;
+  run_id?: string | null;
+  /** The file name, only for the activity log text. */
+  source_label?: string | null;
+}
+
+/** One row that did not load. `index` is its position in the rows sent. */
+export interface RowFailure {
+  index: number;
+  column?: string | null;
+  message: string;
+}
+
+/** What an import can promise: whether a rollback undoes everything. */
+export interface ImportCapabilities {
+  atomic: boolean;
+}
+
+/** How far a local import has got, sent between batches. */
+export interface ImportProgress {
+  done: number;
+  total: number;
+}
+
+export interface ImportReport {
+  /** Rows that loaded (or, on a rolled back run, would have loaded). */
+  inserted: number;
+  failed: RowFailure[];
+  failed_total: number;
+  failed_truncated: boolean;
+  committed: boolean;
+  atomic: boolean;
+  cancelled: boolean;
+  dry_run: boolean;
+  statements: string[];
 }

@@ -1,10 +1,4 @@
-import { KeyRound, ListTree, Plus, Trash2, Undo2 } from "lucide-react";
-import {
-  AccordionItem,
-  AccordionPanel,
-  AccordionTrigger,
-} from "@/shared/components/ui/accordion";
-import { Badge } from "@/shared/components/ui/badge";
+import { KeyRound, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
@@ -16,19 +10,35 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { cn } from "@/shared/lib/utils";
-import { TYPE_OPTIONS, col_is_dirty, next_id, type ColDraft } from "./drafts";
+import { TYPE_OPTIONS, next_id, type ColDraft } from "./drafts";
 import { EditableText } from "./editable-text";
 
 const col_grid =
   "grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_3rem_2.5rem_minmax(0,1.1fr)_1.75rem] items-center gap-2";
 const col_header = cn(
   col_grid,
-  "border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground",
+  "sticky top-0 z-10 border-b bg-muted px-3 py-2 text-xs font-medium text-muted-foreground",
 );
 const col_row = cn(col_grid, "border-b px-3 py-1.5 text-sm last:border-0");
 
-/** "Columns" accordion section: one editable row per draft column plus the
- *  add-column affordance. */
+/** A blank column, as the tab bar's Add button appends it. */
+export function new_col_draft(): ColDraft {
+  return {
+    id: next_id(),
+    orig_name: null,
+    orig_data_type: null,
+    orig_not_null: null,
+    orig_default: null,
+    name: "",
+    data_type: "",
+    not_null: false,
+    default_text: "",
+    primary_key: false,
+    dropped: false,
+  };
+}
+
+/** One editable row per draft column. Adding a column is the tab bar's job. */
 export function ColumnsPanel({
   cols,
   disabled = false,
@@ -43,63 +53,27 @@ export function ColumnsPanel({
   on_replace: (updater: (cs: ColDraft[]) => ColDraft[]) => void;
 }) {
   return (
-    <AccordionItem value="columns">
-      <AccordionTrigger>
-        <span className="flex items-center gap-2">
-          <ListTree className="size-4" />
-          Columns
-          <Badge variant="muted">{cols.length}</Badge>
-          {cols.some(col_is_dirty) && <Badge variant="warning">edited</Badge>}
-        </span>
-      </AccordionTrigger>
-      <AccordionPanel>
-        <div className="overflow-hidden rounded-md border">
-          <div className={col_header}>
-            <span>Name</span>
-            <span>Type</span>
-            <span title="NOT NULL">Null</span>
-            <span title="Primary key">PK</span>
-            <span>Default</span>
-            <span />
-          </div>
-          {cols.map((c) => (
-            <ColumnRow
-              key={c.id}
-              c={c}
-              disabled={disabled}
-              on_update={on_update}
-              on_replace={on_replace}
-            />
-          ))}
-          <button
-            type="button"
-            disabled={disabled}
-            className="text-muted-foreground hover:bg-muted/50 flex w-full items-center gap-2 border-t px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-50"
-            onClick={() =>
-              on_replace((cs) => [
-                ...cs,
-                {
-                  id: next_id(),
-                  orig_name: null,
-                  orig_data_type: null,
-                  orig_not_null: null,
-                  orig_default: null,
-                  name: "",
-                  data_type: "",
-                  not_null: false,
-                  default_text: "",
-                  primary_key: false,
-                  dropped: false,
-                },
-              ])
-            }
-          >
-            <Plus className="size-3.5" />
-            Add column
-          </button>
+    <>
+      <div>
+        <div className={col_header}>
+          <span>Name</span>
+          <span>Type</span>
+          <span title="NOT NULL">Null</span>
+          <span title="Primary key">PK</span>
+          <span>Default</span>
+          <span />
         </div>
-      </AccordionPanel>
-    </AccordionItem>
+        {cols.map((c) => (
+          <ColumnRow
+            key={c.id}
+            c={c}
+            disabled={disabled}
+            on_update={on_update}
+            on_replace={on_replace}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 

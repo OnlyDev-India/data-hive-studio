@@ -1,10 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Plus, Trash2, Undo2 } from "lucide-react";
-import {
-  AccordionItem,
-  AccordionPanel,
-  AccordionTrigger,
-} from "@/shared/components/ui/accordion";
+import { Trash2, Undo2 } from "lucide-react";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -17,7 +12,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { cn } from "@/shared/lib/utils";
-import { fk_is_dirty, next_id, type FkDraft } from "./drafts";
+import { next_id, type FkDraft } from "./drafts";
 
 const REFERENTIAL_ACTIONS = [
   "",
@@ -40,6 +35,8 @@ export function ForeignKeysPanel({
   on_replace,
   database,
   schema_name,
+  adding,
+  on_adding_change,
 }: {
   conn_id: string;
   fks: FkDraft[];
@@ -54,8 +51,11 @@ export function ForeignKeysPanel({
    *  database, but never a different database). */
   database?: string;
   schema_name?: string;
+  /** The add form is opened by the tab bar's Add button. */
+  adding: boolean;
+  on_adding_change: (open: boolean) => void;
 }) {
-  const [adding, setAdding] = useState(false);
+  const setAdding = on_adding_change;
   const [draft_col, setDraftCol] = useState("");
   const [draft_ref_table, setDraftRefTable] = useState("");
   const [draft_ref_col, setDraftRefCol] = useState("");
@@ -116,8 +116,6 @@ export function ForeignKeysPanel({
       .finally(() => setRefFetching(false));
   };
 
-  const dirty_count = fks.filter(fk_is_dirty).length;
-
   const add_fk = () => {
     if (!draft_col || !draft_ref_table.trim() || !draft_ref_col.trim()) return;
     on_replace((fs) => [
@@ -147,214 +145,185 @@ export function ForeignKeysPanel({
   };
 
   return (
-    <AccordionItem value="foreign-keys">
-      <AccordionTrigger>
-        <span className="flex items-center gap-2">
-          <Link className="size-4" />
-          Foreign keys
-          <Badge variant="muted">{fks.filter((f) => !f.dropped).length}</Badge>
-          {dirty_count > 0 && <Badge variant="warning">edited</Badge>}
-        </span>
-      </AccordionTrigger>
-      <AccordionPanel>
-        <div className="overflow-hidden rounded-md border">
-          {/* Header — mirrors the row layout: constraint · on update · on delete */}
-          <div className="bg-muted/40 text-muted-foreground text-3xs flex items-center gap-1.5 border-b px-3 py-1.5 font-medium tracking-wide uppercase">
-            <span className="min-w-0 flex-1 truncate">Foreign key</span>
-            <span className="w-24 shrink-0">On update</span>
-            <span className="w-24 shrink-0">On delete</span>
-            <span className="w-7 shrink-0" />
-          </div>
-          {fks.map((fk) => (
-            <FkRow
-              key={fk.id}
-              fk={fk}
-              disabled={disabled}
-              on_update={on_update}
-              on_replace={on_replace}
-            />
-          ))}
-          {!adding ? (
-            <button
-              type="button"
-              disabled={disabled}
-              className="text-muted-foreground hover:bg-muted/50 flex w-full items-center gap-2 border-t px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-50"
-              onClick={() => setAdding(true)}
-            >
-              <Plus className="size-3.5" />
-              Add foreign key
-            </button>
-          ) : (
-            <div className="bg-muted/30 flex flex-col gap-2 border-t p-3">
-              {/* One line, reads like the constraint itself:
-                  column → table.referenced_column */}
-              <div className="flex items-center gap-2">
-                <Select
-                  value={draft_col}
-                  onValueChange={(v) => setDraftCol(v ?? "")}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-7 min-w-0 flex-1 text-xs"
-                  >
-                    <SelectValue placeholder="local column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map((c) => (
-                      <SelectItem key={c} value={c} className="text-xs">
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-muted-foreground shrink-0">→</span>
-                <Select
-                  value={draft_ref_table}
-                  onValueChange={(v) => commit_ref_table(v ?? "")}
-                  disabled={disabled}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className={cn(
-                      "h-7 min-w-0 text-xs",
-                      draft_ref_table ? "w-[45%] flex-none" : "flex-1",
-                    )}
-                  >
-                    <SelectValue
-                      placeholder={
-                        tables_list === null
-                          ? "loading tables…"
-                          : "referenced table"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tables_list === null ? (
-                      <div className="text-muted-foreground px-2 py-1.5 text-xs">
-                        loading…
-                      </div>
-                    ) : tables_list.length === 0 ? (
-                      <div className="text-muted-foreground px-2 py-1.5 text-xs">
-                        no tables found
-                      </div>
-                    ) : (
-                      tables_list.map((t) => (
-                        <SelectItem key={t} value={t} className="text-xs">
-                          {t}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                {draft_ref_table && (
-                  <>
-                    <span className="text-muted-foreground shrink-0 font-mono text-xs">
-                      .
-                    </span>
-                    {ref_col_options && ref_col_options.length > 0 ? (
-                      <Select
-                        value={draft_ref_col}
-                        onValueChange={(v) => setDraftRefCol(v ?? "")}
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          className="h-7 min-w-0 flex-1 text-xs"
-                        >
-                          <SelectValue
-                            placeholder={
-                              ref_fetching ? "loading…" : "referenced column"
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ref_col_options.map((c) => (
-                            <SelectItem key={c} value={c} className="text-xs">
-                              {c}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        value={draft_ref_col}
-                        onChange={(e) => setDraftRefCol(e.target.value)}
-                        placeholder={
-                          ref_fetching
-                            ? "loading columns…"
-                            : "ref col(s), comma separated"
-                        }
-                        className="h-7 min-w-0 flex-1 text-xs"
-                      />
-                    )}
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={draft_action}
-                  onValueChange={(v) => setDraftAction(v ?? "")}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-7 min-w-0 flex-1 text-xs"
-                  >
-                    <SelectValue placeholder="ON DELETE (none)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {REFERENTIAL_ACTIONS.map((a) => (
-                      <SelectItem
-                        key={`d-${a || "none"}`}
-                        value={a}
-                        className="text-xs"
-                      >
-                        {a || "ON DELETE (none)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={draft_on_update}
-                  onValueChange={(v) => setDraftOnUpdate(v ?? "")}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-7 min-w-0 flex-1 text-xs"
-                  >
-                    <SelectValue placeholder="ON UPDATE (none)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {REFERENTIAL_ACTIONS.map((a) => (
-                      <SelectItem
-                        key={`u-${a || "none"}`}
-                        value={a}
-                        className="text-xs"
-                      >
-                        {a || "ON UPDATE (none)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  className="ml-auto h-7 shrink-0"
-                  onClick={add_fk}
-                >
-                  Add
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 shrink-0"
-                  onClick={() => setAdding(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
+    <>
+      <div>
+        {/* Header — mirrors the row layout: constraint · on update · on delete */}
+        <div className="bg-muted text-muted-foreground text-3xs sticky top-0 z-10 flex items-center gap-1.5 border-b px-3 py-1.5 font-medium tracking-wide uppercase">
+          <span className="min-w-0 flex-1 truncate">Foreign key</span>
+          <span className="w-24 shrink-0">On update</span>
+          <span className="w-24 shrink-0">On delete</span>
+          <span className="w-7 shrink-0" />
         </div>
-      </AccordionPanel>
-    </AccordionItem>
+        {fks.map((fk) => (
+          <FkRow
+            key={fk.id}
+            fk={fk}
+            disabled={disabled}
+            on_update={on_update}
+            on_replace={on_replace}
+          />
+        ))}
+        {adding && (
+          <div className="bg-muted/30 flex flex-col gap-2 border-t p-3">
+            {/* One line, reads like the constraint itself:
+                  column → table.referenced_column */}
+            <div className="flex items-center gap-2">
+              <Select
+                value={draft_col}
+                onValueChange={(v) => setDraftCol(v ?? "")}
+              >
+                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 text-xs">
+                  <SelectValue placeholder="local column" />
+                </SelectTrigger>
+                <SelectContent>
+                  {columns.map((c) => (
+                    <SelectItem key={c} value={c} className="text-xs">
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-muted-foreground shrink-0">→</span>
+              <Select
+                value={draft_ref_table}
+                onValueChange={(v) => commit_ref_table(v ?? "")}
+                disabled={disabled}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className={cn(
+                    "h-7 min-w-0 text-xs",
+                    draft_ref_table ? "w-[45%] flex-none" : "flex-1",
+                  )}
+                >
+                  <SelectValue
+                    placeholder={
+                      tables_list === null
+                        ? "loading tables…"
+                        : "referenced table"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {tables_list === null ? (
+                    <div className="text-muted-foreground px-2 py-1.5 text-xs">
+                      loading…
+                    </div>
+                  ) : tables_list.length === 0 ? (
+                    <div className="text-muted-foreground px-2 py-1.5 text-xs">
+                      no tables found
+                    </div>
+                  ) : (
+                    tables_list.map((t) => (
+                      <SelectItem key={t} value={t} className="text-xs">
+                        {t}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              {draft_ref_table && (
+                <>
+                  <span className="text-muted-foreground shrink-0 font-mono text-xs">
+                    .
+                  </span>
+                  {ref_col_options && ref_col_options.length > 0 ? (
+                    <Select
+                      value={draft_ref_col}
+                      onValueChange={(v) => setDraftRefCol(v ?? "")}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="h-7 min-w-0 flex-1 text-xs"
+                      >
+                        <SelectValue
+                          placeholder={
+                            ref_fetching ? "loading…" : "referenced column"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ref_col_options.map((c) => (
+                          <SelectItem key={c} value={c} className="text-xs">
+                            {c}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={draft_ref_col}
+                      onChange={(e) => setDraftRefCol(e.target.value)}
+                      placeholder={
+                        ref_fetching
+                          ? "loading columns…"
+                          : "ref col(s), comma separated"
+                      }
+                      className="h-7 min-w-0 flex-1 text-xs"
+                    />
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={draft_action}
+                onValueChange={(v) => setDraftAction(v ?? "")}
+              >
+                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 text-xs">
+                  <SelectValue placeholder="ON DELETE (none)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REFERENTIAL_ACTIONS.map((a) => (
+                    <SelectItem
+                      key={`d-${a || "none"}`}
+                      value={a}
+                      className="text-xs"
+                    >
+                      {a || "ON DELETE (none)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={draft_on_update}
+                onValueChange={(v) => setDraftOnUpdate(v ?? "")}
+              >
+                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 text-xs">
+                  <SelectValue placeholder="ON UPDATE (none)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REFERENTIAL_ACTIONS.map((a) => (
+                    <SelectItem
+                      key={`u-${a || "none"}`}
+                      value={a}
+                      className="text-xs"
+                    >
+                      {a || "ON UPDATE (none)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                className="ml-auto h-7 shrink-0"
+                onClick={add_fk}
+              >
+                Add
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 shrink-0"
+                onClick={() => setAdding(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

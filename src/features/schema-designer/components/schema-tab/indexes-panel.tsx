@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -21,18 +21,19 @@ import { next_id, type IdxDraft, idx_is_dirty } from "./drafts";
 import { EditableText } from "./editable-text";
 import { AddIndexDialog, type NewIndexDraft } from "./add-index-dialog";
 
-/** "Indexes" accordion section: editable index rows, the add-index dialog and
- *  its trigger. Owns the dialog open state. */
-export function IndexesPanel({
+/** Editable index rows, the add-index dialog and its trigger. Owns the dialog
+ *  open state. */
+export function IndexesContent({
   idxs,
   columns,
-  resolve_col,
   disabled = false,
   on_update,
   on_replace,
   /** MongoDB only: shows sparse/TTL/partial-filter fields and per-column
    *  sort direction — meaningless for SQL indexes, hidden otherwise. */
   mongo = false,
+  adding,
+  on_adding_change,
 }: {
   idxs: IdxDraft[];
   /** Kept (non-dropped) column names available for new indexes. */
@@ -44,9 +45,81 @@ export function IndexesPanel({
   on_update: (id: string, patch: Partial<IdxDraft>) => void;
   on_replace: (updater: (xs: IdxDraft[]) => IdxDraft[]) => void;
   mongo?: boolean;
+  /** Set both to let a parent own the add dialog (the tab bar's Add button).
+   *  Left out, the panel shows its own bordered list and Add row. */
+  adding?: boolean;
+  on_adding_change?: (open: boolean) => void;
 }) {
-  const [add_idx, setAdd_idx] = useState(false);
+  const [own_open, setOwn_open] = useState(false);
+  const controlled = adding !== undefined && on_adding_change !== undefined;
+  const add_idx = controlled ? adding : own_open;
+  const setAdd_idx = controlled ? on_adding_change : setOwn_open;
 
+  return (
+    <>
+      <div
+        className={controlled ? undefined : "overflow-hidden rounded-md border"}
+      >
+        {idxs.map((ix) => (
+          <IndexRow
+            key={ix.id}
+            ix={ix}
+            disabled={disabled}
+            mongo={mongo}
+            on_update={on_update}
+            on_replace={on_replace}
+          />
+        ))}
+        {!controlled && (
+          <button
+            type="button"
+            disabled={disabled}
+            className="text-muted-foreground hover:bg-muted/50 flex w-full items-center gap-2 border-t px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => setAdd_idx(true)}
+          >
+            <Plus className="size-3.5" />
+            Add index
+          </button>
+        )}
+      </div>
+      <AddIndexDialog
+        open={add_idx}
+        on_close={() => setAdd_idx(false)}
+        columns={columns}
+        mongo={mongo}
+        on_create={(draft: NewIndexDraft) => {
+          on_replace((xs) => [
+            ...xs,
+            {
+              id: next_id(),
+              orig_name: null,
+              orig_unique: null,
+              orig_columns: null,
+              orig_column_dirs: null,
+              orig_sparse: null,
+              orig_ttl_seconds: null,
+              orig_partial_filter: null,
+              name: draft.name,
+              unique: draft.unique,
+              columns: draft.columns,
+              column_dirs: draft.column_dirs,
+              sparse: draft.sparse,
+              ttl_seconds: draft.ttl_seconds,
+              partial_filter: draft.partial_filter,
+              dropped: false,
+              system: false,
+            },
+          ]);
+        }}
+      />
+    </>
+  );
+}
+
+/** "Indexes" accordion section, used where the panels stack (the Mongo
+ *  editor). The SQL table editor shows `IndexesContent` under a tab instead. */
+export function IndexesPanel(props: ComponentProps<typeof IndexesContent>) {
+  const { idxs, resolve_col } = props;
   return (
     <AccordionItem value="indexes">
       <AccordionTrigger>
@@ -60,57 +133,7 @@ export function IndexesPanel({
         </span>
       </AccordionTrigger>
       <AccordionPanel>
-        <div className="overflow-hidden rounded-md border">
-          {idxs.map((ix) => (
-            <IndexRow
-              key={ix.id}
-              ix={ix}
-              disabled={disabled}
-              mongo={mongo}
-              on_update={on_update}
-              on_replace={on_replace}
-            />
-          ))}
-          <button
-            type="button"
-            disabled={disabled}
-            className="text-muted-foreground hover:bg-muted/50 flex w-full items-center gap-2 border-t px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => setAdd_idx(true)}
-          >
-            <Plus className="size-3.5" />
-            Add index
-          </button>
-        </div>
-        <AddIndexDialog
-          open={add_idx}
-          on_close={() => setAdd_idx(false)}
-          columns={columns}
-          mongo={mongo}
-          on_create={(draft: NewIndexDraft) => {
-            on_replace((xs) => [
-              ...xs,
-              {
-                id: next_id(),
-                orig_name: null,
-                orig_unique: null,
-                orig_columns: null,
-                orig_column_dirs: null,
-                orig_sparse: null,
-                orig_ttl_seconds: null,
-                orig_partial_filter: null,
-                name: draft.name,
-                unique: draft.unique,
-                columns: draft.columns,
-                column_dirs: draft.column_dirs,
-                sparse: draft.sparse,
-                ttl_seconds: draft.ttl_seconds,
-                partial_filter: draft.partial_filter,
-                dropped: false,
-                system: false,
-              },
-            ]);
-          }}
-        />
+        <IndexesContent {...props} />
       </AccordionPanel>
     </AccordionItem>
   );

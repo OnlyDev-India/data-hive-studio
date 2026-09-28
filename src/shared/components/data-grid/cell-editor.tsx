@@ -304,6 +304,7 @@ export function CellEditor() {
     <DatePicker
       value={value}
       withTime={kind === "datetime"}
+      iso={ctx.iso_dates}
       onChange={(v) => commit(v)}
       autoOpen
     />

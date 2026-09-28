@@ -8,14 +8,18 @@ import {
   Button,
 } from "@/shared/components/ui";
 import {
-  FolderOpen, PlayIcon,
+  FolderOpen,
+  ListTree,
+  PlayIcon,
   Save,
   Shrink,
   SpellCheck2,
+  Square,
   TextAlignStart,
   Tags,
   TextSelect,
-  WrapText
+  Timer,
+  WrapText,
 } from "lucide-react";
 import { DBIcons, type DbIconKind } from "@/shared/components/icons/types";
 import { cn } from "@/shared/lib/utils";
@@ -44,6 +48,11 @@ export function EditorRunToolbar({
   has_text,
   on_run_target,
   on_run_all,
+  running_count = 0,
+  stop_pending,
+  on_stop_all,
+  on_explain,
+  on_explain_analyze,
   db_kind,
   database,
   databases,
@@ -58,13 +67,27 @@ export function EditorRunToolbar({
   on_save,
   on_open,
   wrap,
-  onToggleWrap
+  onToggleWrap,
 }: {
   has_selection: boolean;
   can_run_target: boolean;
   has_text: boolean;
   on_run_target: () => void;
   on_run_all: () => void;
+  /** Runs in flight that Stop can end. While it is above zero (and
+   *  `on_stop_all` is given) the run button reads as Stop. */
+  running_count?: number;
+  /** Stop was pressed and the database has not confirmed yet. */
+  stop_pending?: boolean;
+  on_stop_all?: () => void;
+  /** SQL editor only: opens a Plan tab for the selection or the statement at
+   *  the cursor, without running it. Omitted = no Explain button
+   *  (an engine that cannot explain yet). */
+  on_explain?: () => void;
+  /** Explain Analyze button, beside Explain: opens a Plan tab for the
+   *  statement after running it for real timings (rolled back on PostgreSQL).
+   *  Omitted = no button, for an engine that cannot analyze. */
+  on_explain_analyze?: () => void;
   /** Drives the colored connection-type icon next to the database picker. */
   db_kind?: DbIconKind;
   /** Omitted entirely (both `databases` and `on_database_change` absent) =
@@ -93,33 +116,74 @@ export function EditorRunToolbar({
   onToggleWrap?: () => void;
 }) {
   const DbIcon = db_kind ? DBIcons[db_kind] : null;
+  const stoppable = running_count > 0 && !!on_stop_all;
   return (
     <TooltipProvider delay={500}>
       <div className="bg-editor-toolbar flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1">
         <div className="flex items-center">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="hover:bg-success/20 h-6 bg-transparent px-2 text-xs"
-                  disabled={has_selection ? !can_run_target : !has_text}
-                  title={has_selection ? "Run selected" : "Run all"}
-                  onClick={has_selection ? on_run_target : on_run_all}
-                >
-                  {has_selection ? (
-                    <TextSelect className="text-success size-3.5" />
-                  ) : (
-                    <PlayIcon className="text-success size-3.5" />
-                  )}
-                </Button>
-              }
+          {stoppable ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="hover:bg-destructive/20 h-6 bg-transparent px-2 text-xs"
+                    disabled={stop_pending}
+                    aria-label={stop_pending ? "Stopping" : "Stop"}
+                    onClick={on_stop_all}
+                  >
+                    <Square className="text-destructive size-3.5 fill-current" />
+                  </Button>
+                }
+              />
+              <TooltipContent side="top">
+                {stop_pending ? "Stopping…" : "Stop"}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="hover:bg-success/20 h-6 bg-transparent px-2 text-xs"
+                    disabled={has_selection ? !can_run_target : !has_text}
+                    title={has_selection ? "Run selected" : "Run all"}
+                    onClick={has_selection ? on_run_target : on_run_all}
+                  >
+                    {has_selection ? (
+                      <TextSelect className="text-success size-3.5" />
+                    ) : (
+                      <PlayIcon className="text-success size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipContent side="top">
+                {has_selection ? "Run selected" : "Run all"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {on_explain && (
+            <ToolbarIconButton
+              icon={ListTree}
+              label="Explain"
+              color="info"
+              disabled={!has_text}
+              onClick={on_explain}
             />
-            <TooltipContent side="top">
-              {has_selection ? "Run selected" : "Run all"}
-            </TooltipContent>
-          </Tooltip>
+          )}
+          {on_explain_analyze && (
+            <ToolbarIconButton
+              icon={Timer}
+              label="Explain Analyze"
+              color="warning"
+              disabled={!has_text}
+              onClick={on_explain_analyze}
+            />
+          )}
           {onToggleWrap && (
             <ToolbarIconButton
               icon={WrapText}

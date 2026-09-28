@@ -1,7 +1,11 @@
 import { cn } from "@/shared/lib/utils";
 import { useStudioStore } from "@/shared/store";
 
-const KEYWORD_CASES: { id: "preserve" | "upper" | "lower"; label: string; preview: string }[] = [
+const KEYWORD_CASES: {
+  id: "preserve" | "upper" | "lower";
+  label: string;
+  preview: string;
+}[] = [
   { id: "preserve", label: "Preserve", preview: "select * from users" },
   { id: "upper", label: "Upper", preview: "SELECT * FROM users" },
   { id: "lower", label: "Lower", preview: "select * from users" },
@@ -24,7 +28,8 @@ export function SqlFormatSection() {
       <header>
         <h2 className="text-lg font-semibold">SQL Format</h2>
         <p className="text-muted-foreground mt-0.5 text-sm">
-          Options for the SQL editor's Format button.
+          Options for the SQL editor's Format button. Keyword case also applies
+          to keyword suggestions.
         </p>
       </header>
 

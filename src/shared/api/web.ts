@@ -1,25 +1,25 @@
 /**
- * Browser-build transport for the hosted Web UI.
+ * Browser build transport (spec 0010).
  *
- * In web mode there is no Tauri IPC: every call goes to the deployed
- * dh-server over REST using an OAuth session token (`dhs_…`), obtained via
- * a full-page redirect through `/auth/{provider}/start` — see
- * `webOAuthStartUrl` and `src/web/WebGate.tsx`, which catches the callback
- * (`?token=…` on this same page) since there's no Tauri loopback listener
- * to do it out of process. The server holds all connection credentials, so
- * the browser never sees secrets.
+ * In web mode there is no Tauri IPC: every call goes to the dh-server that
+ * serves this page, over REST. The server has no accounts. It holds only live
+ * database pools, and this page owns the saved connections (`localStorage`,
+ * see `web-connections.ts`).
  *
- * Multiple servers/orgs are supported: each saved profile has its own URL,
- * org id, and session token, stored under the `dh.web.servers` key as a
- * Record<profileId, config>. A user can be signed in to the same server
- * under several orgs at once — each is its own profile.
+ * To use a database the page sends its details once to `POST /v1/connect` and
+ * gets a handle back. Every data call then runs under `/v1/c/{handle}/...`.
+ * The store keeps the FIRST handle as the connection id for good, and this
+ * module swaps in the current one, so when the server forgets a handle (a
+ * restart, an idle close) the page reconnects once, quietly, with the details
+ * it still holds in memory, and repeats the call once.
  *
- * The default server URL is fixed at build/deploy time:
- *   - production: the app is served BY the dh-server, so requests are
- *     same-origin relative (`VITE_SERVER_URL` unset → '').
- *   - custom deployments / local dev: set VITE_SERVER_URL (dev can also just
- *     rely on vite's `/v1` proxy → http://localhost:8080).
+ * When the server has an access key, the page asks for it and keeps it in
+ * `sessionStorage` (this tab only) and sends it as a Bearer header.
+ *
+ * The page talks only to the server that served it (or, in development,
+ * through vite's `/v1` proxy).
  */
+import { readNdjson, type StreamEvent } from "./ndjson";
 import type { QueryResult } from "./types";
 
 export const WEB = !(
@@ -27,212 +27,318 @@ export const WEB = !(
 );
 
 // ---------------------------------------------------------------------------
-//  Server registry — persisted in localStorage
+//  Access key
 // ---------------------------------------------------------------------------
 
-export interface WebServerConfig {
-  id: string;
-  url: string;
-  /** OAuth session token (`dhs_…`). */
-  token: string;
-  name: string;
-  /** Which organization on that server this profile targets. */
-  org_id: string;
-}
+const KEY_STORAGE = "dh.web.key";
 
-const SERVERS_KEY = "dh.web.servers";
+/** Fired when the server answers 401: the page shows the key prompt again. */
+export const KEY_REJECTED_EVENT = "dh-web-key-rejected";
 
-function readServers(): Record<string, WebServerConfig> {
-  let servers: Record<string, WebServerConfig>;
+export function webKey(): string | null {
   try {
-    servers = JSON.parse(localStorage.getItem(SERVERS_KEY) ?? "{}") as Record<
-      string,
-      WebServerConfig
-    >;
+    return sessionStorage.getItem(KEY_STORAGE);
   } catch {
-    return {};
+    return null;
   }
-  return repairBrokenIds(servers);
 }
 
-/** One-time self-heal for entries an older build could save with a broken
- *  id — e.g. a blank same-origin URL slugified to "", so the entry got
- *  stored under key "" and silently overwrote/collided with anything else
- *  keyed the same way. Only touches entries that are actually broken (empty
- *  or inconsistent with their own map key); well-formed entries are left
- *  exactly as they are, so this never reshuffles a working profile's id. */
-function repairBrokenIds(
-  servers: Record<string, WebServerConfig>,
-): Record<string, WebServerConfig> {
-  let changed = false;
-  const fixed: Record<string, WebServerConfig> = {};
-  for (const [key, cfg] of Object.entries(servers)) {
-    if (key !== "" && cfg.id === key) {
-      fixed[key] = cfg;
-      continue;
-    }
-    changed = true;
-    const id = deriveServerId(cfg.url, cfg.org_id);
-    fixed[id] = { ...cfg, id };
+export function setWebKey(key: string): void {
+  try {
+    sessionStorage.setItem(KEY_STORAGE, key);
+  } catch {
+    // storage unavailable: the key lives only until the next reload
+    memoryKey = key;
   }
-  if (changed) {
-    try {
-      localStorage.setItem(SERVERS_KEY, JSON.stringify(fixed));
-    } catch {
-      // storage unavailable — repaired map still returned for this session
-    }
+}
+
+export function clearWebKey(): void {
+  memoryKey = null;
+  try {
+    sessionStorage.removeItem(KEY_STORAGE);
+  } catch {
+    // nothing to clear
   }
-  return fixed;
 }
 
-function writeServers(servers: Record<string, WebServerConfig>): void {
-  localStorage.setItem(SERVERS_KEY, JSON.stringify(servers));
-}
+let memoryKey: string | null = null;
 
-/** List all stored server configs. */
-export function webListServers(): WebServerConfig[] {
-  return Object.values(readServers());
-}
-
-/** Look up one server by profile id. */
-export function webServerConfig(
-  profileId: string,
-): WebServerConfig | undefined {
-  return readServers()[profileId];
-}
-
-/** Persist a server config (post-OAuth, org chosen). */
-export function webAddServer(config: WebServerConfig): void {
-  const servers = readServers();
-  // Normalize: a trailing slash here makes later `${base}/v1/...` requests
-  // double-slash (http://host//v1/...) which 404s/405s at the server.
-  const url = config.url.replace(/\/+$/, "");
-  servers[config.id] = { ...config, url };
-  writeServers(servers);
-}
-
-/** Remove a server config. */
-export function webRemoveServer(profileId: string): void {
-  const servers = readServers();
-  delete servers[profileId];
-  writeServers(servers);
+function currentKey(): string | null {
+  return webKey() ?? memoryKey;
 }
 
 // ---------------------------------------------------------------------------
-//  Default server URL (build-time or same-origin)
+//  Requests
 // ---------------------------------------------------------------------------
 
-export function apiUrl(): string {
-  return (
-    (import.meta.env.VITE_SERVER_URL as string | undefined)?.replace(
-      /\/+$/,
-      "",
-    ) ?? ""
-  );
-}
+type Method = "GET" | "POST" | "PUT" | "DELETE";
 
-export function slugifyUrl(url: string): string {
-  return url
-    .replace(/^https?:\/\//, "")
-    .replace(/[^a-zA-Z0-9]/g, "_")
-    .slice(0, 40);
-}
-
-/** Derive a stable, non-empty profile id for a server config. URL-derived
- *  (or "same_origin" for the default same-origin blank URL), disambiguated
- *  by org id so several orgs signed in to the SAME origin get distinct ids
- *  instead of colliding into one storage slot. Deterministic per
- *  (url, org_id) so re-connecting overwrites the existing entry rather than
- *  duplicating it. */
-export function deriveServerId(url: string, org_id: string): string {
-  const base = slugifyUrl(url) || "same_origin";
-  return `${base}__${org_id}`;
-}
-
-// ---------------------------------------------------------------------------
-//  OAuth sign-in (web build — full-page redirect, no loopback listener)
-// ---------------------------------------------------------------------------
-
-function normalizeBase(url: string): string {
-  const t = url.trim().replace(/\/+$/, "");
-  if (!t) return t;
-  return t.startsWith("http") ? t : `https://${t}`;
-}
-
-/** URL to send the browser to for `provider`'s OAuth consent screen. The
- *  server redirects back to `next` with the session token appended as a
- *  `token=` query param once sign-in completes (see `router.rs::auth_callback`). */
-export function webOAuthStartUrl(
-  base: string,
-  provider: string,
-  next: string,
-): string {
-  const b = normalizeBase(base);
-  return `${b}/auth/${provider}/start?next=${encodeURIComponent(next)}`;
-}
-
-// ---------------------------------------------------------------------------
-//  Authenticated fetch — supports per-server URL + token
-// ---------------------------------------------------------------------------
-
-/** Authenticated fetch against a dh-server. Defaults to the primary server. */
-export async function wcall<T>(
-  method: "GET" | "POST" | "PUT" | "DELETE",
+async function raw(
+  method: Method,
   path: string,
-  body?: unknown,
-  serverUrl?: string,
-  token?: string,
-): Promise<T> {
-  const base = serverUrl ?? apiUrl();
-  const res = await fetch(`${base}${path}`, {
+  body: unknown,
+  withKey = true,
+): Promise<Response> {
+  const key = withKey ? currentKey() : null;
+  return fetch(path, {
     method,
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+}
+
+export interface WebInfo {
+  key_required: boolean;
+  read_only: boolean;
+}
+
+/** What the server says about itself. The one route that needs no key. */
+export async function webInfo(): Promise<WebInfo> {
+  const res = await raw("GET", "/v1/info", undefined, false);
+  if (!res.ok) throw new Error(await errorText(res));
+  return (await res.json()) as WebInfo;
+}
+
+/** Check a key by making a call that needs one. `true` when accepted. */
+export async function webKeyAccepted(key: string): Promise<boolean> {
+  const res = await fetch("/v1/c/none/close", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  // A right key reaches the handle lookup and finds nothing (404); a wrong one
+  // is stopped by the guard (401).
+  return res.status !== 401;
+}
+
+// ---------------------------------------------------------------------------
+//  Handles
+// ---------------------------------------------------------------------------
+
+interface Entry {
+  /** The body sent to /v1/connect, secrets included. Memory only. */
+  details: Record<string, unknown>;
+  handle: string;
+  reconnecting: Promise<void> | null;
+}
+
+/** Connection id (the first handle) to what the page needs to reach it. */
+const entries = new Map<string, Entry>();
+
+const DATA_PATH = /^\/v1\/c\/([^/]+)(\/.*)?$/;
+
+/** A refusal `POST /v1/connect` named, in words. */
+function refusalText(status: number, text: string): string | null {
+  if (status !== 422) return null;
+  try {
+    const parsed = JSON.parse(text) as { error?: string; field?: string };
+    if (parsed.error === "unsupported_field") {
+      return `The web version cannot use "${parsed.field}". Only PostgreSQL and MongoDB, and SSH by password, work here.`;
+    }
+  } catch {
+    // not JSON: fall through
+  }
+  return null;
+}
+
+async function openHandle(details: Record<string, unknown>): Promise<string> {
+  const res = await raw("POST", "/v1/connect", details);
+  if (res.status === 401) rejectKey();
+  if (!res.ok) {
+    const text = (await res.text()).trim();
+    throw new Error(refusalText(res.status, text) ?? errorFrom(res, text));
+  }
+  return ((await res.json()) as { handle: string }).handle;
+}
+
+/** Open a connection and return its id. `details` is the body of
+ *  `POST /v1/connect`; it stays in memory so the page can reconnect. */
+export async function webConnect(
+  details: Record<string, unknown>,
+): Promise<string> {
+  const handle = await openHandle(details);
+  entries.set(handle, { details, handle, reconnecting: null });
+  return handle;
+}
+
+/** Free a connection's pool on the server and forget its details. */
+export async function webClose(connId: string): Promise<void> {
+  const entry = entries.get(connId);
+  entries.delete(connId);
+  try {
+    await raw(
+      "POST",
+      `/v1/c/${encodeURIComponent(entry?.handle ?? connId)}/close`,
+      undefined,
+    );
+  } catch {
+    // the server going away is the same as closed
+  }
+}
+
+/** Free a connection's pool as the page unloads. Fire and forget: a page that
+ *  is going away cannot wait for the answer, so the request is `keepalive`. */
+export function webRelease(connId: string): void {
+  const entry = entries.get(connId);
+  const key = currentKey();
+  try {
+    void fetch(`/v1/c/${encodeURIComponent(entry?.handle ?? connId)}/close`, {
+      method: "POST",
+      keepalive: true,
+      headers: key ? { Authorization: `Bearer ${key}` } : {},
+    });
+  } catch {
+    // best effort on unload
+  }
+}
+
+/** Reconnect one entry, sharing a single attempt between simultaneous calls. */
+function reconnect(entry: Entry): Promise<void> {
+  entry.reconnecting ??= openHandle(entry.details)
+    .then((handle) => {
+      entry.handle = handle;
+    })
+    .finally(() => {
+      entry.reconnecting = null;
+    });
+  return entry.reconnecting;
+}
+
+async function isUnknownHandle(res: Response): Promise<boolean> {
+  if (res.status !== 404) return false;
+  try {
+    const body = (await res.clone().json()) as { error?: string };
+    return body.error === "unknown_handle";
+  } catch {
+    return false;
+  }
+}
+
+function rejectKey(): void {
+  clearWebKey();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(KEY_REJECTED_EVENT));
+  }
+}
+
+/** Send one request. A data path has the current handle swapped in, and on
+ *  `404 unknown_handle` the connection is reopened once and the call repeated
+ *  once. A second 404 comes back as the error it is. */
+async function send(
+  method: Method,
+  path: string,
+  body: unknown,
+): Promise<Response> {
+  const m = DATA_PATH.exec(path);
+  const entry = m ? entries.get(decodeURIComponent(m[1])) : undefined;
+  const go = () =>
+    m && entry
+      ? raw(
+          method,
+          `/v1/c/${encodeURIComponent(entry.handle)}${m[2] ?? ""}`,
+          body,
+        )
+      : raw(method, path, body);
+  let res = await go();
+  if (entry && (await isUnknownHandle(res))) {
+    await (entry.reconnecting ?? reconnect(entry));
+    res = await go();
+  }
+  if (res.status === 401) rejectKey();
+  return res;
+}
+
+/** Fetch JSON from the server that served this page. */
+export async function wcall<T>(
+  method: Method,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const res = await send(method, path, body);
   if (!res.ok) throw new Error(await errorText(res));
   return (await res.json()) as T;
 }
 
+/** POST to a streaming route and hand each chunk to `onChunk` as it arrives.
+ *  Resolves with the `done` line's result. A refusal or an error before the
+ *  first byte comes back as the normal status and text, so it throws like
+ *  `wcall`; an `error` line throws its message. A body that ends with neither
+ *  line (the server went away, the network dropped) throws, never resolves as
+ *  a finished result: the rows already handed over stay with the caller. */
+export async function wstream<T>(
+  path: string,
+  body: unknown,
+  onChunk: (chunk: Extract<StreamEvent, { t: "chunk" }>) => void,
+): Promise<T> {
+  const res = await send("POST", path, body);
+  if (!res.ok) throw new Error(await errorText(res));
+  if (!res.body) throw new Error("This browser cannot read a streamed answer.");
+  let rows = 0;
+  const end: { result?: T; error?: string; closed: boolean } = {
+    closed: false,
+  };
+  try {
+    await readNdjson(res.body, (event) => {
+      if (event.t === "chunk") {
+        rows += event.rows.length;
+        onChunk(event);
+      } else if (event.t === "done") {
+        end.result = event.result as T;
+        end.closed = true;
+      } else {
+        end.error = event.message;
+        end.closed = true;
+      }
+    });
+  } catch {
+    // A cut connection: reported below like a body that just ended.
+  }
+  if (end.error !== undefined) throw new Error(end.error);
+  if (!end.closed) {
+    throw new Error(
+      `The connection dropped after ${rows.toLocaleString()} rows.`,
+    );
+  }
+  return end.result as T;
+}
+
 export async function wcallEmpty(
-  method: "GET" | "POST" | "PUT" | "DELETE",
+  method: Method,
   path: string,
   body?: unknown,
-  serverUrl?: string,
-  token?: string,
 ): Promise<void> {
-  const base = serverUrl ?? apiUrl();
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const res = await send(method, path, body);
   if (!res.ok) throw new Error(await errorText(res));
 }
 
-async function errorText(res: Response): Promise<string> {
-  try {
-    const body = (await res.text()).trim();
-    if (body) return `${res.status} — ${body}`;
-  } catch {
-    // fall through to status-based hints
-  }
+function errorFrom(res: Response, text: string): string {
+  if (text) return `${res.status} — ${text}`;
   const url = res.url || "(unknown url)";
   switch (res.status) {
-    case 405:
-      return `${res.status} ${url} — method not allowed. The SERVER binary is older than this UI: rebuild/restart the server container so its routes match.`;
-    case 404:
-      return `${res.status} ${url} — endpoint missing on the server (same cause as 405: server binary predates this UI).`;
+    case 403:
+      return `${res.status} ${url} — refused. If you reach this server by a name other than localhost, set DH_PUBLIC_URL on it.`;
     case 401:
-      return `${res.status} ${url} — session invalid/expired. Sign in again.`;
+      return `${res.status} ${url} — the access key was refused.`;
     default:
       return `HTTP ${res.status} ${url}`;
   }
+}
+
+async function errorText(res: Response): Promise<string> {
+  let text = "";
+  try {
+    text = (await res.text()).trim();
+  } catch {
+    // fall through to status-based hints
+  }
+  return errorFrom(res, text);
+}
+
+/** Forget every open connection (tests). */
+export function resetWebConnections(): void {
+  entries.clear();
 }
 
 export type { QueryResult };

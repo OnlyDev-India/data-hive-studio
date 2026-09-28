@@ -10,4 +10,4 @@ data
 
 # Desktop-app sources/assets unrelated to the web build.
 src-tauri
-dist-web
+dist

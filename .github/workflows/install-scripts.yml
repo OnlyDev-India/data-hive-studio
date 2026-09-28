@@ -1,0 +1,151 @@
+name: Install scripts
+
+# Publishes SHA256SUMS.txt, install.sh and install.ps1 to a release, then runs
+# the published one line install on fresh macOS, Windows and Linux runners.
+# release.yml calls it after every build. Dispatch it by hand to republish a
+# fixed template for an existing tag without cutting a new version.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.5.4
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checksum the installable files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir out
+          names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+          failed=0
+          files=()
+          for suffix in _aarch64.app.tar.gz _x64.app.tar.gz _x64-setup.exe _amd64.deb .x86_64.rpm _amd64.AppImage; do
+            found=$(printf '%s\n' "$names" | awk -v s="$suffix" 'length($0) >= length(s) && substr($0, length($0) - length(s) + 1) == s')
+            count=$(printf '%s' "$found" | grep -c . || true)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::Expected exactly one release file ending in $suffix, found $count: ${found//$'\n'/, }"
+              failed=1
+            else
+              files+=("$found")
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1
+
+          for f in "${files[@]}"; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$f" --dir out
+          done
+          (cd out && sha256sum "${files[@]}") > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Fill in the install scripts
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          for s in install.sh install.ps1; do
+            sed -e "s|__DH_VERSION__|$version|g" -e "s|__DH_REPO__|$GITHUB_REPOSITORY|g" "scripts/install/$s" > "$s"
+            if grep -q -e '__DH_VERSION__' -e '__DH_REPO__' "$s"; then
+              echo "::error::$s still has a placeholder"
+              exit 1
+            fi
+          done
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" SHA256SUMS.txt install.sh install.ps1 --repo "$GITHUB_REPOSITORY" --clobber
+
+  smoke-macos:
+    name: Smoke (macOS)
+    needs: publish
+    runs-on: macos-latest
+    steps:
+      - name: Run the one line install
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | sh
+
+      - name: Check the installed app
+        run: |
+          set -eu
+          APP="/Applications/DH Studio.app"
+          test -d "$APP"
+          if xattr -p com.apple.quarantine "$APP" >/dev/null 2>&1; then
+            echo "::error::The app has a quarantine mark"
+            exit 1
+          fi
+          codesign --verify --deep --strict "$APP"
+          codesign -dv "$APP" 2>&1 | grep -q '^Signature=adhoc' || { echo "::error::The app isn't ad hoc signed"; exit 1; }
+          sleep 10
+          pgrep -f "DH Studio.app/Contents/MacOS/dh-studio" >/dev/null || { echo "::error::The app isn't running 10 seconds after launch"; exit 1; }
+
+  smoke-windows:
+    name: Smoke (Windows)
+    needs: publish
+    runs-on: windows-latest
+    steps:
+      - name: Run the one line install
+        shell: powershell
+        env:
+          DH_SILENT: "1"
+        run: irm "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/install.ps1" | iex
+
+      - name: Check the installed app
+        shell: powershell
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA 'DH Studio\dh-studio.exe'
+          if (-not (Test-Path $exe)) { throw "$exe isn't installed" }
+          Start-Sleep -Seconds 10
+          if (-not (Get-Process -Name 'dh-studio' -ErrorAction SilentlyContinue)) { throw "dh-studio.exe isn't running" }
+
+  smoke-linux-deb:
+    name: Smoke (Linux deb)
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt-get update
+      - name: Run the one line install
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_NO_LAUNCH=1 sh
+      - name: Check the installed app
+        run: test -x /usr/bin/dh-studio
+
+  smoke-linux-appimage:
+    name: Smoke (Linux AppImage)
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the one line install
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_FORMAT=appimage DH_NO_LAUNCH=1 sh
+      - name: Check the installed app
+        run: |
+          set -eu
+          test -x "$HOME/.local/bin/dh-studio.AppImage"
+          grep -q '^Exec=' "$HOME/.local/share/applications/dh-studio.desktop"
+
+  smoke-linux-rpm:
+    name: Smoke (Linux rpm)
+    needs: publish
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Run the one line install
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_NO_LAUNCH=1 sh
+      - name: Check the installed app
+        run: test -x /usr/bin/dh-studio

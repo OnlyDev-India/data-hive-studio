@@ -133,3 +133,7 @@ jobs:
       # `DH_TEST_DATABASE_URL=... cargo test -p dh-core -- --ignored`.
       - name: Backend tests
         run: cargo test -p dh-core
+
+      # The desktop app's own unit tests (saved secret storage and friends).
+      - name: Desktop app tests
+        run: cargo test -p dh-studio --lib

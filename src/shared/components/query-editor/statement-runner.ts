@@ -17,7 +17,7 @@ import {
 } from "@codemirror/language";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Check, ChevronRight, PlayIcon } from "lucide-react";
+import { Check, ChevronRight, PlayIcon, X } from "lucide-react";
 import { statementRanges } from "@/shared/lib/utils";
 
 /** The non-blank statement the cursor currently sits inside, or null between
@@ -76,6 +76,10 @@ const PLAY_ICON = renderToStaticMarkup(
 );
 const CHECK_ICON = renderToStaticMarkup(
   createElement(Check, { size: 7, strokeWidth: 3.5 }),
+);
+const CROSS_ICON = renderToStaticMarkup(
+  // Even size in the 8px badge, so it sits dead center.
+  createElement(X, { size: 6, strokeWidth: 3 }),
 );
 const FOLD_ICON = renderToStaticMarkup(
   createElement(ChevronRight, { size: 12, strokeWidth: 2.5 }),
@@ -171,19 +175,16 @@ export function lucideFoldGutter(): Extension {
   ];
 }
 
-/** The range of the statement that most recently finished running
- *  successfully — drives the gutter's checkmark badge. Cleared on any doc
- *  change, since a stale position could land on the wrong (or no) statement
- *  once the text around it shifts. `null` = nothing to show (no run yet, ran
- *  with an error, or the doc has since changed). */
-export const setLastRunSuccess = StateEffect.define<{
-  from: number;
-  to: number;
-} | null>();
-const lastRunSuccessField = StateField.define<{
-  from: number;
-  to: number;
-} | null>({
+export type RunOutcome = "success" | "error";
+type LastRun = { from: number; to: number; outcome: RunOutcome };
+
+/** The statement that most recently finished running and how it ended —
+ *  drives the gutter's check or cross badge. Cleared on any doc change,
+ *  since a stale position could land on the wrong (or no) statement once the
+ *  text around it shifts. `null` = nothing to show (no run yet, stopped, or
+ *  the doc has since changed). */
+export const setLastRunSuccess = StateEffect.define<LastRun | null>();
+const lastRunSuccessField = StateField.define<LastRun | null>({
   create: () => null,
   update(value, tr) {
     for (const e of tr.effects) if (e.is(setLastRunSuccess)) return e.value;
@@ -193,36 +194,43 @@ const lastRunSuccessField = StateField.define<{
 
 /** Dispatched by the caller (see `QueryEditorHandle.markRunResult`) once a
  *  statement's run resolves — `range: null` clears any existing badge
- *  (e.g. the run failed). */
+ *  (e.g. the run was stopped). */
 export function markRunResult(
   view: EditorView,
   range: { from: number; to: number } | null,
+  outcome: RunOutcome = "success",
 ) {
-  view.dispatch({ effects: setLastRunSuccess.of(range) });
+  view.dispatch({
+    effects: setLastRunSuccess.of(range && { ...range, outcome }),
+  });
 }
 
 class RunButtonMarker extends GutterMarker {
-  readonly succeeded: boolean;
+  readonly outcome: RunOutcome | null;
   readonly from: number;
   readonly runAtCursor: () => void;
-  constructor(succeeded: boolean, from: number, runAtCursor: () => void) {
+  constructor(
+    outcome: RunOutcome | null,
+    from: number,
+    runAtCursor: () => void,
+  ) {
     super();
-    this.succeeded = succeeded;
+    this.outcome = outcome;
     this.from = from;
     this.runAtCursor = runAtCursor;
   }
   eq(other: RunButtonMarker) {
-    return other.succeeded === this.succeeded && other.from === this.from;
+    return other.outcome === this.outcome && other.from === this.from;
   }
   toDOM(view: EditorView) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = this.succeeded
-      ? "cm-statement-run cm-statement-run--success"
+    btn.className = this.outcome
+      ? `cm-statement-run cm-statement-run--${this.outcome}`
       : "cm-statement-run";
     btn.title = "Run this statement";
-    btn.innerHTML = this.succeeded
-      ? `${PLAY_ICON}<span class="cm-statement-run-badge">${CHECK_ICON}</span>`
+    btn.innerHTML = this.outcome
+      ? `${PLAY_ICON}<span class="cm-statement-run-badge">${this.outcome === "error" ? CROSS_ICON : CHECK_ICON}</span>`
       : PLAY_ICON;
     // Triggered on `mousedown`, not `click` — `click` is unreliable here on
     // Tauri's macOS webview (WebKit): a `preventDefault()` anywhere in the
@@ -258,10 +266,12 @@ export function statementGutter(runAtCursor: () => void): Extension {
           return view.state.doc.lineAt(trimmed.start).from === line.from;
         });
         if (!stmt) return null;
-        const success = view.state.field(lastRunSuccessField);
-        const succeeded =
-          !!success && success.from === stmt.start && success.to === stmt.end;
-        return new RunButtonMarker(succeeded, stmt.start, runAtCursor);
+        const last = view.state.field(lastRunSuccessField);
+        const outcome =
+          last && last.from === stmt.start && last.to === stmt.end
+            ? last.outcome
+            : null;
+        return new RunButtonMarker(outcome, stmt.start, runAtCursor);
       },
       lineMarkerChange: (update) =>
         update.docChanged ||

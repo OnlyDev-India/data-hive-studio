@@ -1,4 +1,8 @@
-import { openDatabasePath, type ConnectionInfo } from "@/shared/api";
+import {
+  connGuardOf,
+  openDatabasePath,
+  type ConnectionInfo,
+} from "@/shared/api";
 import { useStudioStore } from "@/shared/store";
 
 // Reopen a recent database. If the backend connection is still alive (same
@@ -12,7 +16,13 @@ export async function reopenRecent(conn: ConnectionInfo) {
   }
   if (!conn.source_path) return;
   try {
-    const fresh = await openDatabasePath(conn.source_path);
+    // Reopen with the lock it had: a read only file must never come back
+    // writable just because the app restarted or the connection dropped.
+    const guard = connGuardOf(conn);
+    const fresh =
+      Object.keys(guard).length > 0
+        ? await openDatabasePath(conn.source_path, guard)
+        : await openDatabasePath(conn.source_path);
     useStudioStore.getState().openConn(fresh);
   } catch {
     // File may have been moved or deleted; fall through to the home screen.

@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  Braces,
   Check,
   ChevronDown,
   Columns3,
@@ -33,6 +34,7 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
 import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
+import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
 import { useStudioStore, type GridBridge } from "@/shared/store";
 import {
   pending_changes_to_row_diff,
@@ -63,6 +65,8 @@ const ONE_BUTTON_MIN_SHRINK = 30;
 export function usePaneCompactWidth(
   ref: RefObject<HTMLElement | null>,
   noOfElements: number,
+  paneCompactBelowPx: number = PANE_COMPACT_BELOW_PX,
+  oneButtonMinShrink: number = ONE_BUTTON_MIN_SHRINK,
 ) {
   const [compact, setCompact] = useState(Array(noOfElements).fill(false));
   useEffect(() => {
@@ -82,14 +86,14 @@ export function usePaneCompactWidth(
           const new_compact = prev.map(
             (_, index) =>
               entry.contentRect.width <
-              PANE_COMPACT_BELOW_PX - index * ONE_BUTTON_MIN_SHRINK,
+              paneCompactBelowPx - index * oneButtonMinShrink,
           );
           return new_compact;
         });
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [ref]);
+  }, [ref, paneCompactBelowPx, oneButtonMinShrink]);
   return compact;
 }
 
@@ -110,6 +114,7 @@ export function GridActionBar({
   pane_ref,
   filter_bar,
   bulk_edit,
+  disabled = false,
 }: {
   bridge: GridBridge;
   conn_id: string;
@@ -119,12 +124,23 @@ export function GridActionBar({
    *  `columns`/`distinct` mirror `filter_bar`'s own (the pane already has
    *  them for the WHERE filter, no separate fetch needed). */
   bulk_edit?: { columns: FilterColumn[]; distinct: DistinctMap };
+  /** Nothing to act on (the query failed): every button is off. */
+  disabled?: boolean;
 }) {
   const [apply_changes, setApplyChanges] = useState<PendingChange[] | null>(
     null,
   );
   const [bulk_edit_open, setBulkEditOpen] = useState(false);
   const openSql = useStudioStore((s) => s.openSql);
+  const openMongoConsole = useStudioStore((s) => s.openMongoConsole);
+  // Direct Apply skips the review dialog, so on a Production connection (or
+  // one with Confirm before writes on) it asks first (spec 0007). Review is
+  // itself the confirmation and just wears the environment chip.
+  const write_confirm = useWriteConfirm(conn_id);
+  // Why the write buttons are off on a read only connection (spec 0007).
+  const read_only_reason = bridge.read_only
+    ? "Read only connection: writes are refused"
+    : undefined;
   // ColumnVisibilityMenu takes no `compact` prop (it's icon-only already,
   // nothing to collapse) — its factory just ignores the argument every
   // other entry spreads onto `GridToolbarButton`. A function expecting
@@ -138,18 +154,24 @@ export function GridActionBar({
         hidden={bridge.hidden_columns}
         on_toggle={bridge.toggle_column_visibility}
         on_reorder={bridge.reorder_column}
+        on_reveal={bridge.reveal_column}
       >
         {/* No `onClick` — `ColumnVisibilityMenu` renders this button as its
             own popover trigger, so opening/closing is already handled by
             wrapping it, not by a click handler here. */}
-        <GridToolbarButton icon={Columns3} label="Columns" {...props} />
+        <GridToolbarButton
+          icon={Columns3}
+          label="Columns"
+          disabled={disabled}
+          {...props}
+        />
       </ColumnVisibilityMenu>
     ),
     (props) => (
       <GridToolbarButton
         icon={RefreshCw}
         label="Refresh"
-        disabled={bridge.loading}
+        disabled={disabled || bridge.loading}
         onClick={() => bridge.refresh()}
         iconClassName={bridge.loading ? "animate-spin" : undefined}
         {...props}
@@ -160,6 +182,7 @@ export function GridActionBar({
         icon={Plus}
         label="Add Row"
         disabled={!bridge.editable}
+        disabled_reason={read_only_reason}
         onClick={() => bridge.start_pending()}
         {...props}
       />
@@ -170,6 +193,7 @@ export function GridActionBar({
         icon={Trash2}
         label="Delete Row(s)"
         disabled={bridge.selected_cell_count === 0 || !bridge.editable}
+        disabled_reason={read_only_reason}
         onClick={() => bridge.delete_rows()}
         className=""
         {...props}
@@ -180,6 +204,7 @@ export function GridActionBar({
         icon={Pencil}
         label="Bulk Edit"
         disabled={!bulk_edit || !bridge.editable}
+        disabled_reason={read_only_reason}
         onClick={() => setBulkEditOpen(true)}
         {...props}
       />
@@ -194,15 +219,71 @@ export function GridActionBar({
       />
     ),
     (props) => (
-      <GridToolbarButton
-        icon={bridge.loading ? Loader2 : Check}
-        label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
-        className={cn("bg-primary hover:bg-primary/70 rounded-r-none")}
-        iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
-        disabled={!bridge.pending_exists || bridge.loading}
-        onClick={() => setApplyChanges(bridge.get_pending_changes())}
-        {...props}
-      />
+      <>
+        <GridToolbarButton
+          icon={bridge.loading ? Loader2 : Check}
+          label={`Review${bridge.pending_count > 1 ? ` (${bridge.pending_count})` : ""}`}
+          className={cn(
+            "bg-primary hover:bg-primary/70 text-primary-foreground rounded-r-none",
+          )}
+          iconClassName={bridge.loading ? "size-3.5 animate-spin" : "size-3.5"}
+          disabled={!bridge.pending_exists || bridge.loading}
+          onClick={() => setApplyChanges(bridge.get_pending_changes())}
+          {...props}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                size="iconXs"
+                disabled={!bridge.pending_exists || bridge.loading}
+                aria-label="Pending edits options"
+                title="Pending edits options"
+                className="-ml-0.5 rounded-l-none"
+              />
+            }
+          >
+            <ChevronDown className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() =>
+                void write_confirm
+                  .confirm_write(
+                    `Apply ${bridge.pending_count} pending change${bridge.pending_count === 1 ? "" : "s"} to ${bridge.table}`,
+                  )
+                  .then((ok) => ok && bridge.apply_pending())
+              }
+              disabled={bridge.loading}
+            >
+              <Check className="size-3.5" />
+              Apply
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                const sql = bridge.get_pending_sql();
+                if (sql) openSql(conn_id, sql);
+              }}
+            >
+              <FileCode2 className="size-3.5" />
+              Copy to SQL
+            </DropdownMenuItem>
+            {bridge.get_pending_nosql && bridge.database !== undefined && (
+              <DropdownMenuItem
+                onClick={() => {
+                  const text = bridge.get_pending_nosql?.();
+                  if (text && bridge.database !== undefined) {
+                    openMongoConsole(conn_id, bridge.database, text);
+                  }
+                }}
+              >
+                <Braces className="size-3.5" />
+                Copy to NoSQL
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </>
     ),
   ];
   const compact = usePaneCompactWidth(pane_ref, buttons.length);
@@ -228,39 +309,6 @@ export function GridActionBar({
             {idx === 4 && <div className="bg-border mx-1 h-4 w-px" />}
           </Fragment>
         ))}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                size="iconXs"
-                disabled={!bridge.pending_exists || bridge.loading}
-                aria-label="Pending edits options"
-                title="Pending edits options"
-                className="-ml-0.5 rounded-l-none"
-              />
-            }
-          >
-            <ChevronDown className="size-3.5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => bridge.apply_pending()}
-              disabled={bridge.loading}
-            >
-              <Check className="size-3.5" />
-              Apply
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                const sql = bridge.get_pending_sql();
-                if (sql) openSql(conn_id, sql);
-              }}
-            >
-              <FileCode2 className="size-3.5" />
-              Copy to SQL
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
       {apply_changes && (
         <ApplyChangesDialog
@@ -270,6 +318,7 @@ export function GridActionBar({
           on_close={() => setApplyChanges(null)}
         />
       )}
+      {write_confirm.dialog}
       {bulk_edit && (
         <BulkEditDialog
           open={bulk_edit_open}
@@ -291,6 +340,7 @@ function GridToolbarButton({
   label,
   onClick,
   disabled,
+  disabled_reason,
   className,
   iconClassName,
   isIcon,
@@ -302,6 +352,9 @@ function GridToolbarButton({
    *  wrapped in `ColumnVisibilityMenu`), which already handles opening it. */
   onClick?: () => void;
   disabled?: boolean;
+  /** Why the button is disabled, shown as a tooltip. Only shown while it is
+   *  disabled, and set only when the reason is one the user can change. */
+  disabled_reason?: string;
   className?: string;
   iconClassName?: string;
   isIcon?: boolean;
@@ -310,7 +363,7 @@ function GridToolbarButton({
   compact?: boolean;
 }) {
   const icon_only = isIcon || compact;
-  return (
+  const button = (
     <Tooltip>
       <TooltipTrigger
         disabled={!icon_only}
@@ -339,4 +392,14 @@ function GridToolbarButton({
       </TooltipContent>
     </Tooltip>
   );
+  // A disabled button gets no pointer events, so its reason rides on a
+  // wrapper that does.
+  if (disabled && disabled_reason) {
+    return (
+      <span title={disabled_reason} className="inline-flex">
+        {button}
+      </span>
+    );
+  }
+  return button;
 }

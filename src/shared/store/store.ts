@@ -3,16 +3,22 @@ import { persist } from "zustand/middleware";
 import { activityActions } from "@/features/activity/store/activity-slice";
 import { notificationsActions } from "@/features/notifications/store/notifications-slice";
 import { schemaDesignerActions } from "@/features/schema-designer/store/schema-designer-slice";
-import { sharingActions } from "@/features/sharing/store/sharing-slice";
 import {
   deleteLocalConnection as apiDeleteLocalConnection,
   getLocalConnectionSecret,
   listLocalConnections,
   migrateLocalConnections,
   saveLocalConnection as apiSaveLocalConnection,
+  takeSecretStoreNotice,
+  type SecretStoreNotice,
   updateLocalConnection as apiUpdateLocalConnection,
 } from "@/shared/api/local-connections";
 import { WEB } from "@/shared/api/web";
+import {
+  readWebConnections,
+  withoutSecrets,
+  writeWebConnections,
+} from "@/shared/api/web-connections";
 import { connectionActions } from "./connections";
 import { DEFAULT_PALETTE_KEYWORDS } from "./types";
 import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-editor/delimited-list";
@@ -23,6 +29,31 @@ import {
   loadPendingWorkspaceRestores,
   scheduleWorkspaceSave,
 } from "./workspace-persistence";
+
+export function secretNoticeText(notice: SecretStoreNotice): {
+  title: string;
+  detail: string;
+} {
+  switch (notice.kind) {
+    case "key_reset":
+      return {
+        title: "Saved passwords were cleared",
+        detail:
+          "The key that protects your saved passwords was missing or damaged. Your connections are kept; you'll be asked for each password when you connect.",
+      };
+    case "import_partial":
+      return {
+        title: "Some passwords weren't carried over",
+        detail: `Couldn't read ${notice.names.length} saved passwords from the Keychain: ${notice.names.join(", ")}. You'll be asked for them when you connect.`,
+      };
+    case "newer_version":
+      return {
+        title: "Saved passwords unavailable",
+        detail:
+          "Saved passwords were made by a newer version of DH Studio. Update the app to save passwords.",
+      };
+  }
+}
 
 /** Pre-keychain local-connection data, still readable for a one-time
  *  migration into the backend (see `hydrateSavedLocal`). Never written to
@@ -110,17 +141,40 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ disconnectPendingId: id });
         },
 
+        importTarget: null,
+        openImport(target) {
+          set({ importTarget: target });
+        },
+        closeImport() {
+          set({ importTarget: null });
+        },
+
         updateInfo: null,
         setUpdateInfo(info) {
-          set({ updateInfo: info });
+          set((s) => ({
+            updateInfo: info,
+            // A failure belongs to the version it happened on.
+            updateError:
+              info && s.updateInfo?.version === info.version
+                ? s.updateError
+                : null,
+          }));
+        },
+        updatePhase: "available",
+        setUpdatePhase(phase) {
+          set({ updatePhase: phase });
+        },
+        updateProgress: null,
+        setUpdateProgress(progress) {
+          set({ updateProgress: progress });
+        },
+        updateError: null,
+        setUpdateError(error) {
+          set({ updateError: error });
         },
         updateDialogOpen: false,
         setUpdateDialogOpen(open) {
           set({ updateDialogOpen: open });
-        },
-        skippedUpdateVersion: null,
-        setSkippedUpdateVersion(version) {
-          set({ skippedUpdateVersion: version });
         },
 
         paletteKeywords: DEFAULT_PALETTE_KEYWORDS,
@@ -290,7 +344,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         },
         // Set alongside sqlSeeds only when the seed came from a real file
         // (openFileTab) — see the doc comment on the type.
-        seedFileNames: {},
+        seedFilePaths: {},
 
         recentParams: (() => {
           try {
@@ -303,7 +357,17 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set((s) => {
             const next = { ...s.recentParams, [connId]: params };
             try {
-              localStorage.setItem("pg.recents", JSON.stringify(next));
+              // The web build never leaves a secret in `localStorage` unless a
+              // saved connection asked for it (spec 0010, AC-4).
+              const saved = WEB
+                ? Object.fromEntries(
+                    Object.entries(next).map(([id, p]) => [
+                      id,
+                      withoutSecrets(p),
+                    ]),
+                  )
+                : next;
+              localStorage.setItem("pg.recents", JSON.stringify(saved));
             } catch {
               // storage unavailable — recents stay session-only
             }
@@ -311,18 +375,18 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           });
         },
 
-        // Saved (local) connections — ONE map for every kind, keyed by
-        // display name. Metadata lives in an app-data JSON file and
-        // passwords in the OS keychain (src-tauri/src/local_connections.rs)
+        // Saved connections — ONE map for every kind, keyed by display
+        // name. On the desktop, metadata lives in an app-data JSON file and
+        // passwords in the encrypted secret store (src-tauri/src/secret_store)
         // — see hydrateSavedLocal, called once at startup (Studio's mount
         // effect). Starts empty since Tauri IPC can't be awaited during
-        // store creation. Web mode has no local connections (the
-        // team-server holds all credentials there) and keeps the old
-        // localStorage-only behavior unchanged.
+        // store creation. The web build keeps them in this browser's
+        // localStorage instead (`web-connections.ts`), with the password
+        // only for connections that ask to remember it.
         savedLocal: {},
         async hydrateSavedLocal() {
           if (WEB) {
-            set({ savedLocal: readLegacySavedLocal() });
+            set({ savedLocal: readWebConnections() });
             return;
           }
           try {
@@ -341,35 +405,45 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               let password = "";
               let ssh_password: string | undefined;
               let ssh_key_passphrase: string | undefined;
-              try {
-                const secret = await getLocalConnectionSecret(meta.name);
-                password = secret.password;
-                ssh_password = secret.ssh_password ?? undefined;
-                ssh_key_passphrase = secret.ssh_key_passphrase ?? undefined;
-              } catch {
-                /* keychain entry missing/unreadable — user re-enters on connect */
-              }
+              let secret_missing: true | undefined;
+              if (meta.remember_secret !== false)
+                try {
+                  const secret = await getLocalConnectionSecret(meta.name);
+                  password = secret.password;
+                  ssh_password = secret.ssh_password ?? undefined;
+                  ssh_key_passphrase = secret.ssh_key_passphrase ?? undefined;
+                } catch {
+                  // Missing or unreadable (e.g. saved by a dev build): ask on connect.
+                  secret_missing = true;
+                }
               next[meta.name] = {
                 ...meta,
                 password,
                 ssh_password,
                 ssh_key_passphrase,
+                secret_missing,
               };
             }
             set({ savedLocal: next });
           } catch {
             /* backend not ready yet — leave savedLocal empty rather than crash */
           }
+          try {
+            const notice = await takeSecretStoreNotice();
+            if (notice)
+              get().pushNotification({
+                kind: "error",
+                ...secretNoticeText(notice),
+              });
+          } catch {
+            /* no notice to show */
+          }
         },
         async saveLocal(name, params) {
           if (WEB) {
             set((s) => {
               const next = { ...s.savedLocal, [name]: { ...params, name } };
-              try {
-                localStorage.setItem("saved.local", JSON.stringify(next));
-              } catch {
-                /* storage unavailable */
-              }
+              writeWebConnections(next);
               return { savedLocal: next };
             });
             return;
@@ -385,11 +459,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               const next = { ...s.savedLocal };
               delete next[oldName];
               next[name] = { ...params, name };
-              try {
-                localStorage.setItem("saved.local", JSON.stringify(next));
-              } catch {
-                /* storage unavailable */
-              }
+              writeWebConnections(next);
               let pin_next = s.pins;
               if (s.pins.includes(`local:${oldName}`)) {
                 pin_next = s.pins.map((p) =>
@@ -429,11 +499,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             set((s) => {
               const next = { ...s.savedLocal };
               delete next[name];
-              try {
-                localStorage.setItem("saved.local", JSON.stringify(next));
-              } catch {
-                /* storage unavailable */
-              }
+              writeWebConnections(next);
               return {
                 savedLocal: next,
                 pins: s.pins.filter((p) => p !== `local:${name}`),
@@ -472,9 +538,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             return { pins: next };
           });
         },
-        landingPrefill: null,
-        clearLandingPrefill() {
-          set({ landingPrefill: null });
+        landingForm: null,
+        clearLandingForm() {
+          set({ landingForm: null });
         },
         /** True while a Postgres connect is in flight — GLOBAL so navigating
          *  between home/studio can't lose the spinner or double-connect. */
@@ -488,22 +554,13 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         setMongoConnecting(v) {
           set({ mongoConnecting: v });
         },
-        requestLandingPrefill(kind, params, connect = false, edit) {
-          set(() => ({
-            landingPrefill: {
-              kind,
-              params,
-              n: ++prefill_seq,
-              connect,
-              edit,
-            },
-          }));
+        requestLandingForm(kind, params, edit) {
+          set({ landingForm: { kind, params, n: ++prefill_seq, edit } });
         },
 
         ...activityActions(set),
         ...notificationsActions(set, get),
         ...schemaDesignerActions(set),
-        ...sharingActions(set, get),
         ...connectionActions(set),
         ...workspaceActions(set),
       }),
@@ -543,7 +600,6 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           sqlFormatIndentWidth: s.sqlFormatIndentWidth,
           delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
-          skippedUpdateVersion: s.skippedUpdateVersion,
         }),
       },
     ),

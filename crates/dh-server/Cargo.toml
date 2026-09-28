@@ -2,12 +2,20 @@
 name = "dh-server"
 version = "0.1.0"
 edition = "2021"
-description = "dh-studio team server: encrypted connection vault, grants, query gateway"
+description = "dh-studio bare proxy: connects the web page to a database, with no accounts and no stored state"
 
 [dependencies]
 dh-core = { path = "../dh-core" }
-tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+futures-util.workspace = true
 tower-http.workspace = true
 axum.workspace = true
 rand.workspace = true
-hex.workspace = true
+base64.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

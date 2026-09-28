@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, Upload } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { prettyKind } from "@/shared/api";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { ConnFlags } from "@/shared/components/env-chip";
 import {
   useActiveConnection,
   usePaneMode,
@@ -21,6 +22,8 @@ import {
 } from "@/shared/components/ui/tooltip";
 import { ExportMenu } from "@/features/data-export";
 import { NotificationBell } from "@/features/notifications";
+import { WEB } from "@/shared/api/web";
+import { useAppShortcut, useShortcuts } from "@/shared/hooks/use-shortcut";
 import { formatQueryPreview } from "./query-preview";
 import { IconTypeMap } from "@/shared/components/icons/types";
 
@@ -38,8 +41,32 @@ export function ActionBar() {
     conn?.id ?? "",
     is_schema_pane_kind && active_key ? active_key : "",
   );
+  const openImport = useStudioStore((s) => s.openImport);
   const leftPanelOpen = useStudioStore((s) => s.leftPanelOpen);
   const sidebarWidth = useStudioStore((s) => s.sidebarWidth);
+  // Reload the active table's rows. Lives here because this is the one place
+  // that knows which tab's grid is showing. Not on the web build, where the
+  // same keys reload the whole page (see studio.tsx's leave confirm).
+  const reload_binding = useAppShortcut("grid.reload");
+  const paused = useStudioStore((s) =>
+    active_key ? !!s.pausedTabs[active_key] : false,
+  );
+  const resume_tab = useStudioStore((s) => s.resumeTab);
+  useShortcuts(
+    [
+      {
+        ...reload_binding,
+        handler: () => {
+          if (paused && active_key) resume_tab(active_key);
+          else if (bridge && !bridge.loading) bridge.refresh();
+        },
+      },
+    ],
+    {
+      enabled: !WEB && (!!bridge || paused) && paneMode === "data",
+      capture: true,
+    },
+  );
   // New-table tab registers its create action under its tab key — the button
   // shows only while a NEW-TABLE tab is active, enabled only when valid.
   const newTable = useStudioStore((s) =>
@@ -86,6 +113,7 @@ export function ActionBar() {
           <span className="text-foreground/80 max-w-40 truncate font-medium">
             {conn ? conn.name : "No connection"}
           </span>
+          {conn && <ConnFlags conn={conn} />}
           {conn && (
             <span className="text-3xs shrink-0 tracking-wide uppercase">
               {prettyKind(conn.kind)}
@@ -102,7 +130,7 @@ export function ActionBar() {
             <>
               {IconTypeMap[active.kind]}
               <span className="text-foreground/80 max-w-40 truncate font-medium">
-                {tabLabel(active)}
+                {tabLabel(active, sqlConsole?.file_name, sqlConsole?.database)}
               </span>
               {bridge && (
                 <>
@@ -112,7 +140,8 @@ export function ActionBar() {
                     </span>
                   )}
                   <span className="text-muted-foreground/80 shrink-0">
-                    {bridge.rows} of {bridge.total} rows
+                    {bridge.rows} of {bridge.total_pending ? "…" : bridge.total}{" "}
+                    rows
                   </span>
                   {query_preview && (
                     <code
@@ -156,20 +185,52 @@ export function ActionBar() {
                 <ActionBarTooltip label="Download">
                   <ExportMenu bridge={bridge} conn_id={conn?.id ?? ""} />
                 </ActionBarTooltip>
+                {conn && (
+                  <ActionBarTooltip
+                    label={
+                      bridge.read_only
+                        ? "Read only connection: import is refused"
+                        : "Import a file"
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs"
+                      disabled={bridge.read_only || bridge.pending_exists}
+                      onClick={() =>
+                        openImport({
+                          connId: conn.id,
+                          table: bridge.table,
+                          database: bridge.database,
+                          schema: bridge.schema_name,
+                          onImported: bridge.refresh,
+                        })
+                      }
+                    >
+                      <Upload className="size-3.5" />
+                    </Button>
+                  </ActionBarTooltip>
+                )}
               </>
             )}
             {newTable && (
               <ActionBarTooltip
                 label={
-                  newTable.valid
-                    ? "Create table"
-                    : "Fix the table definition first"
+                  conn?.read_only
+                    ? // Spec 0007: a read only connection cannot create.
+                      "Read only connection: schema changes are refused"
+                    : newTable.valid
+                      ? "Create table"
+                      : "Fix the table definition first"
                 }
               >
                 <Button
                   size="sm"
                   className="h-6 px-2 text-xs"
-                  disabled={newTable.creating || !newTable.valid}
+                  disabled={
+                    newTable.creating || !newTable.valid || !!conn?.read_only
+                  }
                   onClick={() => newTable.create()}
                 >
                   {newTable.creating ? (

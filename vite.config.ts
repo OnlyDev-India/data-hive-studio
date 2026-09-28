@@ -5,7 +5,7 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),
@@ -20,23 +20,43 @@ export default defineConfig(({ mode }) => ({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
-    // Web-mode dev (`bun run dev -- --mode web`): proxy API calls to a
-    // locally running dh-server so enrollment/gateway paths are same-origin.
-    proxy: process.env.DH_DEV_SERVER_URL
-      ? { "/v1": { target: process.env.DH_DEV_SERVER_URL, changeOrigin: true } }
-      : { "/v1": { target: "http://localhost:8080", changeOrigin: true } },
+    // Web-mode dev: proxy API calls to a locally running dh-server so the page
+    // is same origin with it (the web build talks only to the origin that
+    // served it). The browser's Origin is this dev server's; the proxy drops
+    // it, since dh-server refuses a request from another origin.
+    proxy: {
+      "/v1": {
+        target: process.env.DH_DEV_SERVER_URL ?? "http://localhost:8080",
+        changeOrigin: true,
+        configure: (proxy: {
+          on: (
+            event: "proxyReq",
+            cb: (req: { removeHeader: (name: string) => void }) => void,
+          ) => void;
+        }) => {
+          proxy.on("proxyReq", (req) => req.removeHeader("origin"));
+        },
+      },
+    },
   },
   // Tauri expects a fixed port on dev.
   clearScreen: false,
   envPrefix: ["VITE_", "TAURI_"],
   build: {
     target: "esnext",
-    // Web UI build (`bun run build:web`) lands in its own directory so it
-    // never clobbers the desktop bundle in dist/.
-    outDir: mode === "web" ? "dist-web" : "dist",
+    // The macOS webview is WebKit, which still needs `-webkit-user-select`.
+    // With an esnext CSS target the minifier drops that prefix, so text
+    // selection turned back on everywhere in release builds.
+    cssTarget: "safari13",
+    outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // App chunks can import each other in a cycle, and then a chunk's
+        // top level code may run before a chunk it needs has finished
+        // loading (seen with lucide, then CodeMirror's Facet.define). This
+        // runs every ES module in source order, whatever chunk it lands in.
+        strictExecutionOrder: true,
         // Without this, Rolldown's automatic chunking has split React's
         // CJS-interop wrapper into an app chunk (observed: "store") that
         // another chunk (observed: "utils") also needs — but loads BEFORE,

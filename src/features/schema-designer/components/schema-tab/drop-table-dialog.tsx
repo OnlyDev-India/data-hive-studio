@@ -74,7 +74,9 @@ export function DropTableDialog({
     <Dialog open={open} onOpenChange={on_open_change}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Drop {object_noun}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            Drop {object_noun}
+          </DialogTitle>
           <DialogDescription>
             This permanently deletes the {object_noun} “{table}” and its data.
             This cannot be undone.

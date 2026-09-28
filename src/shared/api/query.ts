@@ -1,15 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { WEB, wcall } from "./web";
-import {
-  dedupe,
-  dispatchDbCall,
-  isServerConn,
-  profileOf,
-  remoteOf,
-  serverUnsupported,
-  webAuthFor,
-} from "./dispatch";
-import type { QueryOp, QueryResult } from "./types";
+import { dedupe, dispatchDbCall, hinted, serverUnsupported } from "./dispatch";
+import type { CancelOutcome, DbKind, QueryOp, QueryResult } from "./types";
 
 /** Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
  * Rejects (throws) when the statement fails.
@@ -35,7 +27,6 @@ export async function runSql(
     httpMethod: "POST",
     httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/sql`,
     httpBody: { sql, database: database ?? null, schema: schema ?? null },
-    serverCmd: "server_run_sql",
     localCmd: "run_sql",
     args: {
       connId,
@@ -47,6 +38,44 @@ export async function runSql(
   });
 }
 
+/** Engines whose runs the backend can stop so far (spec 0006). */
+const CANCELLABLE_KINDS: ReadonlySet<DbKind> = new Set([
+  "sqlite",
+  "postgres",
+  "mongodb",
+]);
+
+/** Whether the SQL editor can offer Stop for a run on this connection. Grows
+ *  engine by engine (spec 0006). On the web only the streaming routes can be
+ *  stopped, and the web build reaches PostgreSQL and MongoDB only. */
+export function canCancelRun(kind: DbKind | undefined): boolean {
+  if (kind === undefined || !CANCELLABLE_KINDS.has(kind)) return false;
+  return WEB ? kind !== "sqlite" : true;
+}
+
+/** Whether a Plan tab can offer Stop. The web build's plan calls have no cancel
+ *  route yet, so only the desktop app qualifies. */
+export function canCancelPlan(kind: DbKind | undefined): boolean {
+  return !WEB && canCancelRun(kind);
+}
+
+/** Stop the editor run `runId` (the id passed to `runSqlStream`). Resolves
+ *  once the database confirms, or after 3 seconds with `winding_down`.
+ *  Cancelling a finished or unknown run resolves `not_running`, never throws. */
+export async function cancelRun(
+  connId: string,
+  runId: string,
+): Promise<CancelOutcome> {
+  if (WEB) {
+    return wcall<CancelOutcome>(
+      "POST",
+      `/v1/c/${encodeURIComponent(connId)}/cancel`,
+      { run_id: runId },
+    );
+  }
+  return invoke<CancelOutcome>("cancel_run", { connId, runId });
+}
+
 /** Execute a single DML/DDL statement with bound `?` parameters.
  *  `database`: omitted = this connection's own primary database. */
 export async function executeParams(
@@ -55,9 +84,9 @@ export async function executeParams(
   params: (string | null)[],
   database?: string,
 ): Promise<number> {
-  serverUnsupported(connId);
+  serverUnsupported();
 
-  return invoke("execute_params", { connId, database, sql, params });
+  return hinted(invoke("execute_params", { connId, database, sql, params }));
 }
 
 /** Run a SELECT with bound `?` parameters (used by UI-built filters).
@@ -68,22 +97,13 @@ export async function runSqlParams(
   params: (string | null)[],
   database?: string,
 ): Promise<QueryResult> {
-  if (WEB && isServerConn(connId)) {
-    const { url, token } = webAuthFor(profileOf(connId));
-    return wcall(
-      "POST",
-      `/v1/c/${encodeURIComponent(remoteOf(connId))}/sql`,
-      { sql, params, database: database ?? null },
-      url,
-      token || undefined,
-    );
-  }
-  if (WEB)
-    return wcall("POST", `/v1/c/${encodeURIComponent(remoteOf(connId))}/sql`, {
+  if (WEB) {
+    return wcall("POST", `/v1/c/${encodeURIComponent(connId)}/sql`, {
       sql,
       params,
       database: database ?? null,
     });
+  }
   return invoke("run_sql_params", { connId, database, sql, params });
 }
 
@@ -115,7 +135,6 @@ export function executeOp(
       httpMethod: "POST",
       httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/op`,
       httpBody: { ...op, database: database ?? null, schema: schema ?? null },
-      serverCmd: "server_execute_op",
       localCmd: "execute_op",
       args: { connId, database: database ?? null, schema: schema ?? null, op },
     });

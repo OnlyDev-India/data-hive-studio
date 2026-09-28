@@ -224,3 +224,58 @@ describe("useGridController — reorder_column", () => {
     expect(result.current.view.column_order).toEqual(["a", "b", "d", "c"]);
   });
 });
+
+describe("useGridController — streamed rows", () => {
+  it("counts only row_count entries of an append only rows array, and follows it as it grows", () => {
+    const rows: (string | null)[][] = [
+      ["1", "a"],
+      ["2", "b"],
+      ["3", "c"],
+    ];
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) =>
+        useGridController(baseConfig({ rows, row_count: count })),
+      { initialProps: { count: 2 } },
+    );
+    expect(result.current.row_count).toBe(2);
+
+    // The same array, appended in place, and a bigger count: no copy.
+    rows.push(["4", "d"]);
+    rerender({ count: 4 });
+
+    expect(result.current.row_count).toBe(4);
+    expect(result.current.rows).toBe(rows);
+  });
+
+  it("falls back to the array length when no count is given", () => {
+    const { result } = renderHook(() => useGridController(baseConfig()));
+    expect(result.current.row_count).toBe(2);
+  });
+});
+
+describe("useGridController — page changes", () => {
+  it("clears the selection when row_offset changes, so it does not land on the next page's rows", () => {
+    const { result, rerender } = renderHook(
+      ({ row_offset }) => useGridController(baseConfig({ row_offset })),
+      { initialProps: { row_offset: 0 } },
+    );
+    act(() => {
+      result.current.on_select(new Set([cellKey(1, "name")]));
+    });
+    expect(result.current.selected.size).toBe(1);
+    rerender({ row_offset: 50 });
+    expect(result.current.selected.size).toBe(0);
+  });
+
+  it("keeps the selection when the rows refresh on the same page", () => {
+    const { result, rerender } = renderHook(
+      ({ row_offset }) => useGridController(baseConfig({ row_offset })),
+      { initialProps: { row_offset: 50 } },
+    );
+    act(() => {
+      result.current.on_select(new Set([cellKey(1, "name")]));
+    });
+    rerender({ row_offset: 50 });
+    expect(result.current.selected.size).toBe(1);
+  });
+});

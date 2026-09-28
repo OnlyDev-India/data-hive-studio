@@ -14,7 +14,7 @@ import {
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 
 /** Prompts for a value per detected `:name`/`${name}` bind variable before a
- *  run — gates `run_all`/`run_target` exactly like `DangerConfirmDialog`
+ *  run — gates `run_all`/`run_target` exactly like `WriteConfirmDialog`
  *  gates dangerous SQL, just a step earlier in the same pipeline: this
  *  substitutes literal values into the SQL text first (`bind-variables.ts`),
  *  and the resulting statements then go through the danger-confirm gate as
