@@ -3,9 +3,11 @@ name: Release
 # Runs on every push to main (i.e. every merged PR). Builds nothing unless
 # src-tauri/tauri.conf.json's version is newer than the latest GitHub
 # Release — merges that don't bump the version are a no-op here.
+# Can also be run by hand from the Actions tab (same version check applies).
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
