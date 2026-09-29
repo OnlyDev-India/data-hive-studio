@@ -411,8 +411,8 @@ export function BsonEditor({
   return (
     <div
       className={cn(
-        "bg-background overflow-hidden rounded-md border",
-        compact && "text-xs",
+        "bg-background rounded-control overflow-hidden border",
+        compact && "text-small",
         className,
       )}
       style={{ minHeight }}

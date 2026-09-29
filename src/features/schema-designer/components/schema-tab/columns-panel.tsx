@@ -17,9 +17,9 @@ const col_grid =
   "grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_3rem_2.5rem_minmax(0,1.1fr)_1.75rem] items-center gap-2";
 const col_header = cn(
   col_grid,
-  "sticky top-0 z-10 border-b bg-muted px-3 py-2 text-xs font-medium text-muted-foreground",
+  "sticky top-0 z-10 border-b bg-muted px-3 py-2 text-small font-medium text-muted-foreground",
 );
-const col_row = cn(col_grid, "border-b px-3 py-1.5 text-sm last:border-0");
+const col_row = cn(col_grid, "border-b px-3 py-1.5 text-body last:border-0");
 
 /** A blank column, as the tab bar's Add button appends it. */
 export function new_col_draft(): ColDraft {
@@ -116,7 +116,7 @@ function ColumnRow({
           onValueChange={(v) => on_update(c.id, { data_type: v ?? "" })}
         >
           <SelectTrigger
-            className="h-7 w-full text-sm"
+            className="text-body h-7 w-full"
             size="sm"
             aria-label="Column type"
           >
@@ -137,7 +137,7 @@ function ColumnRow({
         </Select>
       )}
       {c.dropped ? (
-        <span className="text-muted-foreground text-xs line-through">
+        <span className="text-muted-foreground text-small line-through">
           {c.not_null ? "NOT NULL" : "NULL"}
         </span>
       ) : (
@@ -157,7 +157,7 @@ function ColumnRow({
         onCheckedChange={(v) => on_update(c.id, { primary_key: v === true })}
       />
       {c.dropped ? (
-        <span className="text-muted-foreground truncate text-xs line-through">
+        <span className="text-muted-foreground text-small truncate line-through">
           {c.orig_default ?? ""}
         </span>
       ) : (
@@ -165,7 +165,7 @@ function ColumnRow({
           value={c.default_text}
           placeholder="no default"
           ariaLabel="Default value"
-          className="text-xs"
+          className="text-small"
           disabled={disabled}
           on_commit={(v) => on_update(c.id, { default_text: v })}
         />

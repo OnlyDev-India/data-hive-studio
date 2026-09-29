@@ -14,7 +14,7 @@ type Vars = Record<string, string>;
 export function parseBlocks(css: string): Map<string, Vars> {
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const blocks = new Map<string, Vars>();
-  const re = /^([:.[][^{\n]*?)\s*\{([^{}]*)\}/gm;
+  const re = /^([:.[][^{};]*?)\s*\{([^{}]*)\}/gm;
   for (const m of clean.matchAll(re)) {
     const vars: Vars = {};
     for (const decl of m[2].split(";")) {
@@ -26,7 +26,7 @@ export function parseBlocks(css: string): Map<string, Vars> {
           .replace(/\s+/g, " ")
           .trim();
     }
-    blocks.set(m[1].trim(), vars);
+    for (const sel of m[1].split(",")) blocks.set(sel.trim(), vars);
   }
   return blocks;
 }

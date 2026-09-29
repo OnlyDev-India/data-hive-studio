@@ -6,7 +6,7 @@ export const COL_W_PX = 144;
 export const GUTTER_W_PX = 48;
 /**
  * Exact row height for the fixed-height row windower (use-row-window.ts):
- * text-sm line + py-1 + border. Must track Cell's own vertical padding —
+ * text-body line + py-1 + border. Must track Cell's own vertical padding —
  * there is no per-row measurement to fall back on, so drifting out of sync
  * with Cell's actual CSS shows up as a gap (too large) or clipped/overlapping
  * rows (too small).

@@ -58,7 +58,9 @@ export function IndexesContent({
   return (
     <>
       <div
-        className={controlled ? undefined : "overflow-hidden rounded-md border"}
+        className={
+          controlled ? undefined : "rounded-control overflow-hidden border"
+        }
       >
         {idxs.map((ix) => (
           <IndexRow
@@ -74,7 +76,7 @@ export function IndexesContent({
           <button
             type="button"
             disabled={disabled}
-            className="text-muted-foreground hover:bg-muted/50 flex w-full items-center gap-2 border-t px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-50"
+            className="text-muted-foreground hover:bg-muted/50 text-body flex w-full items-center gap-2 border-t px-3 py-2 disabled:pointer-events-none disabled:opacity-50"
             onClick={() => setAdd_idx(true)}
           >
             <Plus className="size-3.5" />
@@ -157,12 +159,12 @@ function IndexRow({
   // are guaranteed to fail on Apply.
   if (ix.system) {
     return (
-      <div className="bg-muted/30 text-muted-foreground flex flex-wrap items-center gap-2 border-b px-3 py-2 text-sm last:border-0">
+      <div className="bg-muted/30 text-muted-foreground text-body flex flex-wrap items-center gap-2 border-b px-3 py-2 last:border-0">
         <Lock className="size-3.5 shrink-0" aria-hidden />
         <span className="font-medium">{ix.name}</span>
         {ix.unique && <Badge variant="muted">UNIQUE</Badge>}
         <span
-          className="ml-auto truncate text-xs"
+          className="text-small ml-auto truncate"
           title="Backed by a table constraint — change the table definition to modify it"
         >
           table constraint
@@ -178,7 +180,7 @@ function IndexRow({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 border-b px-3 py-2 text-sm last:border-0",
+        "text-body flex flex-col gap-1.5 border-b px-3 py-2 last:border-0",
         ix.dropped && "opacity-50",
       )}
     >
@@ -196,7 +198,7 @@ function IndexRow({
         )}
         {ix.dropped && <Badge variant="warning">drops on Apply</Badge>}
         {!ix.dropped && (
-          <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <label className="text-muted-foreground text-small flex items-center gap-1.5">
             <Switch
               checked={ix.unique}
               aria-label="Unique index"
@@ -207,7 +209,7 @@ function IndexRow({
           </label>
         )}
         {!ix.dropped && mongo && (
-          <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <label className="text-muted-foreground text-small flex items-center gap-1.5">
             <Switch
               checked={ix.sparse}
               aria-label="Sparse index"
@@ -225,7 +227,7 @@ function IndexRow({
                 type="button"
                 disabled={disabled}
                 title={`Sort ${(ix.column_dirs[i] ?? 1) < 0 ? "descending" : "ascending"} — click to flip`}
-                className="bg-muted text-muted-foreground hover:text-foreground flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs disabled:pointer-events-none"
+                className="bg-muted text-muted-foreground hover:text-foreground text-small flex items-center gap-0.5 rounded px-1.5 py-0.5 disabled:pointer-events-none"
                 onClick={() => toggle_dir(i)}
               >
                 {c}
@@ -237,7 +239,7 @@ function IndexRow({
               </button>
             ))
           ) : (
-            <span className="text-muted-foreground truncate text-xs">
+            <span className="text-muted-foreground text-small truncate">
               {ix.columns.join(", ")}
             </span>
           )}
@@ -263,7 +265,7 @@ function IndexRow({
       </div>
       {!ix.dropped && mongo && (
         <div className="flex flex-wrap items-center gap-2 pl-0.5">
-          <label className="text-muted-foreground flex items-center gap-1 text-xs">
+          <label className="text-muted-foreground text-small flex items-center gap-1">
             TTL (s)
             <input
               type="number"
@@ -277,10 +279,10 @@ function IndexRow({
                     e.target.value === "" ? null : Number(e.target.value),
                 })
               }
-              className="border-input bg-background focus-visible:ring-ring/50 h-6 w-20 rounded border px-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
+              className="border-input bg-background focus-visible:ring-ring/50 text-small h-6 w-20 rounded border px-1.5 focus-visible:ring-2 focus-visible:outline-none"
             />
           </label>
-          <span className="flex min-w-0 flex-1 items-center gap-1 text-xs">
+          <span className="text-small flex min-w-0 flex-1 items-center gap-1">
             <span className="text-muted-foreground shrink-0">Partial</span>
             <EditableText
               value={ix.partial_filter}

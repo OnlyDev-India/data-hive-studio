@@ -44,10 +44,10 @@ function NoImage() {
 }
 
 const overrides = {
-  h1: { props: { className: "mt-3 mb-1 text-base font-semibold" } },
-  h2: { props: { className: "mt-3 mb-1 text-sm font-semibold" } },
-  h3: { props: { className: "mt-2 mb-1 text-sm font-medium" } },
-  h4: { props: { className: "mt-2 mb-1 text-sm font-medium" } },
+  h1: { props: { className: "mt-3 mb-1 text-title font-semibold" } },
+  h2: { props: { className: "mt-3 mb-1 text-body font-semibold" } },
+  h3: { props: { className: "mt-2 mb-1 text-body font-medium" } },
+  h4: { props: { className: "mt-2 mb-1 text-body font-medium" } },
   p: { props: { className: "mb-2 last:mb-0" } },
   ul: { props: { className: "mb-2 list-disc space-y-1 pl-5" } },
   ol: { props: { className: "mb-2 list-decimal space-y-1 pl-5" } },
@@ -57,7 +57,7 @@ const overrides = {
   pre: {
     props: {
       className:
-        "bg-muted mb-2 overflow-x-auto rounded-md p-2 text-xs [&>code]:bg-transparent [&>code]:p-0",
+        "bg-muted mb-2 overflow-x-auto rounded-control p-2 text-small [&>code]:bg-transparent [&>code]:p-0",
     },
   },
   code: {
@@ -65,7 +65,7 @@ const overrides = {
       className: "bg-muted rounded px-1 py-0.5 font-mono text-[0.85em]",
     },
   },
-  table: { props: { className: "mb-2 w-full border-collapse text-xs" } },
+  table: { props: { className: "mb-2 w-full border-collapse text-small" } },
   th: { props: { className: "border px-2 py-1 text-left font-medium" } },
   td: { props: { className: "border px-2 py-1" } },
   hr: { props: { className: "border-border my-2" } },

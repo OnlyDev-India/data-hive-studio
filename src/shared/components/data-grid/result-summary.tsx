@@ -51,12 +51,14 @@ function Stat({
   value: string;
 }) {
   return (
-    <div className="bg-card rounded-lg border px-3.5 py-3">
-      <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+    <div className="bg-card rounded-surface border px-3.5 py-3">
+      <div className="text-muted-foreground text-small flex items-center gap-1.5">
         {icon}
         {label}
       </div>
-      <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+      <div className="text-display mt-1 font-semibold tabular-nums">
+        {value}
+      </div>
     </div>
   );
 }
@@ -102,10 +104,10 @@ export function ResultSummary({
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-semibold">
+            <div className="text-body font-semibold">
               {failed ? "Query failed" : "Query succeeded"}
             </div>
-            <div className="text-muted-foreground text-xs">{detail}</div>
+            <div className="text-muted-foreground text-small">{detail}</div>
           </div>
         </div>
 
@@ -130,38 +132,38 @@ export function ResultSummary({
         </div>
 
         {result.error && (
-          <div className="border-destructive/30 bg-destructive/5 rounded-lg border">
-            <div className="text-destructive flex items-center justify-between gap-2 px-3.5 pt-2.5 text-xs font-medium">
+          <div className="border-destructive/30 bg-destructive/5 rounded-surface border">
+            <div className="text-destructive text-small flex items-center justify-between gap-2 px-3.5 pt-2.5 font-medium">
               Error
               <CopyButton text={result.error} label="Copy error" />
             </div>
-            <pre className="text-destructive max-h-64 overflow-auto px-3.5 pt-1 pb-3 font-mono text-xs whitespace-pre-wrap">
+            <pre className="text-destructive text-small max-h-64 overflow-auto px-3.5 pt-1 pb-3 font-mono whitespace-pre-wrap">
               {result.error}
             </pre>
           </div>
         )}
 
         {message && (
-          <div className="bg-muted/40 text-muted-foreground flex items-start gap-2 rounded-lg border px-3.5 py-2.5 text-xs">
+          <div className="bg-muted/40 text-muted-foreground rounded-surface text-small flex items-start gap-2 border px-3.5 py-2.5">
             <Info className="mt-px size-3.5 shrink-0" />
             {message}
           </div>
         )}
 
-        <div className="rounded-lg border">
-          <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3.5 py-2 text-xs font-medium">
+        <div className="rounded-surface border">
+          <div className="text-muted-foreground text-small flex items-center justify-between gap-2 border-b px-3.5 py-2 font-medium">
             Statement
             {on_view_query && (
               <button
                 type="button"
                 onClick={on_view_query}
-                className="hover:text-foreground text-xs font-normal underline-offset-2 hover:underline"
+                className="hover:text-foreground text-small font-normal underline-offset-2 hover:underline"
               >
                 View full query
               </button>
             )}
           </div>
-          <pre className="line-clamp-4 px-3.5 py-2.5 font-mono text-xs whitespace-pre-wrap">
+          <pre className="text-small line-clamp-4 px-3.5 py-2.5 font-mono whitespace-pre-wrap">
             {query_text.trim() || "(empty)"}
           </pre>
         </div>

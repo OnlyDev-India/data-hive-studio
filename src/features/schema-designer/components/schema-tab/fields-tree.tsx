@@ -21,18 +21,18 @@ export function FieldsTree({
   error: string | null;
 }) {
   return (
-    <div className="bg-background rounded-md border">
+    <div className="bg-background rounded-control border">
       <div className="border-b px-3 py-2">
-        <h3 className="flex items-center gap-2 text-sm font-medium">
+        <h3 className="text-body flex items-center gap-2 font-medium">
           <Braces className="text-muted-foreground h-4 w-4" />
           <span>Fields</span>
         </h3>
-        <p className="text-muted-foreground mt-0.5 text-xs">
+        <p className="text-muted-foreground text-small mt-0.5">
           Sampled from the first 200 documents (Mongo is schemaless).
         </p>
       </div>
       {error ? (
-        <div className="flex items-center gap-2 px-3 py-3 text-sm">
+        <div className="text-body flex items-center gap-2 px-3 py-3">
           <AlertCircle
             className="text-destructive size-4 shrink-0"
             aria-hidden
@@ -42,11 +42,11 @@ export function FieldsTree({
           </span>
         </div>
       ) : loading && !fields ? (
-        <div className="text-muted-foreground px-3 py-3 text-sm">
+        <div className="text-muted-foreground text-body px-3 py-3">
           Loading fields…
         </div>
       ) : !fields || fields.length === 0 ? (
-        <div className="text-muted-foreground px-3 py-3 text-sm">
+        <div className="text-muted-foreground text-body px-3 py-3">
           No fields found.
         </div>
       ) : (
@@ -74,7 +74,7 @@ function FieldRow({ field, depth }: { field: FieldShape; depth: number }) {
   return (
     <div>
       <div
-        className="hover:bg-muted/40 flex items-center gap-1.5 border-b px-3 py-1.5 text-sm last:border-0"
+        className="hover:bg-muted/40 text-body flex items-center gap-1.5 border-b px-3 py-1.5 last:border-0"
         style={{ paddingLeft: 12 + depth * INDENT_PX }}
       >
         {has_children ? (
@@ -96,7 +96,7 @@ function FieldRow({ field, depth }: { field: FieldShape; depth: number }) {
           <span className="inline-block size-3.5 shrink-0" aria-hidden />
         )}
         <span className="font-mono">{field.name}</span>
-        <span className="text-muted-foreground text-xs">
+        <span className="text-muted-foreground text-small">
           {field.type}
           {field.type === "array" && field.element_types?.length
             ? ` — ${field.element_types.join(" | ")}`

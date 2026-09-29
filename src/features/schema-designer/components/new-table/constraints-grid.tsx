@@ -26,7 +26,7 @@ export function ConstraintsGrid({
       </p>
     );
   return (
-    <table className="w-full min-w-max text-sm">
+    <table className="text-body w-full min-w-max">
       <thead>
         <tr>
           <th className={`${TH_NUM} w-9 text-center`}>#</th>
@@ -40,7 +40,7 @@ export function ConstraintsGrid({
         {constraints.map((k, idx) => (
           <tr key={idx}>
             <td
-              className={`${TD_NUM} ${ROW_PAD} text-muted-foreground text-center text-xs`}
+              className={`${TD_NUM} ${ROW_PAD} text-muted-foreground text-small text-center`}
             >
               {idx + 1}
             </td>
@@ -57,7 +57,7 @@ export function ConstraintsGrid({
             </td>
             <td className={`${TD} ${ROW_PAD}`}>
               <select
-                className="bg-input/30 h-7 w-full rounded-md border px-2 text-sm"
+                className="bg-input/30 rounded-control text-body h-7 w-full border px-2"
                 aria-label={`Type of constraint ${idx + 1}`}
                 value={k.kind}
                 onChange={(e) =>

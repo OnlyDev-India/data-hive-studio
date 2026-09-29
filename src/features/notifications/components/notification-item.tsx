@@ -14,7 +14,7 @@ const NOTIFICATION_ICONS = {
 const NOTIFICATION_ICON_CLASS = {
   success: "text-success",
   error: "text-destructive",
-  info: "text-sky-500",
+  info: "text-info",
 } as const;
 
 /** One notification row: kind icon, title, time, optional clamped detail with
@@ -45,9 +45,9 @@ export function NotificationItem({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             {!n.read && (
-              <span className="mt-1 size-1.5 shrink-0 rounded-full bg-blue-500" />
+              <span className="bg-primary mt-1 size-1.5 shrink-0 rounded-full" />
             )}
-            <span className="min-w-0 text-sm break-words">{n.title}</span>
+            <span className="text-body min-w-0 break-words">{n.title}</span>
             <span className="text-muted-foreground/70 text-caption ml-auto shrink-0">
               {new Date(n.at).toLocaleTimeString([], {
                 hour: "2-digit",
@@ -58,7 +58,7 @@ export function NotificationItem({
           {n.detail && (
             <div
               title={n.detail}
-              className="text-muted-foreground mt-0.5 line-clamp-3 text-xs break-all whitespace-pre-wrap"
+              className="text-muted-foreground text-small mt-0.5 line-clamp-3 break-all whitespace-pre-wrap"
             >
               {n.detail}
             </div>
@@ -69,7 +69,7 @@ export function NotificationItem({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-2xs h-5 px-1.5"
+                  className="text-caption h-5 px-1.5"
                   onClick={() => setDetailOpen(true)}
                 >
                   View details
@@ -79,7 +79,7 @@ export function NotificationItem({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-2xs h-5 px-1.5"
+                  className="text-caption h-5 px-1.5"
                   onClick={n.actionFn}
                 >
                   {n.actionLabel}

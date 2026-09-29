@@ -19,13 +19,13 @@ export function LeaveConfirm({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 z-100 bg-black/50" />
+        <DialogPrimitive.Backdrop className="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 bg-overlay fixed inset-0 z-100" />
         <DialogPrimitive.Popup className="bg-background ring-1/10 ring-ring/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-[50%] left-[50%] z-100 w-[min(560px,calc(100vw-2rem))] translate-x-[-50%] translate-y-[-50%] rounded-2xl border p-6 shadow-xl duration-200">
-          <DialogPrimitive.Title className="flex items-center gap-2.5 text-base font-semibold">
+          <DialogPrimitive.Title className="text-title flex items-center gap-2.5 font-semibold">
             <Earth className="size-5 shrink-0" strokeWidth={1.75} />
             {window.location.host}
           </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="text-foreground mt-4 text-sm leading-relaxed">
+          <DialogPrimitive.Description className="text-foreground text-body mt-4 leading-relaxed">
             This page is asking you to confirm that you want to leave —
             information you&rsquo;ve entered may not be saved.
           </DialogPrimitive.Description>
@@ -42,7 +42,7 @@ export function LeaveConfirm({
             </Button>
             <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Stay on page
-              <kbd className="bg-muted text-muted-foreground text-caption ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+              <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
                 ESC
               </kbd>
             </Button>

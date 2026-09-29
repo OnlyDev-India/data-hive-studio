@@ -5,196 +5,108 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 **Build approach:** Tracer Bullet (each feature built end to end through every layer, working).
 **Workflow:** Beta (after `/develop`, run `/check verify` then `/test`). The project default level of rigor. `/architect` is the recommended first stop for a feature with a real decision, but skippable when you already know the build. Any feature can carry its own tag (e.g. `· GA`) to do more or less.
 
-*These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use* `/develop` *and skip* `/architect`*. You decide when a feature is* `done`*.*
+_These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use_ `/develop` _and skip_ `/architect`_. You decide when a feature is_ `done`_._
 
 ## At a glance
 
-| #   | Feature                                     | Phase    | Status      |
-| --- | ------------------------------------------- | -------- | ----------- |
-| A   | Connections                                 | Existing | existing    |
-| B   | Table explorer                              | Existing | existing    |
-| C   | Query editor                                | Existing | existing    |
-| D   | Schema designer                             | Existing | existing    |
-| E   | Workspace shell                             | Existing | existing    |
-| F   | Activity log                                | Existing | existing    |
-| G   | Data inspector                              | Existing | existing    |
-| H   | Data export                                 | Existing | existing    |
-| J   | Settings                                    | Existing | existing    |
-| K   | Notifications                               | Existing | existing    |
-| L   | Auto updater                                | Existing | existing    |
-| M   | Data grid                                   | Existing | existing    |
-| N   | Shared query editor components              | Existing | existing    |
-| O   | DB adapter layer                            | Existing | existing    |
-| P   | Team server                                 | Existing | existing    |
-| Q   | Native shell                                | Existing | existing    |
-| R   | Command palette                             | Existing | existing    |
-| 10  | Stop a running query                        | Slice 10 | done        |
-| 11  | Read only and environment labels            | Slice 11 | done        |
-| 12  | Import data                                 | Slice 12 | done        |
-| 13  | Explain plan viewer                         | Slice 13 | done        |
-| 17  | Streaming results for Postgres and MongoDB  | Slice 17 | done        |
-| 28  | Split server only code into its own crate   | Slice 28 | done        |
-| 29  | Strip the server to a bare no login proxy   | Slice 29 | done        |
-| 32  | One line install without OS warnings        | Slice 32 | done        |
-| 30  | Connection form as a two step flow          | Slice 30 | in-progress |
-| 31  | Encrypted local secret storage              | Slice 31 | in-progress |
-| 33  | Installer progress and step feedback        | Slice 33 | in-progress |
-| 5   | Table comparison view                       | Slice 5  | planned     |
-| 14  | Saved queries and snippets                  | Slice 14 | planned     |
-| 15  | Mongo aggregation builder                   | Slice 15 | planned     |
-| 16  | ER diagram                                  | Slice 16 | planned     |
-| 34  | Visual foundation                           | Slice 34 | in-progress |
-| 35  | Token cleanup sweep                         | Slice 34 | in-progress |
-| 36  | First screens: landing and splash           | Slice 34 | in-progress |
+| #   | Feature                        | Phase    | Status   |
+| --- | ------------------------------ | -------- | -------- |
+| A   | Connections                    | Existing | existing |
+| B   | Table explorer                 | Existing | existing |
+| C   | Query editor                   | Existing | existing |
+| D   | Schema designer                | Existing | existing |
+| E   | Workspace shell                | Existing | existing |
+| F   | Activity log                   | Existing | existing |
+| G   | Data inspector                 | Existing | existing |
+| H   | Data export                    | Existing | existing |
+| J   | Settings                       | Existing | existing |
+| K   | Notifications                  | Existing | existing |
+| L   | Auto updater                   | Existing | existing |
+| M   | Data grid                      | Existing | existing |
+| N   | Shared query editor components | Existing | existing |
+| O   | DB adapter layer               | Existing | existing |
+| P   | Team server                    | Existing | existing |
+| Q   | Native shell                   | Existing | existing |
+| R   | Command palette                | Existing | existing |
+| 5   | Table comparison view          | Slice 5  | planned  |
+| 14  | Saved queries and snippets     | Slice 14 | planned  |
+| 15  | Mongo aggregation builder      | Slice 15 | planned  |
+| 16  | ER diagram                     | Slice 16 | planned  |
 
 ## Existing
 
 ### A. Connections · existing
+
 DB connection setup and management across SQLite, PostgreSQL, and MongoDB, with SSH tunneling. code in `src/features/connections`
 
 ### B. Table explorer · existing
+
 Browse tables and collections through the data grid, with schema editing reachable from the same pane. code in `src/features/table-explorer`
 
 ### C. Query editor · existing
+
 SQL and Mongo query editing with multi statement execution, bind variables, dangerous SQL warnings, and streamed result tabs. code in `src/features/query-editor`
 
 ### D. Schema designer · existing
+
 DDL design: create tables and collections, manage indexes and roles, atomic schema transactions. code in `src/features/schema-designer`
 
 ### E. Workspace shell · existing
+
 Tab and pane management: sidebar, tab bar, resizable panes, drag and drop tab reordering. code in `src/features/workspace`
 
 ### F. Activity log · existing
+
 Filterable activity history feed with a details view. code in `src/features/activity`
 
 ### G. Data inspector · existing
+
 JSON/BSON document viewer with tree navigation, syntax highlighting, and search. code in `src/features/inspector`
 
 ### H. Data export · existing
+
 Export query or table data to Excel, CSV, JSON, SQL inserts, or Markdown, filtered or in full. code in `src/features/data-export`
 
 ### J. Settings · existing
+
 App configuration: appearance, command palette, keyboard shortcuts, SQL formatting, about. code in `src/features/settings`
 
 ### K. Notifications · existing
+
 In-app notification center: bell popover, toasts, dismissible items, mark all read. code in `src/features/notifications`
 
 ### L. Auto updater · existing
+
 Checks for app updates and walks the user through downloading one. code in `src/features/updater`
 
 ### M. Data grid · existing
+
 The virtualized spreadsheet grid shared across features: multi cell selection, fill handle, staged edits, column filters and reorder, FK jump links. code in `src/shared/components/data-grid`
 
 ### N. Shared query editor components · existing
+
 CodeMirror based SQL/Mongo editing: syntax highlighting, bind variable detection, signature help, the BSON JSON editor. code in `src/shared/components/query-editor`
 
 ### O. DB adapter layer · existing
+
 Shared Rust database layer: per backend adapters for SQLite, PostgreSQL, and MongoDB, plus the Mongo BSON parser/renderer. code in `crates/dh-core/src/db`
 
 ### P. Team server · existing
+
 Optional Axum server and web UI that only connects to databases, with no login, orgs or sharing (reshaped by slice 29). code in `crates/dh-server`, `src/web`
 
 ### Q. Native shell · existing
+
 Tauri native shell: app menu, commands, local connection state, activity store, file open. code in `src-tauri`
 
 ### R. Command palette · existing
+
 Keyboard driven navigation: filter and open connections, tables, and tabs, run commands. code in `src/app/studio/command-palette.tsx`
-
-## Done
-
-Shipped and committed. The milestone detail lives in each spec's `## Build plan`. Where verify and test were not run, the note says so; run them any time if you want the extra check.
-
-### 10. Stop a running query · done
-A Stop button in the editor cancels a running query on SQLite, PostgreSQL, and MongoDB (desktop and web), and the tab shows it was stopped, not failed.
-spec [0006](../specs/0006-stop-running-query/index.md) · code in `src/features/query-editor/components/editor-run-toolbar.tsx`, `crates/dh-core/src/db/runs.rs`
-
-### 11. Read only and environment labels · done · GA
-A connection can be read only (writes refused on every database, from the editor, grid, and schema designer) and carry a coloured environment label shown wherever the connection appears.
-spec [0007](../specs/0007-read-only-environment-labels/index.md) · code in `src/features/connections`, `crates/dh-core/src/db/read_only.rs`, `src/shared/components/env-chip.tsx`, `src/shared/hooks/use-write-confirm.tsx`
-Skipped: verify, test, review, document.
-
-### 12. Import data · done · GA
-Import CSV, JSON, JSON Lines, or Excel into a table or collection (or a new table) with mapping, preview, bad row reports, and a rollback on databases with transactions.
-spec [0008](../specs/0008-import-data/index.md) · code in `src/features/data-import`, `crates/dh-core/src/db/import.rs`
-Skipped: verify, test, review, document.
-
-### 13. Explain plan viewer · done
-An Explain action shows a readable plan tree for PostgreSQL, SQLite, and MongoDB, with Explain Analyze, Stop, and an optional plan after each result.
-code in `src/features/query-editor`, `crates/dh-core/src/db/explain`
-Skipped: verify, test.
-
-### 17. Streaming results for Postgres and MongoDB · done
-PostgreSQL and MongoDB stream rows as they arrive, the way SQLite does, and stopping keeps the rows already shown.
-spec [0011](../specs/0011-stream-postgres-mongo-results/index.md) · code in `crates/dh-core/src/db/stream.rs`, `crates/dh-server/src/routes/stream.rs`, `src/shared/api/streaming.ts`
-Skipped: verify, test.
-
-### 28. Split server only code into its own crate · done · Alpha
-`src-tauri` no longer compiles server only code: `dh-core` has no server module. Slice 29 finished the job by deleting the in between `dh-server-client` crate.
-code in `crates/dh-server`
-Skipped: verify.
-
-### 29. Strip the server to a bare no login proxy · done
-The server and web UI only connect to databases: an access key and Host check guard it, and every accounts, orgs, grants, and sharing piece is gone from server and desktop.
-spec [0010](../specs/0010-bare-no-login-proxy/index.md) · code in `crates/dh-server`, `src/web`, `src-tauri/src/legacy_servers.rs`
-Skipped: verify, test.
-
-### 32. One line install without OS warnings · done
-One command per OS installs the latest release with no Gatekeeper, SmartScreen or `xattr` step: `install.sh` for macOS and Linux (`.deb`, `.rpm` or AppImage) and `install.ps1` for Windows, published with checksums on each release and smoke tested, plus ad hoc signing so a browser DMG opens through Open Anyway.
-spec [0014](../specs/0014-one-line-install/index.md) · code in `scripts/install`, `.github/workflows`, `src-tauri/tauri.conf.json`, `README.md`
-Skipped: verify, test.
-
-## Slice 30: Connection form as a two step flow
-
-### 30. Connection form as a two step flow · in-progress
-The new connection landing becomes a flow: pick the database first, then a calm single column form for that database, with SSH, SSL, and advanced options reachable without the old tab strip. Editing a saved connection opens straight on its form.
-**Done when:** a new connection starts on a database picker with no tabs, Next shows a single column form for that database with only the fields it needs visible by default, SSH, SSL and advanced options are reachable without tabs, Previous returns to the picker keeping what you typed, editing a saved connection opens directly on its form, and Test and Save & Connect work for every database as they do today.
-spec [0012](../specs/0012-connection-form-two-step/index.md) · code in `src/features/connections/components`
-
-- [x] Design it (spec): `/architect connection form as a two step flow`
-- [x] Build it: `/develop connection form as a two step flow`
-  - [x] Lift defaults, payload builders, URL import and validation into tested lib files, plus the drafts hook (AC-8, AC-11, AC-16, AC-17, AC-19, AC-20)
-  - [x] Card shell, kind picker, and the PostgreSQL form end to end (AC-1 to AC-5, AC-9, AC-10, AC-12 to AC-15, AC-21, AC-27)
-  - [x] MongoDB, DocumentDB and SQLite forms, and edit mode through the new store action (AC-6, AC-7, AC-9, AC-11, AC-12, AC-14, AC-18)
-  - [x] Sidebar: select on single click, direct connect, web password prompt, Duplicate opens the form, landing tests rewritten (AC-16, AC-18, AC-22 to AC-26)
-- [ ] Verify it: `/check verify connection form as a two step flow`
-- [ ] Test it: `/test connection form as a two step flow`
-
-## Slice 31: Encrypted local secret storage
-
-### 31. Encrypted local secret storage · in-progress · GA
-Saved connection passwords and SSH secrets move out of the macOS Keychain, which prompts on every launch for an app without a Developer ID signature, into an encrypted file on disk with one storage path for dev and release. A random key made on first launch lives in its own locked file, apart from the secrets. Existing Keychain entries carry over once, then the Keychain is never read again. The design pass settles the file layout, how the one time carry over runs, and what happens when the key file is missing or damaged.
-**Done when:** a fresh install saves and reuses passwords and SSH secrets with no Keychain prompt in dev and release; existing Keychain passwords carry over on the first launch after upgrading and no Keychain prompt appears after that; the key file and the secrets file are readable only by your OS user; and a lost or damaged key file loses only the saved secrets, never the connections, and says so clearly.
-spec [0013](../specs/0013-encrypted-local-secret-storage/index.md) · code in `src-tauri/src/local_connections`, `src-tauri/src/secret_store`
-
-- [x] Design it (spec): `/architect encrypted local secret storage`
-- [x] Build it: `/develop encrypted local secret storage`
-  - [x] One sealed secrets file used by every build, with atomic private writes and its tests running in CI (AC-1 to AC-5, AC-12)
-  - [x] One time carry over from the Keychain and the old dev files, then delete them (AC-7 to AC-9)
-  - [x] Lost key reset, newer version read only mode, and the Time Machine exclusion for the key (AC-6, AC-10, AC-11)
-  - [x] Launch notice command, the notification in the store, and the new prompt copy (AC-9 to AC-11, AC-13)
-- [ ] Verify it: `/check verify encrypted local secret storage`
-- [ ] Test it: `/test encrypted local secret storage`
-- [ ] Review it (fresh model): `/check review encrypted local secret storage`
-- [ ] Document it: `/document encrypted local secret storage`
-
-## Slice 33: Installer progress and step feedback
-
-### 33. Installer progress and step feedback · in-progress
-`install.sh` and `install.ps1` go quiet for long stretches (the download, the checksum, `apt-get` or `dnf`, the Windows setup), so it can look stuck. Show which step is running with a step counter, a spinner on steps with no measurable size, and a percentage on the download. The design pass settles the counter and bar style, what prints when output isn't a terminal (CI smoke jobs, piped logs), and how to show download progress on PowerShell 5.1, where the built in progress bar makes downloads very slow.
-**Done when:** on macOS, Linux and Windows every install step prints what it is doing as it starts, the release download shows a live percentage, nothing sits silent for more than a few seconds, output without a terminal stays plain lines with no spinner noise, and the smoke jobs in `install-scripts.yml` still pass.
-spec [0015](../specs/0015-installer-progress-feedback.md) · code in `scripts/install`, `.github/workflows/install-scripts.yml`, `README.md`
-
-- [x] Design it (spec): `/architect installer progress and step feedback`
-- [x] Build it: `/develop installer progress and step feedback`
-  - [x] `install.sh` step lines and summary, root rules with the rerun command, and the CI log checks (AC-1, AC-2, AC-6, AC-8, AC-10 to AC-15, AC-18)
-  - [x] `install.sh` spinner with hidden tool output, download meter, plain heartbeat, Ctrl+C and width fitting (AC-3 to AC-5, AC-7, AC-16, AC-17)
-  - [x] `install.ps1` with the HttpClient download meter, wizard wait spinner and its smoke log check (AC-1 to AC-4, AC-6 to AC-10, AC-16 to AC-18)
-- [ ] Verify it: `/check verify installer progress and step feedback`
-- [ ] Test it: `/test installer progress and step feedback`
 
 ## Slice 5: Table comparison view
 
 ### 5. Table comparison view · needs a decision · from spec 0003
+
 Compare two tables side by side, both structure (columns, indexes, and so on) and data (rows), in the same grid format as the review before apply dialog. The design pass settles where the view lives and how it reuses that dialog's grid renderer without its apply and selection behaviour.
 **Done when:** picking two tables shows their structural differences and their data differences, in the same grid format the review before apply dialog already uses.
 
@@ -203,6 +115,7 @@ Compare two tables side by side, both structure (columns, indexes, and so on) an
 ## Slice 14: Saved queries and snippets
 
 ### 14. Saved queries and snippets
+
 A per connection library of named saved queries and snippets you can search, insert into the editor, edit, and delete, kept across restarts.
 **Done when:** you can save the current editor text under a name, find it later from a searchable list, insert it into any editor tab for that connection, and it is still there after restarting the app.
 code in `src/features/query-editor`, `src/features/workspace/components/sidebar`
@@ -214,6 +127,7 @@ code in `src/features/query-editor`, `src/features/workspace/components/sidebar`
 ## Slice 15: Mongo aggregation builder
 
 ### 15. Mongo aggregation builder · needs a decision
+
 A visual builder for Mongo pipelines: add stages one by one (match, group, sort, project, lookup, and so on), see each stage's output, and send the pipeline to the editor or the grid. The design pass settles how much of the pipeline language the first cut covers and how stage previews stay cheap on large collections.
 **Done when:** you can build a multi stage aggregation for a Mongo collection stage by stage, see the result after each stage, and run or copy the final pipeline.
 code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `crates/dh-core/src/db/mongodb`
@@ -223,57 +137,12 @@ code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `cra
 ## Slice 16: ER diagram
 
 ### 16. ER diagram · needs a decision
+
 A diagram of a database or schema: tables as boxes with their columns, joined by foreign keys, and a click opens that table. The design pass settles drawing and layout, how it copes with hundreds of tables, and image export.
 **Done when:** opening the diagram for a PostgreSQL or SQLite schema shows its tables and foreign key links, and clicking a table opens it, with a large schema still usable.
 code in `src/features/schema-designer`, `src/features/workspace/components/sidebar`
 
 - [ ] Design it (spec): `/architect er diagram`
-
-## Slice 34: Visual identity pass
-
-The app runs on a stock neutral palette carried over from another product, so nothing on screen says DH Studio. Build it in order: the foundation settles the look, the sweep moves every screen onto it, then the first screens get the one bold moment.
-
-### 34. Visual foundation · in-progress
-Give the app its own look: a palette with a brand color drawn from the app icon instead of the graphite default, a typeface that ships with the app instead of an `Inter` name that silently falls back to the system font, a real type scale with nothing below a readable size, corner radius that follows hierarchy, and `prefers-reduced-motion` respected everywhere. The design pass settles the direction for a dense database tool, the fonts and how they ship, and how the accent, font and corner pickers in Settings fit the new tokens.
-**Done when:** the default theme uses the new palette and brand color in light and dark, the chosen fonts are bundled and render the same on macOS, Windows, Linux and the web build, chrome text uses the named scale with no size under 11px, radius varies by element role, and every animation stops or softens when reduced motion is on.
-spec [0016](../specs/0016-visual-foundation/index.md) · code in `src/index.css`, `src/shared/theme`, `index.html`, `src/shared/components/ui`
-
-- [x] Design it (spec): `/architect visual foundation`
-- [x] Build it: `/develop visual foundation`
-  - [x] Near neutral grey palette, DH Blue and all accent blocks (Yellow as Gold) on `data-accent`, pre paint script, and the contrast test with the chroma cap (AC-1 to AC-4, AC-11)
-  - [x] Bundled IBM Plex Sans and Mono, Font picker as Plex or System UI (AC-5, AC-6, AC-11, AC-12)
-  - [x] Named type scale with aliases, no text under 11px, editor and grid on the scale (AC-7, AC-8)
-  - [x] Radius roles and presets on `data-corners`, shared primitives moved to roles (AC-9, AC-11, AC-12)
-  - [x] Global reduced motion rule with slowed spinners (AC-10)
-- [ ] Verify it: `/check verify visual foundation`
-- [ ] Test it: `/test visual foundation`
-
-### 35. Token cleanup sweep · in-progress
-Move every screen onto the foundation's tokens: replace the raw Tailwind colors (about 80, mostly in the review before apply dialog, type icons, activity feed and notifications) with semantic ones, and turn the tracked all caps micro labels into sentence case headings on the new scale.
-**Done when:** no component uses a raw palette class or a hex color outside the icon files, accent and theme changes reach every status color, and no tracked all caps label remains in the chrome.
-spec [0017](../specs/0017-token-cleanup-sweep/index.md) · code in `src/shared/components/apply-changes-dialog.tsx`, `src/shared/components/icons/types.tsx`, `src/features/activity`, `src/features/notifications`, `src/app/studio/action-bar.tsx`
-
-- [x] Design it (spec): `/architect token cleanup sweep`
-- [ ] Build it: `/develop token cleanup sweep`
-  - [ ] Scan test with a shrinking allowlist, activity feed and details tab on status tones (AC-1, AC-2)
-  - [ ] Diff and object tokens with contrast checks: review dialog, pending and deleted grid rows, object, tab and key icons (AC-3, AC-4, AC-6)
-  - [ ] Status leftovers, `--destructive-foreground`, `--overlay`, and the Settings previews on a `.light` scope (AC-1, AC-5, AC-7, AC-8)
-  - [ ] Sentence case labels, then the legacy alias rename done last (AC-9, AC-10)
-- [ ] Verify it: `/check verify token cleanup sweep`
-- [ ] Test it: `/test token cleanup sweep`
-
-### 36. First screens: landing and splash · in-progress
-The landing is the first thing you see, and today it is a dot grid with a blurred glow behind the database picker; the splash has its own hardcoded blue loader outside the theme. Replace the decoration with something that belongs to a database tool, keep the rest of the screen quiet, and put the splash on the theme tokens. The design pass settles what that one memorable moment is.
-**Done when:** the landing and splash use only theme tokens, the dot grid and glow are gone, the landing's one bold element works in light and dark and under reduced motion, and picking a database and connecting still work as they do today.
-spec [0017](../specs/0017-first-screens-landing-splash.md) · code in `src/features/connections/components/landing.tsx`, `src/app/splash-screen.tsx`, `src/shared/components/brand-mark.tsx`, `src/app/studio`
-
-- [x] Design it (spec): `/architect first screens landing and splash`
-- [ ] Build it: `/develop first screens landing and splash`
-  - [ ] Brand mark on the splash and the empty studio landing, decoration gone, both surfaces on `bg-background` (AC-1, AC-3, AC-4, AC-5, AC-10, AC-11, AC-12)
-  - [ ] Splash pulse and once per launch landing entrance, with reduced motion (AC-2, AC-6, AC-7)
-  - [ ] Layout limits: hide the mark under 720px tall, card still scrolls, drag moves only the card (AC-5, AC-8, AC-9)
-- [ ] Verify it: `/check verify first screens landing and splash`
-- [ ] Test it: `/test first screens landing and splash`
 
 ## Deferred
 

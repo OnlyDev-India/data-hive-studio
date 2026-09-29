@@ -64,7 +64,7 @@ function CheckRow({
         disabled={disabled}
         onCheckedChange={(c) => onChange(c === true)}
       />
-      <Label htmlFor={id} className="text-sm font-normal">
+      <Label htmlFor={id} className="text-body font-normal">
         {children}
       </Label>
     </div>

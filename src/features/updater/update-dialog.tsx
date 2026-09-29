@@ -134,13 +134,13 @@ export function UpdateDialog() {
         </DialogHeader>
 
         {confirming ? (
-          <ul className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3 text-sm">
+          <ul className="bg-muted/30 rounded-control text-body flex flex-col gap-1 border p-3">
             {unapplied.map((item, i) => (
               <li key={i} className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate font-medium">
                   {item.label}
                 </span>
-                <span className="text-muted-foreground shrink-0 text-xs">
+                <span className="text-muted-foreground text-small shrink-0">
                   {item.parts.join(", ")}
                 </span>
               </li>
@@ -149,7 +149,7 @@ export function UpdateDialog() {
         ) : (
           updateInfo?.body &&
           !checking_or_upToDate && (
-            <div className="bg-muted/40 max-h-64 overflow-y-auto rounded-lg border p-3 text-sm">
+            <div className="bg-muted/40 rounded-surface text-body max-h-64 overflow-y-auto border p-3">
               <ReleaseNotes markdown={updateInfo.body} />
             </div>
           )
@@ -166,14 +166,14 @@ export function UpdateDialog() {
                 style={percent !== null ? { width: `${percent}%` } : undefined}
               />
             </div>
-            <p className="text-muted-foreground text-xs">
+            <p className="text-muted-foreground text-small">
               {percent !== null ? `${percent}%` : "Downloading…"}
             </p>
           </div>
         )}
 
         {error && !confirming && (
-          <p className="text-destructive text-sm">{error}</p>
+          <p className="text-destructive text-body">{error}</p>
         )}
 
         <DialogFooter>

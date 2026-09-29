@@ -28,6 +28,16 @@ const TYPE_TOKENS = [
   "binary",
 ].map((t) => `--type-${t}`);
 const STATUSES = ["info", "success", "warning", "destructive"];
+const DIFFS = ["add", "remove", "change"].map((d) => `--diff-${d}`);
+const OBJECTS = [
+  "relation",
+  "routine",
+  "type",
+  "container",
+  "security",
+  "extension",
+  "key",
+].map((o) => `--obj-${o}`);
 const NEUTRALS = [
   "background",
   "content",
@@ -78,6 +88,12 @@ describe.each(themes)("$name theme", ({ dark }) => {
       );
   });
 
+  it("keeps the overlay near neutral", () => {
+    expect(chromaOf(resolveVar(base, "--overlay"))).toBeLessThanOrEqual(
+      MAX_NEUTRAL_CHROMA,
+    );
+  });
+
   it("keeps the Graphite accent near neutral", () => {
     const vars = themeVars(blocks, dark, "graphite");
     for (const name of ACCENT_VARS)
@@ -98,8 +114,18 @@ describe.each(themes)("$name theme", ({ dark }) => {
     ...STATUSES.map((s) => [`--${s}`, "--background"]),
     ...STATUSES.map((s) => [`--${s}-dark`, `--${s}-light`]),
     ...TYPE_TOKENS.map((t) => [t, "--background"]),
+    ...DIFFS.map((d) => [`${d}-foreground`, d]),
+    ...DIFFS.map((d) => [`${d}-foreground`, "--background"]),
+    ["--destructive-foreground", "--destructive"],
   ])("%s on %s is at least 4.5:1", (fg, bg) => {
     expect(pair(fg, bg)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([
+    ...OBJECTS.map((o) => [o, "--background"]),
+    ...OBJECTS.map((o) => [o, "--chrome"]),
+  ])("icon color %s on %s is at least 3:1", (fg, bg) => {
+    expect(pair(fg, bg)).toBeGreaterThanOrEqual(3);
   });
 
   it.each(listAccents().map((a) => a.id))(
@@ -146,6 +172,20 @@ describe("accent blocks", () => {
       for (const v of ACCENT_VARS)
         expect(block?.[v], `${sel} ${v}`).toBeDefined();
     }
+  });
+
+  it("lets a .light wrapper redeclare the light theme", () => {
+    expect(blocks.get(".light")).toBe(blocks.get(":root"));
+  });
+
+  it.each(
+    listAccents()
+      .map((a) => a.id)
+      .filter((id) => id !== "blue"),
+  )("%s also reaches .light and .dark wrappers", (id) => {
+    const acc = `[data-accent="${id}"]`;
+    expect(blocks.get(`${acc} .light`)).toBe(blocks.get(acc));
+    expect(blocks.get(`${acc} .dark`)).toBe(blocks.get(`.dark${acc}`));
   });
 
   it("matches each swatch to its CSS --primary", () => {

@@ -828,7 +828,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
             {docDetail && (
               <>
                 <DialogHeader>
-                  <DialogTitle className="font-mono text-base">
+                  <DialogTitle className="text-title font-mono">
                     {docDetail.signature}
                   </DialogTitle>
                   <DialogDescription>{docDetail.summary}</DialogDescription>

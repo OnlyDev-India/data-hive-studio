@@ -78,7 +78,7 @@ export function TableListItem({
             onClick={on_select}
             onDoubleClick={on_open}
             className={cn(
-              "w-full justify-start px-2 py-1 text-left text-xs font-normal",
+              "text-small w-full justify-start px-2 py-1 text-left font-normal",
               is_selected ? "bg-muted font-medium" : "hover:bg-muted/50",
             )}
           >

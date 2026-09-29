@@ -67,7 +67,7 @@ function Collapse({
       <button
         onClick={on_toggle}
         aria-expanded={open}
-        className="text-muted-foreground hover:bg-muted/50 flex shrink-0 items-center gap-2 py-2 pr-3 pl-1 text-xs font-medium"
+        className="text-muted-foreground hover:bg-muted/50 text-small flex shrink-0 items-center gap-2 py-2 pr-3 pl-1 font-medium"
       >
         <ChevronRight
           className={cn("size-3 transition-transform", open && "rotate-90")}
@@ -256,7 +256,7 @@ export function HomeView({
           id,
           label: name,
           kind,
-          source: WEB ? "browser" : "local",
+          source: WEB ? "Browser" : "Local",
           connect_title: "Double-click to connect",
           guard: connGuardOf(params),
           connect: () => void connect_direct(name, kind, params),
@@ -274,7 +274,7 @@ export function HomeView({
         <div className="relative min-w-0 flex-1">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
           <Input
-            className="h-8 pl-7 text-xs"
+            className="text-small h-8 pl-7"
             placeholder="Search connections…"
             value={search_value}
             onChange={(e) => on_search_change(e.target.value)}
@@ -304,7 +304,7 @@ export function HomeView({
                         aria-pressed={selected === entry.id}
                         {...row_events(`pinned:${entry.id}`, entry.connect)}
                         className={cn(
-                          "hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                          "hover:bg-accent group rounded-control w-full justify-start gap-2 px-2 py-2 text-left font-normal",
                           selected === `pinned:${entry.id}` && "bg-accent",
                         )}
                       >
@@ -313,7 +313,7 @@ export function HomeView({
                           {entry.label}
                         </span>
                         {entry.guard && <ConnFlags conn={entry.guard} />}
-                        <span className="text-muted-foreground text-caption ml-auto shrink-0 uppercase">
+                        <span className="text-muted-foreground text-caption ml-auto shrink-0">
                           {entry.source}
                         </span>
                       </Button>
@@ -345,7 +345,7 @@ export function HomeView({
         on_toggle={() => toggle_section("saved")}
       >
         {saved_rows.length === 0 ? (
-          <p className="text-muted-foreground rounded-md border border-dashed px-2 py-2 text-xs">
+          <p className="text-muted-foreground rounded-control text-small border border-dashed px-2 py-2">
             {home_query
               ? "No saved connections match."
               : WEB
@@ -368,7 +368,7 @@ export function HomeView({
                     () => void connect_direct(name, kind, params),
                   )}
                   className={cn(
-                    "hover:bg-accent group w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                    "hover:bg-accent group rounded-control w-full justify-start gap-2 px-2 py-2 text-left font-normal",
                     selected === pin_id && "bg-accent",
                   )}
                 >
@@ -447,7 +447,7 @@ export function HomeView({
         on_toggle={() => toggle_section("recent")}
       >
         {recent_filtered.length === 0 ? (
-          <p className="text-muted-foreground rounded-md border border-dashed px-2 py-2 text-xs">
+          <p className="text-muted-foreground rounded-control text-small border border-dashed px-2 py-2">
             {home_query
               ? "No recent databases match."
               : "Databases you open will be listed here for quick access."}
@@ -479,7 +479,7 @@ export function HomeView({
                       }
                     })}
                     className={cn(
-                      "hover:bg-accent w-full justify-start gap-2 rounded-md px-2 py-2 text-left font-normal",
+                      "hover:bg-accent rounded-control w-full justify-start gap-2 px-2 py-2 text-left font-normal",
                       selected === `recent:${conn.id}` && "bg-accent",
                     )}
                   >

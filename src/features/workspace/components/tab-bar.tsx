@@ -172,7 +172,7 @@ export function TabBar({
         );
       })}
       {/* Drop zone past the end of the strip (append position). */}
-      <div className="bg-background sticky right-0 z-10 ml-0.5 flex h-full min-w-3 shrink-0 items-center gap-0.5 rounded-md">
+      <div className="bg-background rounded-control sticky right-0 z-10 ml-0.5 flex h-full min-w-3 shrink-0 items-center gap-0.5">
         <Button
           variant="ghost"
           size="iconXs"
@@ -286,7 +286,7 @@ function TabItem({
             }
             onClick={() => on_select(tab)}
             className={cn(
-              "relative flex max-w-[16rem] min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md border-b-2 px-2.5 py-1.5 text-sm whitespace-nowrap select-none",
+              "rounded-t-control text-body relative flex max-w-[16rem] min-w-0 shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-2.5 py-1.5 whitespace-nowrap select-none",
               active
                 ? "border-primary text-foreground"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",

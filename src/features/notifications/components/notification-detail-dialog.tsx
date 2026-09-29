@@ -19,7 +19,7 @@ const NOTIFICATION_ICONS = {
 const NOTIFICATION_ICON_CLASS = {
   success: "text-success",
   error: "text-destructive",
-  info: "text-sky-500",
+  info: "text-info",
 } as const;
 
 export function NotificationDetailDialog({
@@ -58,16 +58,16 @@ export function NotificationDetailDialog({
         </DialogHeader>
         <div className="space-y-3">
           {notification.detail && (
-            <div className="bg-muted/50 text-muted-foreground rounded-md p-3 text-sm break-all whitespace-pre-wrap">
+            <div className="bg-muted/50 text-muted-foreground rounded-control text-body p-3 break-all whitespace-pre-wrap">
               {notification.detail}
             </div>
           )}
           {notification.description && (
-            <div className="warp-break-words text-sm whitespace-pre-wrap">
+            <div className="warp-break-words text-body whitespace-pre-wrap">
               {notification.description}
             </div>
           )}
-          <p className="text-muted-foreground/70 text-xs">
+          <p className="text-muted-foreground/70 text-small">
             {new Date(notification.at).toLocaleString()}
           </p>
         </div>

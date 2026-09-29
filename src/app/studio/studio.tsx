@@ -259,7 +259,7 @@ export function Studio() {
               />
             </EdgePanelSlot>
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              <Landing />
+              <Landing showMark />
             </div>
           </>
         ) : (
@@ -302,7 +302,7 @@ function WebWarningBanner() {
   }, []);
   if (!msg) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700">
+    <div className="border-warning/40 bg-warning-light text-small text-warning-dark flex shrink-0 items-center gap-2 border-b px-4 py-1.5">
       <AlertTriangle className="size-3.5 shrink-0" />
       <span>{msg}</span>
     </div>

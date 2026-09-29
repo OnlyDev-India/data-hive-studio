@@ -520,7 +520,7 @@ export function CommandPalette() {
           className="max-h-[min(60vh,24rem)] scrollbar-thin overflow-y-auto p-1.5"
         >
           {filtered.length === 0 ? (
-            <p className="text-muted-foreground px-3 py-6 text-center text-sm">
+            <p className="text-muted-foreground text-body px-3 py-6 text-center">
               {mode !== "commands" && !active_conn_id
                 ? "Open a connection to browse tables and tabs."
                 : (mode === "tables-only" || mode === "schema-open") &&
@@ -556,7 +556,7 @@ export function CommandPalette() {
                     <div
                       key={v.key}
                       style={row_style}
-                      className="text-muted-foreground text-caption flex items-end px-2.5 pb-1 font-medium tracking-wide uppercase"
+                      className="text-muted-foreground text-small flex items-end px-2.5 pb-1 font-medium"
                     >
                       {row.label}
                     </div>
@@ -573,7 +573,7 @@ export function CommandPalette() {
                     onMouseEnter={on_row_mouse_enter}
                     style={row_style}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-2.5 py-1 text-left text-sm",
+                      "rounded-control text-body flex items-center gap-3 px-2.5 py-1 text-left",
                       i === selected
                         ? "bg-primary/10 text-primary"
                         : "text-foreground",
@@ -588,13 +588,13 @@ export function CommandPalette() {
                         {highlightMatch(cmd.label, rest.trim())}
                       </span>
                       {cmd.hint && (
-                        <span className="text-muted-foreground truncate text-xs">
+                        <span className="text-muted-foreground text-small truncate">
                           {cmd.hint}
                         </span>
                       )}
                     </span>
                     {cmd.scope && (
-                      <span className="text-muted-foreground shrink-0 text-xs">
+                      <span className="text-muted-foreground text-small shrink-0">
                         {cmd.scope}
                       </span>
                     )}
@@ -605,13 +605,13 @@ export function CommandPalette() {
           )}
         </div>
         {running && (
-          <p className="text-muted-foreground flex items-center gap-2 border-t px-3 py-2 text-sm">
+          <p className="text-muted-foreground text-body flex items-center gap-2 border-t px-3 py-2">
             <Loader2 className="size-3.5 animate-spin" />
             Opening…
           </p>
         )}
         {!running && error_message && (
-          <p className="text-destructive border-t px-3 py-2 text-sm">
+          <p className="text-destructive text-body border-t px-3 py-2">
             {error_message}
           </p>
         )}

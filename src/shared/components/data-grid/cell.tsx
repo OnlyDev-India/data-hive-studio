@@ -167,7 +167,7 @@ export function Cell({ row, col, dci }: CellProps) {
   const cellClass = cn(
     "group/cell relative flex min-w-0 items-center overflow-visible border-r border-border/40 px-2 py-1 text-body tabular-nums w-36 shrink-0 cursor-cell select-none",
     is_selected && "bg-primary/15",
-    dirty && !is_selected && "bg-yellow-300/10",
+    dirty && !is_selected && "bg-diff-change",
     deleted && "line-through",
     pinned && "sticky z-3 bg-background",
     is_editing && "p-0",

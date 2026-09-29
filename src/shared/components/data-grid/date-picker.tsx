@@ -68,7 +68,7 @@ export function DatePicker({
             variant="outline"
             size="sm"
             className={cn(
-              "hover:text-accent-foreground h-7 w-full justify-start border-transparent bg-transparent px-1.5 text-left text-sm font-normal hover:bg-transparent",
+              "hover:text-accent-foreground text-body h-7 w-full justify-start border-transparent bg-transparent px-1.5 text-left font-normal hover:bg-transparent",
               !value && "text-muted-foreground",
               className,
             )}
@@ -174,7 +174,7 @@ function TimeColumn({
           role="option"
           aria-selected={n === value}
           className={cn(
-            "hover:bg-accent shrink-0 cursor-pointer rounded-md py-1 text-center text-sm tabular-nums",
+            "hover:bg-accent rounded-control text-body shrink-0 cursor-pointer py-1 text-center tabular-nums",
             n === value &&
               "bg-primary text-primary-foreground hover:bg-primary",
           )}

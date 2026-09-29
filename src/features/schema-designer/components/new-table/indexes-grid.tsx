@@ -23,7 +23,7 @@ export function IndexesGrid({ indexes, columns, onPatch, onRemove }: Props) {
       </p>
     );
   return (
-    <table className="w-full min-w-max text-sm">
+    <table className="text-body w-full min-w-max">
       <thead>
         <tr>
           <th className={`${TH_NUM} w-9 text-center`}>#</th>
@@ -37,7 +37,7 @@ export function IndexesGrid({ indexes, columns, onPatch, onRemove }: Props) {
         {indexes.map((ix, idx) => (
           <tr key={idx}>
             <td
-              className={`${TD_NUM} ${ROW_PAD} text-muted-foreground text-center text-xs`}
+              className={`${TD_NUM} ${ROW_PAD} text-muted-foreground text-small text-center`}
             >
               {idx + 1}
             </td>

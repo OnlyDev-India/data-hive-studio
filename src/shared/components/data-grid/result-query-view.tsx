@@ -52,7 +52,7 @@ export function ResultQueryView({
         onClick={copy}
         aria-label={copied ? "Copied" : "Copy query"}
         title={copied ? "Copied" : "Copy query"}
-        className="absolute top-2 right-3 rounded p-1.5 text-white/60 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/10 hover:text-white"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground absolute top-2 right-3 rounded p-1.5 opacity-0 transition-opacity group-hover:opacity-100"
       >
         {copied ? (
           <Check className="size-3.5" />

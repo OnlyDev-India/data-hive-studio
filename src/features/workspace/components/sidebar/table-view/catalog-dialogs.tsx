@@ -48,7 +48,7 @@ export function DropDialog({
           </DialogDescription>
         </DialogHeader>
         {error && (
-          <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-sm">
+          <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-control text-body border px-3 py-2">
             {error}
           </div>
         )}
@@ -104,7 +104,7 @@ export function DuplicateDialog({
           />
         </div>
         {error && (
-          <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-sm">
+          <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-control text-body border px-3 py-2">
             {error}
           </div>
         )}
@@ -167,7 +167,7 @@ export function DuplicateMongoDialog({
             autoFocus
           />
         </div>
-        <label className="flex items-center gap-2 text-sm">
+        <label className="text-body flex items-center gap-2">
           <Checkbox
             checked={copy_data}
             onCheckedChange={(v) => on_copy_data_change(v === true)}
@@ -175,7 +175,7 @@ export function DuplicateMongoDialog({
           Copy all documents too
         </label>
         {error && (
-          <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border px-3 py-2 text-sm">
+          <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-control text-body border px-3 py-2">
             {error}
           </div>
         )}
@@ -208,20 +208,20 @@ export function GrantsDialog({
           <DialogTitle>Grants — {name}</DialogTitle>
         </DialogHeader>
         {rows === null ? (
-          <p className="text-muted-foreground py-2 text-sm">Loading…</p>
+          <p className="text-muted-foreground text-body py-2">Loading…</p>
         ) : rows.length === 0 ? (
-          <p className="text-muted-foreground py-2 text-sm">
+          <p className="text-muted-foreground text-body py-2">
             No explicit grants.
           </p>
         ) : (
-          <ul className="max-h-64 overflow-y-auto rounded-md border">
+          <ul className="rounded-control max-h-64 overflow-y-auto border">
             {rows.map(([grantee, privilege], i) => (
               <li
                 key={i}
-                className="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs last:border-b-0"
+                className="text-small flex items-center justify-between gap-2 border-b px-3 py-1.5 last:border-b-0"
               >
                 <span className="truncate font-mono">{grantee}</span>
-                <span className="text-muted-foreground shrink-0 uppercase">
+                <span className="text-muted-foreground shrink-0 font-mono">
                   {privilege}
                 </span>
               </li>
@@ -290,7 +290,7 @@ export function DbSchemaDdlDialog({
             )}
             {dialog.kind.endsWith("-drop") && (
               <>
-                <p className="text-muted-foreground text-sm">
+                <p className="text-muted-foreground text-body">
                   Permanently drop{" "}
                   <span className="text-foreground font-mono">
                     {dialog.name}
@@ -298,7 +298,7 @@ export function DbSchemaDdlDialog({
                   ?
                 </p>
                 {dialog.kind === "schema-drop" && (
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="text-body flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={cascade}
@@ -310,7 +310,7 @@ export function DbSchemaDdlDialog({
               </>
             )}
             {error && (
-              <p className="wrap-break-words text-destructive font-mono text-xs">
+              <p className="wrap-break-words text-destructive text-small font-mono">
                 {error}
               </p>
             )}

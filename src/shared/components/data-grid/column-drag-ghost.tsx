@@ -12,7 +12,7 @@ export function ColumnDragGhost() {
   const { col, x, y } = ctx.col_drag;
   return createPortal(
     <div
-      className="bg-popover text-foreground pointer-events-none fixed z-50 flex max-w-56 -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm whitespace-nowrap shadow-lg"
+      className="bg-popover text-foreground rounded-control text-body pointer-events-none fixed z-50 flex max-w-56 -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 border px-2.5 py-1.5 whitespace-nowrap shadow-lg"
       style={{ left: x, top: y }}
     >
       <span className="truncate">{col}</span>

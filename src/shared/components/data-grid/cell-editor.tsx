@@ -142,7 +142,7 @@ export function CellEditor() {
           <div className="relative">
             <pre
               aria-hidden
-              className="wrap-break-words bg-background pointer-events-none min-h-32 w-full resize-none overflow-hidden rounded-md border p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap"
+              className="wrap-break-words bg-background rounded-control text-small pointer-events-none min-h-32 w-full resize-none overflow-hidden border p-2 font-mono leading-relaxed whitespace-pre-wrap"
             >
               {highlight_json(val)}
             </pre>
@@ -168,7 +168,7 @@ export function CellEditor() {
                   commit();
                 }
               }}
-              className="wrap-break-words caret-foreground absolute inset-0 h-full resize-none overflow-auto bg-transparent p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-transparent"
+              className="wrap-break-words caret-foreground text-small absolute inset-0 h-full resize-none overflow-auto bg-transparent p-2 font-mono leading-relaxed whitespace-pre-wrap text-transparent"
             />
           </div>
         ) : (
@@ -189,7 +189,7 @@ export function CellEditor() {
                 commit();
               }
             }}
-            className="min-h-32 resize-y font-mono text-xs"
+            className="text-small min-h-32 resize-y font-mono"
           />
         )}
       </div>
@@ -358,7 +358,7 @@ function ArrayCellEditor({
   const commitNow = () => onCommit(toPgArray(sel));
   return (
     <div
-      className="bg-background absolute -top-3 left-1 z-40! flex w-72 flex-col gap-2 rounded-md border p-2 shadow-lg"
+      className="bg-background rounded-control absolute -top-3 left-1 z-40! flex w-72 flex-col gap-2 border p-2 shadow-lg"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -371,13 +371,13 @@ function ArrayCellEditor({
       }}
     >
       {value === null && (
-        <div className="text-muted-foreground text-2xs">(set NULL)</div>
+        <div className="text-muted-foreground text-caption">(set NULL)</div>
       )}
       <div className="flex min-h-6 flex-wrap items-center gap-1">
         {sel.map((v) => (
           <span
             key={v}
-            className="bg-primary/10 text-primary inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs"
+            className="bg-primary/10 text-primary text-small inline-flex items-center gap-1 rounded px-1.5 py-0.5"
           >
             {v}
             <button
@@ -391,7 +391,7 @@ function ArrayCellEditor({
           </span>
         ))}
         {sel.length === 0 && (
-          <span className="text-muted-foreground px-1 text-xs italic">
+          <span className="text-muted-foreground text-small px-1 italic">
             empty
           </span>
         )}
@@ -407,7 +407,7 @@ function ArrayCellEditor({
         </SelectTrigger>
         <SelectContent className="bg-background max-h-40 overflow-y-auto border">
           {available.length === 0 ? (
-            <div className="text-muted-foreground px-2 py-1 text-xs">
+            <div className="text-muted-foreground text-small px-2 py-1">
               All values added
             </div>
           ) : (
@@ -422,7 +422,7 @@ function ArrayCellEditor({
       <div className="flex items-center justify-end gap-1">
         <Button
           size="sm"
-          className="h-6 px-2 text-xs"
+          className="text-small h-6 px-2"
           onClick={() => commitNow()}
         >
           Done
@@ -503,12 +503,12 @@ function highlight_json(src: string): string {
   const escaped = src.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return escaped.replace(JSON_TOKEN, (match, str, colon) => {
     if (str !== undefined) {
-      const cls = colon !== undefined ? "text-sky-300" : "text-emerald-300";
+      const cls = colon !== undefined ? "text-type-id" : "text-type-text";
       return `<span class="${cls}">${str}</span>${colon ?? ""}`;
     }
     if (match === "true" || match === "false" || match === "null") {
-      return `<span class="text-fuchsia-400">${match}</span>`;
+      return `<span class="text-type-bool">${match}</span>`;
     }
-    return `<span class="text-amber-300">${match}</span>`;
+    return `<span class="text-type-number">${match}</span>`;
   });
 }

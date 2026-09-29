@@ -85,11 +85,11 @@ export function ConnectionForm({ onNew }: { onNew: () => void }) {
         status={
           a.test &&
           (a.test.ok ? (
-            <p role="status" className="text-success-dark text-xs">
+            <p role="status" className="text-success-dark text-small">
               Connection successful.
             </p>
           ) : (
-            <p role="alert" className="text-destructive text-xs break-words">
+            <p role="alert" className="text-destructive text-small break-words">
               {a.test.error}
             </p>
           ))

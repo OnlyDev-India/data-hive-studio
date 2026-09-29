@@ -6,7 +6,7 @@ function Empty({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="empty"
       className={cn(
-        "flex flex-col items-center justify-center gap-4 rounded-surface border border-dashed p-8 text-center",
+        "rounded-surface flex flex-col items-center justify-center gap-4 border border-dashed p-8 text-center",
         className,
       )}
       {...props}
@@ -28,7 +28,7 @@ function EmptyTitle({ className, ...props }: React.ComponentProps<"h3">) {
   return (
     <h3
       data-slot="empty-title"
-      className={cn("text-lg leading-none font-semibold", className)}
+      className={cn("text-heading leading-none font-semibold", className)}
       {...props}
     />
   );
@@ -38,7 +38,7 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <p
       data-slot="empty-description"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-muted-foreground text-body", className)}
       {...props}
     />
   );

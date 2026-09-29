@@ -25,14 +25,14 @@ export function GridSearchBar() {
   const position = count === 0 ? 0 : ctx.search_active_index + 1;
 
   return (
-    <div className="bg-popover absolute top-2 right-2 z-30 flex items-center gap-1 rounded-md border p-1 shadow-md">
+    <div className="bg-popover rounded-control absolute top-2 right-2 z-30 flex items-center gap-1 border p-1 shadow-md">
       <Search className="text-muted-foreground ml-1 size-3.5 shrink-0" />
       <Input
         ref={input_ref}
         value={ctx.search_query}
         onChange={(e) => ctx.on_search_query(e.target.value)}
         placeholder="Find in grid…"
-        className="h-6 w-40 border-none text-xs shadow-none focus-visible:ring-0"
+        className="text-small h-6 w-40 border-none shadow-none focus-visible:ring-0"
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Enter") {
@@ -45,7 +45,7 @@ export function GridSearchBar() {
           }
         }}
       />
-      <span className="text-muted-foreground text-2xs w-12 shrink-0 text-center tabular-nums">
+      <span className="text-muted-foreground text-caption w-12 shrink-0 text-center tabular-nums">
         {count === 0 ? "0/0" : `${position}/${count}`}
       </span>
       <Button

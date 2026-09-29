@@ -55,14 +55,14 @@ export function WriteConfirmDialog({
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <ul className="bg-muted/30 flex max-h-64 flex-col gap-2 overflow-y-auto rounded-md border p-3 text-sm">
+        <ul className="bg-muted/30 rounded-control text-body flex max-h-64 flex-col gap-2 overflow-y-auto border p-3">
           {items?.map((item, i) => (
             <li key={i} className="flex flex-col gap-0.5">
-              <code className="wrap-break-words font-mono text-xs">
+              <code className="wrap-break-words text-small font-mono">
                 {item.text}
               </code>
               {item.reasons.map((reason) => (
-                <span key={reason} className="text-destructive text-xs">
+                <span key={reason} className="text-destructive text-small">
                   {reason}
                 </span>
               ))}
@@ -72,13 +72,13 @@ export function WriteConfirmDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
             Cancel
-            <kbd className="bg-muted text-muted-foreground text-caption ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+            <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
               ESC
             </kbd>
           </Button>
           <Button variant="destructive" onClick={onConfirm}>
             {confirmLabel}
-            <kbd className="bg-muted text-muted-foreground text-caption ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+            <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
               <CornerDownLeft className="size-4" strokeWidth={1.75} />
             </kbd>
           </Button>

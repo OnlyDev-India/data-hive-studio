@@ -163,7 +163,7 @@ export function ExportMenu({
         >
           {/* Step 1 — choose what to export. */}
           <div className={"w-1/2 shrink-0 p-1"}>
-            <div className="px-2 py-1.5 text-sm font-medium">Export</div>
+            <div className="text-body px-2 py-1.5 font-medium">Export</div>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               closeOnClick={false}
@@ -199,7 +199,7 @@ export function ExportMenu({
               >
                 <ArrowLeft className="size-3.5" />
               </Button>
-              <span className="truncate text-sm font-medium">
+              <span className="text-body truncate font-medium">
                 {scope === "filtered"
                   ? `Filtered data (${bridge.total})`
                   : "Whole table"}

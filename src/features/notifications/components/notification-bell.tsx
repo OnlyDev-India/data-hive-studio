@@ -55,7 +55,7 @@ export function NotificationBell() {
           >
             <Bell className="size-3.5" />
             {unreadCount > 0 && (
-              <span className="bg-destructive text-caption absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 leading-none font-medium text-white">
+              <span className="bg-destructive text-caption text-destructive-foreground absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 leading-none font-medium">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
@@ -64,7 +64,7 @@ export function NotificationBell() {
       />
       <PopoverContent sideOffset={12} align="end" className="w-80 p-0">
         <div className="flex h-8 items-center gap-2 border-b px-3">
-          <span className="text-xs font-medium">Notifications</span>
+          <span className="text-small font-medium">Notifications</span>
           {items.length > 0 && (
             <>
               <span className="bg-muted text-muted-foreground text-caption rounded-full px-1.5">
@@ -73,7 +73,7 @@ export function NotificationBell() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground text-2xs ml-auto h-5 px-1.5"
+                className="text-muted-foreground text-caption ml-auto h-5 px-1.5"
                 onClick={markAllRead}
                 title="Mark all read"
               >
@@ -83,7 +83,7 @@ export function NotificationBell() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground text-2xs h-5 px-1.5"
+                className="text-muted-foreground text-caption h-5 px-1.5"
                 onClick={clearAll}
                 title="Clear all notifications"
               >
@@ -95,7 +95,7 @@ export function NotificationBell() {
         </div>
         <div className="max-h-72 overflow-y-auto">
           {items.length === 0 ? (
-            <p className="text-muted-foreground px-3 py-6 text-center text-sm">
+            <p className="text-muted-foreground text-body px-3 py-6 text-center">
               No notifications
             </p>
           ) : (

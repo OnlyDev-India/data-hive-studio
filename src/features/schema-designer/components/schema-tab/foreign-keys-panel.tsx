@@ -148,7 +148,7 @@ export function ForeignKeysPanel({
     <>
       <div>
         {/* Header — mirrors the row layout: constraint · on update · on delete */}
-        <div className="bg-muted text-muted-foreground text-caption sticky top-0 z-10 flex items-center gap-1.5 border-b px-3 py-1.5 font-medium tracking-wide uppercase">
+        <div className="bg-muted text-muted-foreground text-small sticky top-0 z-10 flex items-center gap-1.5 border-b px-3 py-1.5 font-medium">
           <span className="min-w-0 flex-1 truncate">Foreign key</span>
           <span className="w-24 shrink-0">On update</span>
           <span className="w-24 shrink-0">On delete</span>
@@ -172,12 +172,15 @@ export function ForeignKeysPanel({
                 value={draft_col}
                 onValueChange={(v) => setDraftCol(v ?? "")}
               >
-                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 text-xs">
+                <SelectTrigger
+                  size="sm"
+                  className="text-small h-7 min-w-0 flex-1"
+                >
                   <SelectValue placeholder="local column" />
                 </SelectTrigger>
                 <SelectContent>
                   {columns.map((c) => (
-                    <SelectItem key={c} value={c} className="text-xs">
+                    <SelectItem key={c} value={c} className="text-small">
                       {c}
                     </SelectItem>
                   ))}
@@ -192,7 +195,7 @@ export function ForeignKeysPanel({
                 <SelectTrigger
                   size="sm"
                   className={cn(
-                    "h-7 min-w-0 text-xs",
+                    "text-small h-7 min-w-0",
                     draft_ref_table ? "w-[45%] flex-none" : "flex-1",
                   )}
                 >
@@ -206,16 +209,16 @@ export function ForeignKeysPanel({
                 </SelectTrigger>
                 <SelectContent>
                   {tables_list === null ? (
-                    <div className="text-muted-foreground px-2 py-1.5 text-xs">
+                    <div className="text-muted-foreground text-small px-2 py-1.5">
                       loading…
                     </div>
                   ) : tables_list.length === 0 ? (
-                    <div className="text-muted-foreground px-2 py-1.5 text-xs">
+                    <div className="text-muted-foreground text-small px-2 py-1.5">
                       no tables found
                     </div>
                   ) : (
                     tables_list.map((t) => (
-                      <SelectItem key={t} value={t} className="text-xs">
+                      <SelectItem key={t} value={t} className="text-small">
                         {t}
                       </SelectItem>
                     ))
@@ -224,7 +227,7 @@ export function ForeignKeysPanel({
               </Select>
               {draft_ref_table && (
                 <>
-                  <span className="text-muted-foreground shrink-0 font-mono text-xs">
+                  <span className="text-muted-foreground text-small shrink-0 font-mono">
                     .
                   </span>
                   {ref_col_options && ref_col_options.length > 0 ? (
@@ -234,7 +237,7 @@ export function ForeignKeysPanel({
                     >
                       <SelectTrigger
                         size="sm"
-                        className="h-7 min-w-0 flex-1 text-xs"
+                        className="text-small h-7 min-w-0 flex-1"
                       >
                         <SelectValue
                           placeholder={
@@ -244,7 +247,7 @@ export function ForeignKeysPanel({
                       </SelectTrigger>
                       <SelectContent>
                         {ref_col_options.map((c) => (
-                          <SelectItem key={c} value={c} className="text-xs">
+                          <SelectItem key={c} value={c} className="text-small">
                             {c}
                           </SelectItem>
                         ))}
@@ -259,7 +262,7 @@ export function ForeignKeysPanel({
                           ? "loading columns…"
                           : "ref col(s), comma separated"
                       }
-                      className="h-7 min-w-0 flex-1 text-xs"
+                      className="text-small h-7 min-w-0 flex-1"
                     />
                   )}
                 </>
@@ -270,7 +273,10 @@ export function ForeignKeysPanel({
                 value={draft_action}
                 onValueChange={(v) => setDraftAction(v ?? "")}
               >
-                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 text-xs">
+                <SelectTrigger
+                  size="sm"
+                  className="text-small h-7 min-w-0 flex-1"
+                >
                   <SelectValue placeholder="ON DELETE (none)" />
                 </SelectTrigger>
                 <SelectContent>
@@ -278,7 +284,7 @@ export function ForeignKeysPanel({
                     <SelectItem
                       key={`d-${a || "none"}`}
                       value={a}
-                      className="text-xs"
+                      className="text-small"
                     >
                       {a || "ON DELETE (none)"}
                     </SelectItem>
@@ -289,7 +295,10 @@ export function ForeignKeysPanel({
                 value={draft_on_update}
                 onValueChange={(v) => setDraftOnUpdate(v ?? "")}
               >
-                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 text-xs">
+                <SelectTrigger
+                  size="sm"
+                  className="text-small h-7 min-w-0 flex-1"
+                >
                   <SelectValue placeholder="ON UPDATE (none)" />
                 </SelectTrigger>
                 <SelectContent>
@@ -297,7 +306,7 @@ export function ForeignKeysPanel({
                     <SelectItem
                       key={`u-${a || "none"}`}
                       value={a}
-                      className="text-xs"
+                      className="text-small"
                     >
                       {a || "ON UPDATE (none)"}
                     </SelectItem>
@@ -344,7 +353,7 @@ function FkRow({
   return (
     <div
       className={cn(
-        "flex flex-nowrap items-center gap-1.5 border-b px-3 py-2 text-sm last:border-0",
+        "text-body flex flex-nowrap items-center gap-1.5 border-b px-3 py-2 last:border-0",
         fk.dropped && "opacity-50",
         is_new && !fk.dropped && "bg-primary/5",
       )}
@@ -363,7 +372,7 @@ function FkRow({
           </span>
         ) : (
           <code
-            className="bg-muted min-w-0 truncate rounded px-1.5 py-0.5 text-xs"
+            className="bg-muted text-small min-w-0 truncate rounded px-1.5 py-0.5"
             title={`${fk.columns.join(", ")} → ${fk.ref_table}.${fk.ref_columns.join(", ")}`}
           >
             {fk.columns.join(", ")}
@@ -384,12 +393,16 @@ function FkRow({
         onValueChange={(v) => on_update(fk.id, { on_update: v ?? "" })}
         disabled={disabled || fk.dropped}
       >
-        <SelectTrigger size="sm" className="h-7 w-24 shrink-0 text-xs">
+        <SelectTrigger size="sm" className="text-small h-7 w-24 shrink-0">
           <SelectValue placeholder="on update" />
         </SelectTrigger>
         <SelectContent>
           {REFERENTIAL_ACTIONS.map((a) => (
-            <SelectItem key={`ru-${a || "none"}`} value={a} className="text-xs">
+            <SelectItem
+              key={`ru-${a || "none"}`}
+              value={a}
+              className="text-small"
+            >
               {a || "(none)"}
             </SelectItem>
           ))}
@@ -400,12 +413,16 @@ function FkRow({
         onValueChange={(v) => on_update(fk.id, { on_delete: v ?? "" })}
         disabled={disabled || fk.dropped}
       >
-        <SelectTrigger size="sm" className="h-7 w-24 shrink-0 text-xs">
+        <SelectTrigger size="sm" className="text-small h-7 w-24 shrink-0">
           <SelectValue placeholder="on delete" />
         </SelectTrigger>
         <SelectContent>
           {REFERENTIAL_ACTIONS.map((a) => (
-            <SelectItem key={`rd-${a || "none"}`} value={a} className="text-xs">
+            <SelectItem
+              key={`rd-${a || "none"}`}
+              value={a}
+              className="text-small"
+            >
               {a || "(none)"}
             </SelectItem>
           ))}

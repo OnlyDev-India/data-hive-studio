@@ -25,7 +25,7 @@ export function ReadOnlySwitch({
         // consumer's setter has no use for.
         onCheckedChange={(next) => onCheckedChange(next)}
       />
-      <Label htmlFor={id} className="text-sm font-normal">
+      <Label htmlFor={id} className="text-body font-normal">
         Read only
       </Label>
       <InfoTip label="Read only">

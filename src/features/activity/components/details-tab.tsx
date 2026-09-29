@@ -31,10 +31,10 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-caption font-medium tracking-wide uppercase">
+      <span className="text-muted-foreground text-small font-medium">
         {label}
       </span>
-      <span className="wrap-break-words font-mono text-xs">{children}</span>
+      <span className="wrap-break-words text-small font-mono">{children}</span>
     </div>
   );
 }
@@ -61,7 +61,7 @@ export function ActivityDetailsTab({
   if (!entry) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center">
-        <p className="text-muted-foreground max-w-sm text-sm">
+        <p className="text-muted-foreground text-body max-w-sm">
           Click any command in the Activity feed to inspect it here — its
           statement, timing, affected rows and error details.
         </p>
@@ -97,7 +97,7 @@ export function ActivityDetailsTab({
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
         <div className="flex items-center gap-2">
           <History className="text-muted-foreground size-4 shrink-0" />
-          <h2 className="min-w-0 truncate font-mono text-sm font-semibold">
+          <h2 className="text-body min-w-0 truncate font-mono font-semibold">
             {entry.target}
           </h2>
           {entry.sql && (
@@ -126,7 +126,7 @@ export function ActivityDetailsTab({
         {/* Full statement — the whole reason this tab exists for SQL runs. */}
         {entry.sql && (
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-caption font-medium tracking-wide uppercase">
+            <span className="text-muted-foreground text-small font-medium">
               Statement
             </span>
             <QueryEditor
@@ -136,9 +136,9 @@ export function ActivityDetailsTab({
               onRun={() => {}}
               onRunTarget={() => {}}
               readOnly={true}
-              className="rounded-md border"
+              className="rounded-control border"
             />
-            {/* <pre className="max-h-72 overflow-auto whitespace-pre-wrap wrap-break-words rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
+            {/* <pre className="max-h-72 overflow-auto whitespace-pre-wrap wrap-break-words rounded-control border bg-muted/40 p-3 font-mono text-small leading-relaxed">
               {entry.sql}
             </pre> */}
           </div>
@@ -146,7 +146,7 @@ export function ActivityDetailsTab({
 
         <div
           className={cn(
-            "rounded-md border p-3",
+            "rounded-control border p-3",
             entry.ok
               ? "bg-background"
               : "border-destructive/40 bg-destructive/5",
@@ -154,10 +154,10 @@ export function ActivityDetailsTab({
         >
           <span
             className={cn(
-              "text-2xs inline-flex items-center gap-1.5 rounded px-1.5 py-px font-semibold",
+              "text-caption inline-flex items-center gap-1.5 rounded px-1.5 py-px font-semibold",
               entry.ok
-                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                : "bg-red-500/15 text-red-600 dark:text-red-400",
+                ? "bg-success-light text-success-dark"
+                : "bg-destructive-light text-destructive-dark",
             )}
           >
             {entry.ok ? "OK" : "FAILED"}
@@ -167,14 +167,14 @@ export function ActivityDetailsTab({
             </span>
           </span>
           {entry.error && (
-            <p className="wrap-break-words text-destructive mt-2 font-mono text-xs whitespace-pre-wrap">
+            <p className="wrap-break-words text-destructive text-small mt-2 font-mono whitespace-pre-wrap">
               {entry.error}
             </p>
           )}
         </div>
 
         {!entry.sql && (
-          <p className="text-muted-foreground text-xs">
+          <p className="text-muted-foreground text-small">
             Connection-level command — no SQL statement was involved.
           </p>
         )}

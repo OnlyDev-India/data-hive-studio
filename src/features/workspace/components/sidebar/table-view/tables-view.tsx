@@ -1172,7 +1172,7 @@ export function TablesBrowser({
       {conn_info && pending_change && (
         <div
           data-slot="sidebar-conn-flags"
-          className="flex min-w-0 items-center gap-1.5 pr-2 text-xs"
+          className="text-small flex min-w-0 items-center gap-1.5 pr-2"
         >
           <span className="min-w-0 truncate font-medium">{conn_info.name}</span>
           {pending_change && (
@@ -1193,7 +1193,7 @@ export function TablesBrowser({
         <div className="relative min-w-0 flex-1">
           <Search className="text-muted-foreground absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
           <Input
-            className="pr-2 pl-7 text-xs"
+            className="text-small pr-2 pl-7"
             placeholder="Search tables…"
             value={search}
             disabled={loading}
@@ -1245,7 +1245,7 @@ export function TablesBrowser({
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
-              className="bg-muted/60 h-7 w-full animate-pulse rounded-md"
+              className="bg-muted/60 rounded-control h-7 w-full animate-pulse"
             />
           ))}
         </div>
@@ -1337,11 +1337,11 @@ export function TablesBrowser({
           ever adding a new connection-tab entry either way. */}
       {is_pg &&
         (pg_loading ? (
-          <p className="text-muted-foreground px-1.5 py-1 text-xs">
+          <p className="text-muted-foreground text-small px-1.5 py-1">
             Loading databases…
           </p>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto text-xs">
+          <div className="text-small flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
             {(pg_databases ?? [])
               .filter((db) => !searching || db_table_match(db))
               .map((db) => {
@@ -1382,7 +1382,7 @@ export function TablesBrowser({
                     }}
                     suffix={
                       db === default_db ? (
-                        <span className="text-muted-foreground text-caption font-medium tracking-wide uppercase">
+                        <span className="text-muted-foreground text-caption font-medium">
                           Default
                         </span>
                       ) : undefined
@@ -1441,7 +1441,7 @@ export function TablesBrowser({
                       schemas_state !== "loading" &&
                       (visible_schemas === null ? (
                         <p
-                          className="text-muted-foreground py-1 text-sm"
+                          className="text-muted-foreground text-body py-1"
                           style={depthPadding(1)}
                         >
                           Failed to load schemas.
@@ -1756,11 +1756,11 @@ export function TablesBrowser({
 
       {is_mongo &&
         (pg_loading ? (
-          <p className="text-muted-foreground px-1.5 py-1 text-xs">
+          <p className="text-muted-foreground text-small px-1.5 py-1">
             Loading databases…
           </p>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto text-xs">
+          <div className="text-small flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
             {(pg_databases ?? [])
               .filter((db) => !searching || mongo_db_match(db))
               .map((db) => {
@@ -1792,7 +1792,7 @@ export function TablesBrowser({
                     }}
                     suffix={
                       db === default_db ? (
-                        <span className="text-muted-foreground text-caption font-medium tracking-wide uppercase">
+                        <span className="text-muted-foreground text-caption font-medium">
                           Default
                         </span>
                       ) : undefined

@@ -73,7 +73,7 @@ export function GuardFields({
 
       <div className="grid gap-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor={select_id} className="text-sm font-normal">
+          <Label htmlFor={select_id} className="text-body font-normal">
             Environment
           </Label>
           <Select value={mode} onValueChange={pick_mode}>
@@ -146,7 +146,7 @@ export function GuardFields({
           disabled={production}
           onCheckedChange={(checked) => onChange({ confirm_writes: checked })}
         />
-        <Label htmlFor={confirm_id} className="text-sm font-normal">
+        <Label htmlFor={confirm_id} className="text-body font-normal">
           Confirm before writes
         </Label>
         <InfoTip label="Confirm before writes">

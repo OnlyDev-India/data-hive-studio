@@ -54,46 +54,46 @@ export function DelimitedListDialog({
         </DialogHeader>
         <div className="grid grid-cols-3 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Split on</Label>
+            <Label className="text-small">Split on</Label>
             <Input
               value={draft.splitOn}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, splitOn: e.target.value }))
               }
               placeholder="\n"
-              className="font-mono text-xs"
+              className="text-small font-mono"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Quote with</Label>
+            <Label className="text-small">Quote with</Label>
             <Input
               value={draft.quote}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, quote: e.target.value.slice(0, 1) }))
               }
               placeholder="(none)"
-              className="font-mono text-xs"
+              className="text-small font-mono"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs">Join with</Label>
+            <Label className="text-small">Join with</Label>
             <Input
               value={draft.joinWith}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, joinWith: e.target.value }))
               }
               placeholder=", "
-              className="font-mono text-xs"
+              className="text-small font-mono"
             />
           </div>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Preview</Label>
+          <Label className="text-small">Preview</Label>
           <Textarea
             readOnly
             value={preview}
             rows={4}
-            className="resize-y font-mono text-xs"
+            className="text-small resize-y font-mono"
           />
         </div>
         <DialogFooter>

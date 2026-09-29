@@ -152,7 +152,7 @@ export function BulkEditDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="bg-muted flex shrink-0 items-center gap-1 rounded-md p-0.5">
+        <div className="bg-muted rounded-control flex shrink-0 items-center gap-1 p-0.5">
           {(
             [
               ["selection", `Selection (${selected_count})`],
@@ -175,7 +175,7 @@ export function BulkEditDialog({
         {mode === "selection" ? (
           <div className="flex flex-col gap-3 overflow-y-auto">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Value</Label>
+              <Label className="text-small">Value</Label>
               <Input
                 value={sel_value}
                 disabled={sel_null}
@@ -183,7 +183,7 @@ export function BulkEditDialog({
                 placeholder="value…"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="text-body flex items-center gap-2">
               <Checkbox
                 checked={sel_null}
                 onCheckedChange={(v) => setSelNull(v === true)}
@@ -195,7 +195,7 @@ export function BulkEditDialog({
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <div className="flex items-center gap-2">
               <div className="flex flex-col gap-1.5">
-                <Label className="text-xs">Column</Label>
+                <Label className="text-small">Column</Label>
                 <Select
                   value={column}
                   onValueChange={(v) => setColumn(v ?? "")}
@@ -213,7 +213,7 @@ export function BulkEditDialog({
                 </Select>
               </div>
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label className="text-xs">New value</Label>
+                <Label className="text-small">New value</Label>
                 <Input
                   value={value}
                   disabled={set_null}
@@ -222,7 +222,7 @@ export function BulkEditDialog({
                 />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="text-body flex items-center gap-2">
               <Checkbox
                 checked={set_null}
                 onCheckedChange={(v) => setSetNull(v === true)}
@@ -230,7 +230,7 @@ export function BulkEditDialog({
               Set to NULL
             </label>
 
-            <Label className="text-xs">Where</Label>
+            <Label className="text-small">Where</Label>
             <FilterConditionBuilder
               columns={columns}
               distinct={distinct}
@@ -249,7 +249,7 @@ export function BulkEditDialog({
             />
 
             {filters.length === 0 && (
-              <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <p className="text-muted-foreground text-small flex items-center gap-1.5">
                 <AlertTriangle className="size-3.5 shrink-0" />
                 At least one condition is required — this can't run against
                 every row in the table.
@@ -257,7 +257,7 @@ export function BulkEditDialog({
             )}
 
             {preview && previewed && (
-              <p className="text-sm">
+              <p className="text-body">
                 This will update{" "}
                 <span className="font-semibold">{preview.count}</span> row
                 {preview.count === 1 ? "" : "s"}.
@@ -265,12 +265,12 @@ export function BulkEditDialog({
             )}
             {result &&
               (result.ok ? (
-                <p className="text-success text-sm">
+                <p className="text-success text-body">
                   Updated {result.rows_affected} row
                   {result.rows_affected === 1 ? "" : "s"}.
                 </p>
               ) : (
-                <p className="text-destructive text-sm">{result.error}</p>
+                <p className="text-destructive text-body">{result.error}</p>
               ))}
           </div>
         )}

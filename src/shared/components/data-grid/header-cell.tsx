@@ -243,10 +243,10 @@ export function HeaderCell({
                 title={KEY_TITLES[key_kind]}
               >
                 {(key_kind === "primary" || key_kind === "both") && (
-                  <KeyRound className="size-3 text-amber-500" />
+                  <KeyRound className="text-obj-key size-3" />
                 )}
                 {(key_kind === "foreign" || key_kind === "both") && (
-                  <KeyRound className="size-3 text-sky-500" />
+                  <KeyRound className="text-obj-relation size-3" />
                 )}
               </span>
             )}
@@ -257,7 +257,7 @@ export function HeaderCell({
               {type_label && (
                 <span
                   className={cn(
-                    "text-caption max-w-full truncate leading-3 font-normal tracking-wide uppercase opacity-80",
+                    "text-caption max-w-full truncate font-mono leading-3 font-normal",
                     dataTypeTextClass(type_label),
                   )}
                 >
@@ -271,7 +271,7 @@ export function HeaderCell({
               side="bottom"
               align="center"
               showArrow={false}
-              className="bg-popover text-popover-foreground w-56 rounded-md border p-2.5 text-left text-xs shadow-md"
+              className="bg-popover text-popover-foreground rounded-control text-small w-56 border p-2.5 text-left shadow-md"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Column</span>
@@ -315,10 +315,10 @@ export function HeaderCell({
                   <div className="mt-0.5 flex items-center gap-1.5">
                     <span className="inline-flex items-center gap-0.5">
                       {(key_kind === "primary" || key_kind === "both") && (
-                        <KeyRound className="size-3 text-amber-500" />
+                        <KeyRound className="text-obj-key size-3" />
                       )}
                       {(key_kind === "foreign" || key_kind === "both") && (
-                        <KeyRound className="size-3 text-sky-500" />
+                        <KeyRound className="text-obj-relation size-3" />
                       )}
                     </span>
                     {KEY_TITLES[key_kind]}
@@ -356,7 +356,7 @@ export function HeaderCell({
       {open && (
         <>
           <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} />
-          <div className="bg-popover absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-md border p-1 shadow-md">
+          <div className="bg-popover rounded-control absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden border p-1 shadow-md">
             <Button
               type="button"
               variant="ghost"

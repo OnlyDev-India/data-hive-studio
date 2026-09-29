@@ -217,7 +217,7 @@ export function ApplyChangesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-4 text-xs">
+        <div className="text-small flex items-center gap-4">
           {selectable && (
             <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5">
               <Checkbox
@@ -229,19 +229,13 @@ export function ApplyChangesDialog({
             </label>
           )}
           <span className="text-muted-foreground flex items-center gap-1.5 font-mono">
-            <span className="text-emerald-600 dark:text-emerald-400">
-              +{counts.add}
-            </span>
-            <span className="text-amber-600 dark:text-amber-400">
-              ~{counts.alter}
-            </span>
-            <span className="text-red-600 dark:text-red-400">
-              -{counts.drop}
-            </span>
+            <span className="text-diff-add-foreground">+{counts.add}</span>
+            <span className="text-diff-change-foreground">~{counts.alter}</span>
+            <span className="text-diff-remove-foreground">-{counts.drop}</span>
           </span>
         </div>
 
-        <div className="max-h-96 overflow-y-auto rounded-md border">
+        <div className="rounded-control max-h-96 overflow-y-auto border">
           {rows ? (
             <RowDiffGrid
               rows={rows}
@@ -253,7 +247,7 @@ export function ApplyChangesDialog({
             <DdlDiffGrid sections={ddl ?? []} />
           )}
           {all === 0 && (
-            <div className="text-muted-foreground p-6 text-center text-sm">
+            <div className="text-muted-foreground text-body p-6 text-center">
               No changes to review.
             </div>
           )}
@@ -311,12 +305,12 @@ function RowDiffGrid({
   }, [rows]);
 
   const cell_cls = "min-w-24 border-b px-2 py-1.5 font-mono break-all";
-  const added = "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
-  const removed = "bg-red-500/10 text-red-800 dark:text-red-300";
+  const added = "bg-diff-add text-diff-add-foreground";
+  const removed = "bg-diff-remove text-diff-remove-foreground";
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs">
+      <table className="text-small w-full border-collapse">
         <thead>
           <tr className="border-b">
             <th className="text-muted-foreground w-16 px-2 py-1.5 text-left font-medium">
@@ -371,7 +365,7 @@ function RowDiffGrid({
                 <Fragment key={key}>
                   <tr className={row_cls}>
                     {gutter}
-                    <td className="border-b px-1 py-1.5 text-red-600 select-none dark:text-red-400">
+                    <td className="text-diff-remove-foreground border-b px-1 py-1.5 select-none">
                       −
                     </td>
                     {columns.map((col) => (
@@ -387,7 +381,7 @@ function RowDiffGrid({
                     ))}
                   </tr>
                   <tr className={row_cls}>
-                    <td className="border-b px-1 py-1.5 text-emerald-600 select-none dark:text-emerald-400">
+                    <td className="text-diff-add-foreground border-b px-1 py-1.5 select-none">
                       +
                     </td>
                     {columns.map((col) => (
@@ -415,8 +409,8 @@ function RowDiffGrid({
                   className={cn(
                     "border-b px-1 py-1.5 select-none",
                     is_insert
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400",
+                      ? "text-diff-add-foreground"
+                      : "text-diff-remove-foreground",
                   )}
                 >
                   {is_insert ? "+" : "−"}
@@ -515,7 +509,7 @@ function DdlSection({
 }) {
   return (
     <div className="py-2">
-      <div className="text-muted-foreground text-caption px-3 pb-1 font-medium tracking-wide uppercase">
+      <div className="text-muted-foreground text-small px-3 pb-1 font-medium">
         {label}
       </div>
       {children}
@@ -526,7 +520,7 @@ function DdlSection({
 function PropertyTable({ rows }: { rows: DdlPropertyRow[] }) {
   return (
     <div className="overflow-x-auto px-3">
-      <table className="w-full border-collapse text-xs">
+      <table className="text-small w-full border-collapse">
         <thead>
           <tr className="border-b">
             <th className="text-muted-foreground py-1 pr-3 text-left font-medium">
@@ -546,10 +540,10 @@ function PropertyTable({ rows }: { rows: DdlPropertyRow[] }) {
               <td className="text-muted-foreground py-1.5 pr-3 align-top font-medium whitespace-nowrap">
                 {r.label}
               </td>
-              <td className="bg-red-500/10 py-1.5 pr-3 font-mono break-all text-red-800 dark:text-red-300">
+              <td className="bg-diff-remove text-diff-remove-foreground py-1.5 pr-3 font-mono break-all">
                 {r.before ?? ""}
               </td>
-              <td className="bg-emerald-500/10 py-1.5 font-mono break-all text-emerald-800 dark:text-emerald-300">
+              <td className="bg-diff-add text-diff-add-foreground py-1.5 font-mono break-all">
                 {r.after ?? ""}
               </td>
             </tr>
@@ -569,8 +563,8 @@ const DDL_COLUMN_FIELDS = [
 
 function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
   const cell_cls = "min-w-24 border-b px-2 py-1.5 font-mono break-all";
-  const added = "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
-  const removed = "bg-red-500/10 text-red-800 dark:text-red-300";
+  const added = "bg-diff-add text-diff-add-foreground";
+  const removed = "bg-diff-remove text-diff-remove-foreground";
 
   const cell = (
     v: DdlColumnRow["before"],
@@ -583,7 +577,7 @@ function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs">
+      <table className="text-small w-full border-collapse">
         <thead>
           <tr className="border-b">
             <th className="w-5" />
@@ -603,7 +597,7 @@ function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
               return (
                 <Fragment key={r.id}>
                   <tr>
-                    <td className="border-b px-1 py-1.5 text-red-600 select-none dark:text-red-400">
+                    <td className="text-diff-remove-foreground border-b px-1 py-1.5 select-none">
                       −
                     </td>
                     {DDL_COLUMN_FIELDS.map((f) => (
@@ -613,7 +607,7 @@ function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
                     ))}
                   </tr>
                   <tr>
-                    <td className="border-b px-1 py-1.5 text-emerald-600 select-none dark:text-emerald-400">
+                    <td className="text-diff-add-foreground border-b px-1 py-1.5 select-none">
                       +
                     </td>
                     {DDL_COLUMN_FIELDS.map((f) => (
@@ -633,8 +627,8 @@ function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
                   className={cn(
                     "border-b px-1 py-1.5 select-none",
                     is_insert
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400",
+                      ? "text-diff-add-foreground"
+                      : "text-diff-remove-foreground",
                   )}
                 >
                   {is_insert ? "+" : "−"}
@@ -661,11 +655,11 @@ function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
  *  spec 0003's Option 3 scope cut). */
 function NamedTable({ rows }: { rows: DdlNamedRow[] }) {
   const line_cls = "px-2 py-1.5 font-mono break-all";
-  const added = "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
-  const removed = "bg-red-500/10 text-red-800 dark:text-red-300";
+  const added = "bg-diff-add text-diff-add-foreground";
+  const removed = "bg-diff-remove text-diff-remove-foreground";
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs">
+      <table className="text-small w-full border-collapse">
         <thead>
           <tr className="border-b">
             <th className="text-muted-foreground px-2 py-1.5 text-left font-medium">
@@ -712,15 +706,15 @@ function TriggerRows({ rows }: { rows: DdlTriggerRow[] }) {
             className={cn(
               "overflow-hidden rounded border",
               is_insert
-                ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
-                : "bg-red-500/10 text-red-800 dark:text-red-300",
+                ? "bg-diff-add text-diff-add-foreground"
+                : "bg-diff-remove text-diff-remove-foreground",
             )}
           >
-            <div className="text-caption flex items-baseline gap-1.5 border-b border-current/20 px-2 py-1 font-medium tracking-wide uppercase opacity-80">
+            <div className="text-caption flex items-baseline gap-1.5 border-b border-current/20 px-2 py-1 font-medium">
               <span className="select-none">{is_insert ? "+" : "−"}</span>
-              <span className="normal-case">{r.name}</span>
+              <span>{r.name}</span>
             </div>
-            <div className="px-2 py-1.5 font-mono text-xs break-all whitespace-pre-wrap">
+            <div className="text-small px-2 py-1.5 font-mono break-all whitespace-pre-wrap">
               {text ?? ""}
             </div>
           </div>

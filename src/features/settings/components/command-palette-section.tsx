@@ -112,23 +112,23 @@ export function CommandPaletteSection() {
   return (
     <div className="flex h-full flex-col gap-6">
       <header>
-        <h2 className="text-lg font-semibold">Command Palette</h2>
-        <p className="text-muted-foreground mt-0.5 text-sm">
+        <h2 className="text-heading font-semibold">Command Palette</h2>
+        <p className="text-muted-foreground text-body mt-0.5">
           Customize the search prefixes used in the command palette
           (Cmd/Ctrl+P). The command-mode prefix (
           <code className="bg-muted rounded px-1 py-0.5">&gt;</code>) is fixed.
         </p>
       </header>
 
-      <div className="divide-border divide-y rounded-xl border">
+      <div className="divide-border rounded-dialog divide-y border">
         {FIELDS.map(({ key, label, description }) => (
           <div
             key={key}
             className="flex items-center justify-between gap-6 px-4 py-3"
           >
             <div className="flex flex-col">
-              <span className="text-sm font-medium">{label}</span>
-              <span className="text-muted-foreground text-xs">
+              <span className="text-body font-medium">{label}</span>
+              <span className="text-muted-foreground text-small">
                 {description}
               </span>
             </div>
@@ -151,17 +151,19 @@ export function CommandPaletteSection() {
                       e.currentTarget.blur();
                     }
                   }}
-                  className="w-28 text-right font-mono text-xs"
+                  className="text-small w-28 text-right font-mono"
                 />
                 <span
                   aria-hidden
-                  className="text-muted-foreground font-mono text-xs select-none"
+                  className="text-muted-foreground text-small font-mono select-none"
                 >
                   :
                 </span>
               </div>
               {errors[key] && (
-                <span className="text-destructive text-xs">{errors[key]}</span>
+                <span className="text-destructive text-small">
+                  {errors[key]}
+                </span>
               )}
             </div>
           </div>

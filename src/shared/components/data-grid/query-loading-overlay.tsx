@@ -27,7 +27,7 @@ export function QueryLoadingOverlay({
   }, [startedAt]);
   return (
     <div className="bg-background/80 absolute inset-0 z-8 flex flex-col items-center justify-center gap-3">
-      <div className="text-muted-foreground flex items-center gap-2 text-sm">
+      <div className="text-muted-foreground text-body flex items-center gap-2">
         <Loader2 className="size-4 animate-spin" />
         <span>Loading… · {elapsed.toFixed(2)}s</span>
       </div>

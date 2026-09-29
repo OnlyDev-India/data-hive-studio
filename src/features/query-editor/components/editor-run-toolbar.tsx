@@ -128,7 +128,7 @@ export function EditorRunToolbar({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="hover:bg-destructive/20 h-6 bg-transparent px-2 text-xs"
+                    className="hover:bg-destructive/20 text-small h-6 bg-transparent px-2"
                     disabled={stop_pending}
                     aria-label={stop_pending ? "Stopping" : "Stop"}
                     onClick={on_stop_all}
@@ -148,7 +148,7 @@ export function EditorRunToolbar({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="hover:bg-success/20 h-6 bg-transparent px-2 text-xs"
+                    className="hover:bg-success/20 text-small h-6 bg-transparent px-2"
                     disabled={has_selection ? !can_run_target : !has_text}
                     title={has_selection ? "Run selected" : "Run all"}
                     onClick={has_selection ? on_run_target : on_run_all}
@@ -259,7 +259,7 @@ export function EditorRunToolbar({
             >
               <SelectTrigger
                 size="sm"
-                className="h-6! border-none text-xs dark:bg-transparent"
+                className="text-small h-6! border-none dark:bg-transparent"
               >
                 {DbIcon && <DbIcon className="size-4 shrink-0" />}
                 <SelectValue>{() => database}</SelectValue>
@@ -267,7 +267,7 @@ export function EditorRunToolbar({
               <SelectContent>
                 <SelectGroup>
                   {databases.map((d) => (
-                    <SelectItem key={d} value={d} className="text-xs">
+                    <SelectItem key={d} value={d} className="text-small">
                       {d}
                     </SelectItem>
                   ))}
@@ -318,7 +318,7 @@ function ToolbarIconButton({
             variant="ghost"
             size="sm"
             className={cn(
-              "h-6 bg-transparent px-2 text-xs",
+              "text-small h-6 bg-transparent px-2",
               active === false
                 ? "text-muted-foreground hover:bg-accent"
                 : `${TOOLBAR_ICON_COLORS[color]} hover:${TOOLBAR_ICON_COLORS[color]}`,

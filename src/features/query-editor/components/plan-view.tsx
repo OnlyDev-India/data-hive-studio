@@ -42,7 +42,7 @@ export function PlanView({
   if (result === null) {
     return (
       <div className="flex flex-col gap-2 pt-4">
-        <div className="flex items-center gap-2 px-3 text-xs">
+        <div className="text-small flex items-center gap-2 px-3">
           <Loader2 className="size-3.5 animate-spin" />
           <span
             className="text-muted-foreground min-w-0 flex-1 truncate font-mono"
@@ -55,7 +55,7 @@ export function PlanView({
             <Button
               variant="outline"
               size="sm"
-              className="h-6 gap-1 text-xs"
+              className="text-small h-6 gap-1"
               disabled={tab.stopping}
               onClick={on_stop}
             >
@@ -70,7 +70,10 @@ export function PlanView({
           className="flex flex-col gap-2"
         >
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="bg-muted h-8 animate-pulse rounded-md" />
+            <div
+              key={i}
+              className="bg-muted rounded-control h-8 animate-pulse"
+            />
           ))}
         </div>
       </div>
@@ -109,7 +112,7 @@ export function PlanView({
 
 function PlanHeader({ result, stale }: { result: PlanResult; stale: boolean }) {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs">
+    <div className="text-small flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
       <span
         className="text-muted-foreground min-w-0 flex-1 truncate font-mono"
         title={result.statement}
@@ -149,7 +152,7 @@ function Notice({
     <div
       role={error ? "alert" : "status"}
       className={cn(
-        "m-4 rounded-md border p-4 text-sm",
+        "rounded-control text-body m-4 border p-4",
         error ? "border-destructive/40 bg-destructive/5" : "bg-muted/40",
       )}
     >
@@ -285,13 +288,13 @@ function PlanTree({
       aria-rowcount={rows.length + 1}
       aria-activedescendant={`${grid_id}-${rows[active_index]?.node.id}`}
       tabIndex={0}
-      className="focus-visible:ring-ring/50 min-w-max text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      className="focus-visible:ring-ring/50 text-body min-w-max outline-none focus-visible:ring-2 focus-visible:ring-inset"
       data-selectable
       onKeyDown={on_key_down}
     >
       <div
         role="row"
-        className="bg-background text-muted-foreground sticky top-0 z-10 grid border-b text-xs font-medium"
+        className="bg-background text-muted-foreground text-small sticky top-0 z-10 grid border-b font-medium"
         style={{ gridTemplateColumns: template }}
       >
         <div role="columnheader" className="px-3 py-1.5">
@@ -402,7 +405,7 @@ function PlanRowView({
             )}
           </div>
           {node.condition && (
-            <div className="text-muted-foreground font-mono text-xs break-words whitespace-pre-wrap">
+            <div className="text-muted-foreground text-small font-mono break-words whitespace-pre-wrap">
               {node.condition}
             </div>
           )}

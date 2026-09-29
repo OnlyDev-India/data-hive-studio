@@ -1,7 +1,7 @@
 import type { ImportOnError } from "@/shared/api";
 import { SummaryCards } from "./summary-cards";
 
-const SELECT = "bg-input/30 h-9 w-full rounded-md border px-2 text-sm";
+const SELECT = "bg-input/30 h-9 w-full rounded-control border px-2 text-body";
 
 interface Props {
   targetLabel: string;
@@ -29,7 +29,7 @@ export function ReviewStep(p: Props) {
         ]}
       />
       <label className="block max-w-sm space-y-1.5">
-        <span className="text-sm font-medium">Bad rows</span>
+        <span className="text-body font-medium">Bad rows</span>
         <select
           className={SELECT}
           value={p.onError}
@@ -40,7 +40,7 @@ export function ReviewStep(p: Props) {
         </select>
       </label>
       {p.looseRollback && p.onError === "rollback" && (
-        <p className="text-sm text-amber-600 dark:text-amber-400">
+        <p className="text-warning text-body">
           This server has no transactions, so Roll back is not atomic. If a
           document fails, the ones before it stay in the collection. The result
           tells you how many landed.

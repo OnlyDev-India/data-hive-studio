@@ -376,7 +376,7 @@ function GridToolbarButton({
             onClick={onClick}
             className={cn(
               {
-                "text-2xs h-6 px-1.5 py-1 transition-all duration-100 ease-in-out":
+                "text-caption h-6 px-1.5 py-1 transition-all duration-100 ease-in-out":
                   !icon_only,
               },
               className,

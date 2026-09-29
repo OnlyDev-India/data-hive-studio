@@ -255,7 +255,9 @@ function CollectionNameHeading({
   if (!editing) {
     return (
       <div className="flex min-w-0 items-center gap-2">
-        <h3 className="truncate text-sm font-medium">{name || "(unnamed)"}</h3>
+        <h3 className="text-body truncate font-medium">
+          {name || "(unnamed)"}
+        </h3>
         <Button
           variant="ghost"
           size="iconXs"

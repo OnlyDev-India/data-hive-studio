@@ -39,9 +39,9 @@ async function readSupportInfo(): Promise<{
 
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-muted/30 rounded-lg border px-3.5 py-2.5">
-      <div className="text-muted-foreground text-xs">{label}</div>
-      <div className="mt-0.5 font-mono text-sm">{value}</div>
+    <div className="bg-muted/30 rounded-surface border px-3.5 py-2.5">
+      <div className="text-muted-foreground text-small">{label}</div>
+      <div className="text-body mt-0.5 font-mono">{value}</div>
     </div>
   );
 }
@@ -85,18 +85,18 @@ export function AboutSection() {
       <div className="flex items-center gap-4">
         <img src="/icon.png" alt="" className="size-14 rounded-2xl" />
         <div>
-          <h2 className="text-lg font-semibold">DH Studio</h2>
-          <p className="text-muted-foreground text-sm">
+          <h2 className="text-heading font-semibold">DH Studio</h2>
+          <p className="text-muted-foreground text-body">
             A native desktop client for your databases
           </p>
         </div>
       </div>
 
-      <section className="rounded-xl border p-4">
+      <section className="rounded-dialog border p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-sm font-semibold">Support information</h3>
-            <p className="text-muted-foreground mt-0.5 text-xs">
+            <h3 className="text-body font-semibold">Support information</h3>
+            <p className="text-muted-foreground text-small mt-0.5">
               Copy these details when filing issues or asking for help.
             </p>
           </div>
@@ -122,10 +122,10 @@ export function AboutSection() {
         </div>
       </section>
 
-      <section className="flex items-center justify-between gap-4 rounded-xl border p-4">
+      <section className="rounded-dialog flex items-center justify-between gap-4 border p-4">
         <div>
-          <h3 className="text-sm font-semibold">Updates & source</h3>
-          <p className="text-muted-foreground mt-0.5 text-xs">
+          <h3 className="text-body font-semibold">Updates & source</h3>
+          <p className="text-muted-foreground text-small mt-0.5">
             Check for a newer release, or browse the code on GitHub.
           </p>
         </div>

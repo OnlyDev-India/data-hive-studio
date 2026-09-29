@@ -28,7 +28,7 @@ export function ConnectionCard({
       ref={drag?.attachCard}
       aria-label={typeof title === "string" ? title : "Connection"}
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
-      className="bg-card text-card-foreground @container flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border shadow-lg"
+      className="bg-card text-card-foreground rounded-dialog @container flex max-h-full w-full max-w-2xl flex-col overflow-hidden border shadow-lg"
     >
       <header
         {...drag?.handleProps}
@@ -38,7 +38,7 @@ export function ConnectionCard({
           aria-hidden
           className="text-muted-foreground/60 size-4 shrink-0"
         />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+        <h2 className="text-body min-w-0 flex-1 truncate font-semibold">
           {title}
         </h2>
         {showNew && (

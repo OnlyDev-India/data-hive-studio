@@ -8,64 +8,42 @@ import { useStudioStore } from "@/shared/store";
 import { clearActivity, type ActivityEntry } from "@/shared/api";
 import { cn } from "@/shared/lib/utils";
 
-/** Per-kind badge colors + labels for the feed. */
-const KINDS: Record<string, { label: string; cls: string }> = {
-  select: {
-    label: "SELECT",
-    cls: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-  },
-  count: { label: "COUNT", cls: "bg-muted text-muted-foreground" },
-  distinct: {
-    label: "DISTINCT",
-    cls: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
-  },
-  insert: {
-    label: "INSERT",
-    cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  },
-  update: {
-    label: "UPDATE",
-    cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  },
-  delete: {
-    label: "DELETE",
-    cls: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-  },
-  drop_table: {
-    label: "DROP",
-    cls: "bg-red-500/15 text-red-600 dark:text-red-400",
-  },
-  sql: { label: "SQL", cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
-  ddl: {
-    label: "DDL",
-    cls: "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400",
-  },
-  duplicate: {
-    label: "CLONE",
-    cls: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
-  },
-  schema: {
-    label: "SCHEMA",
-    cls: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
-  },
-  explain: {
-    label: "EXPLAIN",
-    cls: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400",
-  },
-  connect: {
-    label: "CONNECT",
-    cls: "bg-green-500/15 text-green-600 dark:text-green-400",
-  },
-  disconnect: { label: "CLOSE", cls: "bg-muted text-muted-foreground" },
+type Tone =
+  "neutral" | "success" | "warning" | "destructive" | "info" | "primary";
+
+/** Badge color says how risky the action was, the label says what it was. */
+const TONE_CLASS: Record<Tone, string> = {
+  neutral: "bg-muted text-muted-foreground",
+  success: "bg-success-light text-success-dark",
+  warning: "bg-warning-light text-warning-dark",
+  destructive: "bg-destructive-light text-destructive-dark",
+  info: "bg-info-light text-info-dark",
+  primary: "bg-primary-light text-primary-dark",
+};
+
+const KINDS: Record<string, { label: string; tone: Tone }> = {
+  select: { label: "SELECT", tone: "neutral" },
+  count: { label: "COUNT", tone: "neutral" },
+  distinct: { label: "DISTINCT", tone: "neutral" },
+  explain: { label: "EXPLAIN", tone: "neutral" },
+  connect: { label: "CONNECT", tone: "neutral" },
+  disconnect: { label: "CLOSE", tone: "neutral" },
+  insert: { label: "INSERT", tone: "success" },
+  duplicate: { label: "CLONE", tone: "success" },
+  update: { label: "UPDATE", tone: "warning" },
+  delete: { label: "DELETE", tone: "destructive" },
+  drop_table: { label: "DROP", tone: "destructive" },
+  ddl: { label: "DDL", tone: "info" },
+  schema: { label: "SCHEMA", tone: "info" },
+  sql: { label: "SQL", tone: "primary" },
 };
 
 function kindStyle(kind: string) {
-  return (
-    KINDS[kind] ?? {
-      label: kind.toUpperCase(),
-      cls: "bg-muted text-muted-foreground",
-    }
-  );
+  const { label, tone } = KINDS[kind] ?? {
+    label: kind.toUpperCase(),
+    tone: "neutral",
+  };
+  return { label, cls: TONE_CLASS[tone] };
 }
 
 function fmtTime(ms: number) {
@@ -102,7 +80,7 @@ function EntryRow({
         }
       }}
       className={cn(
-        "rounded-md border px-2 py-1.5",
+        "rounded-control border px-2 py-1.5",
         selected
           ? "border-primary/50 bg-primary/5"
           : entry.ok
@@ -118,14 +96,14 @@ function EntryRow({
         </span>
         <span
           className={cn(
-            "text-caption shrink-0 rounded px-1 py-px font-semibold",
+            "text-caption shrink-0 rounded px-1 py-px font-mono font-semibold",
             style.cls,
           )}
         >
           {style.label}
         </span>
         <span
-          className="min-w-0 flex-1 truncate font-mono text-xs"
+          className="text-small min-w-0 flex-1 truncate font-mono"
           title={entry.target}
         >
           {entry.target || "—"}
@@ -141,7 +119,7 @@ function EntryRow({
       </div>
       {entry.error && (
         <p
-          className="text-destructive mt-1 line-clamp-3 pl-18 text-xs"
+          className="text-destructive text-small mt-1 line-clamp-3 pl-18"
           title={entry.error}
         >
           {entry.error}
@@ -227,7 +205,7 @@ export function ActivityFeed({
       {/* Header row — mirrors the tables-mode toolbar rhythm. */}
       <div className="flex shrink-0 items-center gap-2">
         <History className="text-muted-foreground size-4 shrink-0" />
-        <h2 className="text-sm font-semibold">Activity</h2>
+        <h2 className="text-body font-semibold">Activity</h2>
         {visible.length > 0 && (
           <span className="bg-muted text-muted-foreground text-caption rounded-full px-1.5 py-px tabular-nums">
             {visible.length}
@@ -257,7 +235,7 @@ export function ActivityFeed({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         placeholder="Filter by table, kind or error…"
-        className="shrink-0 text-xs"
+        className="text-small shrink-0"
       />
       <div className="flex shrink-0 items-center gap-1.5 px-0.5">
         <Switch
@@ -268,14 +246,14 @@ export function ActivityFeed({
         />
         <Label
           htmlFor="show-app-activity"
-          className="text-muted-foreground text-2xs font-normal"
+          className="text-muted-foreground text-caption font-normal"
         >
           Show app queries{app_count > 0 ? ` (${app_count})` : ""}
         </Label>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         {filtered.length === 0 ? (
-          <p className="text-muted-foreground px-1 py-6 text-center text-xs">
+          <p className="text-muted-foreground text-small px-1 py-6 text-center">
             {activity.length === 0
               ? "No commands yet — everything the backend runs shows up here."
               : visible.length === 0

@@ -20,7 +20,7 @@ const exampleTheme = EditorView.theme({
   "&": {
     backgroundColor: "var(--muted)",
     fontSize: "12.5px",
-    borderRadius: "var(--radius-md)",
+    borderRadius: "var(--radius-control)",
   },
   ".cm-content": { padding: "10px 34px 10px 10px" },
   ".cm-scroller": {
@@ -102,7 +102,7 @@ export function DocDetailBody({
   lang: "sql" | "js";
 }) {
   return (
-    <div className="flex flex-col gap-3 text-sm leading-relaxed">
+    <div className="text-body flex flex-col gap-3 leading-relaxed">
       <Markdown
         options={{
           overrides: {
@@ -122,7 +122,7 @@ export function DocDetailBody({
       </Markdown>
       {entry.examples.length > 0 && (
         <div className="flex flex-col gap-2">
-          <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          <div className="text-muted-foreground text-small font-medium">
             Example{entry.examples.length > 1 ? "s" : ""}
           </div>
           <div className="flex flex-col gap-2">

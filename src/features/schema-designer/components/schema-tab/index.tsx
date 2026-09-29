@@ -123,7 +123,7 @@ export function SchemaTab({
     return (
       <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-4">
         {load_error && (
-          <div className="border-destructive bg-destructive/10 wrap-break-words text-destructive rounded-md border px-3 py-2 font-mono text-xs">
+          <div className="border-destructive bg-destructive/10 wrap-break-words text-destructive rounded-control text-small border px-3 py-2 font-mono">
             {load_error}
           </div>
         )}
@@ -450,7 +450,7 @@ function SchemaEditor({
           />
 
           {applying && (
-            <div className="border-primary/30 bg-primary/5 text-muted-foreground flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
+            <div className="border-primary/30 bg-primary/5 text-muted-foreground rounded-control text-small flex items-center gap-2 border px-3 py-2">
               <Loader2 className="text-primary size-3.5 animate-spin" />
               Applying {pending_count} change{pending_count === 1 ? "" : "s"} in
               one transaction…
@@ -460,7 +460,7 @@ function SchemaEditor({
           {/* The tabs and their Add button sit on top of the list, in one
               box of fixed height, so they read as part of the table and only
               the rows scroll. */}
-          <div className="flex min-h-56 flex-1 flex-col overflow-hidden rounded-lg border">
+          <div className="rounded-surface flex min-h-56 flex-1 flex-col overflow-hidden border">
             <div className="flex shrink-0 items-center gap-3 border-b p-1">
               <TabBar
                 tabs={SCHEMA_TABS}
@@ -586,7 +586,7 @@ function TableNameHeading({
   if (!editing) {
     return (
       <div className="flex min-w-0 items-center gap-2">
-        <h2 className="truncate text-base font-semibold">
+        <h2 className="text-title truncate font-semibold">
           {table_name || "(unnamed)"}
         </h2>
         <Button

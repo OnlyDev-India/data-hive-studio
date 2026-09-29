@@ -507,7 +507,7 @@ export default function Workspace({
                 : `${confirm_close?.length ?? 0} open tabs have unapplied changes.`}
             </DialogDescription>
           </DialogHeader>
-          <ul className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3 text-sm">
+          <ul className="bg-muted/30 rounded-control text-body flex flex-col gap-1 border p-3">
             {confirm_close?.map((t) => {
               const parts = summarize_dirty(tabKey(t));
               if (parts.length === 0) return null;
@@ -519,7 +519,7 @@ export default function Workspace({
                   <span className="min-w-0 truncate font-medium">
                     {close_label(t)}
                   </span>
-                  <span className="text-muted-foreground shrink-0 text-xs">
+                  <span className="text-muted-foreground text-small shrink-0">
                     {parts.join(", ")}
                   </span>
                 </li>

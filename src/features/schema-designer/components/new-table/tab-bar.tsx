@@ -118,7 +118,7 @@ export function TabBar<T extends string = DesignerTab>({
               onClick: () => onChange(id),
             })}
         className={cn(
-          "rounded-md border border-transparent px-3 py-1 text-sm whitespace-nowrap transition-colors",
+          "rounded-control text-body border border-transparent px-3 py-1 whitespace-nowrap transition-colors",
           !probing && value === id
             ? "bg-background text-foreground border-border font-medium"
             : "text-muted-foreground hover:text-foreground",
@@ -126,7 +126,7 @@ export function TabBar<T extends string = DesignerTab>({
       >
         {label(id)}
         {n > 0 && (
-          <span className="text-muted-foreground ml-1.5 text-xs">{n}</span>
+          <span className="text-muted-foreground text-small ml-1.5">{n}</span>
         )}
       </button>
     );
@@ -136,7 +136,7 @@ export function TabBar<T extends string = DesignerTab>({
     <div ref={box} className="relative min-w-0 flex-1">
       <div
         role="tablist"
-        className="bg-muted/50 flex w-fit max-w-full items-center gap-1 rounded-lg p-1"
+        className="bg-muted/50 rounded-surface flex w-fit max-w-full items-center gap-1 p-1"
       >
         {visible.map((id) => tabButton(id))}
         {hidden.length > 0 && (
@@ -158,7 +158,7 @@ export function TabBar<T extends string = DesignerTab>({
                 <DropdownMenuItem key={id} onClick={() => onChange(id)}>
                   {label(id)}
                   {(counts[id] ?? 0) > 0 && (
-                    <span className="text-muted-foreground ml-auto text-xs">
+                    <span className="text-muted-foreground text-small ml-auto">
                       {counts[id]}
                     </span>
                   )}

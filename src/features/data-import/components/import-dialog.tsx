@@ -349,8 +349,8 @@ function ImportBody({ target }: { target: ImportTarget }) {
           </DialogHeader>
 
           <div className="flex items-center gap-3">
-            <div className="bg-accent/40 flex min-w-0 flex-1 items-baseline gap-3 rounded-lg border px-3 py-2.5">
-              <span className="text-muted-foreground text-sm">
+            <div className="bg-accent/40 rounded-surface flex min-w-0 flex-1 items-baseline gap-3 border px-3 py-2.5">
+              <span className="text-muted-foreground text-body">
                 Target {noun}
               </span>
               <span className="truncate font-medium" title={targetLabel}>
@@ -439,7 +439,7 @@ function ImportBody({ target }: { target: ImportTarget }) {
           )}
 
           {step === "Run" && running && (
-            <div className="flex h-24 flex-col items-center justify-center gap-2 text-sm">
+            <div className="text-body flex h-24 flex-col items-center justify-center gap-2">
               {IMPORT_CANCELLABLE && progress && progress.total > 0 ? (
                 <>
                   <progress
@@ -473,16 +473,16 @@ function ImportBody({ target }: { target: ImportTarget }) {
           {warnings.map((w) => (
             <p
               key={w.text}
-              className={`rounded-lg border px-3 py-2 text-sm ${
+              className={`rounded-surface text-body border px-3 py-2 ${
                 w.bad
                   ? "border-destructive/50 text-destructive"
-                  : "border-amber-500/50 text-amber-600 dark:text-amber-400"
+                  : "border-warning/50 text-warning"
               }`}
             >
               {w.text}
             </p>
           ))}
-          {error && <p className="text-destructive text-sm">{error}</p>}
+          {error && <p className="text-destructive text-body">{error}</p>}
 
           <DialogFooter>
             {step === "Run" && outcome ? (

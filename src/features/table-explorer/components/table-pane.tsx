@@ -348,7 +348,7 @@ export function TablePane({
               on_change={setMode}
             />
           ) : (
-            <span className="text-muted-foreground px-1 py-1 text-xs font-medium">
+            <span className="text-muted-foreground text-small px-1 py-1 font-medium">
               {schema?.kind === "matview" ? "Materialized view" : "View"} ·
               read-only data
             </span>
@@ -528,7 +528,7 @@ function SchemaLoadError({
           : "items-center px-3 py-8 text-center",
       )}
     >
-      <p className="text-destructive text-sm">
+      <p className="text-destructive text-body">
         {compact
           ? `Couldn't load the structure of “${table}”, so editing is off.`
           : `Failed to load schema for “${table}”.`}
@@ -536,7 +536,7 @@ function SchemaLoadError({
       {error && (
         <pre
           className={cn(
-            "border-destructive/30 bg-destructive/5 text-destructive overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap",
+            "border-destructive/30 bg-destructive/5 text-destructive rounded-control text-small overflow-x-auto border p-2 text-left font-mono whitespace-pre-wrap",
             compact ? "max-h-20 overflow-y-auto" : "max-w-lg",
           )}
         >

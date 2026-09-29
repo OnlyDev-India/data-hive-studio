@@ -12,9 +12,9 @@ const TOAST_ICONS = {
 } as const;
 
 const TOAST_ICON_CLS = {
-  success: "text-emerald-500",
+  success: "text-success",
   error: "text-destructive",
-  info: "text-sky-500",
+  info: "text-info",
 } as const;
 
 /** Duration the toast is visible before it starts fading out (ms). */
@@ -70,7 +70,7 @@ function Toast({ n }: { n: StudioNotification }) {
   return (
     <div
       className={cn(
-        "bg-background pointer-events-auto w-72 cursor-pointer rounded-lg border px-3 py-2.5 shadow-lg transition-all select-none",
+        "bg-background rounded-surface pointer-events-auto w-72 cursor-pointer border px-3 py-2.5 shadow-lg transition-all select-none",
         // exit — shrink toward bottom-right (bell) like macOS minimize
         exiting &&
           "translate-x-2 translate-y-1 scale-50 opacity-0 duration-300",
@@ -87,9 +87,9 @@ function Toast({ n }: { n: StudioNotification }) {
           className={cn("mt-0.5 size-4 shrink-0", TOAST_ICON_CLS[n.kind])}
         />
         <div className="min-w-0 flex-1">
-          <span className="text-sm font-medium">{n.title}</span>
+          <span className="text-body font-medium">{n.title}</span>
           {n.detail && (
-            <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs break-all whitespace-pre-wrap">
+            <p className="text-muted-foreground text-small mt-0.5 line-clamp-2 break-all whitespace-pre-wrap">
               {n.detail}
             </p>
           )}
@@ -97,7 +97,7 @@ function Toast({ n }: { n: StudioNotification }) {
             <Button
               variant="ghost"
               size="sm"
-              className="text-2xs mt-1 h-5 px-1.5"
+              className="text-caption mt-1 h-5 px-1.5"
               onClick={(e) => {
                 e.stopPropagation();
                 n.actionFn!();

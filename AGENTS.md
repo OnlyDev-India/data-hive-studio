@@ -34,6 +34,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
 - Schema DDL is atomic (one transaction); grid row edits are not (independent statements).
 - Large results stream back via a Tauri `Channel` in batches, never loaded fully into memory.
 - MongoDB is first-class: full CRUD grid editing and the SQL editor, never a stripped mode.
+- UI styling uses theme tokens only: the named type scale (`text-caption` … `text-display`), radius roles, and semantic colors (`--diff-*`, `--obj-*`, status). No raw Tailwind palette classes, hex literals, `uppercase` labels, or legacy `text-xs` / `rounded-md` names; `src/shared/theme/__tests__/token-usage.test.ts` fails CI on them.
 - `tauri.conf.json` is the version source of truth; CI fails if package.json/Cargo.toml drift.
 - No backend `.rs` file over 500 lines outside test blocks: split by job into `foo/mod.rs` plus topic files, and keep public paths through `pub use` (Tauri command modules use `pub use x::*`, so the handler paths in `src-tauri/src/lib.rs` stay unchanged).
 

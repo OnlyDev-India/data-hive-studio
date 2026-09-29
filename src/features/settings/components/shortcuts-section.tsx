@@ -74,14 +74,14 @@ export function ShortcutsSection() {
   return (
     <div className="flex h-full flex-col gap-6">
       <header>
-        <h2 className="text-lg font-semibold">Shortcuts</h2>
-        <p className="text-muted-foreground mt-0.5 text-sm">
+        <h2 className="text-heading font-semibold">Shortcuts</h2>
+        <p className="text-muted-foreground text-body mt-0.5">
           Remap the app's keyboard shortcuts. Click Change, then press a new key
           combo — Escape cancels.
         </p>
       </header>
 
-      <div className="divide-border divide-y rounded-xl border">
+      <div className="divide-border rounded-dialog divide-y border">
         {SHORTCUT_ACTIONS.map((action) => {
           const effective = overrides[action.id] ?? action.default;
           const is_default = bindingEquals(effective, action.default);
@@ -92,7 +92,7 @@ export function ShortcutsSection() {
               key={action.id}
               className="flex items-center justify-between gap-6 px-4 py-3"
             >
-              <span className="text-sm font-medium">{action.label}</span>
+              <span className="text-body font-medium">{action.label}</span>
               <div className="flex flex-col items-end gap-1">
                 <div className="flex items-center gap-2">
                   {recording ? (
@@ -109,7 +109,7 @@ export function ShortcutsSection() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-6 px-2 text-xs"
+                    className="text-small h-6 px-2"
                     onClick={() => {
                       setError(null);
                       setRecordingId(recording ? null : action.id);
@@ -129,7 +129,7 @@ export function ShortcutsSection() {
                   </Button>
                 </div>
                 {recording && error && (
-                  <span className="text-destructive text-xs">{error}</span>
+                  <span className="text-destructive text-small">{error}</span>
                 )}
               </div>
             </div>

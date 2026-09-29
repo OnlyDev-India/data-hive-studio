@@ -37,7 +37,7 @@ export function KindPicker({
       onNew={onNew}
       footer={
         <>
-          <span className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs">
+          <span className="text-muted-foreground text-small flex min-w-0 items-center gap-2">
             Selected:
             <current.icon aria-hidden className="size-4 shrink-0" />
             <span className="text-foreground truncate font-medium">
@@ -62,7 +62,7 @@ export function KindPicker({
             autoFocus
             aria-label="Search database types"
             placeholder="Search database types"
-            className="h-8 pl-8 text-sm"
+            className="text-body h-8 pl-8"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -71,7 +71,7 @@ export function KindPicker({
           />
         </div>
         {visible.length === 0 ? (
-          <p className="text-muted-foreground rounded-lg border border-dashed py-10 text-center text-sm">
+          <p className="text-muted-foreground rounded-surface text-body border border-dashed py-10 text-center">
             No match.
           </p>
         ) : (
@@ -97,13 +97,13 @@ export function KindPicker({
                     }
                   }}
                   className={cn(
-                    "focus-visible:ring-ring/50 flex flex-col items-center gap-3 rounded-lg border px-3 py-5 text-center text-sm transition-colors outline-none focus-visible:ring-[3px]",
+                    "focus-visible:ring-ring/50 rounded-surface text-body flex flex-col items-center gap-3 border px-3 py-5 text-center transition-colors outline-none focus-visible:ring-[3px]",
                     on
                       ? "border-primary bg-primary/5 ring-primary ring-1"
                       : "hover:bg-accent/60",
                   )}
                 >
-                  <span className="bg-muted flex size-12 items-center justify-center rounded-xl">
+                  <span className="bg-muted rounded-dialog flex size-12 items-center justify-center">
                     <Icon aria-hidden className="size-7" />
                   </span>
                   <span className="leading-tight font-medium">{label}</span>
