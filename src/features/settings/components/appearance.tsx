@@ -29,7 +29,7 @@ const SCALES: { percent: number; label: string }[] = [
 /** macOS-style appearance page: a light/dark/auto theme picker with preview
  *  swatches that reflect the selected mode. */
 export function AppearanceSection() {
-  const { mode, setMode, accent, font, scale, cornerStyle } = useTheme();
+  const { mode, setMode, dark, accent, font, scale, cornerStyle } = useTheme();
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -76,7 +76,8 @@ export function AppearanceSection() {
               <AccentSwatch
                 key={acc.id}
                 id={acc.id}
-                color={acc.base}
+                name={acc.name}
+                color={dark ? acc.swatch.dark : acc.swatch.light}
                 active={accent === acc.id}
               />
             ))}
@@ -90,7 +91,7 @@ export function AppearanceSection() {
                 key={c.id}
                 id={c.id}
                 name={c.name}
-                radius={c.lg}
+                radius={c.surface}
                 active={cornerStyle === c.id}
               />
             ))}
@@ -233,20 +234,19 @@ function ThemeSwatch({ mode, active }: { mode: ThemeMode; active: boolean }) {
 
 function AccentSwatch({
   id,
+  name,
   color,
   active,
 }: {
   id: AccentId;
+  name: string;
   color: string;
   active: boolean;
 }) {
   const { setAccent } = useTheme();
-  // Graphite is the default monochrome accent — no accent color stored, so
-  // render it as a neutral gray swatch with a diagonal slash.
-  const isGraphite = id === "graphite";
   return (
     <button
-      aria-label={`Accent ${id}`}
+      aria-label={`Accent ${name}`}
       aria-pressed={active}
       onClick={() => setAccent(id)}
       className={cn(
@@ -255,21 +255,9 @@ function AccentSwatch({
           ? "border-foreground ring-primary/30 ring-2 ring-offset-1"
           : "border-border hover:border-foreground/40",
       )}
-      style={isGraphite ? undefined : { backgroundColor: color }}
-      title={id}
-    >
-      {isGraphite && (
-        <span
-          className="block size-6 rounded-full"
-          style={{
-            background:
-              "repeating-linear-gradient(45deg, transparent 0 3px, currentColor 3px 4px)",
-            color: "var(--muted-foreground)",
-            opacity: 0.55,
-          }}
-        />
-      )}
-    </button>
+      style={{ backgroundColor: color }}
+      title={name}
+    />
   );
 }
 

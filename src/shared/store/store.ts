@@ -204,7 +204,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ shortcutOverrides: {} });
         },
 
-        editorFontSize: 14,
+        editorFontSize: 13,
         setEditorFontSize(px) {
           set({ editorFontSize: Math.max(10, Math.min(24, Math.round(px))) });
         },

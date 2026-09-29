@@ -168,7 +168,7 @@ export function FilterBar({
                       : "e.g. age >= 18")}
                 </span>
                 {active_count > 0 && (
-                  <span className="bg-info/15 text-info shrink-0 rounded px-1 text-[10px] font-semibold">
+                  <span className="bg-info/15 text-info shrink-0 rounded px-1 text-caption font-semibold">
                     {active_count}
                   </span>
                 )}

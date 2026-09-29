@@ -102,8 +102,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [mode, setModeState] = useState<ThemeMode>("system");
   const [dark, setDarkState] = useState(false);
-  const [accent, setAccentState] = useState<AccentId>("graphite");
-  const [font, setFontState] = useState<FontId>("inter");
+  const [accent, setAccentState] = useState<AccentId>("blue");
+  const [font, setFontState] = useState<FontId>("plex");
   const [scale, setScaleState] = useState<number>(100);
   const [cornerStyle, setCornerStyleState] = useState<CornerStyleId>("round");
 

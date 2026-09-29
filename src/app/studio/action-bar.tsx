@@ -115,7 +115,7 @@ export function ActionBar() {
           </span>
           {conn && <ConnFlags conn={conn} />}
           {conn && (
-            <span className="text-3xs shrink-0 tracking-wide uppercase">
+            <span className="text-caption shrink-0 tracking-wide uppercase">
               {prettyKind(conn.kind)}
             </span>
           )}
@@ -301,7 +301,7 @@ function LimitInput({
   };
   return (
     <div className="flex h-6 items-center gap-1 rounded-md border px-1.5">
-      <span className="text-3xs tracking-wide uppercase">Limit</span>
+      <span className="text-caption tracking-wide uppercase">Limit</span>
       <Input
         type="number"
         min={1}

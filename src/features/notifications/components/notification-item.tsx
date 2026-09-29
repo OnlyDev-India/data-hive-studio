@@ -48,7 +48,7 @@ export function NotificationItem({
               <span className="mt-1 size-1.5 shrink-0 rounded-full bg-blue-500" />
             )}
             <span className="min-w-0 text-sm break-words">{n.title}</span>
-            <span className="text-muted-foreground/70 text-3xs ml-auto shrink-0">
+            <span className="text-muted-foreground/70 text-caption ml-auto shrink-0">
               {new Date(n.at).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",

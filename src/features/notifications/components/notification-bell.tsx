@@ -55,7 +55,7 @@ export function NotificationBell() {
           >
             <Bell className="size-3.5" />
             {unreadCount > 0 && (
-              <span className="bg-destructive text-3xs absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 leading-none font-medium text-white">
+              <span className="bg-destructive text-caption absolute -top-0.5 -right-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 leading-none font-medium text-white">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
@@ -67,7 +67,7 @@ export function NotificationBell() {
           <span className="text-xs font-medium">Notifications</span>
           {items.length > 0 && (
             <>
-              <span className="bg-muted text-muted-foreground text-3xs rounded-full px-1.5">
+              <span className="bg-muted text-muted-foreground text-caption rounded-full px-1.5">
                 {items.length}
               </span>
               <Button

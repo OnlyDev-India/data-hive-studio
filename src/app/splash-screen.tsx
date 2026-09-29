@@ -58,9 +58,9 @@ export function SplashScreen({ status }: { status?: string }) {
         }
       `}</style>
       <div className="dh-splash-preloader">
-        <i className="dh-splash-layer" />
-        <i className="dh-splash-layer" />
-        <i className="dh-splash-layer" />
+        <i className="dh-splash-layer" data-essential-motion />
+        <i className="dh-splash-layer" data-essential-motion />
+        <i className="dh-splash-layer" data-essential-motion />
       </div>
       <span>{status ?? "Loading"}</span>
     </div>

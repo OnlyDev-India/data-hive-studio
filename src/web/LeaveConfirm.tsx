@@ -42,7 +42,7 @@ export function LeaveConfirm({
             </Button>
             <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Stay on page
-              <kbd className="bg-muted text-muted-foreground text-3xs ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+              <kbd className="bg-muted text-muted-foreground text-caption ml-1 rounded-md border px-1.5 py-0.5 font-medium">
                 ESC
               </kbd>
             </Button>

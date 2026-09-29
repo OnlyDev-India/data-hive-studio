@@ -398,7 +398,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           ...zoomOutBinding,
           handler: () => setEditorFontSize(editorFontSize - 1),
         },
-        { ...zoomResetBinding, handler: () => setEditorFontSize(14) },
+        { ...zoomResetBinding, handler: () => setEditorFontSize(13) },
       ],
       // Capture phase — some platforms/webviews treat Cmd/Ctrl +/-/0 as a
       // native page-zoom key equivalent; intercepting before that default
@@ -407,7 +407,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       { capture: true },
     );
     const fontSizeTheme = useMemo(
-      () => EditorView.theme({ "&": { fontSize: `${editorFontSize}px` } }),
+      // In rem so it follows the Scaling setting; 13 is `text-body`.
+      () =>
+        EditorView.theme({ "&": { fontSize: `${editorFontSize / 16}rem` } }),
       [editorFontSize],
     );
 

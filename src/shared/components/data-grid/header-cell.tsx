@@ -257,7 +257,7 @@ export function HeaderCell({
               {type_label && (
                 <span
                   className={cn(
-                    "text-3xs max-w-full truncate leading-3 font-normal tracking-wide uppercase opacity-80",
+                    "text-caption max-w-full truncate leading-3 font-normal tracking-wide uppercase opacity-80",
                     dataTypeTextClass(type_label),
                   )}
                 >
@@ -336,7 +336,7 @@ export function HeaderCell({
           ))}
         {is_sorted && sort_index !== null && sort_count > 1 && (
           <span
-            className="text-muted-foreground bg-muted text-3xs -ml-0.5 shrink-0 rounded-full px-1 leading-4 tabular-nums"
+            className="text-muted-foreground bg-muted text-caption -ml-0.5 shrink-0 rounded-full px-1 leading-4 tabular-nums"
             title={`Sort priority ${sort_index + 1} of ${sort_count}`}
           >
             {sort_index + 1}

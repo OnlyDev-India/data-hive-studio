@@ -96,7 +96,7 @@ export function ShortcutsSection() {
               <div className="flex flex-col items-end gap-1">
                 <div className="flex items-center gap-2">
                   {recording ? (
-                    <span className="text-muted-foreground text-3xs italic">
+                    <span className="text-muted-foreground text-caption italic">
                       Press a key…
                     </span>
                   ) : (

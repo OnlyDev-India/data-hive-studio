@@ -650,9 +650,9 @@ export interface StudioStore {
   resetShortcut: (id: string) => void;
   resetAllShortcuts: () => void;
 
-  /** Query-editor font size in px (Cmd/Ctrl +/-/0) — independent of the
-   *  app-wide UI scale (Settings → Appearance's `setScale`), matching dbx's
-   *  own editor-only zoom rather than tying it to the overall chrome size. */
+  /** Query-editor zoom (Cmd/Ctrl +/-/0) in px at 100% scale, default 13
+   *  (`text-body`). Applied in rem, so the app-wide Scaling setting
+   *  multiplies it. */
   editorFontSize: number;
   setEditorFontSize: (px: number) => void;
 

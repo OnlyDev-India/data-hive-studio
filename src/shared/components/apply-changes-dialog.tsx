@@ -515,7 +515,7 @@ function DdlSection({
 }) {
   return (
     <div className="py-2">
-      <div className="text-muted-foreground text-3xs px-3 pb-1 font-medium tracking-wide uppercase">
+      <div className="text-muted-foreground text-caption px-3 pb-1 font-medium tracking-wide uppercase">
         {label}
       </div>
       {children}
@@ -716,7 +716,7 @@ function TriggerRows({ rows }: { rows: DdlTriggerRow[] }) {
                 : "bg-red-500/10 text-red-800 dark:text-red-300",
             )}
           >
-            <div className="text-3xs flex items-baseline gap-1.5 border-b border-current/20 px-2 py-1 font-medium tracking-wide uppercase opacity-80">
+            <div className="text-caption flex items-baseline gap-1.5 border-b border-current/20 px-2 py-1 font-medium tracking-wide uppercase opacity-80">
               <span className="select-none">{is_insert ? "+" : "−"}</span>
               <span className="normal-case">{r.name}</span>
             </div>

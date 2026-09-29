@@ -24,7 +24,7 @@ const exampleTheme = EditorView.theme({
   },
   ".cm-content": { padding: "10px 34px 10px 10px" },
   ".cm-scroller": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontFamily: "var(--font-mono)",
     lineHeight: "1.5",
   },
   "&.cm-focused": { outline: "none" },

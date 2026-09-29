@@ -41,7 +41,7 @@ export function EnvChip({
       title={`Environment: ${label}`}
       style={envChipStyle(color_key)}
       className={cn(
-        "text-3xs inline-flex h-4 max-w-28 shrink-0 items-center rounded-full px-1.5 leading-none font-semibold",
+        "text-caption inline-flex h-4 max-w-28 shrink-0 items-center rounded-pill px-1.5 leading-none font-semibold",
         className,
       )}
     >

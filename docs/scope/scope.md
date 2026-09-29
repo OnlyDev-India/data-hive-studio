@@ -43,6 +43,9 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 14  | Saved queries and snippets                  | Slice 14 | planned     |
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
 | 16  | ER diagram                                  | Slice 16 | planned     |
+| 34  | Visual foundation                           | Slice 34 | in-progress |
+| 35  | Token cleanup sweep                         | Slice 34 | in-progress |
+| 36  | First screens: landing and splash           | Slice 34 | in-progress |
 
 ## Existing
 
@@ -225,6 +228,52 @@ A diagram of a database or schema: tables as boxes with their columns, joined by
 code in `src/features/schema-designer`, `src/features/workspace/components/sidebar`
 
 - [ ] Design it (spec): `/architect er diagram`
+
+## Slice 34: Visual identity pass
+
+The app runs on a stock neutral palette carried over from another product, so nothing on screen says DH Studio. Build it in order: the foundation settles the look, the sweep moves every screen onto it, then the first screens get the one bold moment.
+
+### 34. Visual foundation · in-progress
+Give the app its own look: a palette with a brand color drawn from the app icon instead of the graphite default, a typeface that ships with the app instead of an `Inter` name that silently falls back to the system font, a real type scale with nothing below a readable size, corner radius that follows hierarchy, and `prefers-reduced-motion` respected everywhere. The design pass settles the direction for a dense database tool, the fonts and how they ship, and how the accent, font and corner pickers in Settings fit the new tokens.
+**Done when:** the default theme uses the new palette and brand color in light and dark, the chosen fonts are bundled and render the same on macOS, Windows, Linux and the web build, chrome text uses the named scale with no size under 11px, radius varies by element role, and every animation stops or softens when reduced motion is on.
+spec [0016](../specs/0016-visual-foundation/index.md) · code in `src/index.css`, `src/shared/theme`, `index.html`, `src/shared/components/ui`
+
+- [x] Design it (spec): `/architect visual foundation`
+- [x] Build it: `/develop visual foundation`
+  - [x] Near neutral grey palette, DH Blue and all accent blocks (Yellow as Gold) on `data-accent`, pre paint script, and the contrast test with the chroma cap (AC-1 to AC-4, AC-11)
+  - [x] Bundled IBM Plex Sans and Mono, Font picker as Plex or System UI (AC-5, AC-6, AC-11, AC-12)
+  - [x] Named type scale with aliases, no text under 11px, editor and grid on the scale (AC-7, AC-8)
+  - [x] Radius roles and presets on `data-corners`, shared primitives moved to roles (AC-9, AC-11, AC-12)
+  - [x] Global reduced motion rule with slowed spinners (AC-10)
+- [ ] Verify it: `/check verify visual foundation`
+- [ ] Test it: `/test visual foundation`
+
+### 35. Token cleanup sweep · in-progress
+Move every screen onto the foundation's tokens: replace the raw Tailwind colors (about 80, mostly in the review before apply dialog, type icons, activity feed and notifications) with semantic ones, and turn the tracked all caps micro labels into sentence case headings on the new scale.
+**Done when:** no component uses a raw palette class or a hex color outside the icon files, accent and theme changes reach every status color, and no tracked all caps label remains in the chrome.
+spec [0017](../specs/0017-token-cleanup-sweep/index.md) · code in `src/shared/components/apply-changes-dialog.tsx`, `src/shared/components/icons/types.tsx`, `src/features/activity`, `src/features/notifications`, `src/app/studio/action-bar.tsx`
+
+- [x] Design it (spec): `/architect token cleanup sweep`
+- [ ] Build it: `/develop token cleanup sweep`
+  - [ ] Scan test with a shrinking allowlist, activity feed and details tab on status tones (AC-1, AC-2)
+  - [ ] Diff and object tokens with contrast checks: review dialog, pending and deleted grid rows, object, tab and key icons (AC-3, AC-4, AC-6)
+  - [ ] Status leftovers, `--destructive-foreground`, `--overlay`, and the Settings previews on a `.light` scope (AC-1, AC-5, AC-7, AC-8)
+  - [ ] Sentence case labels, then the legacy alias rename done last (AC-9, AC-10)
+- [ ] Verify it: `/check verify token cleanup sweep`
+- [ ] Test it: `/test token cleanup sweep`
+
+### 36. First screens: landing and splash · in-progress
+The landing is the first thing you see, and today it is a dot grid with a blurred glow behind the database picker; the splash has its own hardcoded blue loader outside the theme. Replace the decoration with something that belongs to a database tool, keep the rest of the screen quiet, and put the splash on the theme tokens. The design pass settles what that one memorable moment is.
+**Done when:** the landing and splash use only theme tokens, the dot grid and glow are gone, the landing's one bold element works in light and dark and under reduced motion, and picking a database and connecting still work as they do today.
+spec [0017](../specs/0017-first-screens-landing-splash.md) · code in `src/features/connections/components/landing.tsx`, `src/app/splash-screen.tsx`, `src/shared/components/brand-mark.tsx`, `src/app/studio`
+
+- [x] Design it (spec): `/architect first screens landing and splash`
+- [ ] Build it: `/develop first screens landing and splash`
+  - [ ] Brand mark on the splash and the empty studio landing, decoration gone, both surfaces on `bg-background` (AC-1, AC-3, AC-4, AC-5, AC-10, AC-11, AC-12)
+  - [ ] Splash pulse and once per launch landing entrance, with reduced motion (AC-2, AC-6, AC-7)
+  - [ ] Layout limits: hide the mark under 720px tall, card still scrolls, drag moves only the card (AC-5, AC-8, AC-9)
+- [ ] Verify it: `/check verify first screens landing and splash`
+- [ ] Test it: `/test first screens landing and splash`
 
 ## Deferred
 

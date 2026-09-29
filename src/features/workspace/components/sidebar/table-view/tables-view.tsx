@@ -1179,7 +1179,7 @@ export function TablesBrowser({
             <span
               role="status"
               title="You saved new read only or environment settings for this connection. They apply when you reconnect."
-              className="text-warning-dark text-3xs ml-auto shrink-0"
+              className="text-warning-dark text-caption ml-auto shrink-0"
             >
               Change pending, reconnect to apply
             </span>
@@ -1382,7 +1382,7 @@ export function TablesBrowser({
                     }}
                     suffix={
                       db === default_db ? (
-                        <span className="text-muted-foreground text-3xs font-medium tracking-wide uppercase">
+                        <span className="text-muted-foreground text-caption font-medium tracking-wide uppercase">
                           Default
                         </span>
                       ) : undefined
@@ -1792,7 +1792,7 @@ export function TablesBrowser({
                     }}
                     suffix={
                       db === default_db ? (
-                        <span className="text-muted-foreground text-3xs font-medium tracking-wide uppercase">
+                        <span className="text-muted-foreground text-caption font-medium tracking-wide uppercase">
                           Default
                         </span>
                       ) : undefined

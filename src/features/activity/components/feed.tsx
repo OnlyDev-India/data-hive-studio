@@ -113,12 +113,12 @@ function EntryRow({
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-3xs shrink-0 font-mono">
+        <span className="text-muted-foreground text-caption shrink-0 font-mono">
           {fmtTime(entry.ts_ms)}
         </span>
         <span
           className={cn(
-            "text-3xs shrink-0 rounded px-1 py-px font-semibold",
+            "text-caption shrink-0 rounded px-1 py-px font-semibold",
             style.cls,
           )}
         >
@@ -130,7 +130,7 @@ function EntryRow({
         >
           {entry.target || "—"}
         </span>
-        <span className="text-muted-foreground text-3xs shrink-0 tabular-nums">
+        <span className="text-muted-foreground text-caption shrink-0 tabular-nums">
           {entry.rows > 0 && (
             <>
               {entry.rows} row{entry.rows === 1 ? "" : "s"} ·{" "}
@@ -229,7 +229,7 @@ export function ActivityFeed({
         <History className="text-muted-foreground size-4 shrink-0" />
         <h2 className="text-sm font-semibold">Activity</h2>
         {visible.length > 0 && (
-          <span className="bg-muted text-muted-foreground text-3xs rounded-full px-1.5 py-px tabular-nums">
+          <span className="bg-muted text-muted-foreground text-caption rounded-full px-1.5 py-px tabular-nums">
             {visible.length}
           </span>
         )}

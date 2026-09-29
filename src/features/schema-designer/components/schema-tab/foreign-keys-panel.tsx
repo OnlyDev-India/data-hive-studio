@@ -148,7 +148,7 @@ export function ForeignKeysPanel({
     <>
       <div>
         {/* Header — mirrors the row layout: constraint · on update · on delete */}
-        <div className="bg-muted text-muted-foreground text-3xs sticky top-0 z-10 flex items-center gap-1.5 border-b px-3 py-1.5 font-medium tracking-wide uppercase">
+        <div className="bg-muted text-muted-foreground text-caption sticky top-0 z-10 flex items-center gap-1.5 border-b px-3 py-1.5 font-medium tracking-wide uppercase">
           <span className="min-w-0 flex-1 truncate">Foreign key</span>
           <span className="w-24 shrink-0">On update</span>
           <span className="w-24 shrink-0">On delete</span>

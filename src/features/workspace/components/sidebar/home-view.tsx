@@ -75,7 +75,7 @@ function Collapse({
         <Icon className="size-3.5" />
         {label}
         {count !== undefined && (
-          <span className="bg-muted text-3xs ml-auto rounded-full px-1.5">
+          <span className="bg-muted text-caption ml-auto rounded-full px-1.5">
             {count}
           </span>
         )}
@@ -313,7 +313,7 @@ export function HomeView({
                           {entry.label}
                         </span>
                         {entry.guard && <ConnFlags conn={entry.guard} />}
-                        <span className="text-muted-foreground text-3xs ml-auto shrink-0 uppercase">
+                        <span className="text-muted-foreground text-caption ml-auto shrink-0 uppercase">
                           {entry.source}
                         </span>
                       </Button>

@@ -556,7 +556,7 @@ export function CommandPalette() {
                     <div
                       key={v.key}
                       style={row_style}
-                      className="text-muted-foreground text-3xs flex items-end px-2.5 pb-1 font-medium tracking-wide uppercase"
+                      className="text-muted-foreground text-caption flex items-end px-2.5 pb-1 font-medium tracking-wide uppercase"
                     >
                       {row.label}
                     </div>

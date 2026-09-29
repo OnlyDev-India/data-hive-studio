@@ -1,16 +1,11 @@
 /**
- * Corner-style (border-radius) presets.
+ * Corner style (border radius) presets.
  *
- * `--radius-sm/md/lg/xl` (index.css's `@theme inline` block) each resolve
- * through a plain `--radius-*-active` custom property on `:root` — same
- * indirection `--font-sans` uses for `--font-sans-active` — so selecting a
- * style overrides those four at runtime via inline styles on <html>, and
- * every `rounded-sm`/`rounded-md`/`rounded-lg`/`rounded-xl` usage app-wide
- * picks up the change without touching components.
- *
- * The four steps aren't a linear scale (sm and md share a value, as do lg
- * and xl), so each preset lists its own four literals rather than deriving
- * them from a single base number.
+ * Radius follows an element's role: `inset` (items inside menus and lists),
+ * `control` (buttons, inputs), `surface` (popovers, cards), `dialog`, and
+ * `pill`. Round is the :root default in index.css; Soft and Sharp are
+ * `[data-corners]` blocks there. Keep in step with index.css and the pre
+ * paint script in index.html.
  */
 
 export type CornerStyleId = "sharp" | "soft" | "round";
@@ -18,16 +13,38 @@ export type CornerStyleId = "sharp" | "soft" | "round";
 export interface CornerStyle {
   id: CornerStyleId;
   name: string;
-  sm: string;
-  md: string;
-  lg: string;
-  xl: string;
+  /** The role values, for the Settings swatch. */
+  inset: string;
+  control: string;
+  surface: string;
+  dialog: string;
 }
 
 const CORNER_STYLES: CornerStyle[] = [
-  { id: "sharp", name: "Sharp", sm: "0px", md: "0px", lg: "0px", xl: "0px" },
-  { id: "soft", name: "Soft", sm: "4px", md: "4px", lg: "6px", xl: "6px" },
-  { id: "round", name: "Round", sm: "6px", md: "6px", lg: "10px", xl: "14px" },
+  {
+    id: "sharp",
+    name: "Sharp",
+    inset: "0px",
+    control: "2px",
+    surface: "2px",
+    dialog: "4px",
+  },
+  {
+    id: "soft",
+    name: "Soft",
+    inset: "3px",
+    control: "4px",
+    surface: "6px",
+    dialog: "8px",
+  },
+  {
+    id: "round",
+    name: "Round",
+    inset: "4px",
+    control: "6px",
+    surface: "8px",
+    dialog: "12px",
+  },
 ];
 
 export function getCornerStyle(id: CornerStyleId): CornerStyle {
@@ -38,25 +55,18 @@ export function listCornerStyles(): CornerStyle[] {
   return [...CORNER_STYLES];
 }
 
-/** Applies a corner style by overriding the four `--radius-*-active` vars
- *  on <html>. Round (the default) clears the overrides so index.css
- *  supplies its literal values. */
+// Older builds set these inline on <html>, which would outrank the CSS blocks.
+const LEGACY_INLINE_VARS = [
+  "--radius-sm-active",
+  "--radius-md-active",
+  "--radius-lg-active",
+  "--radius-xl-active",
+] as const;
+
 export function applyCornerStyle(id: CornerStyleId) {
   const root = document.documentElement;
-  const style = getCornerStyle(id);
-
-  if (style.id === "round") {
-    root.style.removeProperty("--radius-sm-active");
-    root.style.removeProperty("--radius-md-active");
-    root.style.removeProperty("--radius-lg-active");
-    root.style.removeProperty("--radius-xl-active");
-    return;
-  }
-
-  root.style.setProperty("--radius-sm-active", style.sm);
-  root.style.setProperty("--radius-md-active", style.md);
-  root.style.setProperty("--radius-lg-active", style.lg);
-  root.style.setProperty("--radius-xl-active", style.xl);
+  for (const v of LEGACY_INLINE_VARS) root.style.removeProperty(v);
+  root.dataset.corners = getCornerStyle(id).id;
 }
 
 const CORNER_STYLE_KEY = "cornerStyle";

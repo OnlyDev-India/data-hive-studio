@@ -105,7 +105,7 @@ export function sqlSignatureHelp(): Extension {
 export const signatureHelpTheme = EditorView.baseTheme({
   ".cm-sig-help": {
     padding: "6px 10px",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontFamily: "var(--font-mono)",
     fontSize: "12.5px",
     color: "var(--popover-foreground)",
     whiteSpace: "nowrap",

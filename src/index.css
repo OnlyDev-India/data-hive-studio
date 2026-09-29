@@ -2,85 +2,73 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Palette below is DBX's own default theme — apps/desktop/src/styles/
- * globals.css's `@supports (color: oklch(...))` :root/.dark block, its real
- * desktop app (not the docs site linked earlier, which is a different,
- * Fumadocs-based stylesheet with nothing in common with an app UI). Every
- * variable NAME here predates this pass and stays as-is (several are load-
- * bearing: accent.ts overrides --primary/--primary-light/--primary-dark at
- * runtime for the accent-color picker, and --*-light/--*-dark are consumed
- * directly across bson-json-editor, inline-diagnostics, doc-hover, the
- * connection panels, etc.) — only the color VALUES changed, plus a small
- * set of new chrome-surface tokens DBX has that this file didn't.
- *
- * Deliberately NOT brought over: DBX's --chart-1..5 and its dedicated
- * --sidebar-* sub-palette (shadcn-vue's Sidebar component reads those; nothing
- * in this codebase does, so they'd just be unused config). Add them if a
- * consumer actually shows up. */
+/* Neutrals are near neutral grey with a trace of the app icon's hue (265,
+ * chroma 0.006 or less) and `--primary` is its blue lens ("DH Blue"), so the
+ * accent is the one color that stands out. Other accents, fonts and corner presets are the
+ * `data-accent`, `data-font` and `data-corners` blocks below, set on <html>
+ * by src/shared/theme and by the pre paint script in index.html (keep its
+ * background literals equal to `--background`). The contrast test in
+ * src/shared/theme/__tests__ reads this file. */
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.99 0.003 265);
+  --foreground: oklch(0.22 0.006 265);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.22 0.006 265);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --primary-light: oklch(0.95 0 0);
-  --primary-dark: oklch(0.145 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-light: oklch(0.95 0.08 27.325);
-  --destructive-dark: oklch(0.35 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.22 0.006 265);
+  --primary: oklch(0.53 0.19 262);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 262);
+  --primary-dark: oklch(0.42 0.17 262);
+  --secondary: oklch(0.96 0.004 265);
+  --secondary-foreground: oklch(0.22 0.006 265);
+  --muted: oklch(0.96 0.004 265);
+  --muted-foreground: oklch(0.5 0.006 265);
+  --accent: oklch(0.945 0.005 265);
+  --accent-foreground: oklch(0.22 0.006 265);
+  --destructive: oklch(0.55 0.21 27);
+  --destructive-light: oklch(0.95 0.08 27);
+  --destructive-dark: oklch(0.35 0.245 27);
+  --border: oklch(0.9 0.005 265);
+  --input: oklch(0.88 0.006 265);
+  --ring: var(--primary);
 
-  --success: oklch(0.62 0.17 150);
+  --success: oklch(0.52 0.14 150);
   --success-foreground: oklch(0.97 0.02 150);
   --success-light: oklch(0.95 0.08 150);
   --success-dark: oklch(0.35 0.17 150);
-  --warning: oklch(0.7 0.15 70);
-  --warning-foreground: oklch(0.98 0.02 85);
-  --warning-light: oklch(0.95 0.08 70);
-  --warning-dark: oklch(0.35 0.15 70);
-  --info: oklch(0.55 0.18 250);
-  --info-foreground: oklch(0.97 0.02 250);
-  --info-light: oklch(0.95 0.08 250);
-  --info-dark: oklch(0.35 0.18 250);
+  --warning: oklch(0.56 0.13 60);
+  --warning-foreground: oklch(0.98 0.02 60);
+  --warning-light: oklch(0.95 0.08 60);
+  --warning-dark: oklch(0.35 0.15 60);
+  --info: oklch(0.52 0.1 220);
+  --info-foreground: oklch(0.97 0.02 220);
+  --info-light: oklch(0.95 0.035 220);
+  --info-dark: oklch(0.4 0.09 220);
   --bson-ctor: oklch(0.42 0.17 292);
   /* One color per column data type family (grid header type label, and
    * anywhere else a type is shown). Mapped from type names in
    * src/shared/theme/data-type-colors.ts. */
   --type-number: oklch(0.52 0.16 250);
   --type-text: oklch(0.5 0.14 150);
-  --type-bool: oklch(0.58 0.16 55);
+  --type-bool: oklch(0.55 0.15 55);
   --type-datetime: oklch(0.5 0.17 300);
   --type-json: oklch(0.52 0.18 350);
   --type-id: oklch(0.55 0.13 85);
   --type-enum: oklch(0.52 0.12 190);
   --type-binary: oklch(0.5 0.03 260);
-  --selection: oklch(0.65 0.16 55);
-  --selection-foreground: oklch(1 0 0);
+  --selection: var(--primary);
+  --selection-foreground: var(--primary-foreground);
   --selection-border: color-mix(in oklab, var(--primary) 75%, transparent);
-  --scrollbar-thumb: #ccc;
+  --scrollbar-thumb: oklch(0.82 0.006 265);
 
-  /* Chrome surfaces a literal shade off `--background`, matching DBX's own
-   * calibrated values (its editor toolbar/gutter/sidebar header aren't a
-   * flat color-mix formula — hand-tuned per theme) instead of the
-   * color-mix approximation this token started as. */
-  --chrome: oklch(0.97 0 0);
-  --chrome-muted: oklch(0.95 0 0);
-  --content: oklch(1 0 0);
-  --editor-toolbar: oklch(0.985 0 0);
-  --gutter: oklch(0.965 0 0);
-  --sidebar-header: oklch(0.985 0 0);
+  --chrome: oklch(0.965 0.004 265);
+  --chrome-muted: oklch(0.945 0.005 265);
+  --content: oklch(0.99 0.003 265);
+  --editor-toolbar: oklch(0.98 0.003 265);
+  --gutter: oklch(0.965 0.004 265);
+  --sidebar-header: oklch(0.98 0.003 265);
 
   /* Environment label colours (spec 0007): a connection's chip is `--env-<key>`
    * with text in `--env-<key>-fg`. Production is red, Staging amber and
@@ -105,62 +93,55 @@
   --env-grey: oklch(0.48 0.01 285);
   --env-grey-fg: oklch(0.99 0 0);
 
-  /* Runtime-overridable indirection for `--font-sans` below — same pattern
-   * `--color-primary: var(--primary)` uses for accent colors, so
-   * font.ts's applyFont() can override this on <html> without a rebuild. */
-  --font-sans-active: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Plain vars behind `--font-sans` and the radius roles, so the
+   * `data-font` and `data-corners` blocks can swap them at runtime (an
+   * `@theme inline` literal would be baked into every utility). */
+  --font-sans-active:
+    "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
 
-  /* Same indirection, for corner style ("Round" default — see
-   * src/shared/theme/corners.ts). Needed because @theme inline entries
-   * with a literal value (no var() of their own) get that literal INLINED
-   * straight into every rounded-* utility at build time — e.g.
-   * `.rounded-sm{border-radius:6px}`, no runtime custom property at all —
-   * so corners.ts would have nothing to override. Routing through a plain
-   * :root var here forces Tailwind to inline `var(--radius-sm-active)`
-   * instead, which corners.ts can then override on <html>. */
-  --radius-sm-active: 6px;
-  --radius-md-active: 6px;
-  --radius-lg-active: 10px;
-  --radius-xl-active: 14px;
+  --radius-inset-active: 4px;
+  --radius-control-active: 6px;
+  --radius-surface-active: 8px;
+  --radius-dialog-active: 12px;
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.19 0.004 285);
-  --foreground: oklch(0.88 0.006 285);
-  --card: oklch(0.225 0.005 285);
-  --card-foreground: oklch(0.88 0.006 285);
-  --popover: oklch(0.235 0.005 285);
-  --popover-foreground: oklch(0.89 0.006 285);
-  --primary: oklch(0.86 0.008 285);
-  --primary-foreground: oklch(0.19 0.004 285);
-  --primary-light: oklch(0.28 0.006 285);
-  --primary-dark: oklch(0.9 0.008 285);
-  --secondary: oklch(0.285 0.006 285);
-  --secondary-foreground: oklch(0.88 0.006 285);
-  --muted: oklch(0.285 0.006 285);
-  --muted-foreground: oklch(0.68 0.008 285);
-  --accent: oklch(0.305 0.008 285);
-  --accent-foreground: oklch(0.9 0.006 285);
-  --destructive: oklch(0.68 0.18 24);
+  --background: oklch(0.18 0.005 265);
+  --foreground: oklch(0.92 0.005 265);
+  --card: oklch(0.21 0.005 265);
+  --card-foreground: oklch(0.92 0.005 265);
+  --popover: oklch(0.23 0.006 265);
+  --popover-foreground: oklch(0.92 0.005 265);
+  --primary: oklch(0.72 0.15 258);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 260);
+  --primary-dark: oklch(0.82 0.1 258);
+  --secondary: oklch(0.245 0.006 265);
+  --secondary-foreground: oklch(0.92 0.005 265);
+  --muted: oklch(0.245 0.006 265);
+  --muted-foreground: oklch(0.74 0.006 265);
+  --accent: oklch(0.275 0.006 265);
+  --accent-foreground: oklch(0.92 0.005 265);
+  --destructive: oklch(0.7 0.17 24);
   --destructive-light: oklch(0.25 0.08 24);
   --destructive-dark: oklch(0.85 0.18 24);
-  --border: oklch(0.54 0.006 285 / 28%);
-  --input: oklch(0.54 0.006 285 / 34%);
-  --ring: oklch(0.62 0.008 285);
+  --border: oklch(0.6 0.006 265 / 28%);
+  --input: oklch(0.6 0.006 265 / 36%);
+  --ring: var(--primary);
 
-  --success: oklch(0.78 0.16 150);
+  --success: oklch(0.76 0.15 150);
   --success-foreground: oklch(0.22 0.03 150);
   --success-light: oklch(0.25 0.08 150);
   --success-dark: oklch(0.75 0.16 150);
-  --warning: oklch(0.82 0.15 85);
-  --warning-foreground: oklch(0.28 0.05 85);
-  --warning-light: oklch(0.25 0.08 85);
-  --warning-dark: oklch(0.75 0.15 85);
-  --info: oklch(0.75 0.12 250);
-  --info-foreground: oklch(0.25 0.04 250);
-  --info-light: oklch(0.25 0.08 250);
-  --info-dark: oklch(0.75 0.12 250);
+  --warning: oklch(0.8 0.14 80);
+  --warning-foreground: oklch(0.28 0.05 80);
+  --warning-light: oklch(0.25 0.08 80);
+  --warning-dark: oklch(0.75 0.15 80);
+  --info: oklch(0.75 0.1 220);
+  --info-foreground: oklch(0.25 0.04 220);
+  --info-light: oklch(0.29 0.05 220);
+  --info-dark: oklch(0.8 0.09 220);
   --bson-ctor: oklch(0.8 0.16 292);
   --type-number: oklch(0.78 0.12 250);
   --type-text: oklch(0.78 0.13 150);
@@ -170,16 +151,16 @@
   --type-id: oklch(0.83 0.12 85);
   --type-enum: oklch(0.8 0.1 190);
   --type-binary: oklch(0.75 0.03 260);
-  --selection: oklch(0.55 0.18 55);
-  --selection-foreground: oklch(0.205 0 0);
-  --scrollbar-thumb: #555;
+  --selection: var(--primary);
+  --selection-foreground: var(--primary-foreground);
+  --scrollbar-thumb: oklch(0.36 0.006 265);
 
-  --chrome: oklch(0.225 0.005 285);
-  --chrome-muted: oklch(0.25 0.006 285);
-  --content: oklch(0.19 0.004 285);
-  --editor-toolbar: oklch(0.215 0.005 285);
-  --gutter: oklch(0.205 0.004 285);
-  --sidebar-header: oklch(0.215 0.005 285);
+  --chrome: oklch(0.205 0.005 265);
+  --chrome-muted: oklch(0.235 0.006 265);
+  --content: oklch(0.18 0.005 265);
+  --editor-toolbar: oklch(0.195 0.005 265);
+  --gutter: oklch(0.19 0.005 265);
+  --sidebar-header: oklch(0.195 0.005 265);
 
   /* Environment label colours, dark theme: a little lighter so the chip
    * stands off the dark surface, text still 4.5:1 or better. */
@@ -201,23 +182,186 @@
   --env-grey-fg: oklch(0.99 0 0);
 }
 
+/* Accents. DH Blue (`blue`) is the :root / .dark value above, so it has no
+ * block. Each other accent sets all five variables for light and for dark;
+ * `.dark[data-accent]` outranks `[data-accent]`, and both follow :root and
+ * .dark so they win over them. Keep the ids in step with accent.ts. */
+[data-accent="graphite"] {
+  --primary: oklch(0.3 0.006 265);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.006 265);
+  --primary-dark: oklch(0.42 0.006 265);
+  --selection: oklch(0.3 0.006 265);
+}
+.dark[data-accent="graphite"] {
+  --primary: oklch(0.86 0.005 265);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.006 265);
+  --primary-dark: oklch(0.82 0.005 265);
+  --selection: oklch(0.86 0.005 265);
+}
+[data-accent="purple"] {
+  --primary: oklch(0.52 0.2 295);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 295);
+  --primary-dark: oklch(0.42 0.2 295);
+  --selection: oklch(0.52 0.2 295);
+}
+.dark[data-accent="purple"] {
+  --primary: oklch(0.74 0.13 295);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 295);
+  --primary-dark: oklch(0.82 0.1 295);
+  --selection: oklch(0.74 0.13 295);
+}
+[data-accent="pink"] {
+  --primary: oklch(0.55 0.2 350);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 350);
+  --primary-dark: oklch(0.42 0.17 350);
+  --selection: oklch(0.55 0.2 350);
+}
+.dark[data-accent="pink"] {
+  --primary: oklch(0.76 0.14 350);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 350);
+  --primary-dark: oklch(0.82 0.12 350);
+  --selection: oklch(0.76 0.14 350);
+}
+[data-accent="red"] {
+  --primary: oklch(0.54 0.2 25);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 25);
+  --primary-dark: oklch(0.42 0.17 25);
+  --selection: oklch(0.54 0.2 25);
+}
+.dark[data-accent="red"] {
+  --primary: oklch(0.72 0.16 25);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 25);
+  --primary-dark: oklch(0.82 0.1 25);
+  --selection: oklch(0.72 0.16 25);
+}
+[data-accent="orange"] {
+  --primary: oklch(0.56 0.16 50);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 50);
+  --primary-dark: oklch(0.42 0.11 50);
+  --selection: oklch(0.56 0.16 50);
+}
+.dark[data-accent="orange"] {
+  --primary: oklch(0.76 0.14 55);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 55);
+  --primary-dark: oklch(0.82 0.11 55);
+  --selection: oklch(0.76 0.14 55);
+}
+[data-accent="yellow"] {
+  --primary: oklch(0.52 0.11 90);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 90);
+  --primary-dark: oklch(0.42 0.09 90);
+  --selection: oklch(0.52 0.11 90);
+}
+.dark[data-accent="yellow"] {
+  --primary: oklch(0.85 0.15 95);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 95);
+  --primary-dark: oklch(0.82 0.15 95);
+  --selection: oklch(0.85 0.15 95);
+}
+[data-accent="green"] {
+  --primary: oklch(0.52 0.14 150);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 150);
+  --primary-dark: oklch(0.42 0.11 150);
+  --selection: oklch(0.52 0.14 150);
+}
+.dark[data-accent="green"] {
+  --primary: oklch(0.76 0.15 150);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 150);
+  --primary-dark: oklch(0.82 0.15 150);
+  --selection: oklch(0.76 0.15 150);
+}
+[data-accent="teal"] {
+  --primary: oklch(0.52 0.1 190);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-light: oklch(0.95 0.035 190);
+  --primary-dark: oklch(0.42 0.07 190);
+  --selection: oklch(0.52 0.1 190);
+}
+.dark[data-accent="teal"] {
+  --primary: oklch(0.76 0.11 190);
+  --primary-foreground: oklch(0.18 0.005 265);
+  --primary-light: oklch(0.3 0.07 190);
+  --primary-dark: oklch(0.82 0.11 190);
+  --selection: oklch(0.76 0.11 190);
+}
+
+[data-font="system"] {
+  --font-sans-active:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Corner presets. Round is the :root default. Keep in step with corners.ts. */
+[data-corners="soft"] {
+  --radius-inset-active: 3px;
+  --radius-control-active: 4px;
+  --radius-surface-active: 6px;
+  --radius-dialog-active: 8px;
+}
+[data-corners="sharp"] {
+  --radius-inset-active: 0px;
+  --radius-control-active: 2px;
+  --radius-surface-active: 2px;
+  --radius-dialog-active: 4px;
+}
+
 @theme inline {
   --font-sans: var(--font-sans-active);
-  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", monospace;
-  /* Below text-xs (0.75rem) — these two sizes were already the app's de
-   * facto micro-type scale (scattered as `text-[0.6875rem]`/
-   * `text-[0.625rem]` across dozens of sidebar/meta-text spots); naming
-   * them here makes that scale a real, reusable step instead of a
-   * repeated magic number, and keeps every such spot in sync going
-   * forward. */
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Named type scale, with Tailwind's size names aliased onto it until the
+   * token sweep moves call sites over. Nothing in the chrome goes under
+   * caption (11px at 100% scale). */
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1rem;
+  --text-small: 0.75rem;
+  --text-small--line-height: 1rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.25rem;
+  --text-title: 0.9375rem;
+  --text-title--line-height: 1.375rem;
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.5rem;
+  --text-display: 1.375rem;
+  --text-display--line-height: 1.75rem;
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
-  --text-3xs: 0.625rem;
-  --text-3xs--line-height: 0.875rem;
-  --radius-sm: var(--radius-sm-active);
-  --radius-md: var(--radius-md-active);
-  --radius-lg: var(--radius-lg-active);
-  --radius-xl: var(--radius-xl-active);
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 1.75rem;
+
+  /* Radius by role, with the old size names aliased onto the roles. */
+  --radius-inset: var(--radius-inset-active);
+  --radius-control: var(--radius-control-active);
+  --radius-surface: var(--radius-surface-active);
+  --radius-dialog: var(--radius-dialog-active);
+  --radius-pill: 9999px;
+  --radius-sm: var(--radius-inset-active);
+  --radius-md: var(--radius-control-active);
+  --radius-lg: var(--radius-surface-active);
+  --radius-xl: var(--radius-dialog-active);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -360,4 +504,22 @@
 
 .cm-statement-run {
   @apply bg-success/20 text-success hover:bg-success/40 rounded-full;
+}
+
+/* Reduced motion: everything finishes at once, except spinners and anything
+   marked `data-essential-motion`, which keep turning, slower. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin,
+  [data-essential-motion] {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
 }

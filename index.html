@@ -12,28 +12,72 @@
        * this, the browser's own default (white) shows through for that
        * gap, which in dev mode (non-render-blocking, JS-injected CSS) is
        * long enough to see. Values must mirror index.css's `--background`
-       * tokens exactly. */
+       * tokens exactly (a test checks this). */
       html,
       body {
-        background: oklch(1 0 0);
+        background: oklch(0.99 0.003 265);
       }
       html.dark,
       html.dark body {
-        background: oklch(0.18 0 0);
+        background: oklch(0.18 0.005 265);
       }
     </style>
     <script>
-      // Apply the theme class BEFORE first paint to avoid a white flash on
-      // reload. Must mirror readIsDark() in src/shared/theme/theme.tsx.
+      // Apply the saved appearance BEFORE first paint so there is no flash of
+      // the defaults. Must mirror readMode() in src/shared/theme/theme.tsx and
+      // the read* functions in accent.ts, font.ts, corners.ts and scale.ts.
       (function () {
-        try {
-          var s = localStorage.getItem("darkmode");
-          var dark =
-            s === "true" ||
-            (s !== "false" &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
-          if (dark) document.documentElement.classList.add("dark");
-        } catch (e) {}
+        var root = document.documentElement;
+        function get(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            return null;
+          }
+        }
+        function oneOf(value, ids, fallback) {
+          return ids.indexOf(value) === -1 ? fallback : value;
+        }
+        var s = get("darkmode");
+        var dark = s === "true";
+        if (s !== "true" && s !== "false") {
+          try {
+            dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (e) {}
+        }
+        if (dark) root.classList.add("dark");
+        root.setAttribute(
+          "data-accent",
+          oneOf(
+            get("accent"),
+            [
+              "blue",
+              "graphite",
+              "purple",
+              "pink",
+              "red",
+              "orange",
+              "yellow",
+              "green",
+              "teal",
+            ],
+            "blue",
+          ),
+        );
+        root.setAttribute(
+          "data-font",
+          get("font") === "system" ? "system" : "plex",
+        );
+        root.setAttribute(
+          "data-corners",
+          oneOf(get("cornerStyle"), ["sharp", "soft", "round"], "round"),
+        );
+        var scaleRaw = get("uiScale");
+        var scale = scaleRaw === null ? NaN : Number(scaleRaw);
+        if (isFinite(scale)) {
+          scale = Math.min(200, Math.max(50, scale));
+          if (scale !== 100) root.style.fontSize = scale + "%";
+        }
       })();
     </script>
   </head>

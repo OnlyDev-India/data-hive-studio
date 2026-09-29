@@ -59,13 +59,13 @@ export function DisconnectDialog() {
         <DialogFooter>
           <Button variant="outline" onClick={() => setPendingId(null)}>
             Cancel
-            <kbd className="bg-muted text-muted-foreground text-3xs ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+            <kbd className="bg-muted text-muted-foreground text-caption ml-1 rounded-md border px-1.5 py-0.5 font-medium">
               ESC
             </kbd>
           </Button>
           <Button variant="secondary" onClick={handle_disconnect}>
             Disconnect
-            <kbd className="bg-muted text-muted-foreground text-3xs ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+            <kbd className="bg-muted text-muted-foreground text-caption ml-1 rounded-md border px-1.5 py-0.5 font-medium">
               <CornerDownLeft className="size-4" strokeWidth={1.75} />
             </kbd>
           </Button>
