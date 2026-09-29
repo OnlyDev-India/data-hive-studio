@@ -35,9 +35,10 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 17  | Streaming results for Postgres and MongoDB  | Slice 17 | done        |
 | 28  | Split server only code into its own crate   | Slice 28 | done        |
 | 29  | Strip the server to a bare no login proxy   | Slice 29 | done        |
+| 32  | One line install without OS warnings        | Slice 32 | done        |
 | 30  | Connection form as a two step flow          | Slice 30 | in-progress |
 | 31  | Encrypted local secret storage              | Slice 31 | in-progress |
-| 32  | One line install without OS warnings        | Slice 32 | in-progress |
+| 33  | Installer progress and step feedback        | Slice 33 | in-progress |
 | 5   | Table comparison view                       | Slice 5  | planned     |
 | 14  | Saved queries and snippets                  | Slice 14 | planned     |
 | 15  | Mongo aggregation builder                   | Slice 15 | planned     |
@@ -116,7 +117,7 @@ Skipped: verify, test, review, document.
 
 ### 13. Explain plan viewer · done
 An Explain action shows a readable plan tree for PostgreSQL, SQLite, and MongoDB, with Explain Analyze, Stop, and an optional plan after each result.
-spec [0011](../specs/0011-explain-plan-viewer/index.md) · code in `src/features/query-editor`, `crates/dh-core/src/db/explain`
+code in `src/features/query-editor`, `crates/dh-core/src/db/explain`
 Skipped: verify, test.
 
 ### 17. Streaming results for Postgres and MongoDB · done
@@ -132,6 +133,11 @@ Skipped: verify.
 ### 29. Strip the server to a bare no login proxy · done
 The server and web UI only connect to databases: an access key and Host check guard it, and every accounts, orgs, grants, and sharing piece is gone from server and desktop.
 spec [0010](../specs/0010-bare-no-login-proxy/index.md) · code in `crates/dh-server`, `src/web`, `src-tauri/src/legacy_servers.rs`
+Skipped: verify, test.
+
+### 32. One line install without OS warnings · done
+One command per OS installs the latest release with no Gatekeeper, SmartScreen or `xattr` step: `install.sh` for macOS and Linux (`.deb`, `.rpm` or AppImage) and `install.ps1` for Windows, published with checksums on each release and smoke tested, plus ad hoc signing so a browser DMG opens through Open Anyway.
+spec [0014](../specs/0014-one-line-install/index.md) · code in `scripts/install`, `.github/workflows`, `src-tauri/tauri.conf.json`, `README.md`
 Skipped: verify, test.
 
 ## Slice 30: Connection form as a two step flow
@@ -152,7 +158,7 @@ spec [0012](../specs/0012-connection-form-two-step/index.md) · code in `src/fea
 
 ## Slice 31: Encrypted local secret storage
 
-### 31. Encrypted local secret storage · GA
+### 31. Encrypted local secret storage · in-progress · GA
 Saved connection passwords and SSH secrets move out of the macOS Keychain, which prompts on every launch for an app without a Developer ID signature, into an encrypted file on disk with one storage path for dev and release. A random key made on first launch lives in its own locked file, apart from the secrets. Existing Keychain entries carry over once, then the Keychain is never read again. The design pass settles the file layout, how the one time carry over runs, and what happens when the key file is missing or damaged.
 **Done when:** a fresh install saves and reuses passwords and SSH secrets with no Keychain prompt in dev and release; existing Keychain passwords carry over on the first launch after upgrading and no Keychain prompt appears after that; the key file and the secrets file are readable only by your OS user; and a lost or damaged key file loses only the saved secrets, never the connections, and says so clearly.
 spec [0013](../specs/0013-encrypted-local-secret-storage/index.md) · code in `src-tauri/src/local_connections`, `src-tauri/src/secret_store`
@@ -168,21 +174,20 @@ spec [0013](../specs/0013-encrypted-local-secret-storage/index.md) · code in `s
 - [ ] Review it (fresh model): `/check review encrypted local secret storage`
 - [ ] Document it: `/document encrypted local secret storage`
 
-## Slice 32: One line install without OS warnings
+## Slice 33: Installer progress and step feedback
 
-### 32. One line install without OS warnings · in-progress
-Unsigned builds trip macOS Gatekeeper ("damaged", fixed today with a Terminal `xattr` step) and Windows SmartScreen. Ad hoc sign the macOS app so a browser download shows "Open Anyway" instead of "damaged", and add a one line install command per OS that downloads the latest release with `curl`, `wget` or PowerShell `irm`, which skips the quarantine mark, and installs it: `install.sh` for macOS and Linux (`.deb`, `.rpm` or AppImage), `install.ps1` for Windows. The design pass settles where the scripts are served from, how they pick the right asset and verify it, and whether Windows installs silently.
-**Done when:** on a clean Mac, Windows PC and Linux box, pasting the one command installs the latest release and the app opens with no Gatekeeper, SmartScreen or Terminal fix step; a DMG downloaded in the browser opens through Open Anyway with no "damaged" message; and the release notes and README show the commands instead of the `xattr` step.
-spec [0014](../specs/0014-one-line-install/index.md) · code in `scripts/install`, `.github/workflows`, `src-tauri/tauri.conf.json`, `README.md`
+### 33. Installer progress and step feedback · in-progress
+`install.sh` and `install.ps1` go quiet for long stretches (the download, the checksum, `apt-get` or `dnf`, the Windows setup), so it can look stuck. Show which step is running with a step counter, a spinner on steps with no measurable size, and a percentage on the download. The design pass settles the counter and bar style, what prints when output isn't a terminal (CI smoke jobs, piped logs), and how to show download progress on PowerShell 5.1, where the built in progress bar makes downloads very slow.
+**Done when:** on macOS, Linux and Windows every install step prints what it is doing as it starts, the release download shows a live percentage, nothing sits silent for more than a few seconds, output without a terminal stays plain lines with no spinner noise, and the smoke jobs in `install-scripts.yml` still pass.
+spec [0015](../specs/0015-installer-progress-feedback.md) · code in `scripts/install`, `.github/workflows/install-scripts.yml`, `README.md`
 
-- [x] Design it (spec): `/architect one line install without OS warnings`
-- [ ] Build it: `/develop one line install without OS warnings`
-  - [ ] Ad hoc signing plus the macOS path of `install.sh`, published and smoke tested by `install-scripts.yml` end to end (AC-1 to AC-3, AC-10, AC-12 to AC-17)
-  - [x] Linux path of `install.sh` (deb, rpm, AppImage) with its three smoke jobs (AC-4 to AC-6, AC-11 to AC-13, AC-17)
-  - [ ] `install.ps1` for Windows with its smoke job (AC-7 to AC-13, AC-15, AC-17)
-  - [ ] README and release notes show the commands, and the manual browser DMG and Windows wizard checks (AC-1, AC-3, AC-7, AC-18)
-- [ ] Verify it: `/check verify one line install without OS warnings`
-- [ ] Test it: `/test one line install without OS warnings`
+- [x] Design it (spec): `/architect installer progress and step feedback`
+- [x] Build it: `/develop installer progress and step feedback`
+  - [x] `install.sh` step lines and summary, root rules with the rerun command, and the CI log checks (AC-1, AC-2, AC-6, AC-8, AC-10 to AC-15, AC-18)
+  - [x] `install.sh` spinner with hidden tool output, download meter, plain heartbeat, Ctrl+C and width fitting (AC-3 to AC-5, AC-7, AC-16, AC-17)
+  - [x] `install.ps1` with the HttpClient download meter, wizard wait spinner and its smoke log check (AC-1 to AC-4, AC-6 to AC-10, AC-16 to AC-18)
+- [ ] Verify it: `/check verify installer progress and step feedback`
+- [ ] Test it: `/test installer progress and step feedback`
 
 ## Slice 5: Table comparison view
 

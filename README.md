@@ -93,6 +93,8 @@ curl -fsSL https://github.com/OnlyDev-India/data-hive-studio/releases/latest/dow
 
 No `curl`? Use `wget -qO- https://github.com/OnlyDev-India/data-hive-studio/releases/latest/download/install.sh | sh`.
 
+On Linux the `.deb` and `.rpm` installs need root, so run it as `… | sudo sh`. The AppImage installs for your user and doesn't need `sudo`. If you leave `sudo` off when it's needed, the script stops before downloading anything and prints the exact command to run.
+
 **Windows (PowerShell)**
 
 ```powershell
@@ -101,11 +103,11 @@ irm https://github.com/OnlyDev-India/data-hive-studio/releases/latest/download/i
 
 Run the same command again to update. It replaces the app in place and keeps your connections and settings.
 
-- macOS installs to `/Applications/DH Studio.app` (it asks for your password if that folder isn't writable).
+- macOS installs to `/Applications/DH Studio.app`. If that folder isn't writable by you, the script stops and prints the command to run again with `sudo`.
 - Linux uses your package manager (`.deb` with apt, `.rpm` with dnf, yum or zypper), or else installs the AppImage to `~/.local/bin` with a menu entry. Only x86_64 is supported.
 - Windows runs the normal setup wizard, installed for your user, so no admin prompt.
 
-Options are environment variables: `DH_NO_LAUNCH=1` skips opening the app, `DH_FORMAT=deb|rpm|appimage` picks the Linux format, and `DH_SILENT=1` installs on Windows with no wizard. For example `curl -fsSL … | DH_FORMAT=appimage sh`, or `$env:DH_SILENT=1; irm … | iex`. To install a specific version, swap `latest/download` for `download/v0.5.4` (any release from 0.5.4 on).
+Options are environment variables: `DH_NO_LAUNCH=1` skips opening the app, `DH_FORMAT=deb|rpm|appimage` picks the Linux format, `DH_VERBOSE=1` shows the package manager output live on macOS and Linux, and `DH_SILENT=1` installs on Windows with no wizard. For example `curl -fsSL … | DH_FORMAT=appimage sh`, or `$env:DH_SILENT=1; irm … | iex`. To install a specific version, swap `latest/download` for `download/v0.5.4` (any release from 0.5.4 on).
 
 The checksum catches a broken or cut off download, but it lives in the same release as the files, so it can't protect against a compromised release. You're trusting this repo's GitHub releases either way.
 

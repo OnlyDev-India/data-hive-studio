@@ -80,7 +80,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Run the one line install
-        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | sh
+        shell: bash
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | sh 2>&1 | tee install.log
+
+      - name: Check the install output
+        shell: bash
+        run: |
+          grep -q '^==> ' install.log && grep -q 'installed in' install.log || { echo "::error::install.log is missing its step or summary lines"; exit 1; }
+          if grep -q $'[\r\033]' install.log; then echo "::error::install.log has a carriage return or escape code"; exit 1; fi
 
       - name: Check the installed app
         run: |
@@ -105,7 +112,14 @@ jobs:
         shell: powershell
         env:
           DH_SILENT: "1"
-        run: irm "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/install.ps1" | iex
+        run: irm "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/install.ps1" | iex *>&1 | Tee-Object -FilePath install.log
+
+      - name: Check the install output
+        shell: powershell
+        run: |
+          $log = Get-Content install.log -Raw
+          if ($log -notmatch '(?m)^==> ' -or $log -notmatch 'installed in') { throw 'install.log is missing its step or summary lines' }
+          if ($log -match "`r(?!`n)" -or $log.Contains([string][char]27)) { throw 'install.log has a carriage return or escape code' }
 
       - name: Check the installed app
         shell: powershell
@@ -122,7 +136,13 @@ jobs:
     steps:
       - run: sudo apt-get update
       - name: Run the one line install
-        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_NO_LAUNCH=1 sh
+        shell: bash
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | sudo DH_NO_LAUNCH=1 sh 2>&1 | tee install.log
+      - name: Check the install output
+        shell: bash
+        run: |
+          grep -q '^==> ' install.log && grep -q 'installed in' install.log || { echo "::error::install.log is missing its step or summary lines"; exit 1; }
+          if grep -q $'[\r\033]' install.log; then echo "::error::install.log has a carriage return or escape code"; exit 1; fi
       - name: Check the installed app
         run: test -x /usr/bin/dh-studio
 
@@ -132,7 +152,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run the one line install
-        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_FORMAT=appimage DH_NO_LAUNCH=1 sh
+        shell: bash
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_FORMAT=appimage DH_NO_LAUNCH=1 sh 2>&1 | tee install.log
+      - name: Check the install output
+        shell: bash
+        run: |
+          grep -q '^==> ' install.log && grep -q 'installed in' install.log || { echo "::error::install.log is missing its step or summary lines"; exit 1; }
+          if grep -q $'[\r\033]' install.log; then echo "::error::install.log has a carriage return or escape code"; exit 1; fi
       - name: Check the installed app
         run: |
           set -eu
@@ -146,6 +172,12 @@ jobs:
     container: fedora:latest
     steps:
       - name: Run the one line install
-        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_NO_LAUNCH=1 sh
+        shell: bash
+        run: curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" | DH_NO_LAUNCH=1 sh 2>&1 | tee install.log
+      - name: Check the install output
+        shell: bash
+        run: |
+          grep -q '^==> ' install.log && grep -q 'installed in' install.log || { echo "::error::install.log is missing its step or summary lines"; exit 1; }
+          if grep -q $'[\r\033]' install.log; then echo "::error::install.log has a carriage return or escape code"; exit 1; fi
       - name: Check the installed app
         run: test -x /usr/bin/dh-studio
