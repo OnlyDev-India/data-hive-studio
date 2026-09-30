@@ -26,8 +26,10 @@ import type { SavedConnParams, StudioStore, WorkspaceTabs } from "./types";
 import { tabKey } from "./tab-utils";
 import { workspaceActions } from "./workspace";
 import {
+  clearLayoutsFor,
   loadPendingWorkspaceRestores,
   scheduleWorkspaceSave,
+  stableKeyOfSaved,
 } from "./workspace-persistence";
 
 export function secretNoticeText(notice: SecretStoreNotice): {
@@ -503,6 +505,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           });
         },
         async deleteSavedLocal(name) {
+          const saved = get().savedLocal[name];
+          const layouts = (s: StudioStore) =>
+            saved ? clearLayoutsFor(s, stableKeyOfSaved(saved)) : {};
           if (WEB) {
             set((s) => {
               const next = { ...s.savedLocal };
@@ -511,6 +516,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               return {
                 savedLocal: next,
                 pins: s.pins.filter((p) => p !== `local:${name}`),
+                ...layouts(s),
               };
             });
             return;
@@ -522,6 +528,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             return {
               savedLocal: next,
               pins: s.pins.filter((p) => p !== `local:${name}`),
+              ...layouts(s),
             };
           });
         },

@@ -1,3 +1,4 @@
+import type { ConnectionInfo } from "@/shared/api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 
 export type StudioTab =
@@ -42,7 +43,16 @@ export type StudioTab =
   | { kind: "roles" }
   /** Two tables side by side. Its setup lives in the store's `compareTabs`
    *  under this tab's key. */
-  | { kind: "compare"; conn_id: string; id: number };
+  | { kind: "compare"; conn_id: string; id: number }
+  /** A schema's relation diagram. One per database and schema, so opening it
+   *  again focuses the tab. `database` undefined = the connection's own. */
+  | {
+      kind: "relation-diagram";
+      conn_id: string;
+      database?: string;
+      schema?: string;
+      id: number;
+    };
 
 /** `file_name`, when set, overrides the generic label for "sql"/"mongo-console"
  *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`.
@@ -76,7 +86,22 @@ export function tabLabel(
       return "Users & Privileges";
     case "compare":
       return "Compare";
+    case "relation-diagram":
+      return "Diagram";
   }
+}
+
+/** Hover title naming what a fixed label tab shows, when it has one. */
+export function tabTitle(
+  tab: StudioTab,
+  conn: Pick<ConnectionInfo, "kind" | "name" | "source_path"> | undefined,
+): string | undefined {
+  if (tab.kind !== "relation-diagram" || !conn) return undefined;
+  if (conn.kind === "sqlite")
+    return conn.source_path?.split(/[\\/]/).pop() ?? conn.name;
+  const database = tab.database ?? conn.name;
+  if (conn.kind === "mongodb" || !tab.schema) return database;
+  return `${database}.${tab.schema}`;
 }
 
 export function tabKey(tab: StudioTab): string {
@@ -97,6 +122,8 @@ export function tabKey(tab: StudioTab): string {
       return "roles";
     case "compare":
       return `compare:${tab.conn_id}:${tab.id}`;
+    case "relation-diagram":
+      return `relation-diagram:${tab.conn_id}:${tab.id}`;
   }
 }
 
@@ -118,6 +145,11 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
   }
   if (a.kind === "compare") {
     return b.kind === "compare" && a.conn_id === b.conn_id && a.id === b.id;
+  }
+  if (a.kind === "relation-diagram") {
+    return (
+      b.kind === "relation-diagram" && a.conn_id === b.conn_id && a.id === b.id
+    );
   }
   if (a.kind === "mongo-console") {
     return (

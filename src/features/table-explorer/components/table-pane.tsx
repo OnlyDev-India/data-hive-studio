@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { usePaneMode, useStudioStore } from "@/shared/store";
+import { usePaneMode, useStudioStore, type PaneMode } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
@@ -28,6 +28,7 @@ import {
 } from "@/shared/components/data-grid/types";
 import { cn } from "@/shared/lib/utils";
 import { ModeTabs } from "./mode-tabs";
+import { TableDiagram } from "./table-diagram";
 import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 
 // The schema editor is a large surface; load it only when its tab first
@@ -101,9 +102,10 @@ export function TablePane({
   const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
   const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
   const setMode = useCallback(
-    (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
+    (m: PaneMode) => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
   );
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
 
   // Data pane state: schema, distinct values, and the UI filters (also used by
   // the FilterBar in this pane's header).
@@ -322,6 +324,7 @@ export function TablePane({
   const is_loading =
     !failed &&
     !(paused && mode === "data") &&
+    mode !== "diagram" &&
     (mode === "data" ? !gridBridge || grid_loading : !schema || schema_busy);
   const [loading_start, setLoadingStart] = useState<number | null>(null);
   useEffect(() => {
@@ -399,7 +402,7 @@ export function TablePane({
         </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {failed && (
+        {failed && mode !== "diagram" && (
           <SchemaLoadError
             table={table}
             error={fail_error}
@@ -493,6 +496,14 @@ export function TablePane({
               />
             </Suspense>
           </div>
+        )}
+        {mode === "diagram" && conn && (
+          <TableDiagram
+            conn={conn}
+            table={table}
+            database={database}
+            schema={db_schema}
+          />
         )}
         {/* Covers the whole loading span, including the moment before the
             grid has published its own bridge. */}

@@ -7,6 +7,7 @@
 
 mod interrupt;
 mod catalog;
+mod graph;
 mod query;
 mod explain;
 mod edit;

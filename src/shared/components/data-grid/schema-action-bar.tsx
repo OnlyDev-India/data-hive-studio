@@ -27,7 +27,7 @@ import {
   type SchemaPaneHandle,
 } from "@/shared/store";
 import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
-import { usePaneCompactWidth } from "./grid-action-bar";
+import { usePaneCompactWidth } from "@/shared/hooks/use-pane-compact-width";
 import { Fragment, type ReactNode, type RefObject } from "react";
 
 /** Schema-mode controls for a table/collection pane — moved out of the

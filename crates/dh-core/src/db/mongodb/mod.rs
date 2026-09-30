@@ -12,6 +12,8 @@ mod console_guard;
 pub use console_guard::mongo_script_class;
 mod convert;
 mod field_tree;
+mod graph;
+mod infer_links;
 mod schema;
 mod indexes;
 mod documents;

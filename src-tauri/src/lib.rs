@@ -187,6 +187,8 @@ pub fn run() {
       commands::disconnect_database,
       commands::active_schema,
       commands::table_schema,
+      commands::schema_graph,
+      commands::mongo_graph,
       commands::mongo_field_tree,
       commands::run_sql,
       commands::run_sql_params,

@@ -6,7 +6,15 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Plus, RefreshCw, Search, Star, Trash2, Unplug } from "lucide-react";
+import {
+  Network,
+  Plus,
+  RefreshCw,
+  Search,
+  Star,
+  Trash2,
+  Unplug,
+} from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -217,6 +225,7 @@ export function TablesBrowser({
   const pg_current_db = recents_db ?? conn_name ?? "";
   const conn_info = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const open_compare = useStudioStore((s) => s.openCompare);
+  const open_relation_diagram = useStudioStore((s) => s.openRelationDiagram);
   /** A compare tab with this table as its left side. `database` undefined =
    *  the connection's own (Postgres); Mongo always names it. */
   const compare_with = (table: string, database?: string, schema?: string) => {
@@ -1218,6 +1227,19 @@ export function TablesBrowser({
             onKeyDown={handle_nav_keys}
           />
         </div>
+        {!is_pg && !is_mongo && (
+          <Button
+            size="iconSm"
+            variant="outline"
+            aria-label="Open relation diagram"
+            title="Open relation diagram"
+            className="size-7"
+            disabled={loading}
+            onClick={() => open_relation_diagram(conn_id)}
+          >
+            <Network className="size-3.5" />
+          </Button>
+        )}
         <Button
           size="iconSm"
           variant="outline"
@@ -1493,49 +1515,55 @@ export function TablesBrowser({
                           );
                           return (
                             <div key={schema}>
-                              {is_current_db ||
-                              (is_connected_schema && !is_active_schema) ? (
-                                <ContextMenu>
-                                  <ContextMenuTrigger className="contents">
-                                    {schema_row}
-                                  </ContextMenuTrigger>
-                                  <ContextMenuContent className="w-48">
-                                    {is_connected_schema &&
-                                      !is_active_schema && (
-                                        <ContextMenuItem
-                                          onSelect={() =>
-                                            close_schema_tabs(db, schema)
-                                          }
-                                        >
-                                          <Trash2 className="size-4" />
-                                          Close open tabs
-                                        </ContextMenuItem>
-                                      )}
-                                    {is_current_db && (
-                                      <ContextMenuItem
-                                        variant="destructive"
-                                        disabled={
-                                          schema === "public" ||
-                                          !!conn_info?.read_only
-                                        }
-                                        title={
-                                          conn_info?.read_only
-                                            ? "Read only connection: this change is refused"
-                                            : undefined
-                                        }
-                                        onSelect={() =>
-                                          open_ddl("schema-drop", schema)
-                                        }
-                                      >
-                                        <Trash2 className="size-4" />
-                                        Drop schema…
-                                      </ContextMenuItem>
-                                    )}
-                                  </ContextMenuContent>
-                                </ContextMenu>
-                              ) : (
-                                schema_row
-                              )}
+                              <ContextMenu>
+                                <ContextMenuTrigger className="contents">
+                                  {schema_row}
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-48">
+                                  <ContextMenuItem
+                                    onSelect={() =>
+                                      open_relation_diagram(conn_id, {
+                                        database:
+                                          db === pg_current_db ? undefined : db,
+                                        schema,
+                                      })
+                                    }
+                                  >
+                                    <Network className="size-4" />
+                                    Open relation diagram
+                                  </ContextMenuItem>
+                                  {is_connected_schema && !is_active_schema && (
+                                    <ContextMenuItem
+                                      onSelect={() =>
+                                        close_schema_tabs(db, schema)
+                                      }
+                                    >
+                                      <Trash2 className="size-4" />
+                                      Close open tabs
+                                    </ContextMenuItem>
+                                  )}
+                                  {is_current_db && (
+                                    <ContextMenuItem
+                                      variant="destructive"
+                                      disabled={
+                                        schema === "public" ||
+                                        !!conn_info?.read_only
+                                      }
+                                      title={
+                                        conn_info?.read_only
+                                          ? "Read only connection: this change is refused"
+                                          : undefined
+                                      }
+                                      onSelect={() =>
+                                        open_ddl("schema-drop", schema)
+                                      }
+                                    >
+                                      <Trash2 className="size-4" />
+                                      Drop schema…
+                                    </ContextMenuItem>
+                                  )}
+                                </ContextMenuContent>
+                              </ContextMenu>
                               {schema_expanded &&
                                 CATEGORIES.map((cat) => {
                                   const cat_id = `${schema_id}/kind:${cat.kind}`;
@@ -1842,6 +1870,14 @@ export function TablesBrowser({
                         {db_row}
                       </ContextMenuTrigger>
                       <ContextMenuContent className="w-48">
+                        <ContextMenuItem
+                          onSelect={() =>
+                            open_relation_diagram(conn_id, { database: db })
+                          }
+                        >
+                          <Network className="size-4" />
+                          Open relation diagram
+                        </ContextMenuItem>
                         {can_set_default && (
                           <ContextMenuItem
                             onSelect={() => set_default_database(db)}

@@ -268,6 +268,55 @@ export interface TableSchema {
   triggers: TriggerInfo[];
 }
 
+/** One schema's tables and foreign keys, for the relation diagram. Mirrors
+ *  `api/common/graph.rs`. */
+export interface SchemaGraph {
+  tables: GraphTable[];
+  links: GraphLink[];
+}
+
+export interface GraphTable {
+  /** Null on SQLite and Mongo. */
+  schema: string | null;
+  name: string;
+  /** A table in another schema, drawn without columns. */
+  stub: boolean;
+  columns: GraphColumn[];
+  /** Mongo: the collection failed to sample. */
+  error?: string;
+}
+
+export interface GraphColumn {
+  name: string;
+  data_type: string;
+  primary_key: boolean;
+  not_null: boolean;
+}
+
+/** One foreign key; `from_columns` and `to_columns` pair up by position. */
+export interface GraphLink {
+  id: string;
+  from_schema: string | null;
+  from_table: string;
+  from_columns: string[];
+  to_schema: string | null;
+  to_table: string;
+  to_columns: string[];
+  inferred: boolean;
+  on_delete?: string;
+}
+
+export interface SchemaGraphResult {
+  graph: SchemaGraph;
+  statements: string[];
+}
+
+export type MongoGraphEvent =
+  | { kind: "start"; total: number; collections: string[] }
+  | { kind: "collection"; table: GraphTable; links: GraphLink[] }
+  | { kind: "done" }
+  | { kind: "error"; message: string };
+
 /** One executed backend command, pushed live via the `activity://entry`
  *  event and hydratable through get_activity. */
 export interface ActivityEntry {

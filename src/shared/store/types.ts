@@ -25,7 +25,18 @@ export interface SavedWorkspace {
   sqlSeeds: Record<string, string>;
   /** Compare tab setups, keyed by tab key. Absent on older snapshots. */
   compareSetups?: Record<string, CompareSetup>;
+  /** Dragged diagram box positions: `"<database>|<schema>"` → table key →
+   *  position. Absent on older snapshots. */
+  relationLayouts?: RelationLayouts;
 }
+
+export interface XY {
+  x: number;
+  y: number;
+}
+
+/** One connection's saved diagram layouts, keyed `"<database>|<schema>"`. */
+export type RelationLayouts = Record<string, Record<string, XY>>;
 
 /** What a compare tab compares. Persisted with its workspace; results never
  *  are. */
@@ -47,8 +58,11 @@ export const EMPTY_COMPARE_SETUP: CompareSetup = {
   filter: "",
 };
 
+/** What a table or collection tab shows. */
+export type PaneMode = "data" | "schema" | "diagram";
+
 /** A tool the activity bar's tools menu offers. */
-export type ToolId = "compare";
+export type ToolId = "compare" | "relation-diagram";
 
 /** User-customizable trigger prefixes for the command palette's quick-open
  *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
@@ -199,8 +213,10 @@ export interface WorkspaceTabs {
   nextMongoTabId: number;
   /** Absent on workspaces saved before compare tabs existed. */
   nextCompareId?: number;
+  /** Absent on workspaces saved before relation diagram tabs existed. */
+  nextRelationDiagramId?: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
-  paneModes: Record<string, "data" | "schema">;
+  paneModes: Record<string, PaneMode>;
   /** Split-view pane tree. A never-split workspace is a single leaf holding
    *  every open tab — see `pane-layout.ts` for the shape/invariants. */
   layout: PaneNode;
@@ -756,6 +772,28 @@ export interface StudioStore {
   openRolesTab: (connId: string) => void;
   /** Open a new compare tab, its left side prefilled when given. */
   openCompare: (connId: string, left?: TableRef) => void;
+  /** Open (or focus) the relation diagram tab of one database and schema.
+   *  `focusTable` centers the diagram on that table and selects it. */
+  openRelationDiagram: (
+    connId: string,
+    opts?: { database?: string; schema?: string; focusTable?: string },
+  ) => void;
+  /** Point diagram tab `id` at another database and schema in one update,
+   *  or focus the tab that already shows them. */
+  setRelationDiagramTarget: (
+    connId: string,
+    id: number,
+    target: { database?: string; schema?: string },
+  ) => void;
+  /** Live diagram layouts per open connection, keyed by `conn_id`. Filed
+   *  into the snapshot under `stableConnKey`, never by `conn_id`. */
+  relationLayouts: Record<string, RelationLayouts>;
+  /** Save one diagram's positions, or clear them with null. */
+  setRelationLayout: (
+    connId: string,
+    key: string,
+    positions: Record<string, XY> | null,
+  ) => void;
   /** Compare tab setups keyed by tab key. */
   compareTabs: Record<string, CompareSetup>;
   setCompareSetup: (key: string, setup: CompareSetup) => void;
@@ -806,9 +844,5 @@ export interface StudioStore {
   closeAllTabs: (connId: string) => void;
   closeToLeft: (connId: string, tab: StudioTab) => void;
   closeToRight: (connId: string, tab: StudioTab) => void;
-  setPaneMode: (
-    connId: string,
-    tabKey: string,
-    mode: "data" | "schema",
-  ) => void;
+  setPaneMode: (connId: string, tabKey: string, mode: PaneMode) => void;
 }

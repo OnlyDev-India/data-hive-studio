@@ -136,6 +136,14 @@ pub struct RunMongoBody {
     pub run_id: Option<String>,
 }
 
+/// The Mongo ER diagram's database. `run_id` names the run for `/cancel`.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct MongoGraphBody {
+    pub database: String,
+    #[serde(default)]
+    pub run_id: Option<String>,
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ExplainMongoBody {
     pub database: String,

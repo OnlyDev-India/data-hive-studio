@@ -5,6 +5,7 @@ use crate::bodies::{
 use axum::extract::{Path, Query};
 use axum::response::Response;
 use axum::Json;
+use dh_core::api::SchemaGraphResult;
 
 /// `database`/`schema`: `None` (query string omitted) means the connection's
 /// own primary database and active schema.
@@ -39,6 +40,14 @@ pub(super) async fn schema(
         a.table_schema(q.database.as_deref(), q.schema.as_deref(), &table)
             .await
             .map(|t| t.0),
+    )
+}
+
+pub(super) async fn schema_graph(Live(a): Live, Query(q): Query<TargetQuery>) -> Response {
+    json_or(
+        a.schema_graph(q.database.as_deref(), q.schema.as_deref())
+            .await
+            .map(|(graph, statements)| SchemaGraphResult { graph, statements }),
     )
 }
 

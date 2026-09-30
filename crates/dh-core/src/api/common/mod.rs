@@ -5,7 +5,16 @@ mod schema_ops;
 mod import;
 mod plan;
 mod compare;
+mod graph;
 
+pub use graph::{
+    GraphColumn,
+    GraphLink,
+    GraphTable,
+    MongoGraphEvent,
+    SchemaGraph,
+    SchemaGraphResult,
+};
 pub use compare::{
     CompareChunk,
     CompareDataRequest,

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::db::{BatchSink, DbAdapter, DbResult, OpOutcome, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
+use crate::db::{BatchSink, DbAdapter, DbResult, GraphSink, OpOutcome, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
 use crate::api::{FieldShape, ImportCapabilities, ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use super::MongoAdapter;
 
@@ -28,6 +28,10 @@ impl DbAdapter for MongoAdapter {
 
     async fn field_tree(&self, database: &str, collection: &str) -> DbResult<Vec<FieldShape>> {
         MongoAdapter::field_tree(self, database, collection).await
+    }
+
+    async fn mongo_graph(&self, database: &str, run: Option<&RunHandle>, sink: GraphSink<'_>) -> DbResult<()> {
+        MongoAdapter::mongo_graph(self, database, run, sink).await
     }
 
     async fn list_schemas(&self) -> DbResult<Vec<String>> {

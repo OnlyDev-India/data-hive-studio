@@ -31,7 +31,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 5   | Table comparison view          | Slice 5  | in-progress |
 | 14  | Saved queries and snippets     | Slice 14 | planned  |
 | 15  | Mongo aggregation builder      | Slice 15 | planned  |
-| 16  | ER diagram                     | Slice 16 | in-progress |
+| 16  | Relation diagram               | Slice 16 | in-progress |
 
 ## Existing
 
@@ -143,23 +143,29 @@ code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `cra
 
 - [ ] Design it (spec): `/architect mongo aggregation builder`
 
-## Slice 16: ER diagram
+## Slice 16: Relation diagram
 
-### 16. ER diagram · in-progress
+### 16. Relation diagram · in-progress
 
 A diagram of a database or schema: tables as boxes with their columns, joined by foreign keys, and a click opens that table. The design pass settles drawing and layout, how it copes with hundreds of tables, and image export.
 **Done when:** opening the diagram for a PostgreSQL or SQLite schema shows its tables and foreign key links, and clicking a table opens it, with a large schema still usable.
-spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components/er-canvas`, `src/features/er-diagram`, `src/features/table-explorer`, `src/features/workspace/components/sidebar`, `crates/dh-core/src/db`
+spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components/relation-canvas`, `src/features/relation-diagram`, `src/features/table-explorer`, `src/features/workspace/components/sidebar`, `crates/dh-core/src/db`
 
-- [x] Design it (spec): `/architect er diagram`
-- [ ] Build it: `/develop er diagram`
-  - [ ] SQL diagrams end to end: bulk `schema_graph` for SQLite and Postgres, the diagram tab, schema switcher, stubs, select and open · AC-1, AC-2, AC-3, AC-4, AC-5, AC-7
-  - [ ] Table tab Diagram mode (one hop) and Open full diagram · AC-9
-  - [ ] Big schemas and saved layout: zoom detail, column toggle, search, focus mode, positions per schema · AC-6, AC-8
-  - [ ] Mongo: streamed sampling, inferred links, collection Diagram mode, palette and activity bar entries · AC-1, AC-10, AC-11, AC-12
-  - [ ] Export, Refresh, states, activity log, tokens · AC-13, AC-14, AC-15, AC-16, AC-17
-- [ ] Verify it: `/check verify er diagram`
-- [ ] Test it: `/test er diagram`
+- [x] Design it (spec): `/architect relation diagram`
+- [ ] Build it: `/develop relation diagram`
+  - [x] SQL diagrams end to end: bulk `schema_graph` for SQLite and Postgres, the diagram tab, schema switcher, stubs, select and open · AC-1, AC-2, AC-3, AC-4, AC-5, AC-7
+  - [x] Table tab Diagram mode (one hop) and Open full diagram · AC-9
+  - [x] Big schemas and saved layout: column toggle, search, focus mode, positions per schema, saved with the connection's tabs under its stable key · AC-6, AC-8, AC-8a
+  - [x] Mongo: streamed sampling, inferred links, collection Diagram mode, palette and activity bar entries · AC-1, AC-10, AC-11, AC-12
+  - [x] Export, Refresh, states, activity log, tokens · AC-13, AC-14, AC-15, AC-16, AC-17
+  - [x] Rename to Relation diagram (internals and saved tab migration, do first) · AC-13, AC-19
+  - [x] Database picker for Postgres and Mongo diagram tabs · AC-18
+  - [x] Toolbar always visible, loading and errors on the canvas, toggle decides columns above 0.2 zoom · AC-6, AC-15
+  - [ ] ER view on SQL: `unique` link flag, entity, oval and diamond shapes, crow's foot marks, the Relation | ER toggle after Focus · AC-7, AC-20, AC-21, AC-22, AC-25, AC-27
+  - [ ] ER join table fold, clicks, search and focus in ER · AC-23, AC-26
+  - [ ] ER everywhere and on Mongo: toggle in table and collection Diagram modes, `array` flag, dashed inferred diamonds · AC-20, AC-24
+- [ ] Verify it: `/check verify relation diagram`
+- [ ] Test it: `/test relation diagram`
 
 ## Deferred
 
@@ -178,7 +184,10 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Fetch secrets at connect time**: the app loads every saved secret into webview memory at startup (`hydrateSavedLocal`). Fetch each one only when connecting, so secrets aren't held in memory until needed · from spec 0013 · code in `src/shared/store/store.ts`, `src/features/connections/lib/connect-saved.ts`
 - **Developer ID signing and notarization**: the only way to a plain double click install with no warning at all on macOS 15 and newer. Needs a paid Apple Developer account; then add the signing and notarization secrets the release workflow already notes, plus a Windows code signing certificate for SmartScreen · from slice 32 · needs a decision · code in `.github/workflows/release.yml`, `src-tauri/tauri.conf.json`
 - **Install script lint and uninstall**: run `shellcheck` and PSScriptAnalyzer on the install templates in PR checks, and add an uninstall command if users ask · from spec 0014 · code in `scripts/install`, `.github/workflows/pr-checks.yml`
-- **ER diagram extras**: dismiss or add Mongo inferred links (saved per connection), auto refresh open diagrams after in app DDL, and copy as Mermaid `erDiagram` · from spec 0018 · code in `src/shared/components/er-canvas`, `crates/dh-core/src/db/mongodb`
+- **Relation diagram extras**: dismiss or add Mongo inferred links (saved per connection), auto refresh open diagrams after in app DDL, copy as Mermaid `erDiagram`, remember Relation or ER per tab and save ER positions, read Mongo unique indexes, and fold join tables that have extra columns · from spec 0018 · code in `src/shared/components/relation-canvas`, `crates/dh-core/src/db/mongodb`
+- **Wider stable connection key**: `stableConnKey` is kind plus database name, so two servers with a same named database share saved tabs, ER layouts and activity history. Widen it to `kind:user@host:port/database` on both the TS and Rust sides, with a one time fallback to the old key · from spec 0018 · code in `src/shared/store/workspace-persistence.ts`, `crates/dh-core/src/db/registry.rs`
+- **Grid column layout by stable key**: the grid's column widths and order are keyed by `conn_id`, so they reset on every connect. Move them onto `stableConnKey` · from spec 0018 · code in `src/shared/components/data-grid`
+- **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 ## Legend

@@ -1,4 +1,4 @@
-use crate::api::{ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaGraph, SchemaOp, TableInfo, TableSchema};
 use std::sync::Arc;
 use crate::db::read_only::Dialect;
 use crate::db::{BatchSink, DbAdapter, DbResult, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
@@ -51,6 +51,13 @@ impl DbAdapter for SqliteAdapter {
         table: &str,
     ) -> DbResult<(TableSchema, Vec<String>)> {
         SqliteAdapter::table_schema(self, table).await
+    }
+    async fn schema_graph(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> DbResult<(SchemaGraph, Vec<String>)> {
+        SqliteAdapter::schema_graph(self).await
     }
     async fn run_sql(
         &self,

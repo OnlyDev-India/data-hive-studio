@@ -21,6 +21,7 @@ import {
   History,
   Puzzle,
   GitCompareArrows,
+  Network,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -57,7 +58,7 @@ export type IconType =
   | "extension";
 
 export const TAB_ICON_CLASS: Record<
-  "table" | "sql" | "new-table" | "mongo-console" | "compare",
+  "table" | "sql" | "new-table" | "mongo-console" | "compare" | "relation-diagram",
   string
 > = {
   table: "text-obj-relation",
@@ -65,6 +66,7 @@ export const TAB_ICON_CLASS: Record<
   sql: "text-primary",
   "mongo-console": "text-primary",
   compare: "text-primary",
+  "relation-diagram": "text-obj-relation",
 };
 
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
@@ -90,6 +92,9 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   ),
   activity: <History className={cn("text-muted-foreground size-3.5")} />,
   roles: <UsersIcon className="text-obj-security size-3 shrink-0" />,
+  "relation-diagram": (
+    <Network className={cn("size-3.5", TAB_ICON_CLASS["relation-diagram"])} />
+  ),
   compare: (
     <GitCompareArrows className={cn("size-3.5", TAB_ICON_CLASS.compare)} />
   ),

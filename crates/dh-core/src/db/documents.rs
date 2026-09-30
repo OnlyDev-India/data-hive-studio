@@ -1,7 +1,7 @@
-use crate::api::{MongoRunResult, QueryChunk};
+use crate::api::{MongoGraphEvent, MongoRunResult, QueryChunk};
 use serde_json;
 use super::adapter::DbAdapter;
-use super::types::{BatchSink, DbError, DbResult};
+use super::types::{BatchSink, DbError, DbResult, GraphSink};
 use super::activity_log::{activity_rows_mongo, log_refusal};
 use super::runs;
 use super::registry::with_connection;
@@ -191,6 +191,65 @@ pub async fn run_mongo_stream_on(
             elapsed_ms: t.elapsed().as_millis(),
             ..Default::default()
         }),
+        other => other,
+    }
+}
+
+/// The Mongo ER diagram: every collection of `database` sampled and sent to
+/// `on_event` as it finishes. `run_id` makes it cancellable through
+/// `cancel_run`; a cancelled run keeps what was already sent and resolves Ok.
+/// Logged like a schema read, with every statement it ran.
+pub async fn mongo_graph(
+    conn_id: &str,
+    database: &str,
+    run_id: Option<&str>,
+    on_event: impl FnMut(MongoGraphEvent) -> DbResult<()> + Send,
+) -> DbResult<()> {
+    let t = std::time::Instant::now();
+    let sampled = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = sampled.clone();
+    let mut inner = on_event;
+    let mut sink = move |event: MongoGraphEvent| {
+        if let MongoGraphEvent::Collection { table, .. } = &event {
+            seen.lock().unwrap().push(table.name.clone());
+        }
+        inner(event)
+    };
+    let id = conn_id.to_string();
+    let run_id = run_id.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        mongo_graph_on(&*a, &id, database, run_id.as_deref(), &mut sink).await
+    })
+    .await;
+    let mut statements = vec![format!("use {database};"), "db.getCollectionNames();".to_string()];
+    for name in sampled.lock().unwrap().iter() {
+        statements.push(format!("db.getCollection({name:?}).find({{}}).limit(200);"));
+    }
+    let count = statements.len() as i64 - 2;
+    match &res {
+        Ok(()) => crate::activity::log_stmt_ok_origin(conn_id, "schema", &statements.join("\n"), t, count, "app"),
+        Err(e) => crate::activity::log_stmt_err_origin(conn_id, "schema", &statements.join("\n"), t, e, "app"),
+    }
+    res
+}
+
+/// [`mongo_graph`] on an adapter the caller already holds, with no activity
+/// log entry (the team server).
+pub async fn mongo_graph_on(
+    a: &dyn DbAdapter,
+    conn_id: &str,
+    database: &str,
+    run_id: Option<&str>,
+    sink: GraphSink<'_>,
+) -> DbResult<()> {
+    let run = run_id.map(|id| runs::register(conn_id, id));
+    let run_ref = run.as_ref();
+    let res = runs::until_abandoned(run_ref, a.mongo_graph(database, run_ref, sink)).await;
+    if let Some(r) = &run {
+        r.finish().await;
+    }
+    match res {
+        Err(DbError::Cancelled) => Ok(()),
         other => other,
     }
 }

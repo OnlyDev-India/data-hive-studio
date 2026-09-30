@@ -20,7 +20,8 @@ import { JsonViewer } from "@/features/inspector";
 import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 import { ModeTabs } from "./mode-tabs";
 import { FieldsTree, MongoSchemaEditor } from "@/features/schema-designer";
-import { useStudioStore, usePaneMode } from "@/shared/store";
+import { useStudioStore, usePaneMode, type PaneMode } from "@/shared/store";
+import { CollectionDiagram } from "./table-diagram";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
@@ -63,9 +64,10 @@ export function MongoCollectionPane({
   const mode = usePaneMode(conn_id, tab_key);
   const setPaneMode = useStudioStore((s) => s.setPaneMode);
   const setMode = useCallback(
-    (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
+    (m: PaneMode) => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
   );
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
 
   const [schema, setSchema] = useState<TableSchema | null>(null);
   const [failed, setFailed] = useState(false);
@@ -223,6 +225,7 @@ export function MongoCollectionPane({
   const is_loading =
     !failed &&
     !(paused && mode === "data") &&
+    mode !== "diagram" &&
     (mode === "data"
       ? !gridBridge || !!gridBridge.loading
       : !schema || !!schemaEdit?.busy);
@@ -280,7 +283,7 @@ export function MongoCollectionPane({
         </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {failed && (
+        {failed && mode !== "diagram" && (
           <div
             role="alert"
             className={cn(
@@ -389,6 +392,13 @@ export function MongoCollectionPane({
               on_dropped={on_modified}
             />
           </div>
+        )}
+        {mode === "diagram" && conn && (
+          <CollectionDiagram
+            conn={conn}
+            database={database}
+            collection={collection}
+          />
         )}
         {/* One overlay for the whole span, including the moment before the
             grid has published its own bridge, so its style never swaps. */}

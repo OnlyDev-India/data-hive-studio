@@ -2,6 +2,7 @@ import {
   Code,
   GitCompareArrows,
   History,
+  Network,
   SquarePlus,
   Table as TableIcon,
   Terminal,
@@ -53,6 +54,12 @@ export function TabTypeIcon({
       return (
         <GitCompareArrows
           className={cn("size-3.5", TAB_ICON_CLASS.compare, className)}
+        />
+      );
+    case "relation-diagram":
+      return (
+        <Network
+          className={cn("size-3.5", TAB_ICON_CLASS["relation-diagram"], className)}
         />
       );
   }

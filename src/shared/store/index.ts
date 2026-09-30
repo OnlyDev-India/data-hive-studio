@@ -3,6 +3,7 @@ export {
   DEFAULT_PALETTE_KEYWORDS,
   EMPTY_COMPARE_SETUP,
   type CompareSetup,
+  type PaneMode,
   type ToolId,
   type StudioStore,
   type StudioView,
@@ -26,7 +27,13 @@ export {
   usePaneMode,
   useWorkspace,
 } from "./hooks";
-export { tabEquals, tabKey, tabLabel, type StudioTab } from "./tab-utils";
+export {
+  tabEquals,
+  tabKey,
+  tabLabel,
+  tabTitle,
+  type StudioTab,
+} from "./tab-utils";
 export {
   listUnappliedWork,
   listUnappliedWorkFor,
@@ -34,3 +41,9 @@ export {
 } from "./unapplied-work";
 export { findOwnerLeaf, type PaneNode } from "./pane-layout";
 export { stableConnKey } from "./workspace-persistence";
+export {
+  graphKey,
+  useRelationGraphs,
+  type GraphEntry,
+  type GraphStatus,
+} from "./relation-graphs";

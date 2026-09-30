@@ -10,6 +10,7 @@ import type {
   FieldShape,
   RoleDetail,
   SchemaObject,
+  SchemaGraphResult,
   SchemaObjectKind,
   SchemaOp,
   TableInfo,
@@ -567,6 +568,31 @@ export function tableSchema(
           schema: schema ?? null,
           table,
         },
+      }),
+  );
+}
+
+/** Every table of one schema with its foreign keys, for the relation diagram.
+ *  `database`/`schema` as in `tableSchema`. */
+export function schemaGraph(
+  connId: string,
+  database?: string,
+  schema?: string,
+): Promise<SchemaGraphResult> {
+  return dedupe(
+    `schema-graph:${connId} ${database ?? ""} ${schema ?? ""}`,
+    () =>
+      dispatchDbCall<SchemaGraphResult>(connId, {
+        httpMethod: "GET",
+        httpPath: (id) => {
+          const query = new URLSearchParams();
+          if (database) query.set("database", database);
+          if (schema) query.set("schema", schema);
+          const qs = query.toString();
+          return `/v1/c/${encodeURIComponent(id)}/schema-graph${qs ? `?${qs}` : ""}`;
+        },
+        localCmd: "schema_graph",
+        args: { connId, database: database ?? null, schema: schema ?? null },
       }),
   );
 }

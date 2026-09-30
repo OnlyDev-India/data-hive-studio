@@ -30,6 +30,7 @@ import {
   tabEquals,
   tabKey,
   tabLabel,
+  tabTitle,
   useStudioStore,
   type StudioTab,
 } from "@/shared/store";
@@ -268,6 +269,12 @@ function TabItem({
   const dragging = useStudioStore(
     (s) => !!s.dragTab && tabKey(s.dragTab.tab) === key,
   );
+  const title = useStudioStore((s) =>
+    tabTitle(
+      tab,
+      "conn_id" in tab ? s.open.find((c) => c.id === tab.conn_id) : undefined,
+    ),
+  );
   const tabTypeIcon = IconTypeMap[tab.kind];
   return (
     <ContextMenu>
@@ -279,6 +286,7 @@ function TabItem({
             data-tab-key={key}
             data-tab-index={index}
             data-tab-pane={pane_id}
+            title={title}
             style={
               env_color
                 ? { boxShadow: `inset 0 2px 0 var(--env-${env_color})` }

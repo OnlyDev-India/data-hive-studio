@@ -1,11 +1,14 @@
 import type { StoreApi } from "zustand";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { tabEquals, tabKey, type StudioTab } from "./tab-utils";
+import { useRelationGraphs } from "./relation-graphs";
 import type { TableRef } from "../api/types";
 import {
   EMPTY_COMPARE_SETUP,
+  type PaneMode,
   type StudioStore,
   type WorkspaceTabs,
+  type XY,
 } from "./types";
 import {
   addKeyToLeaf,
@@ -312,6 +315,120 @@ export function workspaceActions(set: SetState) {
             [tabKey(tab)]: { ...EMPTY_COMPARE_SETUP, left: left ?? null },
           },
         };
+      });
+    },
+    openRelationDiagram(
+      connId: string,
+      opts: Parameters<StudioStore["openRelationDiagram"]>[1] = {},
+    ) {
+      const { schema, focusTable } = opts;
+      let key = "";
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const conn = state.open.find((c) => c.id === connId);
+        const database =
+          opts.database ?? (conn?.kind === "mongodb" ? conn.name : undefined);
+        const existing = cur.tabs.find(
+          (t) =>
+            t.kind === "relation-diagram" &&
+            t.database === database &&
+            t.schema === schema,
+        );
+        if (existing) {
+          key = tabKey(existing);
+          return {
+            workspaces: putWs(
+              state.workspaces,
+              connId,
+              focusExistingTab(cur, existing),
+            ),
+          };
+        }
+        const id = cur.nextRelationDiagramId ?? 0;
+        const tab: StudioTab = {
+          kind: "relation-diagram",
+          conn_id: connId,
+          ...(database !== undefined ? { database } : {}),
+          ...(schema !== undefined ? { schema } : {}),
+          id,
+        };
+        key = tabKey(tab);
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextRelationDiagramId: id + 1 },
+          tab,
+        );
+        return { workspaces: putWs(state.workspaces, connId, next) };
+      });
+      if (focusTable && key)
+        useRelationGraphs.getState().requestFocus(key, focusTable, schema);
+    },
+    setRelationDiagramTarget(
+      connId: string,
+      id: number,
+      target: { database?: string; schema?: string },
+    ) {
+      set((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const tab = cur.tabs.find(
+          (t) => t.kind === "relation-diagram" && t.id === id,
+        );
+        if (!tab || tab.kind !== "relation-diagram") return state;
+        const conn = state.open.find((c) => c.id === connId);
+        // Postgres files its own database as undefined, like the sidebar.
+        const database =
+          conn?.kind !== "mongodb" && target.database === conn?.name
+            ? undefined
+            : target.database;
+        const { schema } = target;
+        if (tab.database === database && tab.schema === schema) return state;
+        const other = cur.tabs.find(
+          (t) =>
+            t.kind === "relation-diagram" &&
+            t.id !== id &&
+            t.database === database &&
+            t.schema === schema,
+        );
+        if (other)
+          return {
+            workspaces: putWs(
+              state.workspaces,
+              connId,
+              focusExistingTab(cur, other),
+            ),
+          };
+        const next: StudioTab = {
+          kind: "relation-diagram",
+          conn_id: tab.conn_id,
+          ...(database !== undefined ? { database } : {}),
+          ...(schema !== undefined ? { schema } : {}),
+          id: tab.id,
+        };
+        return {
+          workspaces: putWs(state.workspaces, connId, {
+            ...cur,
+            tabs: cur.tabs.map((t) => (t === tab ? next : t)),
+            active:
+              cur.active && tabEquals(cur.active, tab) ? next : cur.active,
+          }),
+        };
+      });
+    },
+    relationLayouts: {},
+    setRelationLayout(
+      connId: string,
+      key: string,
+      positions: Record<string, XY> | null,
+    ) {
+      set((state) => {
+        const layouts = { ...state.relationLayouts[connId] };
+        if (positions) layouts[key] = positions;
+        else if (key in layouts) delete layouts[key];
+        else return state;
+        const relationLayouts = { ...state.relationLayouts };
+        // An empty map must not keep a snapshot entry alive.
+        if (Object.keys(layouts).length > 0) relationLayouts[connId] = layouts;
+        else delete relationLayouts[connId];
+        return { relationLayouts };
       });
     },
     compareTabs: {},
@@ -670,7 +787,7 @@ export function workspaceActions(set: SetState) {
     closeToRight(connId: string, tab: StudioTab) {
       bulkCloseTabs(set, connId, tab, "right");
     },
-    setPaneMode(connId: string, tabKey: string, mode: "data" | "schema") {
+    setPaneMode(connId: string, tabKey: string, mode: PaneMode) {
       set((state) => {
         const cur = state.workspaces[connId];
         if (!cur) return state;

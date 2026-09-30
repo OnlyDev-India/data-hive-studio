@@ -10,15 +10,15 @@
 
 use super::data::op_reads;
 use super::{fail, handle_of, Live, Shared};
-use crate::bodies::{CancelBody, ExecuteOpBody, RunMongoBody, SqlBody};
+use crate::bodies::{CancelBody, ExecuteOpBody, MongoGraphBody, RunMongoBody, SqlBody};
 use axum::body::{Body, Bytes};
 use axum::extract::{RawPathParams, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use dh_core::api::QueryChunk;
+use dh_core::api::{MongoGraphEvent, QueryChunk};
 use dh_core::db::{
-    mongo_script_class, run_mongo_stream_on, run_sql_stream_on, sql_class, DbError, DbResult, Dialect, StmtClass,
+    mongo_graph_on, mongo_script_class, run_mongo_stream_on, run_sql_stream_on, sql_class, DbError, DbResult, Dialect, StmtClass,
 };
 use futures_util::future::BoxFuture;
 use futures_util::Stream;
@@ -141,6 +141,26 @@ pub(super) async fn mongo_run_stream(
             )
             .await?;
             Ok(json!(res))
+        })
+    })
+    .await
+}
+
+/// The Mongo ER diagram, one `chunk` line per sampled collection. It only
+/// reads, so a read only server allows it.
+pub(super) async fn mongo_graph_stream(
+    State(st): State<Shared>,
+    Live(a): Live,
+    params: RawPathParams,
+    Json(b): Json<MongoGraphBody>,
+) -> Response {
+    let handle = handle_of(&params);
+    let (run_id, id) = (b.run_id.clone(), handle.clone());
+    stream_response::<MongoGraphEvent>(st, handle, run_id.clone(), move |sink| {
+        Box::pin(async move {
+            let mut sink = sink;
+            mongo_graph_on(&*a, &id, &b.database, run_id.as_deref(), &mut *sink).await?;
+            Ok(Value::Null)
         })
     })
     .await

@@ -11,12 +11,13 @@ use crate::api::{
     ImportRequest,
     QueryOp,
     QueryResult,
+    SchemaGraph,
     SchemaOp,
     TableInfo,
     TableSchema,
 };
 use serde_json;
-use super::types::{BatchSink, CatalogOverview, DbError, DbResult, OpOutcome, RoleDetail, SchemaObject, SchemaObjectKind};
+use super::types::{BatchSink, GraphSink, CatalogOverview, DbError, DbResult, OpOutcome, RoleDetail, SchemaObject, SchemaObjectKind};
 
 /// One database family's driver: connection handling plus every operation
 /// the UI can perform. SQLite ships as the built-in adapter; other engines
@@ -41,6 +42,31 @@ pub trait DbAdapter: Send + Sync {
         schema: Option<&str>,
         table: &str,
     ) -> DbResult<(TableSchema, Vec<String>)>;
+    /// Every table of one schema with its columns and foreign keys, for the
+    /// ER diagram, in a fixed number of catalog queries. Returns the
+    /// statements it ran. `database`/`schema` as in `table_schema`.
+    async fn schema_graph(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> DbResult<(SchemaGraph, Vec<String>)> {
+        Err(DbError::InvalidOperation(
+            "the ER diagram is not supported by this adapter".into(),
+        ))
+    }
+    /// Sample every collection of `database` for the Mongo ER diagram,
+    /// sending each through `sink` with the links it suggests. Stops early
+    /// when `run` is cancelled. Non-Mongo adapters reject it.
+    async fn mongo_graph(
+        &self,
+        _database: &str,
+        _run: Option<&RunHandle>,
+        _sink: GraphSink<'_>,
+    ) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "the collection diagram is only available on MongoDB connections".into(),
+        ))
+    }
     /// `database`: `None` = this connection's own database. `schema`, when
     /// given (Postgres only — ignored elsewhere), resolves every
     /// UNQUALIFIED name in `sql` through that schema instead of the

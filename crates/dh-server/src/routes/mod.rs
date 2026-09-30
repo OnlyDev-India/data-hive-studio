@@ -216,6 +216,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/tables", get(browse::tables))
         .route("/v1/c/{handle}/schemas", get(browse::schemas))
         .route("/v1/c/{handle}/schema/{*table}", get(browse::schema))
+        .route("/v1/c/{handle}/schema-graph", get(browse::schema_graph))
         .route(
             "/v1/c/{handle}/mongo/field-tree/{*collection}",
             get(browse::field_tree),
@@ -271,6 +272,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         )
         .route("/v1/c/{handle}/mongo/run", post(mongo::run))
         .route("/v1/c/{handle}/mongo/run-stream", post(stream::mongo_run_stream))
+        .route("/v1/c/{handle}/mongo/graph-stream", post(stream::mongo_graph_stream))
         .route("/v1/c/{handle}/mongo/explain", post(mongo::explain))
         .route(
             "/v1/c/{handle}/mongo/collections",

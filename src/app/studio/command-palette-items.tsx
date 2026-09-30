@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   Code,
   GitCompareArrows,
+  Network,
   History,
   House,
   Loader2,
@@ -37,6 +38,7 @@ import {
 } from "@/shared/api";
 import { DBIcons, IconTypeMap } from "@/shared/components/icons/types";
 import { basename } from "@/shared/lib/utils";
+import { openActiveRelationDiagram } from "./tools";
 
 export interface PaletteItem {
   id: string;
@@ -378,6 +380,16 @@ export function buildCommandItems(theme: {
       scope: conn_scope,
       icon: <GitCompareArrows className="size-4" />,
       run: () => s.openCompare(active_conn.id),
+    });
+    list.push({
+      id: "tab.relation-diagram",
+      label: "Open relation diagram",
+      hint: is_mongo
+        ? "Collections and their inferred links, as a diagram"
+        : "Tables and their foreign keys, as a diagram",
+      scope: conn_scope,
+      icon: <Network className="size-4" />,
+      run: () => void openActiveRelationDiagram(active_conn.id),
     });
     list.push({
       id: "sidebar.tables",

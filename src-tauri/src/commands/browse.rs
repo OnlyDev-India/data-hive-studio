@@ -1,4 +1,7 @@
-use crate::api::{FieldShape, MongoDocumentsResult, MongoExtDocumentsResult, TableInfo, TableSchema};
+use crate::api::{
+    FieldShape, MongoDocumentsResult, MongoExtDocumentsResult, MongoGraphEvent, SchemaGraphResult, TableInfo,
+    TableSchema,
+};
 use crate::db::CatalogOverview;
 use super::to_err;
 
@@ -145,6 +148,37 @@ pub async fn table_schema(
     crate::db::table_schema(&conn_id, database.as_deref(), schema.as_deref(), &table)
         .await
         .map_err(to_err)
+}
+
+/// Every table of one schema with its foreign keys, for the ER diagram.
+/// `database`/`schema` as in `table_schema`.
+#[tauri::command]
+pub async fn schema_graph(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+) -> Result<SchemaGraphResult, String> {
+    crate::db::schema_graph(&conn_id, database.as_deref(), schema.as_deref())
+        .await
+        .map_err(to_err)
+}
+
+/// The Mongo ER diagram: each collection is sent through `channel` as it is
+/// sampled. `run_id` makes it cancellable through `cancel_run`.
+#[tauri::command]
+pub async fn mongo_graph(
+    conn_id: String,
+    database: String,
+    run_id: Option<String>,
+    channel: tauri::ipc::Channel<MongoGraphEvent>,
+) -> Result<(), String> {
+    crate::db::mongo_graph(&conn_id, &database, run_id.as_deref(), move |event| {
+        channel
+            .send(event)
+            .map_err(|e| crate::db::DbError::InvalidOperation(format!("ipc send failed: {e}")))
+    })
+    .await
+    .map_err(to_err)
 }
 
 /// The recursively inferred nested field shape for a MongoDB collection

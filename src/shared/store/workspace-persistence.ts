@@ -1,8 +1,14 @@
 import type { ConnectionInfo } from "../api/types";
 import { loadWorkspaceState, saveWorkspaceState } from "../api/workspace-state";
-import { tabKey } from "./tab-utils";
+import { tabKey, type StudioTab } from "./tab-utils";
+import { DEFAULT_WORKSPACE } from "./workspace";
 import type { PaneNode } from "./pane-layout";
-import type { CompareSetup, SavedWorkspace, StudioStore } from "./types";
+import type {
+  CompareSetup,
+  SavedConnParams,
+  SavedWorkspace,
+  StudioStore,
+} from "./types";
 
 /** Identity a connection's saved workspace is filed under — NEVER the
  *  runtime `conn_id` (a fresh UUID every connect, per
@@ -19,6 +25,45 @@ export function stableConnKey(
     return `sqlite:${conn.source_path}`;
   }
   return `${conn.kind}:${conn.name}`;
+}
+
+/** The `stableConnKey` of the connection a saved entry opens. A blank
+ *  Postgres database connects to `postgres` (see `pgConnectParams`), and
+ *  DocumentDB connects as `mongodb`. */
+export function stableKeyOfSaved(
+  params: Pick<SavedConnParams, "kind" | "database" | "source_path">,
+): string {
+  switch (params.kind) {
+    case "sqlite":
+      return `sqlite:${params.source_path ?? ""}`;
+    case "postgres":
+      return `postgres:${params.database.trim() || "postgres"}`;
+    default:
+      return `mongodb:${params.database.trim()}`;
+  }
+}
+
+/** State with every diagram layout filed under `key` dropped, both pending
+ *  and on open connections. Tabs are left alone. */
+export function clearLayoutsFor(
+  state: StudioStore,
+  key: string,
+): Pick<StudioStore, "pendingWorkspaceRestore" | "relationLayouts"> {
+  let { pendingWorkspaceRestore, relationLayouts } = state;
+  const pending = pendingWorkspaceRestore[key];
+  if (pending?.relationLayouts) {
+    const rest = { ...pending };
+    delete rest.relationLayouts;
+    pendingWorkspaceRestore = { ...pendingWorkspaceRestore, [key]: rest };
+    // Kept alive only by its layouts: nothing is left to restore.
+    if (rest.workspace.tabs.length === 0) delete pendingWorkspaceRestore[key];
+  }
+  for (const conn of state.open) {
+    if (stableConnKey(conn) !== key || !relationLayouts[conn.id]) continue;
+    relationLayouts = { ...relationLayouts };
+    delete relationLayouts[conn.id];
+  }
+  return { pendingWorkspaceRestore, relationLayouts };
 }
 
 /** Give SQL tabs saved before their key carried a connection (`sql:0`) the
@@ -38,7 +83,50 @@ export function stampLegacySqlTabs(
     return stamped;
   });
   if (renamed.size === 0) return saved;
+  return rekeySaved(saved, tabs, renamed);
+}
 
+/** Diagram tabs saved as `er-diagram`, before the relation diagram rename,
+ *  come back as `relation-diagram` tabs in the same pane. */
+export function migrateDiagramTabs(saved: SavedWorkspace): SavedWorkspace {
+  type Legacy = { kind: string; conn_id: string; id: number };
+  const keyOf = (tab: StudioTab) => {
+    const old = tab as unknown as Legacy;
+    return old.kind === "er-diagram"
+      ? `er-diagram:${old.conn_id}:${old.id}`
+      : tabKey(tab);
+  };
+  const renamed = new Map<string, string>();
+  const tabs = saved.workspace.tabs.map((tab) => {
+    if ((tab as unknown as Legacy).kind !== "er-diagram") return tab;
+    const next = { ...tab, kind: "relation-diagram" } as StudioTab;
+    renamed.set(keyOf(tab), tabKey(next));
+    return next;
+  });
+  const { nextErDiagramId, ...workspace } =
+    saved.workspace as SavedWorkspace["workspace"] & {
+      nextErDiagramId?: number;
+    };
+  if (renamed.size === 0 && nextErDiagramId === undefined) return saved;
+  const moved: SavedWorkspace = {
+    ...saved,
+    workspace: {
+      ...workspace,
+      nextRelationDiagramId: workspace.nextRelationDiagramId ?? nextErDiagramId,
+    },
+  };
+  return rekeySaved(moved, tabs, renamed, keyOf);
+}
+
+/** `saved` with `tabs` in place and every old key in `renamed` rewritten
+ *  where a tab key is stored: the active tab, the pane layout and the
+ *  saved editor text. */
+function rekeySaved(
+  saved: SavedWorkspace,
+  tabs: StudioTab[],
+  renamed: Map<string, string>,
+  keyOf: (tab: StudioTab) => string = tabKey,
+): SavedWorkspace {
   const rekey = (key: string) => renamed.get(key) ?? key;
   const rekeyLayout = (node: PaneNode): PaneNode =>
     node.type === "leaf"
@@ -56,7 +144,7 @@ export function stampLegacySqlTabs(
       tabs,
       active:
         active &&
-        (tabs.find((t) => tabKey(t) === rekey(tabKey(active))) ?? active),
+        (tabs.find((t) => tabKey(t) === rekey(keyOf(active))) ?? active),
       layout: rekeyLayout(saved.workspace.layout),
     },
     sqlSeeds: Object.fromEntries(
@@ -70,13 +158,28 @@ interface WorkspaceSnapshotV1 {
   byConn: Record<string, SavedWorkspace>;
 }
 
-/** A connection's tabs plus their editor text, or null with no tabs. */
+/** A connection's tabs plus their editor text and diagram layouts, or null
+ *  with neither. Layouts alone keep an entry alive, with no tabs. */
 export function savedWorkspaceOf(
   state: StudioStore,
   conn: ConnectionInfo,
 ): SavedWorkspace | null {
-  const ws = state.workspaces[conn.id];
-  if (!ws || ws.tabs.length === 0) return null;
+  // A SQLite with no file yet would share its key with every temp database.
+  const layouts =
+    conn.kind === "sqlite" && !conn.source_path
+      ? undefined
+      : state.relationLayouts[conn.id];
+  const relationLayouts =
+    layouts && Object.keys(layouts).length > 0 ? layouts : undefined;
+  const found = state.workspaces[conn.id];
+  const ws = found && found.tabs.length > 0 ? found : null;
+  if (!ws && !relationLayouts) return null;
+  if (!ws)
+    return {
+      workspace: found ?? DEFAULT_WORKSPACE,
+      sqlSeeds: {},
+      relationLayouts,
+    };
   const sqlSeeds: Record<string, string> = {};
   const compareSetups: Record<string, CompareSetup> = {};
   for (const tab of ws.tabs) {
@@ -90,6 +193,7 @@ export function savedWorkspaceOf(
     workspace: ws,
     sqlSeeds,
     ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
+    ...(relationLayouts ? { relationLayouts } : {}),
   };
 }
 
@@ -131,5 +235,7 @@ export async function loadPendingWorkspaceRestores(): Promise<
   if (!raw || typeof raw !== "object") return {};
   const snap = raw as Partial<WorkspaceSnapshotV1>;
   if (snap.version !== 1 || !snap.byConn) return {};
-  return snap.byConn;
+  return Object.fromEntries(
+    Object.entries(snap.byConn).map(([k, v]) => [k, migrateDiagramTabs(v)]),
+  );
 }
