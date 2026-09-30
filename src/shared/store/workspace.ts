@@ -1,7 +1,12 @@
 import type { StoreApi } from "zustand";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { tabEquals, tabKey, type StudioTab } from "./tab-utils";
-import type { StudioStore, WorkspaceTabs } from "./types";
+import type { TableRef } from "../api/types";
+import {
+  EMPTY_COMPARE_SETUP,
+  type StudioStore,
+  type WorkspaceTabs,
+} from "./types";
 import {
   addKeyToLeaf,
   allLeaves,
@@ -291,6 +296,30 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
+    openCompare(connId: string, left?: TableRef) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const id = cur.nextCompareId ?? 0;
+        const tab: StudioTab = { kind: "compare", conn_id: connId, id };
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextCompareId: id + 1 },
+          tab,
+        );
+        return {
+          workspaces: putWs(state.workspaces, connId, next),
+          compareTabs: {
+            ...state.compareTabs,
+            [tabKey(tab)]: { ...EMPTY_COMPARE_SETUP, left: left ?? null },
+          },
+        };
+      });
+    },
+    compareTabs: {},
+    setCompareSetup(key: string, setup: StudioStore["compareTabs"][string]) {
+      set((state) => ({
+        compareTabs: { ...state.compareTabs, [key]: setup },
+      }));
+    },
     openSql(
       connId: string,
       seedText?: string,
@@ -334,7 +363,12 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
-    openMongo(connId: string, database: string, collection: string) {
+    openMongo(
+      connId: string,
+      database: string,
+      collection: string,
+      initialFilter?: string,
+    ) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = {
@@ -343,6 +377,7 @@ export function workspaceActions(set: SetState) {
           database,
           collection,
           tabId: cur.nextMongoTabId,
+          ...(initialFilter ? { initialFilter } : {}),
         };
         return {
           workspaces: putWs(
@@ -466,6 +501,8 @@ export function workspaceActions(set: SetState) {
         delete sqlSeeds[key];
         const seedFilePaths = { ...state.seedFilePaths };
         delete seedFilePaths[key];
+        const compareTabs = { ...state.compareTabs };
+        delete compareTabs[key];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -477,6 +514,7 @@ export function workspaceActions(set: SetState) {
           }),
           sqlSeeds,
           seedFilePaths,
+          compareTabs,
         };
       });
     },

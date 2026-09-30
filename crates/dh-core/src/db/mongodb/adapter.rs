@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::db::{BatchSink, DbAdapter, DbResult, OpOutcome, RunHandle};
+use crate::db::{BatchSink, DbAdapter, DbResult, OpOutcome, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
 use crate::api::{FieldShape, ImportCapabilities, ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use super::MongoAdapter;
 
@@ -8,6 +8,13 @@ use super::MongoAdapter;
 impl DbAdapter for MongoAdapter {
     async fn list_tables(&self) -> DbResult<Vec<TableInfo>> {
         MongoAdapter::list_tables(self).await
+    }
+
+    async fn compare_scan(&self, spec: &ScanSpec<'_>, run: &RunHandle, out: &ScanOut) -> DbResult<()> {
+        MongoAdapter::compare_scan(self, spec, run, out).await
+    }
+    fn script_syntax(&self) -> ScriptSyntax {
+        ScriptSyntax::Mongosh
     }
 
     async fn table_schema(

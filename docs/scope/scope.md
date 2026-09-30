@@ -28,10 +28,10 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | P   | Team server                    | Existing | existing |
 | Q   | Native shell                   | Existing | existing |
 | R   | Command palette                | Existing | existing |
-| 5   | Table comparison view          | Slice 5  | planned  |
+| 5   | Table comparison view          | Slice 5  | in-progress |
 | 14  | Saved queries and snippets     | Slice 14 | planned  |
 | 15  | Mongo aggregation builder      | Slice 15 | planned  |
-| 16  | ER diagram                     | Slice 16 | planned  |
+| 16  | ER diagram                     | Slice 16 | in-progress |
 
 ## Existing
 
@@ -105,12 +105,21 @@ Keyboard driven navigation: filter and open connections, tables, and tabs, run c
 
 ## Slice 5: Table comparison view
 
-### 5. Table comparison view · needs a decision · from spec 0003
+### 5. Table comparison view · in-progress · from spec 0003
 
 Compare two tables side by side, both structure (columns, indexes, and so on) and data (rows), in the same grid format as the review before apply dialog. The design pass settles where the view lives and how it reuses that dialog's grid renderer without its apply and selection behaviour.
 **Done when:** picking two tables shows their structural differences and their data differences, in the same grid format the review before apply dialog already uses.
+spec [0018](../specs/0018-table-comparison-view/index.md)
+code in `src/features/compare`, `src/shared/components/diff-grid`, `crates/dh-core/src/db/compare`
 
-- [ ] Design it (spec): `/architect table comparison view`
+- [x] Design it (spec): `/architect table comparison view`
+- [x] Build it: `/develop table comparison view`
+  - [x] Shared diff grid extracted and the compare tab with side pickers, structure diff, and persistence (AC-1, AC-2, AC-3, AC-19, AC-21)
+  - [x] Streamed data diff end to end on SQLite, Postgres, and Mongo, with filter, stop, and keyset paging (AC-4 to AC-13, AC-22)
+  - [x] Entry points and the activity bar tools menu with pinning, swap, and open row (AC-1, AC-14, AC-18, AC-20)
+  - [x] Export, structure sync, and data sync script (AC-15, AC-16, AC-17, AC-22)
+- [ ] Verify it: `/check verify table comparison view`
+- [ ] Test it: `/test table comparison view`
 
 ## Slice 14: Saved queries and snippets
 
@@ -136,13 +145,21 @@ code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `cra
 
 ## Slice 16: ER diagram
 
-### 16. ER diagram · needs a decision
+### 16. ER diagram · in-progress
 
 A diagram of a database or schema: tables as boxes with their columns, joined by foreign keys, and a click opens that table. The design pass settles drawing and layout, how it copes with hundreds of tables, and image export.
 **Done when:** opening the diagram for a PostgreSQL or SQLite schema shows its tables and foreign key links, and clicking a table opens it, with a large schema still usable.
-code in `src/features/schema-designer`, `src/features/workspace/components/sidebar`
+spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components/er-canvas`, `src/features/er-diagram`, `src/features/table-explorer`, `src/features/workspace/components/sidebar`, `crates/dh-core/src/db`
 
-- [ ] Design it (spec): `/architect er diagram`
+- [x] Design it (spec): `/architect er diagram`
+- [ ] Build it: `/develop er diagram`
+  - [ ] SQL diagrams end to end: bulk `schema_graph` for SQLite and Postgres, the diagram tab, schema switcher, stubs, select and open · AC-1, AC-2, AC-3, AC-4, AC-5, AC-7
+  - [ ] Table tab Diagram mode (one hop) and Open full diagram · AC-9
+  - [ ] Big schemas and saved layout: zoom detail, column toggle, search, focus mode, positions per schema · AC-6, AC-8
+  - [ ] Mongo: streamed sampling, inferred links, collection Diagram mode, palette and activity bar entries · AC-1, AC-10, AC-11, AC-12
+  - [ ] Export, Refresh, states, activity log, tokens · AC-13, AC-14, AC-15, AC-16, AC-17
+- [ ] Verify it: `/check verify er diagram`
+- [ ] Test it: `/test er diagram`
 
 ## Deferred
 
@@ -153,12 +170,15 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Row cap and load more for huge results**: streamed results have no row cap, so a runaway SELECT can fill app memory and Stop is the only guard. Add a cap with a load more cursor, and backpressure on the desktop channel, if memory pressure shows up · from spec 0011 · code in `src/shared/api/streaming.ts`, `crates/dh-core/src/db`
 - **Import upsert and skip duplicates**: import is insert only, so a clash with an existing key is a bad row. Add Skip duplicates and an Update on duplicate (upsert) mode, with a key to match on and separate Mongo handling · from spec 0008 · code in `src/features/data-import`, `crates/dh-core/src/db/import.rs`
 - **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB. Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/import.rs`
+- **Compare across engines**: table comparison only pairs tables of the same engine. Postgres vs SQLite (and so on) needs a type mapping layer and looser equality rules · from spec 0018 · code in `crates/dh-core/src/db/compare`
+- **Column rename mapping in table comparison**: columns match by name, so a renamed column shows as a drop plus an add, and structure sync would drop it. Add a manual column mapping · from spec 0018 · code in `src/features/compare`
 - **Cancel for web imports**: on the web build an import shows a spinner and cannot be cancelled. The run registry and cancel route exist now, so send `run_id` with the import and turn on Cancel for the web · from spec 0008 · code in `src/shared/api/import.ts`, `crates/dh-server/src/routes`
 - **Connection form extras**: the reference design also shows a standalone connection Color, Notes (with Show on the sidebar row), URL Params, Database information (server version after Test) and Select Visible Databases. Each needs its own design pass; Color and Notes need a new saved field · from spec 0012 · needs a decision · code in `src/features/connections`
 - **Optional master password**: a master password in Settings that locks the slice 31 key, so secrets stay unreadable until you unlock. Changing it locks the key again instead of rewriting every secret; forgetting it loses only the saved secrets. Also the place to move the key into the Keychain once the app has a Developer ID signature · from slice 31 · needs a decision · code in `src-tauri/src/secret_file.rs`, `src/features/settings`
 - **Fetch secrets at connect time**: the app loads every saved secret into webview memory at startup (`hydrateSavedLocal`). Fetch each one only when connecting, so secrets aren't held in memory until needed · from spec 0013 · code in `src/shared/store/store.ts`, `src/features/connections/lib/connect-saved.ts`
 - **Developer ID signing and notarization**: the only way to a plain double click install with no warning at all on macOS 15 and newer. Needs a paid Apple Developer account; then add the signing and notarization secrets the release workflow already notes, plus a Windows code signing certificate for SmartScreen · from slice 32 · needs a decision · code in `.github/workflows/release.yml`, `src-tauri/tauri.conf.json`
 - **Install script lint and uninstall**: run `shellcheck` and PSScriptAnalyzer on the install templates in PR checks, and add an uninstall command if users ask · from spec 0014 · code in `scripts/install`, `.github/workflows/pr-checks.yml`
+- **ER diagram extras**: dismiss or add Mongo inferred links (saved per connection), auto refresh open diagrams after in app DDL, and copy as Mermaid `erDiagram` · from spec 0018 · code in `src/shared/components/er-canvas`, `crates/dh-core/src/db/mongodb`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 ## Legend

@@ -106,14 +106,14 @@ impl MongoAdapter {
 /// -- --ignored mongo_stop` (default URL below; JavaScript must be enabled
 /// on the server for the `$where` sleep used as the slow operation).
 #[cfg(test)]
-mod stop_tests {
+pub(super) mod stop_tests {
     use super::*;
     use crate::db::mongodb::params::MongoParams;
     use crate::db::QueryChunk;
     use crate::db::runs;
     use std::time::{Duration, Instant};
 
-    fn params() -> MongoParams {
+    pub(in crate::db::mongodb) fn params() -> MongoParams {
         let url = std::env::var("DH_TEST_MONGO_URL")
             .unwrap_or_else(|_| "mongodb://127.0.0.1:27017".to_string());
         let rest = url.strip_prefix("mongodb://").expect("a mongodb:// url");

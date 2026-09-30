@@ -274,6 +274,14 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set((s) => ({ leftPanelOpen: !s.leftPanelOpen }));
         },
 
+        pinnedTools: [],
+        setToolPinned(id, pinned) {
+          set((s) => {
+            const rest = s.pinnedTools.filter((t) => t !== id);
+            return { pinnedTools: pinned ? [...rest, id] : rest };
+          });
+        },
+
         bottomPanelOpen: {},
         setBottomPanelOpenFor(scope, open) {
           set((s) => ({
@@ -600,6 +608,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           sqlFormatIndentWidth: s.sqlFormatIndentWidth,
           delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
+          pinnedTools: s.pinnedTools,
         }),
       },
     ),

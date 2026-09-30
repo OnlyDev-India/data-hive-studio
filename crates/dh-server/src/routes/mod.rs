@@ -3,6 +3,7 @@
 //! a database; nothing here looks up an account, a saved connection or a file.
 
 mod browse;
+mod compare;
 mod data;
 mod mongo;
 mod stream;
@@ -241,6 +242,8 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/sql-stream", post(stream::sql_stream))
         .route("/v1/c/{handle}/op-stream", post(stream::op_stream))
         .route("/v1/c/{handle}/cancel", post(stream::cancel))
+        .route("/v1/c/{handle}/compare/data", post(compare::data))
+        .route("/v1/c/{handle}/compare/file", post(compare::file))
         .route("/v1/c/{handle}/explain", post(data::explain))
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))

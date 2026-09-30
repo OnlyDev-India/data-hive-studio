@@ -43,6 +43,12 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "89496d5dd00f4810205f351759594fc2742bf8eea85a2f2b2d1de59f4bd91576"
     },
+    "react-flow-usage": {
+      "source": "thedogwiththedataonit/react-flow",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "c6838f11c9d1b20e281e18857152f6e01a9dcf4a906a6ddb802b425f3f20569d"
+    },
     "scope": {
       "source": "jsmastery-pro/skills",
       "sourceType": "github",

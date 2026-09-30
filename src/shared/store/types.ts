@@ -5,6 +5,7 @@ import type {
   ExportPayload,
   QueryOp,
   SavedDbKind,
+  TableRef,
 } from "../api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
@@ -22,7 +23,32 @@ export type StudioView = "home" | "workspace";
 export interface SavedWorkspace {
   workspace: WorkspaceTabs;
   sqlSeeds: Record<string, string>;
+  /** Compare tab setups, keyed by tab key. Absent on older snapshots. */
+  compareSetups?: Record<string, CompareSetup>;
 }
+
+/** What a compare tab compares. Persisted with its workspace; results never
+ *  are. */
+export interface CompareSetup {
+  left: TableRef | null;
+  right: TableRef | null;
+  /** null = the default key (the shared primary key). */
+  key_columns: string[] | null;
+  excluded_columns: string[];
+  /** "" = no filter. */
+  filter: string;
+}
+
+export const EMPTY_COMPARE_SETUP: CompareSetup = {
+  left: null,
+  right: null,
+  key_columns: null,
+  excluded_columns: [],
+  filter: "",
+};
+
+/** A tool the activity bar's tools menu offers. */
+export type ToolId = "compare";
 
 /** User-customizable trigger prefixes for the command palette's quick-open
  *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
@@ -171,6 +197,8 @@ export interface WorkspaceTabs {
   nextNewTableId: number;
   nextTableId: number;
   nextMongoTabId: number;
+  /** Absent on workspaces saved before compare tabs existed. */
+  nextCompareId?: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
   paneModes: Record<string, "data" | "schema">;
   /** Split-view pane tree. A never-split workspace is a single leaf holding
@@ -411,6 +439,9 @@ export interface StudioStore {
    *  the connection-tabs collapse/expand button, the native menu's "Toggle
    *  Sidebar". */
   toggleLeftPanelOpen: () => void;
+  /** Tools pinned onto the activity bar, in pin order. App wide, persisted. */
+  pinnedTools: ToolId[];
+  setToolPinned: (id: ToolId, pinned: boolean) => void;
 
   // Per-tab open/closed state for the "bottom split" every tab kind has
   // below its main content — grid results for a SQL/Mongo-console editor
@@ -723,8 +754,18 @@ export interface StudioStore {
   openActivityTab: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Users & Privileges tab. */
   openRolesTab: (connId: string) => void;
+  /** Open a new compare tab, its left side prefilled when given. */
+  openCompare: (connId: string, left?: TableRef) => void;
+  /** Compare tab setups keyed by tab key. */
+  compareTabs: Record<string, CompareSetup>;
+  setCompareSetup: (key: string, setup: CompareSetup) => void;
   /** Open a MongoDB collection tab (data view). */
-  openMongo: (connId: string, database: string, collection: string) => void;
+  openMongo: (
+    connId: string,
+    database: string,
+    collection: string,
+    initialFilter?: string,
+  ) => void;
   /** Open a MongoDB console tab for the given connection & database.
    *  `seedText`, when given, becomes the new console's initial script —
    *  mirrors `openSql`'s seed mechanism (e.g. opening a picked .js file).

@@ -33,7 +33,7 @@ mod render;
 #[cfg(test)]
 mod tests;
 
-pub use render::render;
+pub use render::{render, render_bson};
 
 use bson::{Bson, Document};
 

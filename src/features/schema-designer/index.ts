@@ -6,9 +6,3 @@ export { MongoSchemaEditor } from "./components/mongo-schema-editor";
 export { IndexesPanel } from "./components/schema-tab/indexes-panel";
 export { FieldsTree } from "./components/schema-tab/fields-tree";
 export { DropTableDialog } from "./components/schema-tab/drop-table-dialog";
-export {
-  build_index_ops,
-  idx_is_dirty,
-  idxs_from_schema,
-  type IdxDraft,
-} from "./components/schema-tab/drafts";

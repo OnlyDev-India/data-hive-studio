@@ -11,17 +11,15 @@ import {
 } from "@/shared/store";
 import { IndexesPanel } from "./schema-tab/indexes-panel";
 import { DropTableDialog } from "./schema-tab/drop-table-dialog";
-import {
-  ApplyChangesDialog,
-  type DdlDiffSection,
-} from "@/shared/components/apply-changes-dialog";
+import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
+import type { DdlDiffSection } from "@/shared/components/diff-grid";
 import {
   build_index_ops,
   describe_schema_changes,
   idx_is_dirty,
   idxs_from_schema,
   type IdxDraft,
-} from "./schema-tab/drafts";
+} from "@/shared/schema-drafts/drafts";
 
 /** Schema editor for a MongoDB collection: rename + index list/create/drop.
  *  Reuses the SQL schema designer's `IndexesPanel`/draft machinery and

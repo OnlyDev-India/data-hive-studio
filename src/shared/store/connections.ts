@@ -109,6 +109,7 @@ export function connectionActions(set: SetState) {
           view: "workspace",
           workspaces: { ...state.workspaces, [conn.id]: pending.workspace },
           sqlSeeds: { ...state.sqlSeeds, ...pending.sqlSeeds },
+          compareTabs: { ...state.compareTabs, ...pending.compareSetups },
           pendingWorkspaceRestore,
           pausedTabs,
         };

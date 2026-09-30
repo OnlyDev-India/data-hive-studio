@@ -17,7 +17,11 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Switch } from "@/shared/components/ui/switch";
 import { cn } from "@/shared/lib/utils";
-import { next_id, type IdxDraft, idx_is_dirty } from "./drafts";
+import {
+  next_id,
+  type IdxDraft,
+  idx_is_dirty,
+} from "@/shared/schema-drafts/drafts";
 import { EditableText } from "./editable-text";
 import { AddIndexDialog, type NewIndexDraft } from "./add-index-dialog";
 

@@ -2,6 +2,7 @@ import {
   Copy,
   CopyPlus,
   Eye,
+  GitCompareArrows,
   RefreshCw,
   Upload,
   ShieldCheck,
@@ -41,6 +42,7 @@ export function TableListItem({
   on_drop,
   on_refresh_matview,
   on_view_grants,
+  on_compare,
 }: {
   name: string;
   kind: string;
@@ -59,6 +61,7 @@ export function TableListItem({
   on_import?: () => void;
   on_drop?: () => void;
   on_refresh_matview?: () => void;
+  on_compare?: () => void;
 }) {
   const noun = is_mongo ? "collection" : "table";
   const iconType: IconType =
@@ -97,6 +100,12 @@ export function TableListItem({
           <ContextMenuItem onSelect={on_view_structure}>
             <Eye className="text-muted-foreground size-4" />
             View structure
+          </ContextMenuItem>
+        )}
+        {on_compare && (is_mongo || kind === "table") && (
+          <ContextMenuItem onSelect={on_compare}>
+            <GitCompareArrows className="text-muted-foreground size-4" />
+            Compare with…
           </ContextMenuItem>
         )}
         {!is_mongo && on_view_grants && (

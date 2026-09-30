@@ -29,6 +29,8 @@ export type StudioTab =
       database: string;
       collection: string;
       tabId: number;
+      /** A filter document the grid starts with (compare's Open row). */
+      initialFilter?: string;
     }
   /** MongoDB console (JSON query / aggregate / shell subset). Multiple per
    *  connection are allowed, like SQL editors. `database` is the console's
@@ -37,7 +39,10 @@ export type StudioTab =
   /** Singleton per connection — shows the currently selected activity entry. */
   | { kind: "activity" }
   /** Singleton per connection — the Users & Privileges tab (Postgres roles). */
-  | { kind: "roles" };
+  | { kind: "roles" }
+  /** Two tables side by side. Its setup lives in the store's `compareTabs`
+   *  under this tab's key. */
+  | { kind: "compare"; conn_id: string; id: number };
 
 /** `file_name`, when set, overrides the generic label for "sql"/"mongo-console"
  *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`.
@@ -69,6 +74,8 @@ export function tabLabel(
       return "Activity";
     case "roles":
       return "Users & Privileges";
+    case "compare":
+      return "Compare";
   }
 }
 
@@ -88,6 +95,8 @@ export function tabKey(tab: StudioTab): string {
       return "activity";
     case "roles":
       return "roles";
+    case "compare":
+      return `compare:${tab.conn_id}:${tab.id}`;
   }
 }
 
@@ -106,6 +115,9 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
       a.collection === b.collection &&
       a.tabId === b.tabId
     );
+  }
+  if (a.kind === "compare") {
+    return b.kind === "compare" && a.conn_id === b.conn_id && a.id === b.id;
   }
   if (a.kind === "mongo-console") {
     return (

@@ -163,6 +163,12 @@ export async function webConnect(
   return handle;
 }
 
+/** The server handle a connection id reaches right now, for a call that
+ *  names a second connection in its body. */
+export function webHandle(connId: string): string {
+  return entries.get(connId)?.handle ?? connId;
+}
+
 /** Free a connection's pool on the server and forget its details. */
 export async function webClose(connId: string): Promise<void> {
   const entry = entries.get(connId);
@@ -267,10 +273,10 @@ export async function wcall<T>(
  *  `wcall`; an `error` line throws its message. A body that ends with neither
  *  line (the server went away, the network dropped) throws, never resolves as
  *  a finished result: the rows already handed over stay with the caller. */
-export async function wstream<T>(
+export async function wstream<T, C = Extract<StreamEvent, { t: "chunk" }>>(
   path: string,
   body: unknown,
-  onChunk: (chunk: Extract<StreamEvent, { t: "chunk" }>) => void,
+  onChunk: (chunk: C) => void,
 ): Promise<T> {
   const res = await send("POST", path, body);
   if (!res.ok) throw new Error(await errorText(res));
@@ -282,8 +288,9 @@ export async function wstream<T>(
   try {
     await readNdjson(res.body, (event) => {
       if (event.t === "chunk") {
-        rows += event.rows.length;
-        onChunk(event);
+        // A table compare's progress lines carry no rows.
+        rows += (event as { rows?: unknown[] }).rows?.length ?? 0;
+        onChunk(event as C);
       } else if (event.t === "done") {
         end.result = event.result as T;
         end.closed = true;
@@ -302,6 +309,33 @@ export async function wstream<T>(
     );
   }
   return end.result as T;
+}
+
+/** POST to a route that answers with a file, and hand it to the browser
+ *  as a download named by the response. A refusal or an error before the
+ *  first byte throws like `wcall`; a body cut short throws too. */
+export async function wdownload(path: string, body: unknown): Promise<string> {
+  const res = await send("POST", path, body);
+  if (!res.ok) throw new Error(await errorText(res));
+  let blob: Blob;
+  try {
+    blob = await res.blob();
+  } catch {
+    throw new Error("The download stopped before the file was complete.");
+  }
+  const name =
+    /filename="([^"]+)"/.exec(
+      res.headers.get("Content-Disposition") ?? "",
+    )?.[1] ?? "download";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return name;
 }
 
 export async function wcallEmpty(

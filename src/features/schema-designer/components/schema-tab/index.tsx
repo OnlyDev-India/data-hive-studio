@@ -26,17 +26,15 @@ import {
   type FkDraft,
   type IdxDraft,
   type TriggerDraft,
-} from "./drafts";
+} from "@/shared/schema-drafts/drafts";
 import { ColumnsPanel, new_col_draft } from "./columns-panel";
 import { IndexesContent } from "./indexes-panel";
 import { ForeignKeysPanel } from "./foreign-keys-panel";
 import { TriggersPanel } from "./triggers-panel";
 import { TabBar } from "../new-table/tab-bar";
 import { DropTableDialog } from "./drop-table-dialog";
-import {
-  ApplyChangesDialog,
-  type DdlDiffSection,
-} from "@/shared/components/apply-changes-dialog";
+import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
+import type { DdlDiffSection } from "@/shared/components/diff-grid";
 import type { SchemaOp } from "@/shared/api";
 
 const SCHEMA_TABS = [

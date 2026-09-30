@@ -10,7 +10,11 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { cn } from "@/shared/lib/utils";
-import { TYPE_OPTIONS, next_id, type ColDraft } from "./drafts";
+import {
+  TYPE_OPTIONS,
+  next_id,
+  type ColDraft,
+} from "@/shared/schema-drafts/drafts";
 import { EditableText } from "./editable-text";
 
 const col_grid =

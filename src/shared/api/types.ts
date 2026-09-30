@@ -167,6 +167,97 @@ export interface FieldShape {
   depth_truncated: boolean;
 }
 
+/** One side of a table comparison. `conn_id` is the live session at pick
+ *  time; `conn_key` (see `stableConnKey`) finds it again after a restart. */
+export interface TableRef {
+  conn_id: string;
+  conn_key: string;
+  /** Postgres / Mongo; undefined = the connection's own database. */
+  database?: string;
+  /** Postgres. */
+  schema?: string;
+  table: string;
+}
+
+/** A canonical key value; round trips so a page can resume after it. */
+export type KeyVal =
+  | { t: "int"; v: string }
+  | { t: "num"; v: string }
+  | { t: "text"; v: string }
+  | { t: "bytes"; v: string }
+  | { t: "bool"; v: boolean }
+  | { t: "ts"; v: string }
+  | { t: "uuid"; v: string }
+  | { t: "oid"; v: string }
+  | { t: "ejson"; v: string };
+
+export interface CompareDataRequest {
+  left: TableRef;
+  right: TableRef;
+  /** Never empty. */
+  key_columns: string[];
+  /** Compared columns, key columns excluded. */
+  columns: string[];
+  filter: string | null;
+  /** Resume after this key; null = from the start. */
+  after_key: KeyVal[] | null;
+  /** True on a first run: read both sides to the end for full counts. */
+  count_all: boolean;
+  page_size: number;
+  run_id: string;
+}
+
+/** One difference. `left`/`right` are display text parallel to the
+ *  request's `columns`; `changed` indexes into them. */
+export interface DiffRow {
+  kind: "left_only" | "right_only" | "changed";
+  key: KeyVal[];
+  key_display: string[];
+  left?: (string | null)[];
+  right?: (string | null)[];
+  changed?: number[];
+}
+
+export interface DiffCounts {
+  identical: number;
+  changed: number;
+  left_only: number;
+  right_only: number;
+}
+
+export interface RowsRead {
+  left: number;
+  right: number;
+}
+
+export type CompareChunk =
+  | { type: "rows"; rows: DiffRow[] }
+  | { type: "progress"; rows_read: RowsRead; counts: DiffCounts }
+  | { type: "page_full"; last_key: KeyVal[] };
+
+export interface CompareSummary {
+  status: "done" | "stopped";
+  counts: DiffCounts;
+  rows_read: RowsRead;
+  /** Known only when a first run read both sides to the end. */
+  total_diffs: number | null;
+  /** Where the next page starts; null on the last page. */
+  next_key: KeyVal[] | null;
+}
+
+/** What `compareDataToFile` writes: every difference, or a script that makes
+ *  the right side's rows match the left's. */
+export type CompareFileKind = "csv" | "json" | "sync_script";
+
+export interface CompareFileSummary {
+  status: "done" | "stopped";
+  /** Differences written; a stopped run writes no file. */
+  rows_written: number;
+  counts: DiffCounts;
+  /** Desktop only: where the file was written. */
+  path?: string;
+}
+
 export interface TableSchema {
   /** "table" | "view" | "matview" (Postgres). Absent/empty on older
    *  payloads — treat as "table". */

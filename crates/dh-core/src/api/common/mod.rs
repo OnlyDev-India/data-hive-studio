@@ -4,7 +4,22 @@ mod query;
 mod schema_ops;
 mod import;
 mod plan;
+mod compare;
 
+pub use compare::{
+    CompareChunk,
+    CompareDataRequest,
+    CompareFileKind,
+    CompareFileSummary,
+    CompareStatus,
+    CompareSummary,
+    DiffCounts,
+    DiffKind,
+    DiffRow,
+    KeyVal,
+    RowsRead,
+    TableRef,
+};
 pub use connection::{DbKind, ConnGuard, ENV_COLOR_KEYS, ENV_LABEL_MAX_CHARS, ConnectionInfo};
 pub use schema::{
     TableInfo,

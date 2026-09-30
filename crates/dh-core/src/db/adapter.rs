@@ -1,4 +1,5 @@
 use crate::db::RunHandle;
+use super::compare::{ScanOut, ScanSpec, ScriptSyntax};
 use std::sync::Arc;
 use async_trait::async_trait;
 use crate::api::{
@@ -127,6 +128,21 @@ pub trait DbAdapter: Send + Sync {
         schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> DbResult<Vec<String>>;
+    /// The language a data sync script for this engine is written in.
+    fn script_syntax(&self) -> ScriptSyntax;
+    /// Read one side of a table data diff, ordered by the key and read only,
+    /// sending row batches to `out` until it says stop. Arms a canceller on
+    /// `run` (with `add_canceller`, as the other side shares the run).
+    async fn compare_scan(
+        &self,
+        _spec: &ScanSpec<'_>,
+        _run: &RunHandle,
+        _out: &ScanOut,
+    ) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "comparing table data is not supported by this adapter yet".into(),
+        ))
+    }
     /// Duplicate a table/collection under a new name; returns the statements
     /// that ran (activity log). `copy_data` is honored by MongoDB (the
     /// sidebar's right-click "Duplicate collection" offers a copy-data

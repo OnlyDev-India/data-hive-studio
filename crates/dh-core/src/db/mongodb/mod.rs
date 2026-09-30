@@ -16,6 +16,7 @@ mod schema;
 mod indexes;
 mod documents;
 mod stream;
+mod compare;
 #[cfg(test)]
 mod stream_live_tests;
 mod console;

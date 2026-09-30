@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   Code,
+  GitCompareArrows,
   History,
   House,
   Loader2,
@@ -370,6 +371,14 @@ export function buildCommandItems(theme: {
         },
       });
     }
+    list.push({
+      id: "tab.compare",
+      label: "Compare tables",
+      hint: "Structure and data differences between two tables",
+      scope: conn_scope,
+      icon: <GitCompareArrows className="size-4" />,
+      run: () => s.openCompare(active_conn.id),
+    });
     list.push({
       id: "sidebar.tables",
       label: "Browse tables",

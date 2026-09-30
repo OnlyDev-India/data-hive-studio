@@ -10,7 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui/dialog";
-import { trigger_name_from_sql, type TriggerDraft } from "./drafts";
+import {
+  trigger_name_from_sql,
+  type TriggerDraft,
+} from "@/shared/schema-drafts/drafts";
 
 /** Editable "Triggers" accordion section. SQLite has no ALTER TRIGGER, so an
  *  edit is staged as a drop + create pair (applied atomically with the rest

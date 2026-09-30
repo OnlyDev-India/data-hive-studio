@@ -35,7 +35,11 @@ import {
   type SchemaObject,
   type SchemaObjectKind,
 } from "@/shared/api";
-import { useStudioStore, type StudioStore } from "@/shared/store";
+import {
+  stableConnKey,
+  useStudioStore,
+  type StudioStore,
+} from "@/shared/store";
 import {
   depthPadding,
   filterObjects,
@@ -212,6 +216,19 @@ export function TablesBrowser({
   );
   const pg_current_db = recents_db ?? conn_name ?? "";
   const conn_info = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  const open_compare = useStudioStore((s) => s.openCompare);
+  /** A compare tab with this table as its left side. `database` undefined =
+   *  the connection's own (Postgres); Mongo always names it. */
+  const compare_with = (table: string, database?: string, schema?: string) => {
+    if (!conn_info) return;
+    open_compare(conn_id, {
+      conn_id,
+      conn_key: stableConnKey(conn_info),
+      ...(database !== undefined ? { database } : {}),
+      ...(schema !== undefined ? { schema } : {}),
+      table,
+    });
+  };
   // Saved settings changed while this connection was open (spec 0007): the
   // live one keeps its old flag and label until it reconnects.
   const pending_change = usePendingGuardChange(conn_id);
@@ -1272,6 +1289,15 @@ export function TablesBrowser({
             }
           }}
           on_view_structure={(name) => open_structure(conn_id, name)}
+          on_compare={(name) =>
+            is_mongo
+              ? compare_with(name, pg_current_db)
+              : compare_with(
+                  name,
+                  undefined,
+                  is_pg ? pg_active_schema : undefined,
+                )
+          }
           on_copy={(name) => void copy_name(name)}
           on_duplicate={(name) =>
             is_mongo ? ask_duplicate_mongo({ name }) : ask_duplicate({ name })
@@ -1576,6 +1602,15 @@ export function TablesBrowser({
                                                 schema,
                                               )
                                             }
+                                            on_compare={(name) =>
+                                              compare_with(
+                                                name,
+                                                db === pg_current_db
+                                                  ? undefined
+                                                  : db,
+                                                schema,
+                                              )
+                                            }
                                             on_view_grants={(name) => {
                                               setGrantsRows(null);
                                               setGrantsFor({
@@ -1842,6 +1877,7 @@ export function TablesBrowser({
                         on_view_structure={(name) =>
                           open_structure(conn_id, name, db, "")
                         }
+                        on_compare={(name) => compare_with(name, db)}
                         on_copy={(name) => void copy_name(name)}
                         on_duplicate={(name) =>
                           ask_duplicate_mongo({

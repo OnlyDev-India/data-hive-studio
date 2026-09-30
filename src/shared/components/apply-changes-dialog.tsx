@@ -1,6 +1,5 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
-import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
@@ -11,11 +10,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui/dialog";
+import {
+  DdlDiffGrid,
+  RowDiffGrid,
+  type DdlDiffSection,
+  type DiffGridRow,
+} from "@/shared/components/diff-grid";
 
 /** One CHANGED TABLE ROW for the grid-formatted review below (`rows` prop) —
  *  the data grid's own review, as an alternative to the DDL grid shape
- *  below. `columns` is just whatever this one row touched; the caller
- *  (`RowDiffGrid`) unions it across every row to build the grid's header.
+ *  below. `columns` is just whatever this one row touched; the dialog
+ *  unions it across every row to build the grid's header.
  *  `ids` collects every underlying `PendingChange.id` this entry represents
  *  (several cell edits on the same row merge into ONE `RowDiffChange` — see
  *  `pending_changes_to_row_diff`) — selection is per ROW here, so
@@ -29,61 +34,6 @@ export interface RowDiffChange {
   before: Record<string, string>;
   after: Record<string, string>;
 }
-
-/** One property row in the "Table properties" panel — table rename and
- *  primary key change both use this shape (a label plus before/after);
- *  both are at most one row and always an alter, never an insert or
- *  delete. */
-export interface DdlPropertyRow {
-  id: string;
-  label: string;
-  before?: string;
-  after?: string;
-}
-
-/** One column change, decomposed into real fields (unlike the other DDL
- *  entities below) since columns are the highest volume DDL entity and the
- *  one whose sub-fields are most useful to see separately. An "update" row
- *  renders as a red row directly above a green row, matching `RowDiffGrid`'s
- *  own update pattern. */
-export interface DdlColumnRow {
-  id: string;
-  kind: "insert" | "update" | "delete";
-  before?: { name: string; type: string; nullable: boolean; default: string };
-  after?: { name: string; type: string; nullable: boolean; default: string };
-}
-
-/** One index or foreign key change — still one opaque definition line (the
- *  existing `idx_line(...)`/foreign key line text), just shown as a
- *  Name+Definition grid row instead of a text hunk. */
-export interface DdlNamedRow {
-  id: string;
-  kind: "insert" | "update" | "delete";
-  name: string;
-  before?: string;
-  after?: string;
-}
-
-/** One trigger change — the full SQL body, rendered as a full width colored
- *  row rather than squeezed into a normal cell. */
-export interface DdlTriggerRow {
-  id: string;
-  kind: "insert" | "update" | "delete";
-  name: string;
-  before?: string;
-  after?: string;
-}
-
-/** One entity-typed section of a DDL review (schema designer / Mongo schema
- *  editor). A section only exists in the array when that entity type
- *  actually changed — no empty sections. Table rename and primary key
- *  change render together as one "Table properties" panel in `DdlDiffGrid`
- *  even though they're separate section entries here. */
-export type DdlDiffSection =
-  | { entity: "table" | "primary key"; rows: DdlPropertyRow[] }
-  | { entity: "column"; rows: DdlColumnRow[] }
-  | { entity: "index" | "foreign key"; rows: DdlNamedRow[] }
-  | { entity: "trigger"; rows: DdlTriggerRow[] };
 
 /** Every row id in `sections`, with a `kind` for the header's +/~/- counts.
  *  Table/primary key rows have no `kind` of their own (they're always an
@@ -109,6 +59,23 @@ function flatten_ddl(
   return out;
 }
 
+function to_grid_row(r: RowDiffChange): DiffGridRow {
+  return {
+    id: r.ids[0],
+    kind: r.kind,
+    label: String(r.row),
+    ...(r.kind !== "insert" ? { before: r.before } : {}),
+    ...(r.kind !== "delete" ? { after: r.after } : {}),
+  };
+}
+
+/** Every column any row touched, in first appearance order. */
+function union_columns(rows: RowDiffChange[]): string[] {
+  const seen = new Set<string>();
+  for (const r of rows) for (const col of r.columns) seen.add(col);
+  return [...seen];
+}
+
 export function ApplyChangesDialog({
   title = "Review changes",
   ddl,
@@ -121,6 +88,8 @@ export function ApplyChangesDialog({
    *  an all-or-nothing gate instead of a picker. */
   selectable = false,
   applying = false,
+  notice,
+  disabled_reason,
   on_apply,
   on_close,
 }: {
@@ -136,6 +105,10 @@ export function ApplyChangesDialog({
   rows?: RowDiffChange[];
   selectable?: boolean;
   applying?: boolean;
+  /** Shown above the changes (warnings about what applying does). */
+  notice?: React.ReactNode;
+  /** Why Apply is off, when it is (a read only target). */
+  disabled_reason?: string;
   on_apply: (keepIds: Set<string>) => void;
   on_close: () => void;
 }) {
@@ -174,6 +147,9 @@ export function ApplyChangesDialog({
     }
     return { add, alter, drop };
   }, [rows, ddl, selected, selectable]);
+
+  const grid_rows = useMemo(() => rows?.map(to_grid_row), [rows]);
+  const grid_columns = useMemo(() => union_columns(rows ?? []), [rows]);
 
   const all = entry_keys.length;
   const checked = selectable ? selected.size : all;
@@ -235,16 +211,21 @@ export function ApplyChangesDialog({
           </span>
         </div>
 
-        <div className="rounded-control max-h-96 overflow-y-auto border">
-          {rows ? (
+        {notice}
+
+        <div className="rounded-control overflow-hidden border">
+          {grid_rows ? (
             <RowDiffGrid
-              rows={rows}
-              selectable={selectable}
-              selected={selected}
-              on_toggle={toggle}
+              className="max-h-96"
+              rows={grid_rows}
+              columns={grid_columns}
+              selected={selectable ? selected : undefined}
+              on_toggle={selectable ? toggle : undefined}
             />
           ) : (
-            <DdlDiffGrid sections={ddl ?? []} />
+            <div className="max-h-96 overflow-y-auto">
+              <DdlDiffGrid sections={ddl ?? []} />
+            </div>
           )}
           {all === 0 && (
             <div className="text-muted-foreground text-body p-6 text-center">
@@ -257,7 +238,11 @@ export function ApplyChangesDialog({
           <Button variant="outline" disabled={applying} onClick={on_close}>
             Cancel
           </Button>
-          <Button disabled={applying || checked === 0} onClick={confirm}>
+          <Button
+            disabled={applying || checked === 0 || !!disabled_reason}
+            title={disabled_reason}
+            onClick={confirm}
+          >
             {applying ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
@@ -268,458 +253,5 @@ export function ApplyChangesDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/** Grid-formatted review for `RowDiffChange[]` (the data grid's row/cell
- *  pending edits) — column headers across the top (the union of every
- *  column touched across `rows`, in first-appearance order), one row per
- *  insert/delete, a stacked red-then-green row pair per update (a real
- *  line-replace, same visual language as the DDL grid below just laid out
- *  around dynamic column headers instead of fixed fields). Selection is per
- *  `RowDiffChange`, not per underlying id — one checkbox per row (pair),
- *  spanning both of an update's rows. */
-function RowDiffGrid({
-  rows,
-  selectable,
-  selected,
-  on_toggle,
-}: {
-  rows: RowDiffChange[];
-  selectable: boolean;
-  selected: Set<string>;
-  on_toggle: (key: string, on: boolean) => void;
-}) {
-  const columns = useMemo(() => {
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const r of rows) {
-      for (const col of r.columns) {
-        if (!seen.has(col)) {
-          seen.add(col);
-          ordered.push(col);
-        }
-      }
-    }
-    return ordered;
-  }, [rows]);
-
-  const cell_cls = "min-w-24 border-b px-2 py-1.5 font-mono break-all";
-  const added = "bg-diff-add text-diff-add-foreground";
-  const removed = "bg-diff-remove text-diff-remove-foreground";
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="text-small w-full border-collapse">
-        <thead>
-          <tr className="border-b">
-            <th className="text-muted-foreground w-16 px-2 py-1.5 text-left font-medium">
-              Row
-            </th>
-            <th className="w-5" />
-            {columns.map((col) => (
-              <th
-                key={col}
-                className="text-muted-foreground min-w-24 px-2 py-1.5 text-left font-medium"
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const key = r.ids[0];
-            const is_selected = selected.has(key);
-            const row_cls = cn(selectable && !is_selected && "opacity-50");
-            const gutter = (
-              <td
-                rowSpan={r.kind === "update" ? 2 : 1}
-                className="border-b px-2 py-1.5 align-top"
-              >
-                <div className="flex items-center gap-1.5">
-                  {selectable && (
-                    <Checkbox
-                      // Pinned in px, bypassing whatever's inflating the
-                      // shared component's own `size-4` inside this table
-                      // (base-ui's checkbox root has no intrinsic size of
-                      // its own, so it's most likely a `--spacing`
-                      // CSS-variable conflict specific to a table context,
-                      // not a class-merge bug) — guaranteed correct
-                      // regardless of the actual cause.
-                      style={{ width: 16, height: 16 }}
-                      checked={is_selected}
-                      onCheckedChange={(v) => on_toggle(key, v === true)}
-                      aria-label="Include this row"
-                    />
-                  )}
-                  <span className="text-muted-foreground font-mono">
-                    {r.row}
-                  </span>
-                </div>
-              </td>
-            );
-
-            if (r.kind === "update") {
-              return (
-                <Fragment key={key}>
-                  <tr className={row_cls}>
-                    {gutter}
-                    <td className="text-diff-remove-foreground border-b px-1 py-1.5 select-none">
-                      −
-                    </td>
-                    {columns.map((col) => (
-                      <td
-                        key={col}
-                        className={cn(
-                          cell_cls,
-                          Object.hasOwn(r.before, col) && removed,
-                        )}
-                      >
-                        {r.before[col] ?? ""}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className={row_cls}>
-                    <td className="text-diff-add-foreground border-b px-1 py-1.5 select-none">
-                      +
-                    </td>
-                    {columns.map((col) => (
-                      <td
-                        key={col}
-                        className={cn(
-                          cell_cls,
-                          Object.hasOwn(r.after, col) && added,
-                        )}
-                      >
-                        {r.after[col] ?? ""}
-                      </td>
-                    ))}
-                  </tr>
-                </Fragment>
-              );
-            }
-
-            const is_insert = r.kind === "insert";
-            const values = is_insert ? r.after : r.before;
-            return (
-              <tr key={key} className={row_cls}>
-                {gutter}
-                <td
-                  className={cn(
-                    "border-b px-1 py-1.5 select-none",
-                    is_insert
-                      ? "text-diff-add-foreground"
-                      : "text-diff-remove-foreground",
-                  )}
-                >
-                  {is_insert ? "+" : "−"}
-                </td>
-                {columns.map((col) => (
-                  <td
-                    key={col}
-                    className={cn(cell_cls, is_insert ? added : removed)}
-                  >
-                    {values[col] ?? ""}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Grid-formatted review for `DdlDiffSection[]` (schema designer / Mongo
- *  schema editor DDL review) — one small table per entity category present
- *  in `sections` (never an empty one), each row styled with the same
- *  insert/update/delete conventions `RowDiffGrid` uses (an update renders
- *  as a red row directly above a green row). Table rename and primary key
- *  change share one "Table properties" panel since both are at most one
- *  row and always an alter. Always rendered read only (no checkboxes): DDL
- *  review is never selectable, see the key invariant on
- *  `ApplyChangesDialog`. */
-function DdlDiffGrid({ sections }: { sections: DdlDiffSection[] }) {
-  const properties = sections
-    .filter(
-      (s): s is { entity: "table" | "primary key"; rows: DdlPropertyRow[] } =>
-        s.entity === "table" || s.entity === "primary key",
-    )
-    .flatMap((s) => s.rows);
-  const columns =
-    sections.find(
-      (s): s is { entity: "column"; rows: DdlColumnRow[] } =>
-        s.entity === "column",
-    )?.rows ?? [];
-  const indexes =
-    sections.find(
-      (s): s is { entity: "index"; rows: DdlNamedRow[] } =>
-        s.entity === "index",
-    )?.rows ?? [];
-  const foreign_keys =
-    sections.find(
-      (s): s is { entity: "foreign key"; rows: DdlNamedRow[] } =>
-        s.entity === "foreign key",
-    )?.rows ?? [];
-  const triggers =
-    sections.find(
-      (s): s is { entity: "trigger"; rows: DdlTriggerRow[] } =>
-        s.entity === "trigger",
-    )?.rows ?? [];
-
-  return (
-    <div className="divide-y">
-      {properties.length > 0 && (
-        <DdlSection label="Table properties">
-          <PropertyTable rows={properties} />
-        </DdlSection>
-      )}
-      {columns.length > 0 && (
-        <DdlSection label="Columns">
-          <ColumnTable rows={columns} />
-        </DdlSection>
-      )}
-      {indexes.length > 0 && (
-        <DdlSection label="Indexes">
-          <NamedTable rows={indexes} />
-        </DdlSection>
-      )}
-      {foreign_keys.length > 0 && (
-        <DdlSection label="Foreign keys">
-          <NamedTable rows={foreign_keys} />
-        </DdlSection>
-      )}
-      {triggers.length > 0 && (
-        <DdlSection label="Triggers">
-          <TriggerRows rows={triggers} />
-        </DdlSection>
-      )}
-    </div>
-  );
-}
-
-function DdlSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="py-2">
-      <div className="text-muted-foreground text-small px-3 pb-1 font-medium">
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function PropertyTable({ rows }: { rows: DdlPropertyRow[] }) {
-  return (
-    <div className="overflow-x-auto px-3">
-      <table className="text-small w-full border-collapse">
-        <thead>
-          <tr className="border-b">
-            <th className="text-muted-foreground py-1 pr-3 text-left font-medium">
-              Property
-            </th>
-            <th className="text-muted-foreground py-1 pr-3 text-left font-medium">
-              Before
-            </th>
-            <th className="text-muted-foreground py-1 text-left font-medium">
-              After
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-b last:border-b-0">
-              <td className="text-muted-foreground py-1.5 pr-3 align-top font-medium whitespace-nowrap">
-                {r.label}
-              </td>
-              <td className="bg-diff-remove text-diff-remove-foreground py-1.5 pr-3 font-mono break-all">
-                {r.before ?? ""}
-              </td>
-              <td className="bg-diff-add text-diff-add-foreground py-1.5 font-mono break-all">
-                {r.after ?? ""}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-const DDL_COLUMN_FIELDS = [
-  { key: "name", label: "Name" },
-  { key: "type", label: "Type" },
-  { key: "nullable", label: "Nullable" },
-  { key: "default", label: "Default" },
-] as const;
-
-function ColumnTable({ rows }: { rows: DdlColumnRow[] }) {
-  const cell_cls = "min-w-24 border-b px-2 py-1.5 font-mono break-all";
-  const added = "bg-diff-add text-diff-add-foreground";
-  const removed = "bg-diff-remove text-diff-remove-foreground";
-
-  const cell = (
-    v: DdlColumnRow["before"],
-    key: (typeof DDL_COLUMN_FIELDS)[number]["key"],
-  ) => {
-    if (!v) return "";
-    if (key === "nullable") return v.nullable ? "yes" : "no";
-    return v[key];
-  };
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="text-small w-full border-collapse">
-        <thead>
-          <tr className="border-b">
-            <th className="w-5" />
-            {DDL_COLUMN_FIELDS.map((f) => (
-              <th
-                key={f.key}
-                className="text-muted-foreground min-w-24 px-2 py-1.5 text-left font-medium"
-              >
-                {f.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            if (r.kind === "update") {
-              return (
-                <Fragment key={r.id}>
-                  <tr>
-                    <td className="text-diff-remove-foreground border-b px-1 py-1.5 select-none">
-                      −
-                    </td>
-                    {DDL_COLUMN_FIELDS.map((f) => (
-                      <td key={f.key} className={cn(cell_cls, removed)}>
-                        {cell(r.before, f.key)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="text-diff-add-foreground border-b px-1 py-1.5 select-none">
-                      +
-                    </td>
-                    {DDL_COLUMN_FIELDS.map((f) => (
-                      <td key={f.key} className={cn(cell_cls, added)}>
-                        {cell(r.after, f.key)}
-                      </td>
-                    ))}
-                  </tr>
-                </Fragment>
-              );
-            }
-            const is_insert = r.kind === "insert";
-            const values = is_insert ? r.after : r.before;
-            return (
-              <tr key={r.id}>
-                <td
-                  className={cn(
-                    "border-b px-1 py-1.5 select-none",
-                    is_insert
-                      ? "text-diff-add-foreground"
-                      : "text-diff-remove-foreground",
-                  )}
-                >
-                  {is_insert ? "+" : "−"}
-                </td>
-                {DDL_COLUMN_FIELDS.map((f) => (
-                  <td
-                    key={f.key}
-                    className={cn(cell_cls, is_insert ? added : removed)}
-                  >
-                    {cell(values, f.key)}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Index / foreign key rows — each still just one opaque definition line, so
- *  the grid here is Name + Definition, not fully decomposed fields (see
- *  spec 0003's Option 3 scope cut). */
-function NamedTable({ rows }: { rows: DdlNamedRow[] }) {
-  const line_cls = "px-2 py-1.5 font-mono break-all";
-  const added = "bg-diff-add text-diff-add-foreground";
-  const removed = "bg-diff-remove text-diff-remove-foreground";
-  return (
-    <div className="overflow-x-auto">
-      <table className="text-small w-full border-collapse">
-        <thead>
-          <tr className="border-b">
-            <th className="text-muted-foreground px-2 py-1.5 text-left font-medium">
-              Name
-            </th>
-            <th className="text-muted-foreground px-2 py-1.5 text-left font-medium">
-              Definition
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const is_insert = r.kind === "insert";
-            const text = is_insert ? r.after : r.before;
-            return (
-              <tr key={r.id} className="border-b last:border-b-0">
-                <td className="text-muted-foreground px-2 py-1.5 align-top font-mono">
-                  {r.name}
-                </td>
-                <td className={cn(line_cls, is_insert ? added : removed)}>
-                  {text ?? ""}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Trigger rows — the full SQL body doesn't fit a normal cell, so each row
- *  renders full width instead (red for the old body, green for the new
- *  one), inside the same section container as the other entity tables. */
-function TriggerRows({ rows }: { rows: DdlTriggerRow[] }) {
-  return (
-    <div className="space-y-1 px-3">
-      {rows.map((r) => {
-        const is_insert = r.kind === "insert";
-        const text = is_insert ? r.after : r.before;
-        return (
-          <div
-            key={r.id}
-            className={cn(
-              "overflow-hidden rounded border",
-              is_insert
-                ? "bg-diff-add text-diff-add-foreground"
-                : "bg-diff-remove text-diff-remove-foreground",
-            )}
-          >
-            <div className="text-caption flex items-baseline gap-1.5 border-b border-current/20 px-2 py-1 font-medium">
-              <span className="select-none">{is_insert ? "+" : "−"}</span>
-              <span>{r.name}</span>
-            </div>
-            <div className="text-small px-2 py-1.5 font-mono break-all whitespace-pre-wrap">
-              {text ?? ""}
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }

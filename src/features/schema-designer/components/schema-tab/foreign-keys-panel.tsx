@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { cn } from "@/shared/lib/utils";
-import { next_id, type FkDraft } from "./drafts";
+import { next_id, type FkDraft } from "@/shared/schema-drafts/drafts";
 
 const REFERENTIAL_ACTIONS = [
   "",

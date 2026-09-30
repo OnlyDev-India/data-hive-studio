@@ -30,12 +30,15 @@ export function MongoCollectionPane({
   tab_key,
   database,
   collection,
+  initial_filter,
   on_modified,
 }: {
   conn_id: string;
   tab_key: string;
   database: string;
   collection: string;
+  /** A filter document the grid starts with. */
+  initial_filter?: string;
   on_modified: () => void;
 }) {
   // Subscribe to the grid's bridge so the pane re-renders with its live state
@@ -68,7 +71,7 @@ export function MongoCollectionPane({
   const [failed, setFailed] = useState(false);
   const [fail_error, setFailError] = useState<string | null>(null);
   const [filters, setFilters] = useState<GridFilter[]>([]);
-  const [custom_where, setCustomWhere] = useState("");
+  const [custom_where, setCustomWhere] = useState(initial_filter ?? "");
   const [refresh_rev, setRefreshRev] = useState(0);
   const [schema_rev, setSchemaRev] = useState(0);
 

@@ -11,5 +11,6 @@ export * from "./import";
 export * from "./query";
 export * from "./explain";
 export * from "./streaming";
+export * from "./compare";
 export * from "./local-connections";
 export * from "./workspace-state";

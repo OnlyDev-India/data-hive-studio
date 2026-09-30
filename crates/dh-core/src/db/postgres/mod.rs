@@ -12,6 +12,7 @@ mod rows;
 mod cancel;
 mod exec;
 mod stream;
+mod compare;
 #[cfg(test)]
 mod stream_tests;
 mod catalog;

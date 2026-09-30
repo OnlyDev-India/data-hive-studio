@@ -158,11 +158,11 @@ impl PgAdapter {
 /// same instance as the Stop tests: `cargo test -p dh-core -- --ignored
 /// pg_read_only`.
 #[cfg(test)]
-mod read_only_live_tests {
+pub(super) mod read_only_live_tests {
     use super::*;
     use crate::db::postgres::params::PgParams;
 
-    fn params(read_only: bool) -> PgParams {
+    pub(in crate::db::postgres) fn params(read_only: bool) -> PgParams {
         let url = std::env::var("DH_TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres@127.0.0.1:5544/dh_server_test".to_string());
         let rest = url.strip_prefix("postgres://").expect("a postgres:// url");

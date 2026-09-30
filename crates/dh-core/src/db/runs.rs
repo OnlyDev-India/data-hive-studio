@@ -55,7 +55,9 @@ pub struct CancelOutcome {
 }
 
 struct Slot {
-    canceller: Option<Canceller>,
+    /// Most runs arm one; a table compare arms one per side.
+    cancellers: Vec<(u64, Canceller)>,
+    next_id: u64,
     finished: bool,
 }
 
@@ -96,7 +98,7 @@ pub fn register(conn_id: &str, run_id: &str) -> RunHandle {
         run_id: run_id.to_string(),
         conn_id: conn_id.to_string(),
         cancel_requested: AtomicBool::new(pre_cancelled),
-        slot: AsyncMutex::new(Slot { canceller: None, finished: false }),
+        slot: AsyncMutex::new(Slot { cancellers: Vec::new(), next_id: 0, finished: false }),
         done: watch::channel(false).0,
         abandon: watch::channel(false).0,
     });
@@ -125,8 +127,28 @@ impl RunHandle {
         if self.is_cancel_requested() {
             return false;
         }
-        slot.canceller = Some(canceller);
+        slot.cancellers.clear();
+        slot.cancellers.push((0, canceller));
         true
+    }
+
+    /// Arm one more canceller beside any already armed, for a run that holds
+    /// several connections at once. `None` when Stop already arrived.
+    pub async fn add_canceller(&self, canceller: Canceller) -> Option<u64> {
+        let mut slot = self.entry.slot.lock().await;
+        if self.is_cancel_requested() {
+            return None;
+        }
+        slot.next_id += 1;
+        let id = slot.next_id;
+        slot.cancellers.push((id, canceller));
+        Some(id)
+    }
+
+    /// Drop one canceller from [`Self::add_canceller`]. Call it BEFORE that
+    /// connection goes back to the pool.
+    pub async fn remove_canceller(&self, id: u64) {
+        self.entry.slot.lock().await.cancellers.retain(|(i, _)| *i != id);
     }
 
     /// Resolves when the cap passed without the database confirming. Race
@@ -160,7 +182,7 @@ impl Drop for RunHandle {
 async fn finish_entry(entry: &Arc<RunEntry>) {
     {
         let mut slot = entry.slot.lock().await;
-        slot.canceller = None;
+        slot.cancellers.clear();
         slot.finished = true;
     }
     entry.done.send_replace(true);
@@ -218,7 +240,7 @@ async fn cancel_within(conn_id: &str, run_id: &str, cap: Duration) -> CancelOutc
                 let state = if first { CancelState::NotRunning } else { CancelState::Stopped };
                 return CancelOutcome { state };
             }
-            if let Some(canceller) = slot.canceller.as_ref() {
+            for (_, canceller) in &slot.cancellers {
                 canceller().await;
             }
         }
@@ -389,6 +411,23 @@ mod tests {
 
         assert_eq!(out.state, CancelState::NotRunning);
         assert_eq!(hits.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn every_added_canceller_fires_and_a_removed_one_does_not() {
+        let run = register("conn-a", "run-many-1");
+        let (a, b) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let first = run.add_canceller(counting_canceller(a.clone())).await.unwrap();
+        run.add_canceller(counting_canceller(b.clone())).await.unwrap();
+        run.remove_canceller(first).await;
+
+        let out = cancel_within("conn-a", "run-many-1", Duration::from_millis(250)).await;
+
+        assert_eq!(out.state, CancelState::WindingDown);
+        assert_eq!(a.load(Ordering::SeqCst), 0);
+        assert!(b.load(Ordering::SeqCst) >= 1);
+        assert!(run.add_canceller(counting_canceller(Default::default())).await.is_none());
+        run.finish().await;
     }
 
     #[tokio::test]

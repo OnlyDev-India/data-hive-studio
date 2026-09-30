@@ -5,7 +5,7 @@ import type {
   DdlNamedRow,
   DdlPropertyRow,
   DdlTriggerRow,
-} from "@/shared/components/apply-changes-dialog";
+} from "@/shared/components/diff-grid";
 
 /** Types offered in the dropdown. SQLite accepts any declared type; the
  *  PostgreSQL-specific entries only matter for PG connections. */
@@ -519,7 +519,7 @@ export function describe_schema_changes(
         before: {
           name: c.orig_name,
           type: c.orig_data_type ?? "",
-          nullable: !!c.orig_not_null,
+          nullable: !c.orig_not_null,
           default: c.orig_default ?? "",
         },
       });
@@ -535,7 +535,7 @@ export function describe_schema_changes(
       after: {
         name,
         type: c.data_type.trim(),
-        nullable: c.not_null,
+        nullable: !c.not_null,
         default: c.default_text,
       },
     });
@@ -554,13 +554,13 @@ export function describe_schema_changes(
       before: {
         name: c.orig_name,
         type: c.orig_data_type ?? "",
-        nullable: !!c.orig_not_null,
+        nullable: !c.orig_not_null,
         default: c.orig_default ?? "",
       },
       after: {
         name,
         type: c.data_type.trim(),
-        nullable: c.not_null,
+        nullable: !c.not_null,
         default: c.default_text,
       },
     });

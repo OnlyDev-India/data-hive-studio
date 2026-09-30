@@ -257,7 +257,7 @@ async fn stream_select(
     Ok((columns, total))
 }
 
-fn cell_to_string(v: sqlx::sqlite::SqliteValueRef<'_>) -> Option<String> {
+pub(super) fn cell_to_string(v: sqlx::sqlite::SqliteValueRef<'_>) -> Option<String> {
     if v.is_null() {
         return None;
     }

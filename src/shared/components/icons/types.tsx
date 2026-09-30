@@ -20,6 +20,7 @@ import {
   Terminal,
   History,
   Puzzle,
+  GitCompareArrows,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -56,13 +57,14 @@ export type IconType =
   | "extension";
 
 export const TAB_ICON_CLASS: Record<
-  "table" | "sql" | "new-table" | "mongo-console",
+  "table" | "sql" | "new-table" | "mongo-console" | "compare",
   string
 > = {
   table: "text-obj-relation",
   "new-table": "text-obj-relation",
   sql: "text-primary",
   "mongo-console": "text-primary",
+  compare: "text-primary",
 };
 
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
@@ -88,4 +90,7 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   ),
   activity: <History className={cn("text-muted-foreground size-3.5")} />,
   roles: <UsersIcon className="text-obj-security size-3 shrink-0" />,
+  compare: (
+    <GitCompareArrows className={cn("size-3.5", TAB_ICON_CLASS.compare)} />
+  ),
 };

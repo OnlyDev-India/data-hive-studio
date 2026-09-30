@@ -43,7 +43,9 @@ import { DragGhost, PaneView, Sidebar, useTabDrag } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
 import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
 import { MongoNewCollectionTab, RolesTab } from "@/features/schema-designer";
+import { CompareTab } from "@/features/compare";
 import { ActivityBar } from "./activity-bar";
+import { reopenByKey } from "./reopen-connection";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
 import { Landing } from "@/features/connections";
 
@@ -422,6 +424,7 @@ export default function Workspace({
         home_active={landing}
         tables_active={!landing && leftPanelOpen && leftPanelMode === "tables"}
         activity_active={leftPanelOpen && leftPanelMode === "activity"}
+        conn_id={conn_id}
         on_home={on_home}
         on_tables={on_tables}
         on_new_table={new_table_click}
@@ -806,6 +809,7 @@ function WorkspaceContent({
                 tab_key={key}
                 database={tab.database}
                 collection={tab.collection}
+                initial_filter={tab.initialFilter}
                 on_modified={bumpTables}
               />
             ) : tab.kind === "mongo-console" ? (
@@ -822,6 +826,13 @@ function WorkspaceContent({
               <ActivityDetailsTab conn_id={conn_id} tab_key={key} />
             ) : tab.kind === "roles" ? (
               <RolesTab conn_id={conn_id} tab_key={key} />
+            ) : tab.kind === "compare" ? (
+              <CompareTab
+                conn_id={conn_id}
+                tab_key={key}
+                active={is_active}
+                on_reopen={reopenByKey}
+              />
             ) : conn.kind === "mongodb" ? (
               <MongoNewCollectionTab
                 conn_id={conn_id}

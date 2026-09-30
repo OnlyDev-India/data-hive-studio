@@ -7,7 +7,10 @@ use crate::db::{
     DbResult,
     RoleDetail,
     RunHandle,
+    ScanOut,
+    ScanSpec,
     SchemaObject,
+    ScriptSyntax,
     SchemaObjectKind,
 };
 use super::PgAdapter;
@@ -29,6 +32,13 @@ impl DbAdapter for PgAdapter {
 
     async fn list_schemas(&self) -> DbResult<Vec<String>> {
         PgAdapter::list_schemas(self).await
+    }
+
+    async fn compare_scan(&self, spec: &ScanSpec<'_>, run: &RunHandle, out: &ScanOut) -> DbResult<()> {
+        PgAdapter::compare_scan(self, spec, run, out).await
+    }
+    fn script_syntax(&self) -> ScriptSyntax {
+        ScriptSyntax::Postgres
     }
 
     async fn import_rows(

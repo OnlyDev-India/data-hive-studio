@@ -196,6 +196,8 @@ pub fn run() {
       commands::run_sql_stream,
       commands::run_mongo_stream,
       commands::cancel_run,
+      commands::compare_data,
+      commands::compare_data_to_file,
       commands::explain_sql,
       commands::explain_mongo,
       commands::save_database,

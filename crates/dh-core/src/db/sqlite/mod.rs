@@ -14,6 +14,7 @@ mod schema_ops;
 mod alter;
 mod duplicate;
 mod import_rows;
+mod compare;
 mod adapter;
 #[cfg(test)]
 mod import_tests;

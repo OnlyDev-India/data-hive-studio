@@ -2,7 +2,7 @@ import type { ConnectionInfo } from "../api/types";
 import { loadWorkspaceState, saveWorkspaceState } from "../api/workspace-state";
 import { tabKey } from "./tab-utils";
 import type { PaneNode } from "./pane-layout";
-import type { SavedWorkspace, StudioStore } from "./types";
+import type { CompareSetup, SavedWorkspace, StudioStore } from "./types";
 
 /** Identity a connection's saved workspace is filed under — NEVER the
  *  runtime `conn_id` (a fresh UUID every connect, per
@@ -50,6 +50,7 @@ export function stampLegacySqlTabs(
       : { ...node, children: node.children.map(rekeyLayout) };
   const { active } = saved.workspace;
   return {
+    ...saved,
     workspace: {
       ...saved.workspace,
       tabs,
@@ -77,12 +78,19 @@ export function savedWorkspaceOf(
   const ws = state.workspaces[conn.id];
   if (!ws || ws.tabs.length === 0) return null;
   const sqlSeeds: Record<string, string> = {};
+  const compareSetups: Record<string, CompareSetup> = {};
   for (const tab of ws.tabs) {
     const tk = tabKey(tab);
     const seed = state.sqlSeeds[tk];
     if (seed !== undefined) sqlSeeds[tk] = seed;
+    const setup = state.compareTabs[tk];
+    if (setup) compareSetups[tk] = setup;
   }
-  return { workspace: ws, sqlSeeds };
+  return {
+    workspace: ws,
+    sqlSeeds,
+    ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
+  };
 }
 
 /** Build the full snapshot to persist — every currently-open connection

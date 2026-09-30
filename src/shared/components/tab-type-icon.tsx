@@ -1,5 +1,6 @@
 import {
   Code,
+  GitCompareArrows,
   History,
   SquarePlus,
   Table as TableIcon,
@@ -47,6 +48,12 @@ export function TabTypeIcon({
     case "activity":
       return (
         <History className={cn("text-muted-foreground size-3.5", className)} />
+      );
+    case "compare":
+      return (
+        <GitCompareArrows
+          className={cn("size-3.5", TAB_ICON_CLASS.compare, className)}
+        />
       );
   }
 }

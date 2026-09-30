@@ -1,6 +1,9 @@
 export { useStudioStore, bootstrapWorkspaceRestore } from "./store";
 export {
   DEFAULT_PALETTE_KEYWORDS,
+  EMPTY_COMPARE_SETUP,
+  type CompareSetup,
+  type ToolId,
   type StudioStore,
   type StudioView,
   type WorkspaceTabs,
