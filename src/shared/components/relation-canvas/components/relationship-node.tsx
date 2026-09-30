@@ -68,7 +68,7 @@ export const RelationshipNode = memo(function RelationshipNode({
           type="source"
           position={POSITION[side]}
           isConnectable={false}
-          className="!min-h-0 !min-w-0 !border-0 !opacity-0"
+          className="min-h-0! min-w-0! border-0! opacity-0!"
         />
       ))}
     </div>
