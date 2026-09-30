@@ -18,12 +18,15 @@ const COLUMNS_SQL: &str = "SELECT c.relname::text, a.attname::text, \
        AND a.attnum > 0 AND NOT a.attisdropped \
      ORDER BY c.relname, a.attnum";
 
-const PKS_SQL: &str = "SELECT c.relname::text, a.attname::text FROM pg_index i \
+// Full unique indexes over plain columns, primary keys included.
+const UNIQUES_SQL: &str = "SELECT c.relname::text, ic.relname::text, i.indisprimary, a.attname::text \
+     FROM pg_index i \
      JOIN pg_class c ON c.oid = i.indrelid \
+     JOIN pg_class ic ON ic.oid = i.indexrelid \
      JOIN pg_namespace n ON n.oid = c.relnamespace \
      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) \
-     WHERE n.nspname = $1 AND i.indisprimary AND c.relkind IN ('r','p') \
-       AND NOT c.relispartition";
+     WHERE n.nspname = $1 AND i.indisunique AND i.indpred IS NULL AND 0 <> ALL(i.indkey) \
+       AND c.relkind IN ('r','p') AND NOT c.relispartition";
 
 // One row per constraint touching the schema from either side, its key
 // columns unnested in order. Constraints cloned onto partitions are left
@@ -47,6 +50,8 @@ const FKS_SQL: &str = "SELECT con.conname::text, \
      ORDER BY sc.relname, con.conname";
 
 type ColumnRow = (String, String, String, bool);
+/// table, index, is primary key, column
+type UniqueRow = (String, String, bool, String);
 type FkRow = (String, String, String, String, String, Vec<String>, Vec<String>, String);
 
 impl PgAdapter {
@@ -61,16 +66,16 @@ impl PgAdapter {
         let schema = schema.map(str::to_string).unwrap_or_else(|| self.cur_schema());
         let tables = sqlx::query_scalar::<_, String>(TABLES_SQL).bind(&schema).fetch_all(&pool);
         let cols = sqlx::query_as::<_, ColumnRow>(COLUMNS_SQL).bind(&schema).fetch_all(&pool);
-        let pks = sqlx::query_as::<_, (String, String)>(PKS_SQL).bind(&schema).fetch_all(&pool);
+        let uniques = sqlx::query_as::<_, UniqueRow>(UNIQUES_SQL).bind(&schema).fetch_all(&pool);
         let fks = sqlx::query_as::<_, FkRow>(FKS_SQL).bind(&schema).fetch_all(&pool);
-        let (tables, cols, pks, fks) =
-            tokio::try_join!(tables, cols, pks, fks).map_err(DbError::SqlEngine)?;
+        let (tables, cols, uniques, fks) =
+            tokio::try_join!(tables, cols, uniques, fks).map_err(DbError::SqlEngine)?;
         let bound = [Some(schema.clone())];
-        let statements = [TABLES_SQL, COLUMNS_SQL, PKS_SQL, FKS_SQL]
+        let statements = [TABLES_SQL, COLUMNS_SQL, UNIQUES_SQL, FKS_SQL]
             .iter()
             .map(|sql| super::inline_placeholders(sql, &bound, true) + ";")
             .collect();
-        Ok((build_graph(&schema, tables, cols, pks, fks), statements))
+        Ok((build_graph(&schema, tables, cols, uniques, fks), statements))
     }
 }
 
@@ -91,10 +96,21 @@ fn build_graph(
     schema: &str,
     table_names: Vec<String>,
     cols: Vec<ColumnRow>,
-    pks: Vec<(String, String)>,
+    uniques: Vec<UniqueRow>,
     fks: Vec<FkRow>,
 ) -> SchemaGraph {
-    let pk: HashSet<(String, String)> = pks.into_iter().collect();
+    let mut pk: HashSet<(String, String)> = HashSet::new();
+    let mut indexes: HashMap<(String, String), HashSet<String>> = HashMap::new();
+    for (table, index, primary, column) in uniques {
+        if primary {
+            pk.insert((table.clone(), column.clone()));
+        }
+        indexes.entry((table, index)).or_default().insert(column);
+    }
+    let mut keys: HashMap<String, Vec<HashSet<String>>> = HashMap::new();
+    for ((table, _), set) in indexes {
+        keys.entry(table).or_default().push(set);
+    }
     let mut columns: HashMap<String, Vec<GraphColumn>> = HashMap::new();
     for (table, name, data_type, not_null) in cols {
         let primary_key = pk.contains(&(table.clone(), name.clone()));
@@ -124,6 +140,10 @@ fn build_graph(
                 });
             }
         }
+        // Keys are only read for this schema, so a link from a stub stays false.
+        let from_set: HashSet<String> = from_columns.iter().cloned().collect();
+        let unique = from_schema == schema
+            && keys.get(&from_table).is_some_and(|sets| sets.contains(&from_set));
         links.push(GraphLink {
             id: name,
             from_schema: Some(from_schema),
@@ -134,6 +154,8 @@ fn build_graph(
             to_columns,
             inferred: false,
             on_delete: on_delete(&del),
+            unique,
+            array: false,
         });
     }
     let mut tables: Vec<GraphTable> = table_names
@@ -184,5 +206,29 @@ mod tests {
         )];
         let g = build_graph("public", vec!["a".into()], vec![], vec![], fks);
         assert!(g.links.is_empty());
+    }
+
+    #[test]
+    fn unique_needs_the_whole_key_on_the_referencing_side() {
+        let fk = |name: &str, from: &str, cols: &[&str]| -> FkRow {
+            (name.into(), "public".into(), from.into(), "public".into(), "users".into(),
+             cols.iter().map(|c| c.to_string()).collect(), vec!["id".into(); cols.len()], "a".into())
+        };
+        let uniques = vec![
+            ("a".into(), "a_pkey".into(), true, "x".into()),
+            ("a".into(), "a_pkey".into(), true, "y".into()),
+            ("b".into(), "b_key".into(), false, "z".into()),
+        ];
+        let fks = vec![fk("ax", "a", &["x"]), fk("ayx", "a", &["y", "x"]), fk("bz", "b", &["z"])];
+        let g = build_graph(
+            "public",
+            vec!["a".into(), "b".into(), "users".into()],
+            vec![("b".into(), "z".into(), "int".into(), false)],
+            uniques,
+            fks,
+        );
+        let unique: Vec<_> = g.links.iter().map(|l| (l.id.as_str(), l.unique)).collect();
+        assert_eq!(unique, [("ax", false), ("ayx", true), ("bz", true)]);
+        assert!(!g.tables[1].columns[0].primary_key, "a unique column is not a primary key");
     }
 }

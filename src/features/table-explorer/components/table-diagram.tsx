@@ -7,16 +7,17 @@ import {
   type SchemaGraph,
 } from "@/shared/api";
 import {
-  adjacency,
+  // adjacency,
   CanvasButton,
   RelationCanvas,
   findTable,
   InferredToggle,
+  NotationToggle,
   openFromDiagram,
   RefreshButton,
-  SampleProgress,
   tableId,
   type CanvasState,
+  type Notation,
 } from "@/shared/components/relation-canvas";
 import {
   graphKey,
@@ -93,7 +94,7 @@ export function CollectionDiagram({
   const conn_id = conn.id;
   const entry = useRelationGraphs((s) => s.graphs[graphKey(conn_id, database)]);
   const load = useRelationGraphs((s) => s.loadMongoGraph);
-  const cancel = useRelationGraphs((s) => s.cancelMongoGraph);
+  // const cancel = useRelationGraphs((s) => s.cancelMongoGraph);
   useEffect(() => {
     load(conn_id, database);
   }, [load, conn_id, database]);
@@ -110,10 +111,10 @@ export function CollectionDiagram({
       waiting={`Sampling ${collection}…`}
       extra={
         <>
-          <SampleProgress
+          {/* <SampleProgress
             entry={entry}
             onCancel={() => cancel(conn_id, database)}
-          />
+          /> */}
           <InferredToggle
             hidden={hideInferred}
             onChange={setHideInferred}
@@ -178,21 +179,23 @@ function OneHop({
     [graph, table, schema],
   );
   const selfId = self && !self.stub ? tableId(self) : null;
-  const shown = useMemo(
-    () =>
-      graph && hideInferred
-        ? { ...graph, links: graph.links.filter((l) => !l.inferred) }
-        : graph,
-    [graph, hideInferred],
-  );
-  const lonely = useMemo(
-    () =>
-      !!shown && !!selfId && (adjacency(shown).get(selfId)?.size ?? 0) === 0,
-    [shown, selfId],
-  );
+  // const shown = useMemo(
+  //   () =>
+  //     graph && hideInferred
+  //       ? { ...graph, links: graph.links.filter((l) => !l.inferred) }
+  //       : graph,
+  //   [graph, hideInferred],
+  // );
+  // const lonely = useMemo(
+  //   () =>
+  //     !!shown && !!selfId && (adjacency(shown).get(selfId)?.size ?? 0) === 0,
+  //   [shown, selfId],
+  // );
 
   const openRelationDiagram = useStudioStore((s) => s.openRelationDiagram);
   const push = useStudioStore((s) => s.pushNotification);
+  // Starts on Relation every mount and is never remembered.
+  const [notation, setNotation] = useState<Notation>("relation");
 
   // Until this table is in the graph there is nothing to center on, so the
   // canvas draws nothing rather than the whole schema.
@@ -216,16 +219,26 @@ function OneHop({
       state={state}
       hideInferred={hideInferred}
       growing={growing}
+      notation={notation}
+      keep={selfId ?? undefined}
       onOpen={(t, view) => openFromDiagram(conn, t, view, database)}
       exportName={`${table}-diagram`}
+      toolbarInline
       toolbar={
-        lonely && !growing ? (
-          <span role="status" className="text-muted-foreground text-small">
-            {mongo
-              ? "No links to or from this collection."
-              : "No foreign keys to or from this table."}
-          </span>
-        ) : null
+        <>
+          <NotationToggle
+            value={notation}
+            onChange={setNotation}
+            disabled={!selfId}
+          />
+          {/* {lonely && !growing ? (
+            <span role="status" className="text-muted-foreground text-small">
+              {mongo
+                ? "No links to or from this collection."
+                : "No foreign keys to or from this table."}
+            </span>
+          ) : null} */}
+        </>
       }
       toolbarEnd={
         <>

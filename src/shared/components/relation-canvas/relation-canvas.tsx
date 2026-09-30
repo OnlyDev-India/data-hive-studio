@@ -23,6 +23,13 @@ import type { GraphTable, SchemaGraph } from "@/shared/api/types";
 import { FkEdge } from "./components/fk-edge";
 import { NodeMenu, type NodeMenuState } from "./components/node-menu";
 import { TableNode, type TableFlowNode } from "./components/table-node";
+import { EntityNode, type EntityFlowNode } from "./components/entity-node";
+import {
+  RelationshipNode,
+  type DiamondFlowNode,
+} from "./components/relationship-node";
+import { ErEdge } from "./components/er-edge";
+import type { Notation } from "./components/notation-toggle";
 import { CanvasToolbar } from "./components/canvas-toolbar";
 import { StateOverlay, type CanvasState } from "./components/graph-states";
 import {
@@ -45,11 +52,19 @@ import {
   type Highlight,
 } from "./lib/flow";
 import { layoutGraph } from "./lib/layout";
+import { buildErEdges, buildErNodes, useErFlow } from "./lib/use-er-flow";
 import { exportDiagram, type ExportFormat } from "./lib/export";
 import { useTheme } from "@/shared/theme/theme";
 
-const nodeTypes = { table: TableNode };
-const edgeTypes = { fk: FkEdge };
+type CanvasNode = TableFlowNode | EntityFlowNode | DiamondFlowNode;
+
+const nodeTypes = {
+  table: TableNode,
+  entity: EntityNode,
+  diamond: RelationshipNode,
+};
+const edgeTypes = { fk: FkEdge, er: ErEdge };
+const PRO_OPTIONS = { hideAttribution: true };
 const SAVE_DEBOUNCE_MS = 500;
 const PLACE_GAP = 160;
 
@@ -84,6 +99,8 @@ export interface RelationCanvasProps {
   exportName: string;
   /** Host controls shown at the start of the toolbar. */
   toolbar?: ReactNode;
+  /** Keep `toolbar` on the same row as the canvas controls. */
+  toolbarInline?: boolean;
   /** Host controls shown at the end of the toolbar. */
   toolbarEnd?: ReactNode;
   /** Loading, error or empty, drawn over the canvas. Loading and error
@@ -94,6 +111,12 @@ export interface RelationCanvasProps {
   /** More tables are still arriving: place new boxes beside the ones
    *  already drawn, then lay everything out once it turns false. */
   growing?: boolean;
+  /** ER view draws the same graph Chen style, laid out fresh each time; it
+   *  never reads `saved` or calls `onSave`. */
+  notation?: Notation;
+  /** A table id ER view never folds into a join diamond, such as a table
+   *  tab's own table. The focus table is never folded either. */
+  keep?: string;
   /** Called with a message when an export fails or is saved. */
   onNotice?: (
     kind: "success" | "error",
@@ -122,13 +145,17 @@ function Canvas({
   hideInferred,
   exportName,
   toolbar,
+  toolbarInline,
   toolbarEnd,
   state,
   overlay,
   onNotice,
   growing = false,
+  notation = "relation",
+  keep,
 }: RelationCanvasProps) {
-  const rf = useReactFlow<TableFlowNode>();
+  const rf = useReactFlow<CanvasNode>();
+  const er = notation === "er";
   // React Flow tags its wrapper light or dark, and the theme tokens follow
   // that class, so it must match the app's own appearance.
   const { dark } = useTheme();
@@ -156,6 +183,20 @@ function Canvas({
   const adj = useMemo(() => adjacency(view), [view]);
   const fks = useMemo(() => fkColumns(graph), [graph]);
   const pinned = !focusTable && saved != null;
+  const unfolded = useMemo(
+    () => new Set([keep, focusTable].filter((x): x is string => !!x)),
+    [keep, focusTable],
+  );
+  const erFlow = useErFlow(view, mode, fks, er, unfolded);
+  const moveEr = erFlow.move;
+  const folded = erFlow.model?.folded;
+  // The node a table id is drawn as: a folded join table is its diamond in
+  // ER, and that diamond is the table again back in Relation view.
+  const nodeIdOf = useCallback(
+    (id: string) =>
+      er ? (folded?.get(id) ?? id) : id.startsWith("j:") ? id.slice(2) : id,
+    [er, folded],
+  );
 
   const [positions, setPositions] = useState<Record<string, XY> | null>(null);
   const [layingOut, setLayingOut] = useState(false);
@@ -176,6 +217,7 @@ function Canvas({
   });
 
   useEffect(() => {
+    if (er) return;
     let cancelled = false;
     const ids = new Set(view.tables.map(tableId));
     const done = (next: Record<string, XY>, refit: boolean) => {
@@ -233,7 +275,11 @@ function Canvas({
     return () => {
       cancelled = true;
     };
-  }, [view, fks, pinned, saved, mode, growing]);
+  }, [view, fks, pinned, saved, mode, growing, er]);
+  // What the active view has laid out.
+  const shownPositions = er ? erFlow.positions : positions;
+  const busyLayout = er ? erFlow.layingOut : layingOut;
+  const failedLayout = er ? erFlow.error : layoutError;
 
   // ---- selection ------------------------------------------------------
   const [selected, setSelected] = useState<string | null>(focusTable ?? null);
@@ -246,20 +292,30 @@ function Canvas({
     setSelected(focusTable ?? null);
   }
   const [exporting, setExporting] = useState(false);
-  const hl: Highlight | null = useMemo(
-    () =>
-      selected && !exporting && adj.has(selected)
-        ? { selected, neighbors: adj.get(selected) ?? new Set() }
-        : null,
-    [selected, adj, exporting],
-  );
+  const shownAdj = er ? erFlow.adj : adj;
+  const hl: Highlight | null = useMemo(() => {
+    const sel = selected ? nodeIdOf(selected) : null;
+    return sel && !exporting && shownAdj?.has(sel)
+      ? { selected: sel, neighbors: shownAdj.get(sel) ?? new Set() }
+      : null;
+  }, [selected, shownAdj, exporting, nodeIdOf]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<TableFlowNode>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([]);
+  const erModel = erFlow.model;
   useEffect(() => {
-    setNodes(
-      positions ? buildNodes(view, positions, mode, fks, hl, flash) : [],
-    );
-  }, [view, positions, mode, fks, hl, flash, setNodes]);
+    if (er)
+      setNodes(
+        erModel && shownPositions
+          ? buildErNodes(erModel, shownPositions, fks, hl, flash)
+          : [],
+      );
+    else
+      setNodes(
+        shownPositions
+          ? buildNodes(view, shownPositions, mode, fks, hl, flash)
+          : [],
+      );
+  }, [er, erModel, view, shownPositions, mode, fks, hl, flash, setNodes]);
 
   const effective = shownMode(mode, floor);
   const shown = useCallback(
@@ -272,19 +328,28 @@ function Canvas({
     [byId, effective, fks],
   );
   const edges = useMemo(
-    () => (positions ? buildEdges(view, positions, shown, hl) : []),
-    [view, positions, shown, hl],
+    () =>
+      !shownPositions
+        ? []
+        : er
+          ? erModel
+            ? buildErEdges(erModel, shownPositions, hl)
+            : []
+          : buildEdges(view, shownPositions, shown, hl),
+    [er, erModel, view, shownPositions, shown, hl],
   );
 
   // ---- viewport -------------------------------------------------------
   const duration = () => (reducedMotion() ? 0 : 300);
 
   const center = useCallback(
-    (id: string) => {
+    (table: string) => {
+      const id = nodeIdOf(table);
       const n = rf.getNode(id);
       if (!n) return false;
+      const w = n.measured?.width ?? NODE_WIDTH;
       const h = n.measured?.height ?? 120;
-      void rf.setCenter(n.position.x + NODE_WIDTH / 2, n.position.y + h / 2, {
+      void rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
         zoom: Math.max(rf.getZoom(), 0.9),
         duration: duration(),
       });
@@ -292,31 +357,32 @@ function Canvas({
       setFlash(id);
       return true;
     },
-    [rf],
+    [rf, nodeIdOf],
   );
 
   const revealId = reveal?.id;
   const revealNonce = reveal?.nonce;
   const revealed = useRef<number | null>(null);
   // A fresh layout fits the view, unless a reveal is about to center it.
+  const fitKey = er ? erFlow.fitNonce : fitNonce;
   useEffect(() => {
-    if (fitNonce === 0) return;
+    if (fitKey === 0) return;
     if (revealId && revealNonce != null && revealed.current !== revealNonce)
       return;
     const id = requestAnimationFrame(() => {
       void rf.fitView({ padding: 0.12, duration: duration(), maxZoom: 1 });
     });
     return () => cancelAnimationFrame(id);
-  }, [fitNonce, rf, revealId, revealNonce]);
+  }, [fitKey, rf, revealId, revealNonce]);
   useEffect(() => {
     if (!revealId || revealNonce == null || revealed.current === revealNonce)
       return;
-    if (!positions?.[revealId]) return;
+    if (!shownPositions?.[nodeIdOf(revealId)]) return;
     const frame = requestAnimationFrame(() => {
       if (center(revealId)) revealed.current = revealNonce;
     });
     return () => cancelAnimationFrame(frame);
-  }, [revealId, revealNonce, positions, nodes, center]);
+  }, [revealId, revealNonce, shownPositions, nodes, center, nodeIdOf]);
 
   useEffect(() => {
     if (!flash) return;
@@ -336,6 +402,11 @@ function Canvas({
     const live: Record<string, XY> = {};
     for (const n of rf.getNodes())
       live[n.id] = { x: n.position.x, y: n.position.y };
+    // An ER drag lasts until the next fresh layout and is never saved.
+    if (er) {
+      moveEr(live);
+      return;
+    }
     setPositions((p) => ({ ...(p ?? {}), ...live }));
     if (focusTable || !onSaveRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -343,20 +414,24 @@ function Canvas({
       () => onSaveRef.current?.(live),
       SAVE_DEBOUNCE_MS,
     );
-  }, [rf, focusTable]);
+  }, [rf, focusTable, er, moveEr]);
 
   // ---- open / menu ----------------------------------------------------
   const tableOf = useCallback((id: string) => byId.get(id), [byId]);
-  const onNodeClick: NodeMouseHandler<TableFlowNode> = (_, n) => {
+  // Double click and Enter: a table's own node, or the table a diamond opens.
+  const openable = (id: string) =>
+    tableOf(id) ?? erModel?.diamonds.find((d) => d.id === id)?.opens;
+  const onNodeClick: NodeMouseHandler<CanvasNode> = (_, n) => {
     setMenu(null);
     setSelected(n.id);
   };
-  const onNodeDoubleClick: NodeMouseHandler<TableFlowNode> = (_, n) => {
-    const t = tableOf(n.id);
+  const onNodeDoubleClick: NodeMouseHandler<CanvasNode> = (_, n) => {
+    const t = openable(n.id);
     if (t) onOpen(t, "data");
   };
-  const onNodeContextMenu: NodeMouseHandler<TableFlowNode> = (e, n) => {
+  const onNodeContextMenu: NodeMouseHandler<CanvasNode> = (e, n) => {
     e.preventDefault();
+    if (!tableOf(n.id)) return;
     const box = wrapper.current?.getBoundingClientRect();
     setSelected(n.id);
     setMenu({
@@ -371,7 +446,7 @@ function Canvas({
       setSelected(null);
       setMenu(null);
     } else if (e.key === "Enter" && selected) {
-      const t = tableOf(selected);
+      const t = openable(selected);
       if (t) onOpen(t, "data");
     }
   };
@@ -405,7 +480,7 @@ function Canvas({
   };
 
   const menuTable = menu ? tableOf(menu.id) : undefined;
-  const busy = layingOut && !positions && !state;
+  const busy = busyLayout && !shownPositions && !state;
   const noGraph = state?.kind === "loading" || state?.kind === "error";
 
   return (
@@ -413,6 +488,7 @@ function Canvas({
       <CanvasToolbar
         paneRef={wrapper}
         start={toolbar}
+        inline={toolbarInline}
         end={toolbarEnd}
         mode={mode}
         onMode={setMode}
@@ -423,7 +499,7 @@ function Canvas({
         onFit={() => void rf.fitView({ padding: 0.12, duration: duration() })}
         onExport={(f) => void runExport(f)}
         exporting={exporting}
-        canExport={!!positions && view.tables.length > 0}
+        canExport={!!shownPositions && view.tables.length > 0}
         disabled={noGraph}
       />
       <div
@@ -433,11 +509,12 @@ function Canvas({
         onKeyDown={onKeyDown}
         tabIndex={-1}
       >
-        <ReactFlow<TableFlowNode>
+        <ReactFlow<CanvasNode>
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          proOptions={PRO_OPTIONS}
           onNodesChange={onNodesChange}
           onNodeClick={onNodeClick}
           onNodeDoubleClick={onNodeDoubleClick}
@@ -470,7 +547,7 @@ function Canvas({
             {view.tables.length === 1 ? "table" : "tables"}…
           </div>
         )}
-        {layingOut && positions && (
+        {busyLayout && shownPositions && (
           <div
             role="status"
             className="bg-popover text-muted-foreground rounded-control text-caption absolute top-2 right-2 flex items-center gap-1.5 border px-2 py-1 shadow-xs"
@@ -479,12 +556,12 @@ function Canvas({
             Laying out…
           </div>
         )}
-        {layoutError && (
+        {failedLayout && (
           <div
             role="alert"
             className="text-destructive text-small absolute inset-0 flex items-center justify-center p-6 text-center"
           >
-            The layout failed: {layoutError}
+            The layout failed: {failedLayout}
           </div>
         )}
         {state && <StateOverlay state={state} />}

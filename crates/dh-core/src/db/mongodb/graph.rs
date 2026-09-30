@@ -26,6 +26,7 @@ struct Seen {
     types: HashMap<&'static str, usize>,
     non_null: usize,
     object_ids: usize,
+    arrays: usize,
 }
 
 /// A collection's top level fields in first seen order, `_id` first, each
@@ -46,6 +47,9 @@ fn summarize(docs: &[bson::Document]) -> (Vec<GraphColumn>, Vec<FieldStat>) {
             *s.types.entry(bson_type_name(v)).or_insert(0) += 1;
             if is_object_id_like(v) {
                 s.object_ids += 1;
+                if matches!(v, bson::Bson::Array(_)) {
+                    s.arrays += 1;
+                }
             }
         }
     }
@@ -66,7 +70,7 @@ fn summarize(docs: &[bson::Document]) -> (Vec<GraphColumn>, Vec<FieldStat>) {
             data_type,
             not_null: false,
         });
-        stats.push(FieldStat { name, non_null: s.non_null, object_ids: s.object_ids });
+        stats.push(FieldStat { name, non_null: s.non_null, object_ids: s.object_ids, arrays: s.arrays });
     }
     (columns, stats)
 }
@@ -158,9 +162,9 @@ mod tests {
         assert_eq!(columns[2].data_type, "objectid");
         assert_eq!(columns[3].data_type, "array");
         let owner = stats.iter().find(|s| s.name == "ownerId").unwrap();
-        assert_eq!((owner.non_null, owner.object_ids), (1, 1));
+        assert_eq!((owner.non_null, owner.object_ids, owner.arrays), (1, 1, 0));
         let tags = stats.iter().find(|s| s.name == "tags").unwrap();
-        assert_eq!(tags.object_ids, 1);
+        assert_eq!((tags.object_ids, tags.arrays), (1, 1));
     }
 
     #[test]

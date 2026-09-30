@@ -1,6 +1,7 @@
 export { RelationCanvas, type RelationCanvasProps } from "./relation-canvas";
 export { TableSearch } from "./components/table-search";
 export { CanvasButton } from "./components/canvas-button";
+export { NotationToggle, type Notation } from "./components/notation-toggle";
 export {
   DiagramEmpty,
   InferredToggle,

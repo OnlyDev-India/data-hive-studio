@@ -11,6 +11,8 @@ pub(crate) struct FieldStat {
     pub non_null: usize,
     /// Of those, ObjectIds or arrays of only ObjectIds.
     pub object_ids: usize,
+    /// Of those, the arrays of only ObjectIds.
+    pub arrays: usize,
 }
 
 // Longest first, so `_ids` is not read as `_id` plus an `s`.
@@ -66,6 +68,8 @@ pub(crate) fn infer_links(collection: &str, fields: &[FieldStat], collections: &
                 to_columns: vec!["_id".to_string()],
                 inferred: true,
                 on_delete: None,
+                unique: false,
+                array: f.arrays * 2 > f.non_null,
             })
         })
         .collect()
@@ -76,7 +80,7 @@ mod tests {
     use super::*;
 
     fn oid(name: &str) -> FieldStat {
-        FieldStat { name: name.into(), non_null: 10, object_ids: 10 }
+        FieldStat { name: name.into(), non_null: 10, object_ids: 10, arrays: 0 }
     }
 
     fn names(list: &[&str]) -> Vec<String> {
@@ -118,7 +122,7 @@ mod tests {
 
     #[test]
     fn string_ids_give_no_link() {
-        let strings = FieldStat { name: "user_id".into(), non_null: 10, object_ids: 0 };
+        let strings = FieldStat { name: "user_id".into(), non_null: 10, object_ids: 0, arrays: 0 };
         assert!(targets(strings, &["users"]).is_empty());
     }
 
@@ -140,8 +144,22 @@ mod tests {
 
     #[test]
     fn half_or_fewer_object_ids_give_no_link() {
-        let half = FieldStat { name: "userId".into(), non_null: 10, object_ids: 5 };
+        let half = FieldStat { name: "userId".into(), non_null: 10, object_ids: 5, arrays: 0 };
         assert!(targets(half, &["users"]).is_empty());
+    }
+
+    #[test]
+    fn mostly_arrays_set_the_array_flag() {
+        let tags = FieldStat { name: "tagIds".into(), non_null: 10, object_ids: 10, arrays: 6 };
+        let links = infer_links("posts", &[tags, oid("userId")], &names(&["tags", "users"]));
+        let flags: Vec<_> = links.iter().map(|l| (l.to_table.as_str(), l.array, l.unique)).collect();
+        assert_eq!(flags, [("tags", true, false), ("users", false, false)]);
+    }
+
+    #[test]
+    fn half_or_fewer_arrays_leave_it_off() {
+        let tags = FieldStat { name: "tagIds".into(), non_null: 10, object_ids: 10, arrays: 5 };
+        assert!(!infer_links("posts", &[tags], &names(&["tags"]))[0].array);
     }
 
     #[test]

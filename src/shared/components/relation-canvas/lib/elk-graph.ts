@@ -9,15 +9,16 @@ export function nodeHeight(rows: number): number {
   return HEADER_HEIGHT + rows * ROW_HEIGHT + (rows > 0 ? BODY_PAD : 0);
 }
 
-/** One box to place; `ports` are its visible column names in order. */
+/** One box to place; `ports` are its visible column names in order, or
+ *  null for a box whose edges may attach anywhere (ER view). */
 export interface LayoutNode {
   id: string;
   width: number;
   height: number;
-  ports: string[];
+  ports: string[] | null;
 }
 
-/** `null` port = the box's header. */
+/** `null` port = the box's header. Ignored on a box without ports. */
 export interface LayoutEdge {
   id: string;
   source: string;
@@ -50,6 +51,9 @@ interface ElkPort {
  *  column on each side in a fixed order. ELK numbers ports clockwise from
  *  the top left, so east ports count down the box and west ports up it. */
 export function toElkGraph(req: LayoutRequest) {
+  const free = new Set(req.nodes.filter((n) => !n.ports).map((n) => n.id));
+  const end = (node: string, column: string | null, side: "in" | "out") =>
+    free.has(node) ? node : portId(node, column, side);
   return {
     id: "root",
     layoutOptions: {
@@ -62,6 +66,13 @@ export function toElkGraph(req: LayoutRequest) {
       "elk.aspectRatio": "1.6",
     },
     children: req.nodes.map((n) => {
+      if (!n.ports)
+        return {
+          id: n.id,
+          width: n.width,
+          height: n.height,
+          layoutOptions: { "elk.portConstraints": "FREE" },
+        };
       const rows = [null, ...n.ports];
       const east: ElkPort[] = rows.map((c, i) => ({
         id: portId(n.id, c, "out"),
@@ -88,8 +99,8 @@ export function toElkGraph(req: LayoutRequest) {
     }),
     edges: req.edges.map((e) => ({
       id: e.id,
-      sources: [portId(e.source, e.sourcePort, "out")],
-      targets: [portId(e.target, e.targetPort, "in")],
+      sources: [end(e.source, e.sourcePort, "out")],
+      targets: [end(e.target, e.targetPort, "in")],
     })),
   };
 }

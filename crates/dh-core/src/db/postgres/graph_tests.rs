@@ -85,6 +85,42 @@ async fn pg_graph_reads_a_schema_in_four_statements() {
 
 #[tokio::test]
 #[ignore = "requires a live Postgres test database"]
+async fn pg_graph_unique_flag_follows_full_unique_keys() {
+    let a = PgAdapter::connect(&params()).await.unwrap();
+    let t = format!("u{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
+    let ddl = format!(
+        "CREATE SCHEMA {t};
+         CREATE TABLE {t}.users (id int PRIMARY KEY, org int, UNIQUE (id, org));
+         CREATE TABLE {t}.profiles (id int PRIMARY KEY, user_id int UNIQUE REFERENCES {t}.users(id));
+         CREATE TABLE {t}.posts (id int PRIMARY KEY, author_id int REFERENCES {t}.users(id));
+         CREATE INDEX ON {t}.posts (author_id);
+         CREATE TABLE {t}.drafts (id int PRIMARY KEY, user_id int REFERENCES {t}.users(id), live bool);
+         CREATE UNIQUE INDEX ON {t}.drafts (user_id) WHERE live;
+         CREATE TABLE {t}.notes (id int PRIMARY KEY, user_id int REFERENCES {t}.users(id));
+         CREATE UNIQUE INDEX ON {t}.notes (user_id, abs(id));
+         CREATE TABLE {t}.user_settings (user_id int PRIMARY KEY REFERENCES {t}.users(id));
+         CREATE TABLE {t}.seats (u int, o int, UNIQUE (o, u),
+                                 FOREIGN KEY (u, o) REFERENCES {t}.users (id, org));"
+    );
+    sqlx::raw_sql(&ddl).execute(&a.pool).await.unwrap();
+    let (g, statements) = a.schema_graph(None, Some(&t)).await.unwrap();
+    sqlx::raw_sql(&format!("DROP SCHEMA {t} CASCADE")).execute(&a.pool).await.unwrap();
+
+    assert_eq!(statements.len(), 4);
+    let unique = |table: &str| g.links.iter().find(|l| l.from_table == table).unwrap().unique;
+    assert!(unique("profiles"));
+    assert!(!unique("posts"));
+    assert!(!unique("drafts"), "a partial index doesn't count");
+    assert!(!unique("notes"), "an expression index doesn't count");
+    assert!(unique("user_settings"), "the whole primary key");
+    assert!(unique("seats"), "a composite unique index, in any order");
+    let users = g.tables.iter().find(|t| t.name == "users").unwrap();
+    assert!(users.columns[0].primary_key);
+    assert!(!users.columns[1].primary_key, "a unique column is not a primary key column");
+}
+
+#[tokio::test]
+#[ignore = "requires a live Postgres test database"]
 async fn pg_graph_of_an_empty_schema_is_empty() {
     let a = PgAdapter::connect(&params()).await.unwrap();
     let tag = format!("e{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);

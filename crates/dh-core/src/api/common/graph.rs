@@ -47,6 +47,13 @@ pub struct GraphLink {
     pub inferred: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_delete: Option<String>,
+    /// `from_columns` are exactly the referencing table's primary key or one
+    /// of its unique indexes, so the link is one to one. Always false on Mongo.
+    #[serde(default)]
+    pub unique: bool,
+    /// Mongo: most sampled values of the field are arrays. Always false on SQL.
+    #[serde(default)]
+    pub array: bool,
 }
 
 /// A `schema_graph` answer plus the catalog statements it ran, for the

@@ -19,7 +19,9 @@ import {
   CanvasCompact,
 } from "./canvas-button";
 
-const PANE_COMPACT_BELOW_PX = 760;
+const PANE_COMPACT_BELOW_PX = 780;
+/** The extra width `start` takes when it shares the control row. */
+const INLINE_START_PX = 120;
 const ONE_BUTTON_MIN_SHRINK = 40;
 
 const MODES: { value: ColumnMode; label: string; hint: string }[] = [
@@ -70,6 +72,7 @@ export function ColumnToggle({
 export function CanvasToolbar({
   paneRef,
   start,
+  inline = false,
   end,
   mode,
   onMode,
@@ -87,6 +90,8 @@ export function CanvasToolbar({
    *  itself, since collapsing it would shrink what gets measured. */
   paneRef: RefObject<HTMLElement | null>;
   start?: ReactNode;
+  /** Put `start` at the head of the control row instead of a row above. */
+  inline?: boolean;
   end?: ReactNode;
   mode: ColumnMode;
   onMode: (m: ColumnMode) => void;
@@ -104,7 +109,7 @@ export function CanvasToolbar({
   const compact = usePaneCompactWidth(
     paneRef,
     CANVAS_SHRINK_SLOTS,
-    PANE_COMPACT_BELOW_PX,
+    PANE_COMPACT_BELOW_PX + (inline ? INLINE_START_PX : 0),
     ONE_BUTTON_MIN_SHRINK,
   );
   const controls = (
@@ -179,10 +184,13 @@ export function CanvasToolbar({
         aria-label="Diagram"
         className="bg-editor-toolbar flex flex-col gap-1.5 border-b px-3 py-1.5"
       >
-        {start != null && (
+        {start != null && !inline && (
           <div className="flex flex-wrap items-center gap-2">{start}</div>
         )}
-        <div className="flex flex-wrap items-center gap-2">{controls}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          {inline && start}
+          {controls}
+        </div>
       </div>
     </CanvasCompact>
   );

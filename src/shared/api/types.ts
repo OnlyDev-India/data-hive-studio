@@ -304,6 +304,11 @@ export interface GraphLink {
   to_columns: string[];
   inferred: boolean;
   on_delete?: string;
+  /** The FK columns are the referencing table's primary key or one of its
+   *  unique indexes (one to one). Missing from older servers. */
+  unique?: boolean;
+  /** Mongo: most sampled values of the field are arrays. */
+  array?: boolean;
 }
 
 export interface SchemaGraphResult {

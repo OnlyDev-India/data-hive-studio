@@ -5,35 +5,41 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 **Build approach:** Tracer Bullet (each feature built end to end through every layer, working).
 **Workflow:** Beta (after `/develop`, run `/check verify` then `/test`). The project default level of rigor. `/architect` is the recommended first stop for a feature with a real decision, but skippable when you already know the build. Any feature can carry its own tag (e.g. `· GA`) to do more or less.
 
-_These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use_ `/develop` _and skip_ `/architect`_. You decide when a feature is_ `done`_._
+*These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use* `/develop` *and skip* `/architect`*. You decide when a feature is* `done`*.*
 
 ## At a glance
 
-| #   | Feature                        | Phase    | Status   |
-| --- | ------------------------------ | -------- | -------- |
-| A   | Connections                    | Existing | existing |
-| B   | Table explorer                 | Existing | existing |
-| C   | Query editor                   | Existing | existing |
-| D   | Schema designer                | Existing | existing |
-| E   | Workspace shell                | Existing | existing |
-| F   | Activity log                   | Existing | existing |
-| G   | Data inspector                 | Existing | existing |
-| H   | Data export                    | Existing | existing |
-| J   | Settings                       | Existing | existing |
-| K   | Notifications                  | Existing | existing |
-| L   | Auto updater                   | Existing | existing |
-| M   | Data grid                      | Existing | existing |
-| N   | Shared query editor components | Existing | existing |
-| O   | DB adapter layer               | Existing | existing |
-| P   | Team server                    | Existing | existing |
-| Q   | Native shell                   | Existing | existing |
-| R   | Command palette                | Existing | existing |
+
+| #   | Feature                        | Phase    | Status      |
+| --- | ------------------------------ | -------- | ----------- |
+| A   | Connections                    | Existing | existing    |
+| B   | Table explorer                 | Existing | existing    |
+| C   | Query editor                   | Existing | existing    |
+| D   | Schema designer                | Existing | existing    |
+| E   | Workspace shell                | Existing | existing    |
+| F   | Activity log                   | Existing | existing    |
+| G   | Data inspector                 | Existing | existing    |
+| H   | Data export                    | Existing | existing    |
+| J   | Settings                       | Existing | existing    |
+| K   | Notifications                  | Existing | existing    |
+| L   | Auto updater                   | Existing | existing    |
+| M   | Data grid                      | Existing | existing    |
+| N   | Shared query editor components | Existing | existing    |
+| O   | DB adapter layer               | Existing | existing    |
+| P   | Team server                    | Existing | existing    |
+| Q   | Native shell                   | Existing | existing    |
+| R   | Command palette                | Existing | existing    |
 | 5   | Table comparison view          | Slice 5  | in-progress |
-| 14  | Saved queries and snippets     | Slice 14 | planned  |
-| 15  | Mongo aggregation builder      | Slice 15 | planned  |
+| 14  | Saved queries and snippets     | Slice 14 | planned     |
+| 15  | Mongo aggregation builder      | Slice 15 | planned     |
 | 16  | Relation diagram               | Slice 16 | in-progress |
 
+
+
+
 ## Existing
+
+
 
 ### A. Connections · existing
 
@@ -105,6 +111,8 @@ Keyboard driven navigation: filter and open connections, tables, and tabs, run c
 
 ## Slice 5: Table comparison view
 
+
+
 ### 5. Table comparison view · in-progress · from spec 0003
 
 Compare two tables side by side, both structure (columns, indexes, and so on) and data (rows), in the same grid format as the review before apply dialog. The design pass settles where the view lives and how it reuses that dialog's grid renderer without its apply and selection behaviour.
@@ -118,10 +126,14 @@ code in `src/features/compare`, `src/shared/components/diff-grid`, `crates/dh-co
   - [x] Streamed data diff end to end on SQLite, Postgres, and Mongo, with filter, stop, and keyset paging (AC-4 to AC-13, AC-22)
   - [x] Entry points and the activity bar tools menu with pinning, swap, and open row (AC-1, AC-14, AC-18, AC-20)
   - [x] Export, structure sync, and data sync script (AC-15, AC-16, AC-17, AC-22)
-- [ ] Verify it: `/check verify table comparison view`
+- [x] Verify it: `/check verify table comparison view`
 - [x] Test it: `/test table comparison view`
 
+
+
 ## Slice 14: Saved queries and snippets
+
+
 
 ### 14. Saved queries and snippets
 
@@ -133,7 +145,11 @@ code in `src/features/query-editor`, `src/features/workspace/components/sidebar`
 - [ ] Verify it: `/check verify saved queries and snippets`
 - [ ] Test it: `/test saved queries and snippets`
 
+
+
 ## Slice 15: Mongo aggregation builder
+
+
 
 ### 15. Mongo aggregation builder · needs a decision
 
@@ -143,7 +159,11 @@ code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `cra
 
 - [ ] Design it (spec): `/architect mongo aggregation builder`
 
+
+
 ## Slice 16: Relation diagram
+
+
 
 ### 16. Relation diagram · in-progress
 
@@ -152,7 +172,7 @@ A diagram of a database or schema: tables as boxes with their columns, joined by
 spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components/relation-canvas`, `src/features/relation-diagram`, `src/features/table-explorer`, `src/features/workspace/components/sidebar`, `crates/dh-core/src/db`
 
 - [x] Design it (spec): `/architect relation diagram`
-- [ ] Build it: `/develop relation diagram`
+- [x] Build it: `/develop relation diagram`
   - [x] SQL diagrams end to end: bulk `schema_graph` for SQLite and Postgres, the diagram tab, schema switcher, stubs, select and open · AC-1, AC-2, AC-3, AC-4, AC-5, AC-7
   - [x] Table tab Diagram mode (one hop) and Open full diagram · AC-9
   - [x] Big schemas and saved layout: column toggle, search, focus mode, positions per schema, saved with the connection's tabs under its stable key · AC-6, AC-8, AC-8a
@@ -161,11 +181,13 @@ spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components
   - [x] Rename to Relation diagram (internals and saved tab migration, do first) · AC-13, AC-19
   - [x] Database picker for Postgres and Mongo diagram tabs · AC-18
   - [x] Toolbar always visible, loading and errors on the canvas, toggle decides columns above 0.2 zoom · AC-6, AC-15
-  - [ ] ER view on SQL: `unique` link flag, entity, oval and diamond shapes, crow's foot marks, the Relation | ER toggle after Focus · AC-7, AC-20, AC-21, AC-22, AC-25, AC-27
-  - [ ] ER join table fold, clicks, search and focus in ER · AC-23, AC-26
-  - [ ] ER everywhere and on Mongo: toggle in table and collection Diagram modes, `array` flag, dashed inferred diamonds · AC-20, AC-24
+  - [x] ER view on SQL: `unique` link flag, entity, oval and diamond shapes, crow's foot marks, the Relation | ER toggle after Focus · AC-7, AC-20, AC-21, AC-22, AC-25, AC-27
+  - [x] ER join table fold, clicks, search and focus in ER · AC-23, AC-26
+  - [x] ER everywhere and on Mongo: toggle in table and collection Diagram modes, `array` flag, dashed inferred diamonds · AC-20, AC-24
 - [ ] Verify it: `/check verify relation diagram`
 - [ ] Test it: `/test relation diagram`
+
+
 
 ## Deferred
 
@@ -190,6 +212,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
+
+
 ## Legend
 
 - **Next step** = the first unticked box (always a command or a tracked milestone).
@@ -198,3 +222,4 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Status** `planned` → `in-progress` → `done`, plus `existing` (pre-workflow) and `dropped` (de-scoped, kept for history). You decide when a feature is `done`; at this project's Beta tier, after `/test` is the suggested point.
 - **Workflow tier tag** beside a heading (e.g. `· GA`, `· Alpha`) sets that one feature's rigor above or below the project default; no tag inherits the default (Beta).
 - **Pointer line** (`spec <n> · code in <path>`): the spec link added by `/architect`, the code path by `/develop`.
+

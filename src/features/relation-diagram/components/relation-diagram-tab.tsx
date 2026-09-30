@@ -3,6 +3,7 @@ import { LayoutGrid } from "lucide-react";
 import {
   listSchemasIn,
   type ConnectionInfo,
+  type DbKind,
   type SchemaGraph,
 } from "@/shared/api";
 import {
@@ -12,12 +13,13 @@ import {
   exportBase,
   findTable,
   InferredToggle,
+  NotationToggle,
   openFromDiagram,
   RefreshButton,
-  SampleProgress,
   TableSearch,
   tableId,
   type CanvasState,
+  type Notation,
 } from "@/shared/components/relation-canvas";
 import {
   graphKey,
@@ -71,11 +73,10 @@ function MongoDiagram({
   const database = tab.database ?? conn.name;
   const entry = useRelationGraphs((s) => s.graphs[graphKey(conn_id, database)]);
   const load = useRelationGraphs((s) => s.loadMongoGraph);
-  const cancel = useRelationGraphs((s) => s.cancelMongoGraph);
+  // const cancel = useRelationGraphs((s) => s.cancelMongoGraph);
   useEffect(() => {
     load(conn_id, database);
   }, [load, conn_id, database]);
-  const [hideInferred, setHideInferred] = useState(false);
   const setTarget = useStudioStore((s) => s.setRelationDiagramTarget);
 
   return (
@@ -87,27 +88,14 @@ function MongoDiagram({
       emptyTitle={`No collections in ${database}`}
       loadingLabel="Listing collections…"
       onRefresh={() => load(conn_id, database, true)}
-      hideInferred={hideInferred}
       streaming
+      kind={"mongodb"}
       start={
         <DatabasePicker
           conn_id={conn_id}
           database={database}
           onChange={(d) => setTarget(conn_id, tab.id, { database: d })}
         />
-      }
-      end={
-        <>
-          <SampleProgress
-            entry={entry}
-            onCancel={() => cancel(conn_id, database)}
-          />
-          <InferredToggle
-            hidden={hideInferred}
-            onChange={setHideInferred}
-            disabled={!hasGraph(entry)}
-          />
-        </>
       }
     />
   );
@@ -187,6 +175,7 @@ function SqlDiagram({
               database={pendingDb ?? database ?? conn.name}
               onChange={pickDatabase}
             />
+            <span>{"→"}</span>
             <SchemaSwitcher
               conn_id={conn_id}
               database={database}
@@ -217,7 +206,7 @@ export function DiagramBody({
   onRefresh,
   start,
   end,
-  hideInferred,
+  kind,
   streaming = false,
 }: {
   conn: ConnectionInfo;
@@ -230,9 +219,9 @@ export function DiagramBody({
   onRefresh: () => void;
   start?: ReactNode;
   end?: ReactNode;
-  hideInferred?: boolean;
   /** Draw what has arrived while the rest is still loading (Mongo). */
   streaming?: boolean;
+  kind?: DbKind;
 }) {
   const loading = !entry || entry.status === "loading";
   const growing = loading || entry?.status === "partial";
@@ -271,6 +260,11 @@ export function DiagramBody({
   }
 
   const push = useStudioStore((s) => s.pushNotification);
+  // Starts on Relation every mount and is never remembered.
+  const [notation, setNotation] = useState<Notation>("relation");
+  const er = notation === "er";
+
+  const [hideInferred, setHideInferred] = useState(false);
 
   const state: CanvasState | null =
     entry?.status === "error"
@@ -295,6 +289,7 @@ export function DiagramBody({
       onOpen={(t, view) => openFromDiagram(conn, t, view, database)}
       reveal={reveal}
       hideInferred={hideInferred}
+      notation={notation}
       exportName={exportBase(conn, database, schema)}
       state={state}
       overlay={
@@ -331,15 +326,31 @@ export function DiagramBody({
               setReveal(null);
             }}
           />
+          <NotationToggle
+            value={notation}
+            onChange={setNotation}
+            disabled={!ready}
+          />
+          {kind === "mongodb" && (
+            <InferredToggle
+              hidden={hideInferred}
+              onChange={setHideInferred}
+              disabled={!hasGraph(entry)}
+            />
+          )}
         </>
       }
       toolbarEnd={
         <>
           {end}
           <CanvasButton
-            disabled={!ready || !layout.saved || !!focus}
+            disabled={!ready || !layout.saved || !!focus || er}
             onClick={layout.reset}
-            title="Forget dragged positions and lay the diagram out again"
+            title={
+              er
+                ? "ER view is laid out fresh each time"
+                : "Forget dragged positions and lay the diagram out again"
+            }
             label="Reset layout"
             shrink={0}
             icon={<LayoutGrid className="size-3.5" />}
