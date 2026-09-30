@@ -37,10 +37,13 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
 - UI styling uses theme tokens only: the named type scale (`text-caption` … `text-display`), radius roles, and semantic colors (`--diff-*`, `--obj-*`, status). No raw Tailwind palette classes, hex literals, `uppercase` labels, or legacy `text-xs` / `rounded-md` names; `src/shared/theme/__tests__/token-usage.test.ts` fails CI on them.
 - `tauri.conf.json` is the version source of truth; CI fails if package.json/Cargo.toml drift.
 - No backend `.rs` file over 500 lines outside test blocks: split by job into `foo/mod.rs` plus topic files, and keep public paths through `pub use` (Tauri command modules use `pub use x::*`, so the handler paths in `src-tauri/src/lib.rs` stay unchanged).
+- React Compiler is on (`vite.config.ts`, not in vitest): never write `x!.y` on a nullable `x` inside a closure, since the compiler reads it during render and crashes while `x` is null.
+- Tab labels in `tabLabel` (`src/shared/store/tab-utils.ts`) are fixed names; never number a new tab kind (`Compare`, not `Compare 2`).
 
 ## Context files
 
 - [src/shared/components/data-grid/AGENTS.md](src/shared/components/data-grid/AGENTS.md): the virtualized grid — selection, fill-handle, staged edits
 - [crates/dh-core/src/db/AGENTS.md](crates/dh-core/src/db/AGENTS.md): per-backend DB adapters and the Mongo BSON parser/renderer
+- [src/features/compare/AGENTS.md](src/features/compare/AGENTS.md): the table comparison tab, its structure and row diffs, and the Rust merge behind them
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

@@ -119,7 +119,7 @@ code in `src/features/compare`, `src/shared/components/diff-grid`, `crates/dh-co
   - [x] Entry points and the activity bar tools menu with pinning, swap, and open row (AC-1, AC-14, AC-18, AC-20)
   - [x] Export, structure sync, and data sync script (AC-15, AC-16, AC-17, AC-22)
 - [ ] Verify it: `/check verify table comparison view`
-- [ ] Test it: `/test table comparison view`
+- [x] Test it: `/test table comparison view`
 
 ## Slice 14: Saved queries and snippets
 
