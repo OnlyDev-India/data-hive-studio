@@ -7,6 +7,7 @@ import {
   type SchemaGraph,
 } from "@/shared/api";
 import {
+  actFromDiagram,
   CanvasButton,
   DiagramEmpty,
   RelationCanvas,
@@ -39,6 +40,14 @@ type RelationTab = Extract<StudioTab, { kind: "relation-diagram" }>;
 export const FOCUS_THRESHOLD = 150;
 
 const EMPTY_GRAPH: SchemaGraph = { tables: [], links: [] };
+/** About how wide each toolbar's left side is (pickers, Focus, the toggle). */
+const START_PX = { pickers: 420, picker: 300 };
+
+const menuFlags = (conn: ConnectionInfo) => ({
+  mongo: conn.kind === "mongodb",
+  pg: conn.kind === "postgres",
+  readOnly: !!conn.read_only,
+});
 
 const hasGraph = (entry: GraphEntry | undefined) =>
   entry?.status === "ready" || entry?.status === "partial";
@@ -167,6 +176,9 @@ function SqlDiagram({
       schema={schema}
       emptyTitle={`No tables in ${schema ?? conn.name}`}
       onRefresh={() => load(conn_id, database, schema, true)}
+      startPx={
+        conn.kind === "postgres" && schema ? START_PX.pickers : START_PX.picker
+      }
       start={
         conn.kind === "postgres" && schema ? (
           <>
@@ -205,6 +217,7 @@ export function DiagramBody({
   loadingLabel,
   onRefresh,
   start,
+  startPx = START_PX.picker,
   end,
   kind,
   streaming = false,
@@ -218,6 +231,7 @@ export function DiagramBody({
   loadingLabel?: string;
   onRefresh: () => void;
   start?: ReactNode;
+  startPx?: number;
   end?: ReactNode;
   /** Draw what has arrived while the rest is still loading (Mongo). */
   streaming?: boolean;
@@ -287,6 +301,10 @@ export function DiagramBody({
       saved={layout.saved}
       onSave={layout.save}
       onOpen={(t, view) => openFromDiagram(conn, t, view, database)}
+      menu={menuFlags(conn)}
+      onTableAction={(t, action) =>
+        actFromDiagram(conn, t, action, database, g)
+      }
       reveal={reveal}
       hideInferred={hideInferred}
       notation={notation}
@@ -331,14 +349,17 @@ export function DiagramBody({
             onChange={setNotation}
             disabled={!ready}
           />
-          {kind === "mongodb" && (
-            <InferredToggle
-              hidden={hideInferred}
-              onChange={setHideInferred}
-              disabled={!hasGraph(entry)}
-            />
-          )}
         </>
+      }
+      toolbarStartPx={startPx}
+      controlsEnd={
+        kind === "mongodb" ? (
+          <InferredToggle
+            hidden={hideInferred}
+            onChange={setHideInferred}
+            disabled={!hasGraph(entry)}
+          />
+        ) : undefined
       }
       toolbarEnd={
         <>

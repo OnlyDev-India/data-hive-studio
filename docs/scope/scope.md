@@ -169,7 +169,7 @@ code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `cra
 
 A diagram of a database or schema: tables as boxes with their columns, joined by foreign keys, and a click opens that table. The design pass settles drawing and layout, how it copes with hundreds of tables, and image export.
 **Done when:** opening the diagram for a PostgreSQL or SQLite schema shows its tables and foreign key links, and clicking a table opens it, with a large schema still usable.
-spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components/relation-canvas`, `src/features/relation-diagram`, `src/features/table-explorer`, `src/features/workspace/components/sidebar`, `crates/dh-core/src/db`
+spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components/relation-canvas`, `src/features/relation-diagram`, `src/features/table-explorer`, `src/features/workspace/components/sidebar`, `src/shared/components/table-menu`, `src/features/table-dialogs`, `crates/dh-core/src/db`
 
 - [x] Design it (spec): `/architect relation diagram`
 - [x] Build it: `/develop relation diagram`
@@ -184,6 +184,9 @@ spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components
   - [x] ER view on SQL: `unique` link flag, entity, oval and diamond shapes, crow's foot marks, the Relation | ER toggle after Focus · AC-7, AC-20, AC-21, AC-22, AC-25, AC-27
   - [x] ER join table fold, clicks, search and focus in ER · AC-23, AC-26
   - [x] ER everywhere and on Mongo: toggle in table and collection Diagram modes, `array` flag, dashed inferred diamonds · AC-20, AC-24
+  - [x] On canvas controls: column toggle and search top left, zoom and fit stacked bottom left · AC-15, AC-28
+  - [x] Toolbar placement: one row diagram tab toolbar, table and collection Diagram controls in the pane header, inferred links switch after search · AC-20, AC-28, AC-29
+  - [x] Table menu on canvas cards: the sidebar's menu from one shared item list, then Drop, Duplicate and Grants in one shell hosted dialog with sidebar and diagram reload · AC-4, AC-14, AC-26, AC-30, AC-31, AC-32, AC-33, AC-34
 - [ ] Verify it: `/check verify relation diagram`
 - [ ] Test it: `/test relation diagram`
 
@@ -206,7 +209,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Fetch secrets at connect time**: the app loads every saved secret into webview memory at startup (`hydrateSavedLocal`). Fetch each one only when connecting, so secrets aren't held in memory until needed · from spec 0013 · code in `src/shared/store/store.ts`, `src/features/connections/lib/connect-saved.ts`
 - **Developer ID signing and notarization**: the only way to a plain double click install with no warning at all on macOS 15 and newer. Needs a paid Apple Developer account; then add the signing and notarization secrets the release workflow already notes, plus a Windows code signing certificate for SmartScreen · from slice 32 · needs a decision · code in `.github/workflows/release.yml`, `src-tauri/tauri.conf.json`
 - **Install script lint and uninstall**: run `shellcheck` and PSScriptAnalyzer on the install templates in PR checks, and add an uninstall command if users ask · from spec 0014 · code in `scripts/install`, `.github/workflows/pr-checks.yml`
-- **Relation diagram extras**: dismiss or add Mongo inferred links (saved per connection), auto refresh open diagrams after in app DDL, copy as Mermaid `erDiagram`, remember Relation or ER per tab and save ER positions, read Mongo unique indexes, and fold join tables that have extra columns · from spec 0018 · code in `src/shared/components/relation-canvas`, `crates/dh-core/src/db/mongodb`
+- **Relation diagram extras**: dismiss or add Mongo inferred links (saved per connection), auto refresh open diagrams after in app DDL (start by merging the shell's `objectCreated` into `noteCatalogChange`), close a dropped table's open tabs, apply a Mongo drop or duplicate to the cached sample instead of resampling, copy as Mermaid `erDiagram`, remember Relation or ER per tab and save ER positions, read Mongo unique indexes, and fold join tables that have extra columns · from spec 0018 · code in `src/shared/components/relation-canvas`, `crates/dh-core/src/db/mongodb`
 - **Wider stable connection key**: `stableConnKey` is kind plus database name, so two servers with a same named database share saved tabs, ER layouts and activity history. Widen it to `kind:user@host:port/database` on both the TS and Rust sides, with a one time fallback to the old key · from spec 0018 · code in `src/shared/store/workspace-persistence.ts`, `crates/dh-core/src/db/registry.rs`
 - **Grid column layout by stable key**: the grid's column widths and order are keyed by `conn_id`, so they reset on every connect. Move them onto `stableConnKey` · from spec 0018 · code in `src/shared/components/data-grid`
 - **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`

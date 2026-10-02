@@ -13,6 +13,7 @@ import type { PendingChange } from "../components/data-grid/grid-context";
 import type { PaneNode } from "./pane-layout";
 import type { ShortcutBinding } from "../hooks/shortcut-registry";
 import type { DelimitedListSettings } from "@/shared/components/query-editor/delimited-list";
+import type { CatalogChange, TableDialogTarget } from "./table-dialogs";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace";
@@ -651,6 +652,23 @@ export interface StudioStore {
   importTarget: ImportTarget | null;
   openImport: (target: ImportTarget) => void;
   closeImport: () => void;
+
+  /** The Drop, Duplicate or Grants dialog's target, or null when closed.
+   *  Mounted once in `Studio` (`TableDialogsHost`); the sidebar and the
+   *  diagram both open it here. */
+  tableDialog: TableDialogTarget | null;
+  /** A Drop or Duplicate is running: a new target is ignored until it ends. */
+  tableDialogBusy: boolean;
+  openTableDialog: (target: TableDialogTarget) => void;
+  closeTableDialog: () => void;
+  setTableDialogBusy: (busy: boolean) => void;
+  /** The latest Drop or Duplicate per connection, for the sidebar to reload
+   *  the node that held the table. */
+  catalogChanges: Record<string, CatalogChange>;
+  noteCatalogChange: (
+    connId: string,
+    change: Omit<CatalogChange, "seq">,
+  ) => void;
 
   /** A newer release than the running version, once the background/on-demand
    *  check (`src/features/updater/update-check.ts`) finds one — null while

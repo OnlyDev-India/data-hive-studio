@@ -9,7 +9,7 @@ export {
   SampleProgress,
   type CanvasState,
 } from "./components/graph-states";
-export { openFromDiagram } from "./lib/open";
+export { actFromDiagram, openFromDiagram } from "./lib/open";
 export { exportBase } from "./lib/export";
 export {
   adjacency,

@@ -8,6 +8,7 @@ import {
 } from "@/shared/api";
 import {
   // adjacency,
+  actFromDiagram,
   CanvasButton,
   RelationCanvas,
   findTable,
@@ -27,6 +28,8 @@ import {
 } from "@/shared/store";
 
 const EMPTY_GRAPH: SchemaGraph = { tables: [], links: [] };
+/** The mode dropdown and the Relation | ER toggle ahead of the actions. */
+const HEADER_START_PX = 200;
 
 /** A table tab's Diagram mode: this table, every table it references and
  *  every table that references it. Laid out fresh each time, never saved. */
@@ -35,11 +38,14 @@ export function TableDiagram({
   table,
   database,
   schema,
+  toolbarHost,
 }: {
   conn: ConnectionInfo;
   table: string;
   database?: string;
   schema?: string;
+  /** The pane header element the diagram's controls render into. */
+  toolbarHost: HTMLElement | null;
 }) {
   const conn_id = conn.id;
   // A Postgres tab on the active schema needs its name for the graph and
@@ -76,6 +82,7 @@ export function TableDiagram({
       schema={target}
       database={database}
       onRefresh={() => load(conn_id, database, target, true)}
+      toolbarHost={toolbarHost}
     />
   );
 }
@@ -86,10 +93,12 @@ export function CollectionDiagram({
   conn,
   database,
   collection,
+  toolbarHost,
 }: {
   conn: ConnectionInfo;
   database: string;
   collection: string;
+  toolbarHost: HTMLElement | null;
 }) {
   const conn_id = conn.id;
   const entry = useRelationGraphs((s) => s.graphs[graphKey(conn_id, database)]);
@@ -109,18 +118,13 @@ export function CollectionDiagram({
       onRefresh={() => load(conn_id, database, true)}
       hideInferred={hideInferred}
       waiting={`Sampling ${collection}…`}
-      extra={
-        <>
-          {/* <SampleProgress
-            entry={entry}
-            onCancel={() => cancel(conn_id, database)}
-          /> */}
-          <InferredToggle
-            hidden={hideInferred}
-            onChange={setHideInferred}
-            disabled={entry?.status !== "ready" && entry?.status !== "partial"}
-          />
-        </>
+      toolbarHost={toolbarHost}
+      controlsEnd={
+        <InferredToggle
+          hidden={hideInferred}
+          onChange={setHideInferred}
+          disabled={entry?.status !== "ready" && entry?.status !== "partial"}
+        />
       }
     />
   );
@@ -153,7 +157,8 @@ function OneHop({
   onRefresh,
   hideInferred,
   waiting,
-  extra,
+  toolbarHost,
+  controlsEnd,
 }: {
   conn: ConnectionInfo;
   entry: GraphEntry | undefined;
@@ -164,7 +169,8 @@ function OneHop({
   hideInferred?: boolean;
   /** Mongo: what to say until this collection itself is sampled. */
   waiting?: string;
-  extra?: ReactNode;
+  toolbarHost: HTMLElement | null;
+  controlsEnd?: ReactNode;
 }) {
   const mongo = conn.kind === "mongodb";
   const growing =
@@ -222,8 +228,18 @@ function OneHop({
       notation={notation}
       keep={selfId ?? undefined}
       onOpen={(t, view) => openFromDiagram(conn, t, view, database)}
+      menu={{
+        mongo,
+        pg: conn.kind === "postgres",
+        readOnly: !!conn.read_only,
+      }}
+      onTableAction={(t, action) =>
+        actFromDiagram(conn, t, action, database, graph ?? EMPTY_GRAPH)
+      }
       exportName={`${table}-diagram`}
-      toolbarInline
+      toolbarHost={toolbarHost}
+      toolbarStartPx={HEADER_START_PX}
+      controlsEnd={controlsEnd}
       toolbar={
         <>
           <NotationToggle
@@ -242,7 +258,6 @@ function OneHop({
       }
       toolbarEnd={
         <>
-          {extra}
           <CanvasButton
             variant="outline"
             onClick={() =>

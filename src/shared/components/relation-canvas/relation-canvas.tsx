@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   BackgroundVariant,
@@ -21,7 +22,11 @@ import "@xyflow/react/dist/base.css";
 import { Loader2 } from "lucide-react";
 import type { GraphTable, SchemaGraph } from "@/shared/api/types";
 import { FkEdge } from "./components/fk-edge";
-import { NodeMenu, type NodeMenuState } from "./components/node-menu";
+import {
+  CanvasTableMenu,
+  type CanvasMenuFlags,
+  type CanvasMenuState,
+} from "./components/canvas-table-menu";
 import { TableNode, type TableFlowNode } from "./components/table-node";
 import { EntityNode, type EntityFlowNode } from "./components/entity-node";
 import {
@@ -31,6 +36,7 @@ import {
 import { ErEdge } from "./components/er-edge";
 import type { Notation } from "./components/notation-toggle";
 import { CanvasToolbar } from "./components/canvas-toolbar";
+import { CanvasControls } from "./components/canvas-controls";
 import { StateOverlay, type CanvasState } from "./components/graph-states";
 import {
   adjacency,
@@ -55,6 +61,7 @@ import { layoutGraph } from "./lib/layout";
 import { buildErEdges, buildErNodes, useErFlow } from "./lib/use-er-flow";
 import { exportDiagram, type ExportFormat } from "./lib/export";
 import { useTheme } from "@/shared/theme/theme";
+import type { TableAction } from "@/shared/components/table-menu";
 
 type CanvasNode = TableFlowNode | EntityFlowNode | DiamondFlowNode;
 
@@ -92,6 +99,11 @@ export interface RelationCanvasProps {
   /** Called after a drag ends, and after new tables were placed. */
   onSave?: (positions: Record<string, XY>) => void;
   onOpen: (table: GraphTable, view: "data" | "schema") => void;
+  /** What the right click table menu offers. */
+  menu?: CanvasMenuFlags;
+  /** A table menu pick. Without it, right click opens no menu. Copy is
+   *  handled by the canvas itself. */
+  onTableAction?: (table: GraphTable, action: TableAction) => void;
   /** Center on this table id and select it; a new nonce repeats it. */
   reveal?: { id: string; nonce: number } | null;
   hideInferred?: boolean;
@@ -99,10 +111,15 @@ export interface RelationCanvasProps {
   exportName: string;
   /** Host controls shown at the start of the toolbar. */
   toolbar?: ReactNode;
-  /** Keep `toolbar` on the same row as the canvas controls. */
-  toolbarInline?: boolean;
+  /** About how wide `toolbar` is, so labels collapse before the row wraps. */
+  toolbarStartPx?: number;
   /** Host controls shown at the end of the toolbar. */
   toolbarEnd?: ReactNode;
+  /** Render the toolbar into this element (a pane header) instead of a row
+   *  above the canvas. Null means the element isn't mounted yet. */
+  toolbarHost?: HTMLElement | null;
+  /** Host controls after the search box on the canvas. */
+  controlsEnd?: ReactNode;
   /** Loading, error or empty, drawn over the canvas. Loading and error
    *  also disable the controls that need a graph. */
   state?: CanvasState | null;
@@ -141,12 +158,16 @@ function Canvas({
   saved,
   onSave,
   onOpen,
+  menu: menuFlags,
+  onTableAction,
   reveal,
   hideInferred,
   exportName,
   toolbar,
-  toolbarInline,
+  toolbarStartPx,
   toolbarEnd,
+  toolbarHost,
+  controlsEnd,
   state,
   overlay,
   onNotice,
@@ -284,7 +305,11 @@ function Canvas({
   // ---- selection ------------------------------------------------------
   const [selected, setSelected] = useState<string | null>(focusTable ?? null);
   const [flash, setFlash] = useState<string | null>(null);
-  const [menu, setMenu] = useState<NodeMenuState | null>(null);
+  const [menu, setMenu] = useState<CanvasMenuState | null>(null);
+  const closeMenu = useCallback(
+    () => setMenu((m) => (m ? { ...m, open: false } : m)),
+    [],
+  );
   // Focusing a table selects it. Adjusted during render.
   const [focusedOn, setFocusedOn] = useState(focusTable);
   if (focusedOn !== focusTable) {
@@ -422,7 +447,7 @@ function Canvas({
   const openable = (id: string) =>
     tableOf(id) ?? erModel?.diamonds.find((d) => d.id === id)?.opens;
   const onNodeClick: NodeMouseHandler<CanvasNode> = (_, n) => {
-    setMenu(null);
+    closeMenu();
     setSelected(n.id);
   };
   const onNodeDoubleClick: NodeMouseHandler<CanvasNode> = (_, n) => {
@@ -431,20 +456,36 @@ function Canvas({
   };
   const onNodeContextMenu: NodeMouseHandler<CanvasNode> = (e, n) => {
     e.preventDefault();
-    if (!tableOf(n.id)) return;
-    const box = wrapper.current?.getBoundingClientRect();
+    if (!onTableAction) return;
+    if ((e.target as HTMLElement).closest("[data-oval]")) return;
+    // A link diamond opens nothing; a folded join table acts on its table.
+    const t = n.id.startsWith("j:")
+      ? erModel?.diamonds.find((d) => d.id === n.id)?.opens
+      : tableOf(n.id);
+    if (!t) return;
     setSelected(n.id);
-    setMenu({
-      id: n.id,
-      x: e.clientX - (box?.left ?? 0),
-      y: e.clientY - (box?.top ?? 0),
-    });
+    setMenu({ table: t, x: e.clientX, y: e.clientY, open: true });
+  };
+  const pickAction = (action: TableAction) => {
+    const t = menu?.table;
+    closeMenu();
+    if (!t) return;
+    if (action === "copy") void copyName(t.name);
+    else onTableAction?.(t, action);
+  };
+  const copyName = async (name: string) => {
+    try {
+      await navigator.clipboard.writeText(name);
+      onNotice?.("success", "Name copied", name);
+    } catch (e) {
+      onNotice?.("error", "Couldn't copy the name", String(e));
+    }
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, [role=menu]")) return;
     if (e.key === "Escape") {
       setSelected(null);
-      setMenu(null);
+      closeMenu();
     } else if (e.key === "Enter" && selected) {
       const t = openable(selected);
       if (t) onOpen(t, "data");
@@ -479,29 +520,34 @@ function Canvas({
     }
   };
 
-  const menuTable = menu ? tableOf(menu.id) : undefined;
   const busy = busyLayout && !shownPositions && !state;
   const noGraph = state?.kind === "loading" || state?.kind === "error";
+  // Nothing drawn: loading, error, empty, or the host's table picker.
+  const nothingDrawn = !!state || view.tables.length === 0;
+
+  const bar = (
+    <CanvasToolbar
+      paneRef={wrapper}
+      start={toolbar}
+      startPx={toolbarStartPx}
+      end={toolbarEnd}
+      bare={toolbarHost !== undefined}
+      onExport={(f) => void runExport(f)}
+      exporting={exporting}
+      canExport={!!shownPositions && view.tables.length > 0}
+      disabled={noGraph}
+    />
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <CanvasToolbar
-        paneRef={wrapper}
-        start={toolbar}
-        inline={toolbarInline}
-        end={toolbarEnd}
-        mode={mode}
-        onMode={setMode}
-        graph={view}
-        onPick={(t) => center(tableId(t))}
-        onZoomIn={() => void rf.zoomIn({ duration: duration() })}
-        onZoomOut={() => void rf.zoomOut({ duration: duration() })}
-        onFit={() => void rf.fitView({ padding: 0.12, duration: duration() })}
-        onExport={(f) => void runExport(f)}
-        exporting={exporting}
-        canExport={!!shownPositions && view.tables.length > 0}
-        disabled={noGraph}
-      />
+      {/* Kept beside the wrapper in the React tree, portal or not, so keys on
+          its buttons never bubble to the wrapper's onKeyDown. */}
+      {toolbarHost === undefined
+        ? bar
+        : toolbarHost
+          ? createPortal(bar, toolbarHost)
+          : null}
       <div
         ref={wrapper}
         className="bg-background relative min-h-0 flex-1 outline-none"
@@ -522,9 +568,9 @@ function Canvas({
           onNodeDragStop={onNodeDragStop}
           onPaneClick={() => {
             setSelected(null);
-            setMenu(null);
+            closeMenu();
           }}
-          onMoveStart={() => setMenu(null)}
+          onMoveStart={closeMenu}
           onlyRenderVisibleElements={!exporting}
           nodesConnectable={false}
           edgesFocusable={false}
@@ -536,6 +582,19 @@ function Canvas({
           colorMode={dark ? "dark" : "light"}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <CanvasControls
+            mode={mode}
+            onMode={setMode}
+            graph={view}
+            onPick={(t) => center(tableId(t))}
+            onZoomIn={() => void rf.zoomIn({ duration: duration() })}
+            onZoomOut={() => void rf.zoomOut({ duration: duration() })}
+            onFit={() =>
+              void rf.fitView({ padding: 0.12, duration: duration() })
+            }
+            end={controlsEnd}
+            disabled={nothingDrawn}
+          />
         </ReactFlow>
         {busy && (
           <div
@@ -566,16 +625,13 @@ function Canvas({
         )}
         {state && <StateOverlay state={state} />}
         {overlay}
-        {menu && menuTable && (
-          <NodeMenu
+        {menu && menuFlags && (
+          <CanvasTableMenu
             state={menu}
-            table={menuTable}
-            onOpen={(v) => {
-              setMenu(null);
-              onOpen(menuTable, v);
-            }}
-            onClose={() => setMenu(null)}
-            onNotice={onNotice}
+            flags={menuFlags}
+            onPick={pickAction}
+            onClose={closeMenu}
+            returnFocus={wrapper}
           />
         )}
       </div>

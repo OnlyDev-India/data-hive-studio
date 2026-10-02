@@ -1,5 +1,5 @@
 use bson::doc;
-use mongodb::options::ClientOptions;
+use mongodb::options::{ClientOptions, ResolverConfig};
 use mongodb::Client;
 use std::sync::Arc;
 use crate::db::read_only::ReadOnlyGuard;
@@ -128,9 +128,7 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
         // mongodb:// — `host` may be a single hostname or a comma-separated
         // replica-set member list (each optionally carrying its own port,
         // e.g. "a.example.com:27017,b.example.com:27018"); any entry
-        // without one falls back to the `port` field. This is also the
-        // escape hatch for the DNS-seedlist resolver bug below: a user who
-        // can't use mongodb+srv:// can list the same hosts here instead.
+        // without one falls back to the `port` field.
         let hosts: Vec<String> = params
             .host
             .split(',')
@@ -147,27 +145,18 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
             query,
         )
     };
-    let mut options = ClientOptions::parse(uri).await.map_err(|e| {
-        let msg = e.to_string();
-        // The `mongodb` crate (as of 3.8) exposes no public way to override
-        // the DNS resolver used for mongodb+srv://'s SRV/TXT lookup — it
-        // always reads the OS's system resolver config, and on some
-        // machines (commonly behind a VPN, or with an unusual network
-        // adapter) that config has an entry the driver's resolver can't
-        // parse, so SRV lookups fail hard with exactly this error. There is
-        // no way to fix that from here; the real fix is to stop needing it.
-        if params.srv && msg.contains("DNS resolution") {
-            DbError::InvalidOperation(format!(
-                "mongo: {msg} — this is a known issue where the DNS seedlist (mongodb+srv://) \
-                 lookup can't read your system's DNS configuration (often caused by a VPN or an \
-                 unusual network adapter). Workaround: turn off \"DNS seedlist\" for this \
-                 connection and list your replica set members directly in the Host field \
-                 instead, e.g. host1:27017,host2:27017,host3:27017."
-            ))
-        } else {
-            DbError::InvalidOperation(format!("mongo: {msg}"))
+    // The driver's resolver can't read some system DNS configs: on macOS an
+    // IPv6 link local nameserver with a zone id (`fe80::1%en0`) fails to
+    // parse and sinks the whole SRV lookup. Retry on a public resolver then.
+    let mut options = match ClientOptions::parse(uri.as_str()).await {
+        Err(e) if params.srv && is_unreadable_system_dns(&e.to_string()) => {
+            ClientOptions::parse(uri.as_str())
+                .resolver_config(ResolverConfig::cloudflare())
+                .await
         }
-    })?;
+        result => result,
+    }
+    .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
     // Pool/timeout knobs: set directly on the parsed options rather than as
     // URI query params — `ClientOptions`' fields are all public, and this
     // sidesteps needing a `*MS` query-string name for each one.
@@ -187,6 +176,10 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
         options.max_idle_time = Some(std::time::Duration::from_secs(secs as u64));
     }
     Ok(options)
+}
+
+fn is_unreadable_system_dns(msg: &str) -> bool {
+    msg.contains("failed to parse nameserver address")
 }
 
 /// Minimal percent-encoding for the password/authSource in a connection URI
@@ -264,4 +257,20 @@ impl MongoAdapter {
     }
 
     pub(super) async fn close(self: Arc<Self>) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn srv_lookup_survives_an_unreadable_system_dns_config() {
+        let params: MongoParams = serde_json::from_value(serde_json::json!({
+            "host": "cluster0.example.invalid", "user": "u", "password": "p",
+            "database": "db", "srv": true,
+        }))
+        .unwrap();
+        let err = build_options(&params).await.unwrap_err().to_string();
+        assert!(!is_unreadable_system_dns(&err), "{err}");
+    }
 }

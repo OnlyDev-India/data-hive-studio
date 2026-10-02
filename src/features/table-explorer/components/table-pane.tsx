@@ -116,6 +116,9 @@ export function TablePane({
   const [distinct, setDistinct] = useState<DistinctMap>({});
   const [filters, setFilters] = useState<GridFilter[]>(initial_filters ?? []);
   const [custom_where, setCustomWhere] = useState("");
+  // The header element the Diagram mode renders its controls into; a state
+  // callback ref so the diagram renders again once it exists.
+  const [diagram_slot, setDiagramSlot] = useState<HTMLElement | null>(null);
 
   // Stable callback so the grid bridge memo doesn't recompute every render.
   const bump_refresh = useCallback(() => setRefreshRev((r) => r + 1), []);
@@ -358,6 +361,12 @@ export function TablePane({
           )}
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {mode === "diagram" && (
+            <div
+              ref={setDiagramSlot}
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+            />
+          )}
           {mode === "data" && gridBridge && (
             <GridActionBar
               bridge={gridBridge}
@@ -503,6 +512,7 @@ export function TablePane({
             table={table}
             database={database}
             schema={db_schema}
+            toolbarHost={diagram_slot}
           />
         )}
         {/* Covers the whole loading span, including the moment before the

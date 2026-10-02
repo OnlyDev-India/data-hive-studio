@@ -41,6 +41,7 @@ export {
 } from "./unapplied-work";
 export { findOwnerLeaf, type PaneNode } from "./pane-layout";
 export { stableConnKey } from "./workspace-persistence";
+export type { CatalogChange, TableDialogTarget } from "./table-dialogs";
 export {
   graphKey,
   useRelationGraphs,

@@ -81,6 +81,7 @@ export const EntityNode = memo(function EntityNode({
         return (
           <div
             key={o.column.name}
+            data-oval
             className={cn(
               "bg-muted text-foreground border-obj-type text-caption absolute flex items-center justify-center rounded-full border px-2",
               o.column.primary_key && "underline underline-offset-2",

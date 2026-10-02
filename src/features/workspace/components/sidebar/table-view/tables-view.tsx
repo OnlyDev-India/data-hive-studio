@@ -31,12 +31,8 @@ import {
   disconnectDatabase,
   dropPgDatabase,
   dropPgSchema,
-  duplicateTable,
-  executeOp,
   catalogOverview,
-  quoteIdent,
   refreshMatview,
-  runSql,
   listSchemasIn,
   listSchemaObjects,
   listExtensions,
@@ -48,26 +44,13 @@ import {
   useStudioStore,
   type StudioStore,
 } from "@/shared/store";
-import {
-  depthPadding,
-  filterObjects,
-  objectKey,
-  uniqueCopyName,
-  timestampedCopyName,
-} from "./catalog-tree-utils";
+import { depthPadding, filterObjects, objectKey } from "./catalog-tree-utils";
 import {
   TreeToggleRow,
   LazyObjectRows,
   LazyTableRows,
 } from "./catalog-tree-rows";
-import {
-  DropDialog,
-  DuplicateDialog,
-  DuplicateMongoDialog,
-  GrantsDialog,
-  DbSchemaDdlDialog,
-  type DdlDialogState,
-} from "./catalog-dialogs";
+import { DbSchemaDdlDialog, type DdlDialogState } from "./catalog-dialogs";
 
 /** The fixed set of category rows under every Postgres schema node — order
  *  matches the reference tree. Users & Privileges is NOT here — roles are
@@ -149,44 +132,6 @@ export function TablesBrowser({
   const search = search_value;
   const [selected_name, setSelectedName] = useState<string | null>(null);
   const list_ref = useRef<HTMLDivElement>(null);
-  const [confirm_drop, setConfirmDrop] = useState<{
-    name: string;
-    kind: string;
-    /** `undefined` = this connection's own primary database/active schema —
-     *  set for a table opened from a sibling database/schema's catalog
-     *  tree row (see `LazyTableRows`' on_drop wiring below). */
-    database?: string;
-    schema?: string;
-    sibling?: SiblingTarget;
-  } | null>(null);
-  const [dropping, setDropping] = useState(false);
-  const [dropdown_error, setDropdownError] = useState<string | null>(null);
-  const [confirm_duplicate, setConfirmDuplicate] = useState<{
-    name: string;
-    database?: string;
-    schema?: string;
-    sibling?: SiblingTarget;
-  } | null>(null);
-  const [dupe_name, setDupeName] = useState("");
-  const [dupe_submitting, setDupeSubmitting] = useState(false);
-  const [dupe_error, setDupeError] = useState<string | null>(null);
-
-  // MongoDB's duplicate dialog is distinct from the SQL one above: the
-  // default name is `<collection>_<timestamp>` (not `_copy`) and it offers a
-  // "copy data" checkbox — Postgres/SQLite duplicate always copies data with
-  // no such choice.
-  const [confirm_duplicate_mongo, setConfirmDuplicateMongo] = useState<{
-    name: string;
-    /** `undefined` = `pg_active_schema` (Mongo's "current database" slot —
-     *  see its own doc comment above) — set for a collection duplicated
-     *  from a sibling database's catalog tree row. */
-    database?: string;
-    sibling?: SiblingTarget;
-  } | null>(null);
-  const [dupe_mongo_name, setDupeMongoName] = useState("");
-  const [dupe_mongo_copy_data, setDupeMongoCopyData] = useState(true);
-  const [dupe_mongo_submitting, setDupeMongoSubmitting] = useState(false);
-  const [dupe_mongo_error, setDupeMongoError] = useState<string | null>(null);
 
   const store_open_table = useStudioStore((s) => s.openTable);
   const store_open_mongo = useStudioStore((s) => s.openMongo);
@@ -194,6 +139,8 @@ export function TablesBrowser({
   const openRolesTab = useStudioStore((s) => s.openRolesTab);
   const push_notification = useStudioStore((s) => s.pushNotification);
   const open_import = useStudioStore((s) => s.openImport);
+  const open_table_dialog = useStudioStore((s) => s.openTableDialog);
+  const dialog_busy = useStudioStore((s) => s.tableDialogBusy);
   const set_disconnect_pending = useStudioStore(
     (s) => s.setDisconnectPendingId,
   );
@@ -204,9 +151,6 @@ export function TablesBrowser({
   );
   const is_pg = conn_kind === "postgres";
   const is_mongo = conn_kind === "mongodb";
-  /** "collection" for Mongo, "table" otherwise — used in dialog copy so a
-   *  Mongo user isn't told they're dropping/duplicating a "table". */
-  const noun = is_mongo ? "collection" : "table";
   const [pg_active_schema, setPgActiveSchema] = useState("public");
   // `null` = the initial database list hasn't loaded yet. Every database's
   // OWN schema list, including the primary's, is fetched lazily via
@@ -636,8 +580,6 @@ export function TablesBrowser({
     }
   };
 
-  const esc_lit = (v: string) => v.replace(/'/g, "''");
-
   /** `database === pg_current_db` means "this connection's own database" —
    *  passed as `undefined` so the backend takes the cheap primary-pool path
    *  instead of treating its own database as a sibling. */
@@ -714,6 +656,25 @@ export function TablesBrowser({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only `object_created` itself should retrigger this
   }, [object_created]);
+  // A Drop or Duplicate from here or from a diagram: reload the node that
+  // held the table. The change present at mount is old news.
+  const catalog_change = useStudioStore((s) => s.catalogChanges[conn_id]);
+  const seen_change = useRef(catalog_change?.seq);
+  useEffect(() => {
+    if (!catalog_change || catalog_change.seq === seen_change.current) return;
+    seen_change.current = catalog_change.seq;
+    const database = catalog_change.database ?? pg_current_db;
+    const schema = catalog_change.schema ?? "";
+    const own = is_mongo
+      ? database === pg_current_db || database === pg_active_schema
+      : database === pg_current_db && (!schema || schema === pg_active_schema);
+    if (own) on_refresh();
+    const kind = catalog_change.objectKind;
+    if (object_lists[objectKey(database, schema, kind)] !== undefined)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to an external catalog change, not deriving render state
+      refresh_sibling_objects({ database, schema, kind });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new change should retrigger this
+  }, [catalog_change]);
   // The refresh button's actual handler: `on_refresh` alone only refetches
   // the primary database's flat `tables` list (see its own doc comment on
   // `SiblingTarget`) — every OTHER already-loaded node (sibling databases,
@@ -816,36 +777,6 @@ export function TablesBrowser({
       store_open_table,
     ],
   );
-
-  // ---- Grants viewer for a table/view/matview ----
-  const [grants_for, setGrantsFor] = useState<{
-    name: string;
-    database?: string;
-    schema: string;
-  } | null>(null);
-  const [grants_rows, setGrantsRows] = useState<(string | null)[][] | null>(
-    null,
-  );
-
-  useEffect(() => {
-    if (!grants_for || !is_pg) return;
-    let cancelled = false;
-    runSql(
-      conn_id,
-      `SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema='${esc_lit(grants_for.schema)}' AND table_name='${esc_lit(grants_for.name)}' ORDER BY 1, 2`,
-      "app",
-      grants_for.database,
-    )
-      .then((res) => {
-        if (!cancelled) setGrantsRows(res.rows);
-      })
-      .catch(() => {
-        if (!cancelled) setGrantsRows([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [grants_for, conn_id, is_pg]);
 
   // ---- List filtering + keyboard navigation ------------------------------
   const loading = tables === null || reloading;
@@ -1027,41 +958,6 @@ export function TablesBrowser({
     [move_selection, open_selected],
   );
 
-  const do_drop = async () => {
-    if (!confirm_drop || dropping) return;
-    setDropping(true);
-    setDropdownError(null);
-    try {
-      if (confirm_drop.kind === "table") {
-        await executeOp(
-          conn_id,
-          { kind: "drop_table", table: confirm_drop.name },
-          confirm_drop.database,
-          confirm_drop.schema,
-        );
-      } else {
-        // No `schema` param on `runSql` — the schema (when targeting a
-        // non-default one) has to be qualified straight into the SQL text.
-        const qualified = confirm_drop.schema
-          ? `${quoteIdent(confirm_drop.schema)}.${quoteIdent(confirm_drop.name)}`
-          : quoteIdent(confirm_drop.name);
-        await runSql(
-          conn_id,
-          `DROP VIEW IF EXISTS ${qualified}`,
-          "app",
-          confirm_drop.database,
-        );
-      }
-      setConfirmDrop(null);
-      if (confirm_drop.sibling) refresh_sibling_objects(confirm_drop.sibling);
-      on_refresh();
-    } catch (e) {
-      setDropdownError(String(e));
-    } finally {
-      setDropping(false);
-    }
-  };
-
   const copy_name = async (name: string) => {
     try {
       await navigator.clipboard.writeText(name);
@@ -1070,117 +966,14 @@ export function TablesBrowser({
     }
   };
 
-  const duplicate_table = async () => {
-    if (!confirm_duplicate || dupe_submitting) return;
-    const target = dupe_name.trim();
-    if (!target) {
-      setDupeError("Enter a name for the duplicate table.");
-      return;
-    }
-    // `tables` only reflects the connection's own active schema — not a
-    // meaningful check for a sibling database/schema's duplicate target,
-    // so skip it there and let the backend reject a real collision.
-    const taken =
-      !confirm_duplicate.sibling &&
-      (tables ?? []).some((t) => t.name.toLowerCase() === target.toLowerCase());
-    if (taken) {
-      setDupeError(`A table named “${target}” already exists.`);
-      return;
-    }
-    setDupeSubmitting(true);
-    setDupeError(null);
-    try {
-      await duplicateTable(
-        conn_id,
-        confirm_duplicate.name,
-        target,
-        true,
-        confirm_duplicate.database,
-        confirm_duplicate.schema,
-      );
-      setConfirmDuplicate(null);
-      if (confirm_duplicate.sibling)
-        refresh_sibling_objects(confirm_duplicate.sibling);
-      on_refresh();
-      store_open_table(
-        conn_id,
-        target,
-        undefined,
-        confirm_duplicate.database,
-        confirm_duplicate.schema,
-      );
-    } catch (e) {
-      setDupeError(String(e));
-    } finally {
-      setDupeSubmitting(false);
-    }
-  };
-
-  const ask_duplicate = (t: {
-    name: string;
-    database?: string;
-    schema?: string;
-    sibling?: SiblingTarget;
-  }) => {
-    setDupeError(null);
-    setDupeName(uniqueCopyName(t.name, t.sibling ? [] : (tables ?? [])));
-    setConfirmDuplicate(t);
-  };
-
-  const duplicate_collection_mongo = async () => {
-    if (!confirm_duplicate_mongo || dupe_mongo_submitting) return;
-    const target = dupe_mongo_name.trim();
-    if (!target) {
-      setDupeMongoError("Enter a name for the duplicate collection.");
-      return;
-    }
-    // `tables` only reflects the active database — not meaningful for a
-    // sibling database's duplicate target (see the SQL `duplicate_table`'s
-    // same guard above).
-    const taken =
-      !confirm_duplicate_mongo.sibling &&
-      (tables ?? []).some((t) => t.name.toLowerCase() === target.toLowerCase());
-    if (taken) {
-      setDupeMongoError(`A collection named “${target}” already exists.`);
-      return;
-    }
-    setDupeMongoSubmitting(true);
-    setDupeMongoError(null);
-    try {
-      await duplicateTable(
-        conn_id,
-        confirm_duplicate_mongo.name,
-        target,
-        dupe_mongo_copy_data,
-        confirm_duplicate_mongo.database,
-      );
-      setConfirmDuplicateMongo(null);
-      if (confirm_duplicate_mongo.sibling)
-        refresh_sibling_objects(confirm_duplicate_mongo.sibling);
-      on_refresh();
-      store_open_mongo(
-        conn_id,
-        confirm_duplicate_mongo.database ?? pg_active_schema,
-        target,
-      );
-    } catch (e) {
-      setDupeMongoError(String(e));
-    } finally {
-      setDupeMongoSubmitting(false);
-    }
-  };
-
-  const ask_duplicate_mongo = (t: {
-    name: string;
-    database?: string;
-    sibling?: SiblingTarget;
-  }) => {
-    setDupeMongoError(null);
-    setDupeMongoCopyData(true);
-    setDupeMongoName(
-      timestampedCopyName(t.name, t.sibling ? [] : (tables ?? [])),
-    );
-    setConfirmDuplicateMongo(t);
+  /** The kind a dialog target carries for a row of the own list. */
+  const object_kind_of = (name: string): SchemaObjectKind => {
+    const k = filtered_tables.find((x) => x.name === name)?.kind;
+    return k === "view"
+      ? "view"
+      : k === "matview" || k === "materialized_view"
+        ? "materialized_view"
+        : "table";
   };
 
   // Search stays pinned at the very top of the sidebar (see `search_bar_ui`
@@ -1296,7 +1089,7 @@ export function TablesBrowser({
           depth={0}
           is_mongo={is_mongo}
           selected_name={selected_name ?? active_table}
-          disabled={dupe_submitting || dupe_mongo_submitting}
+          disabled={dialog_busy}
           on_select={(name) => {
             setSelectedName(name);
             // Focus the list so arrow keys / Enter work right away
@@ -1322,7 +1115,13 @@ export function TablesBrowser({
           }
           on_copy={(name) => void copy_name(name)}
           on_duplicate={(name) =>
-            is_mongo ? ask_duplicate_mongo({ name }) : ask_duplicate({ name })
+            open_table_dialog({
+              kind: "duplicate",
+              connId: conn_id,
+              table: name,
+              objectKind: object_kind_of(name),
+              taken: (tables ?? []).map((t) => t.name),
+            })
           }
           on_import={(name) =>
             open_import({
@@ -1332,19 +1131,24 @@ export function TablesBrowser({
             })
           }
           on_drop={(name) =>
-            setConfirmDrop({
-              name,
-              kind:
-                filtered_tables.find((x) => x.name === name)?.kind ?? "table",
+            open_table_dialog({
+              kind: "drop",
+              connId: conn_id,
+              table: name,
+              objectKind: object_kind_of(name),
             })
           }
           on_view_grants={
-            is_mongo
-              ? undefined
-              : (name) => {
-                  setGrantsRows(null);
-                  setGrantsFor({ name, schema: pg_active_schema });
-                }
+            is_pg
+              ? (name) =>
+                  open_table_dialog({
+                    kind: "grants",
+                    connId: conn_id,
+                    table: name,
+                    schema: pg_active_schema,
+                    objectKind: object_kind_of(name),
+                  })
+              : undefined
           }
           on_refresh_matview={(name) =>
             void (async () => {
@@ -1639,17 +1443,19 @@ export function TablesBrowser({
                                                 schema,
                                               )
                                             }
-                                            on_view_grants={(name) => {
-                                              setGrantsRows(null);
-                                              setGrantsFor({
-                                                name,
+                                            on_view_grants={(name) =>
+                                              open_table_dialog({
+                                                kind: "grants",
+                                                connId: conn_id,
+                                                table: name,
                                                 database:
                                                   db === pg_current_db
                                                     ? undefined
                                                     : db,
                                                 schema,
-                                              });
-                                            }}
+                                                objectKind: cat.kind,
+                                              })
+                                            }
                                             on_copy={(name) =>
                                               void copy_name(name)
                                             }
@@ -1691,18 +1497,16 @@ export function TablesBrowser({
                                                 : undefined
                                             }
                                             on_duplicate={(name) =>
-                                              ask_duplicate({
-                                                name,
+                                              open_table_dialog({
+                                                kind: "duplicate",
+                                                connId: conn_id,
+                                                table: name,
                                                 database:
                                                   db === pg_current_db
                                                     ? undefined
                                                     : db,
                                                 schema,
-                                                sibling: {
-                                                  database: db,
-                                                  schema,
-                                                  kind: cat.kind,
-                                                },
+                                                objectKind: cat.kind,
                                               })
                                             }
                                             on_import={(name) =>
@@ -1718,19 +1522,16 @@ export function TablesBrowser({
                                               })
                                             }
                                             on_drop={(name) =>
-                                              setConfirmDrop({
-                                                name,
-                                                kind: cat.kind,
+                                              open_table_dialog({
+                                                kind: "drop",
+                                                connId: conn_id,
+                                                table: name,
                                                 database:
                                                   db === pg_current_db
                                                     ? undefined
                                                     : db,
                                                 schema,
-                                                sibling: {
-                                                  database: db,
-                                                  schema,
-                                                  kind: cat.kind,
-                                                },
+                                                objectKind: cat.kind,
                                               })
                                             }
                                             on_open={(name) =>
@@ -1916,14 +1717,12 @@ export function TablesBrowser({
                         on_compare={(name) => compare_with(name, db)}
                         on_copy={(name) => void copy_name(name)}
                         on_duplicate={(name) =>
-                          ask_duplicate_mongo({
-                            name,
-                            database: is_active_db ? undefined : db,
-                            sibling: {
-                              database: db,
-                              schema: "",
-                              kind: "table",
-                            },
+                          open_table_dialog({
+                            kind: "duplicate",
+                            connId: conn_id,
+                            table: name,
+                            database: db,
+                            objectKind: "table",
                           })
                         }
                         on_import={(name) =>
@@ -1935,15 +1734,12 @@ export function TablesBrowser({
                           })
                         }
                         on_drop={(name) =>
-                          setConfirmDrop({
-                            name,
-                            kind: "table",
-                            database: is_active_db ? undefined : db,
-                            sibling: {
-                              database: db,
-                              schema: "",
-                              kind: "table",
-                            },
+                          open_table_dialog({
+                            kind: "drop",
+                            connId: conn_id,
+                            table: name,
+                            database: db,
+                            objectKind: "table",
                           })
                         }
                         on_open={(name) =>
@@ -1958,59 +1754,6 @@ export function TablesBrowser({
         ))}
 
       {!is_pg && !is_mongo && active_tables_list_ui}
-
-      <DropDialog
-        open={confirm_drop !== null}
-        on_open_change={(open) => {
-          if (!open && !dropping) setConfirmDrop(null);
-        }}
-        noun={noun}
-        name={confirm_drop?.name ?? ""}
-        error={dropdown_error}
-        busy={dropping}
-        on_confirm={() => void do_drop()}
-      />
-
-      <DuplicateDialog
-        open={confirm_duplicate !== null}
-        on_open_change={(open) => {
-          if (!open && !dupe_submitting) {
-            setConfirmDuplicate(null);
-            setDupeError(null);
-          }
-        }}
-        name={confirm_duplicate?.name ?? ""}
-        value={dupe_name}
-        on_value_change={setDupeName}
-        error={dupe_error}
-        submitting={dupe_submitting}
-        on_confirm={() => void duplicate_table()}
-      />
-
-      <DuplicateMongoDialog
-        open={confirm_duplicate_mongo !== null}
-        on_open_change={(open) => {
-          if (!open && !dupe_mongo_submitting) {
-            setConfirmDuplicateMongo(null);
-            setDupeMongoError(null);
-          }
-        }}
-        name={confirm_duplicate_mongo?.name ?? ""}
-        value={dupe_mongo_name}
-        on_value_change={setDupeMongoName}
-        copy_data={dupe_mongo_copy_data}
-        on_copy_data_change={setDupeMongoCopyData}
-        error={dupe_mongo_error}
-        submitting={dupe_mongo_submitting}
-        on_confirm={() => void duplicate_collection_mongo()}
-      />
-
-      <GrantsDialog
-        open={grants_for !== null}
-        on_open_change={(o) => !o && setGrantsFor(null)}
-        name={grants_for?.name ?? null}
-        rows={grants_rows}
-      />
 
       <DbSchemaDdlDialog
         dialog={ddl_dialog}

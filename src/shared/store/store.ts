@@ -25,6 +25,7 @@ import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-edito
 import type { SavedConnParams, StudioStore, WorkspaceTabs } from "./types";
 import { tabKey } from "./tab-utils";
 import { workspaceActions } from "./workspace";
+import { tableDialogActions } from "./table-dialogs";
 import {
   clearLayoutsFor,
   loadPendingWorkspaceRestores,
@@ -578,6 +579,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...schemaDesignerActions(set),
         ...connectionActions(set),
         ...workspaceActions(set),
+        ...tableDialogActions(set),
       }),
       {
         name: "dh-studio-store",

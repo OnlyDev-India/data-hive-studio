@@ -74,6 +74,9 @@ export function MongoCollectionPane({
   const [fail_error, setFailError] = useState<string | null>(null);
   const [filters, setFilters] = useState<GridFilter[]>([]);
   const [custom_where, setCustomWhere] = useState(initial_filter ?? "");
+  // The header element the Diagram mode renders its controls into; a state
+  // callback ref so the diagram renders again once it exists.
+  const [diagram_slot, setDiagramSlot] = useState<HTMLElement | null>(null);
   const [refresh_rev, setRefreshRev] = useState(0);
   const [schema_rev, setSchemaRev] = useState(0);
 
@@ -251,6 +254,12 @@ export function MongoCollectionPane({
           />
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {mode === "diagram" && (
+            <div
+              ref={setDiagramSlot}
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+            />
+          )}
           {mode === "data" && gridBridge && (
             <GridActionBar
               bridge={gridBridge}
@@ -398,6 +407,7 @@ export function MongoCollectionPane({
             conn={conn}
             database={database}
             collection={collection}
+            toolbarHost={diagram_slot}
           />
         )}
         {/* One overlay for the whole span, including the moment before the

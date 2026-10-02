@@ -15,6 +15,7 @@ import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 import { UpdateDialog } from "@/features/updater";
 import { ImportDialog } from "@/features/data-import";
+import { TableDialogsHost } from "@/features/table-dialogs";
 import Workspace from "./workspace";
 
 export function Studio() {
@@ -287,6 +288,7 @@ export function Studio() {
       <DisconnectDialog />
       <UpdateDialog />
       <ImportDialog />
+      <TableDialogsHost />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
     </div>
