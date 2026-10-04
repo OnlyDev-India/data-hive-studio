@@ -3,8 +3,10 @@
 //! a database; nothing here looks up an account, a saved connection or a file.
 
 mod browse;
+mod compare;
 mod data;
 mod mongo;
+mod pipeline;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -215,6 +217,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/tables", get(browse::tables))
         .route("/v1/c/{handle}/schemas", get(browse::schemas))
         .route("/v1/c/{handle}/schema/{*table}", get(browse::schema))
+        .route("/v1/c/{handle}/schema-graph", get(browse::schema_graph))
         .route(
             "/v1/c/{handle}/mongo/field-tree/{*collection}",
             get(browse::field_tree),
@@ -241,6 +244,8 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/sql-stream", post(stream::sql_stream))
         .route("/v1/c/{handle}/op-stream", post(stream::op_stream))
         .route("/v1/c/{handle}/cancel", post(stream::cancel))
+        .route("/v1/c/{handle}/compare/data", post(compare::data))
+        .route("/v1/c/{handle}/compare/file", post(compare::file))
         .route("/v1/c/{handle}/explain", post(data::explain))
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))
@@ -268,7 +273,20 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         )
         .route("/v1/c/{handle}/mongo/run", post(mongo::run))
         .route("/v1/c/{handle}/mongo/run-stream", post(stream::mongo_run_stream))
+        .route("/v1/c/{handle}/mongo/graph-stream", post(stream::mongo_graph_stream))
         .route("/v1/c/{handle}/mongo/explain", post(mongo::explain))
+        .route(
+            "/v1/c/{handle}/mongo/pipeline/preview-stream",
+            post(pipeline::preview_stream),
+        )
+        .route(
+            "/v1/c/{handle}/mongo/pipeline/run-stream",
+            post(pipeline::run_stream),
+        )
+        .route("/v1/mongo/pipeline/parse", post(pipeline::parse))
+        .route("/v1/mongo/pipeline/compose", post(pipeline::compose))
+        .route("/v1/mongo/pipeline/render", post(pipeline::render))
+        .route("/v1/mongo/pipeline/filter-match", post(pipeline::filter_match))
         .route(
             "/v1/c/{handle}/mongo/collections",
             post(mongo::create_collection),

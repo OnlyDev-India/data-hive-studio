@@ -27,7 +27,7 @@ import {
   type SchemaPaneHandle,
 } from "@/shared/store";
 import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
-import { usePaneCompactWidth } from "./grid-action-bar";
+import { usePaneCompactWidth } from "@/shared/hooks/use-pane-compact-width";
 import { Fragment, type ReactNode, type RefObject } from "react";
 
 /** Schema-mode controls for a table/collection pane — moved out of the
@@ -203,7 +203,7 @@ function SchemaToolbarButton({
             aria-label={label}
             title={title ?? label}
             onClick={onClick}
-            className={cn({ "text-2xs h-6 p-1": !icon_only }, className)}
+            className={cn({ "text-caption h-6 p-1": !icon_only }, className)}
           >
             <Icon className={cn("size-3.5", iconClassName)} />
             {!icon_only && label}

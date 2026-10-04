@@ -18,6 +18,25 @@ impl MongoAdapter {
     ) -> DbResult<crate::api::MongoRunResult> {
         let comment = run_comment(run);
         let col = self.client.database(db).collection::<bson::Document>(coll);
+        if s.trim_start().starts_with('[') {
+            let stages = super::pipeline::stage_array(s).map_err(DbError::InvalidOperation)?;
+            let cursor = col
+                .aggregate(stages)
+                .batch_size(super::stream::CURSOR_BATCH)
+                .optional(comment.clone(), |a, c| a.comment(c))
+                .await
+                .map_err(|e| mongo_err(e, run))?;
+            let (columns, rows, documents) = read_console_cursor(cursor, run, sink).await?;
+            return Ok(crate::api::MongoRunResult {
+                command: format!("db.{coll}.aggregate({s})"),
+                columns,
+                rows,
+                documents,
+                is_select: true,
+                elapsed_ms: start.elapsed().as_millis(),
+                ..Default::default()
+            });
+        }
         let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
             .map_err(|e| DbError::InvalidOperation(format!("invalid JSON: {e}")))?;
         if let serde_json::Value::Object(_) = v {
@@ -35,32 +54,6 @@ impl MongoAdapter {
             let (columns, rows, documents) = read_console_cursor(cursor, run, sink).await?;
             return Ok(crate::api::MongoRunResult {
                 command: format!("db.{coll}.find({s})"),
-                columns,
-                rows,
-                documents,
-                is_select: true,
-                elapsed_ms: start.elapsed().as_millis(),
-                ..Default::default()
-            });
-        }
-        if let serde_json::Value::Array(items) = v {
-            let stages: Vec<bson::Document> = items
-                .into_iter()
-                .map(|x| {
-                    bson::to_document(&x).map_err(|e| {
-                        DbError::InvalidOperation(format!("invalid pipeline stage: {e}"))
-                    })
-                })
-                .collect::<DbResult<_>>()?;
-            let cursor = col
-                .aggregate(stages)
-                .batch_size(super::stream::CURSOR_BATCH)
-                .optional(comment.clone(), |a, c| a.comment(c))
-                .await
-                .map_err(|e| mongo_err(e, run))?;
-            let (columns, rows, documents) = read_console_cursor(cursor, run, sink).await?;
-            return Ok(crate::api::MongoRunResult {
-                command: format!("db.{coll}.aggregate({s})"),
                 columns,
                 rows,
                 documents,

@@ -18,6 +18,7 @@ vi.mock("@/shared/store", () => ({
   useStudioStore: {
     getState: () => ({
       hydrateSavedLocal: vi.fn().mockResolvedValue(undefined),
+      loadLibrary: vi.fn().mockResolvedValue(undefined),
     }),
   },
 }));

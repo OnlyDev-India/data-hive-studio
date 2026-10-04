@@ -59,20 +59,20 @@ export function ConnectingDialog({
         {target && item && (
           <>
             <DialogHeader className="flex-row items-center gap-3">
-              <span className="bg-muted flex size-10 shrink-0 items-center justify-center rounded-lg">
+              <span className="bg-muted rounded-surface flex size-10 shrink-0 items-center justify-center">
                 <item.icon aria-hidden className="size-6" />
               </span>
               <div className="grid min-w-0 gap-0.5">
                 <DialogTitle className="truncate">
                   {target.done ? "Connected to" : "Connecting to"} {target.name}
                 </DialogTitle>
-                <DialogDescription className="truncate font-mono text-xs">
+                <DialogDescription className="text-small truncate font-mono">
                   {target.where}
                 </DialogDescription>
               </div>
             </DialogHeader>
             <ProgressBar done={!!target.done} />
-            <p className="text-muted-foreground text-xs">
+            <p className="text-muted-foreground text-small">
               {target.done
                 ? "Opening the workspace…"
                 : "A remote server can take a few seconds."}

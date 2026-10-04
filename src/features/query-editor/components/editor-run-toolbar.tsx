@@ -8,6 +8,7 @@ import {
   Button,
 } from "@/shared/components/ui";
 import {
+  BookmarkPlus,
   FolderOpen,
   ListTree,
   PlayIcon,
@@ -19,6 +20,7 @@ import {
   Tags,
   TextSelect,
   Timer,
+  Workflow,
   WrapText,
 } from "lucide-react";
 import { DBIcons, type DbIconKind } from "@/shared/components/icons/types";
@@ -53,6 +55,7 @@ export function EditorRunToolbar({
   on_stop_all,
   on_explain,
   on_explain_analyze,
+  on_open_in_builder,
   db_kind,
   database,
   databases,
@@ -66,6 +69,7 @@ export function EditorRunToolbar({
   is_dirty,
   on_save,
   on_open,
+  on_save_to_library,
   wrap,
   onToggleWrap,
 }: {
@@ -88,6 +92,9 @@ export function EditorRunToolbar({
    *  statement after running it for real timings (rolled back on PostgreSQL).
    *  Omitted = no button, for an engine that cannot analyze. */
   on_explain_analyze?: () => void;
+  /** Mongo console only: the aggregate at the cursor as cards in a new
+   *  aggregation builder tab. */
+  on_open_in_builder?: () => void;
   /** Drives the colored connection-type icon next to the database picker. */
   db_kind?: DbIconKind;
   /** Omitted entirely (both `databases` and `on_database_change` absent) =
@@ -112,6 +119,8 @@ export function EditorRunToolbar({
   is_dirty?: boolean;
   on_save?: () => void;
   on_open?: () => void;
+  /** Saves the selection, or the whole text, to the library. */
+  on_save_to_library?: () => void;
   wrap?: boolean;
   onToggleWrap?: () => void;
 }) {
@@ -128,7 +137,7 @@ export function EditorRunToolbar({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="hover:bg-destructive/20 h-6 bg-transparent px-2 text-xs"
+                    className="hover:bg-destructive/20 text-small h-6 bg-transparent px-2"
                     disabled={stop_pending}
                     aria-label={stop_pending ? "Stopping" : "Stop"}
                     onClick={on_stop_all}
@@ -148,7 +157,7 @@ export function EditorRunToolbar({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="hover:bg-success/20 h-6 bg-transparent px-2 text-xs"
+                    className="hover:bg-success/20 text-small h-6 bg-transparent px-2"
                     disabled={has_selection ? !can_run_target : !has_text}
                     title={has_selection ? "Run selected" : "Run all"}
                     onClick={has_selection ? on_run_target : on_run_all}
@@ -182,6 +191,15 @@ export function EditorRunToolbar({
               color="warning"
               disabled={!has_text}
               onClick={on_explain_analyze}
+            />
+          )}
+          {on_open_in_builder && (
+            <ToolbarIconButton
+              icon={Workflow}
+              label="Open in aggregation builder"
+              color="info"
+              disabled={!has_text}
+              onClick={on_open_in_builder}
             />
           )}
           {onToggleWrap && (
@@ -249,6 +267,15 @@ export function EditorRunToolbar({
               onClick={on_save}
             />
           )}
+          {on_save_to_library && (
+            <ToolbarIconButton
+              icon={BookmarkPlus}
+              label="Save to library"
+              color="primary"
+              disabled={!has_text}
+              onClick={on_save_to_library}
+            />
+          )}
         </div>
         <div className="flex items-center gap-0.5">
           {databases && databases.length > 0 && on_database_change && (
@@ -259,7 +286,7 @@ export function EditorRunToolbar({
             >
               <SelectTrigger
                 size="sm"
-                className="h-6! border-none text-xs dark:bg-transparent"
+                className="text-small h-6! border-none dark:bg-transparent"
               >
                 {DbIcon && <DbIcon className="size-4 shrink-0" />}
                 <SelectValue>{() => database}</SelectValue>
@@ -267,7 +294,7 @@ export function EditorRunToolbar({
               <SelectContent>
                 <SelectGroup>
                   {databases.map((d) => (
-                    <SelectItem key={d} value={d} className="text-xs">
+                    <SelectItem key={d} value={d} className="text-small">
                       {d}
                     </SelectItem>
                   ))}
@@ -318,7 +345,7 @@ function ToolbarIconButton({
             variant="ghost"
             size="sm"
             className={cn(
-              "h-6 bg-transparent px-2 text-xs",
+              "text-small h-6 bg-transparent px-2",
               active === false
                 ? "text-muted-foreground hover:bg-accent"
                 : `${TOOLBAR_ICON_COLORS[color]} hover:${TOOLBAR_ICON_COLORS[color]}`,

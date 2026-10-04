@@ -43,7 +43,14 @@ import { DragGhost, PaneView, Sidebar, useTabDrag } from "@/features/workspace";
 import { ActivityDetailsTab } from "@/features/activity";
 import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
 import { MongoNewCollectionTab, RolesTab } from "@/features/schema-designer";
+import { CompareTab } from "@/features/compare";
+import { RelationDiagramTab } from "@/features/relation-diagram";
+import {
+  AggregationTab,
+  openPipelineText,
+} from "@/features/aggregation-builder";
 import { ActivityBar } from "./activity-bar";
+import { reopenByKey } from "./reopen-connection";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
 import { Landing } from "@/features/connections";
 
@@ -422,6 +429,7 @@ export default function Workspace({
         home_active={landing}
         tables_active={!landing && leftPanelOpen && leftPanelMode === "tables"}
         activity_active={leftPanelOpen && leftPanelMode === "activity"}
+        conn_id={conn_id}
         on_home={on_home}
         on_tables={on_tables}
         on_new_table={new_table_click}
@@ -507,7 +515,7 @@ export default function Workspace({
                 : `${confirm_close?.length ?? 0} open tabs have unapplied changes.`}
             </DialogDescription>
           </DialogHeader>
-          <ul className="bg-muted/30 flex flex-col gap-1 rounded-md border p-3 text-sm">
+          <ul className="bg-muted/30 rounded-control text-body flex flex-col gap-1 border p-3">
             {confirm_close?.map((t) => {
               const parts = summarize_dirty(tabKey(t));
               if (parts.length === 0) return null;
@@ -519,7 +527,7 @@ export default function Workspace({
                   <span className="min-w-0 truncate font-medium">
                     {close_label(t)}
                   </span>
-                  <span className="text-muted-foreground shrink-0 text-xs">
+                  <span className="text-muted-foreground text-small shrink-0">
                     {parts.join(", ")}
                   </span>
                 </li>
@@ -806,6 +814,7 @@ function WorkspaceContent({
                 tab_key={key}
                 database={tab.database}
                 collection={tab.collection}
+                initial_filter={tab.initialFilter}
                 on_modified={bumpTables}
               />
             ) : tab.kind === "mongo-console" ? (
@@ -816,13 +825,32 @@ function WorkspaceContent({
                   tab_key={key}
                   database={tab.database}
                   on_modified={bump}
+                  on_open_in_builder={(text, database) =>
+                    void openPipelineText(conn_id, text, { database })
+                  }
                 />
               </Suspense>
             ) : tab.kind === "activity" ? (
               <ActivityDetailsTab conn_id={conn_id} tab_key={key} />
             ) : tab.kind === "roles" ? (
               <RolesTab conn_id={conn_id} tab_key={key} />
-            ) : conn.kind === "mongodb" ? (
+            ) : tab.kind === "compare" ? (
+              <CompareTab
+                conn_id={conn_id}
+                tab_key={key}
+                active={is_active}
+                on_reopen={reopenByKey}
+              />
+            ) : tab.kind === "relation-diagram" ? (
+              <RelationDiagramTab conn_id={conn_id} tab_key={key} tab={tab} />
+            ) : tab.kind === "aggregation" ? (
+              <AggregationTab
+                conn_id={conn_id}
+                tab_key={key}
+                tab={tab}
+                active={is_active}
+              />
+            ) : tab.kind !== "new-table" ? null : conn.kind === "mongodb" ? (
               <MongoNewCollectionTab
                 conn_id={conn_id}
                 tab_key={key}

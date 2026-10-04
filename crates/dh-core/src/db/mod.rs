@@ -7,10 +7,9 @@
 /// Runs a single-name, no-result operation through `with_connection` and logs
 /// success/failure to the activity log — the shape shared by every simple
 /// server-catalog DDL op below (only the adapter method, activity kind, and
-/// target label text differ per call). All sidebar/schema-designer actions,
-/// never the editor — always logged as app-initiated.
+/// target label text differ per call), logged with the given origin.
 macro_rules! named_ddl_op {
-    ($fn_name:ident, $adapter_method:ident, $kind:literal, $target_fmt:literal) => {
+    ($fn_name:ident, $adapter_method:ident, $kind:literal, $target_fmt:literal, $origin:literal) => {
         pub async fn $fn_name(conn_id: &str, name: &str) -> DbResult<()> {
             let t = std::time::Instant::now();
             let target = format!($target_fmt, name);
@@ -20,8 +19,8 @@ macro_rules! named_ddl_op {
             })
             .await;
             match &res {
-                Ok(()) => crate::activity::log_ok_origin(conn_id, $kind, &target, t, 0, "app"),
-                Err(e) => crate::activity::log_err_origin(conn_id, $kind, &target, t, e, "app"),
+                Ok(()) => crate::activity::log_ok_origin(conn_id, $kind, &target, t, 0, $origin),
+                Err(e) => crate::activity::log_err_origin(conn_id, $kind, &target, t, e, $origin),
             }
             res
         }
@@ -48,6 +47,8 @@ mod query;
 mod ddl;
 mod import;
 mod import_rows;
+mod compare;
+mod pipeline;
 
 pub use types::*;
 pub use adapter::*;
@@ -59,6 +60,11 @@ pub use query::*;
 pub use ddl::*;
 pub use explain::{explain_mongo, explain_sql, MAX_PLAN_NODES};
 pub use import_rows::*;
+pub use pipeline::*;
+pub use compare::{
+    compare_data, compare_data_on, compare_data_to_file, compare_to_writer_on, CompareSink, ScanOut, ScanRow,
+    ScanSpec, ScriptSyntax, DIFF_PAGE_SIZE,
+};
 
 use crate::api::QueryChunk;
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};

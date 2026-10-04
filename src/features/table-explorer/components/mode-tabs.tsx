@@ -1,4 +1,5 @@
-import { ChevronDown, Form, Sheet, TriangleAlert } from "lucide-react";
+import { ChevronDown, Form, Network, Sheet, TriangleAlert } from "lucide-react";
+import type { PaneMode } from "@/shared/store";
 import { Button } from "@/shared/components/ui/button";
 import {
   Tooltip,
@@ -18,16 +19,16 @@ import { cn } from "@/shared/lib/utils";
 const NO_PK_WARNING =
   "No primary key — edits and deletes are applied by matching the row's full original contents, so identical duplicate rows are affected together.";
 
-/** Data | Schema switcher shown in the table pane header. */
+/** Data | Schema | Diagram switcher shown in the table pane header. */
 export function ModeTabs({
   mode,
   warn_no_pk = false,
   on_change,
 }: {
-  mode: "data" | "schema";
+  mode: PaneMode;
   /** Table has no primary key — flag it on the Data tab (hover for details). */
   warn_no_pk?: boolean;
-  on_change: (mode: "data" | "schema") => void;
+  on_change: (mode: PaneMode) => void;
 }) {
   return (
     <TooltipProvider delay={300}>
@@ -80,6 +81,13 @@ export function ModeTabs({
           >
             <Form />
             Schema
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => on_change("diagram")}
+            className={cn({ "bg-muted/70": mode === "diagram" })}
+          >
+            <Network />
+            Diagram
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

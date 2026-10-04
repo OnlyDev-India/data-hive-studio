@@ -56,7 +56,7 @@ const PanelBottomIcon = ({
       />
 
       {/* Divider */}
-      <path d="M3 15h18" stroke="2" className="fill-red-500" />
+      <path d="M3 15h18" stroke="2" />
     </svg>
   );
 };

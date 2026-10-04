@@ -35,7 +35,7 @@ export function CardTabs({
     <div
       role="tablist"
       aria-label="Connection settings"
-      className="bg-muted inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg p-0.5"
+      className="bg-muted rounded-surface inline-flex max-w-full items-center gap-0.5 overflow-x-auto p-0.5"
     >
       {tabs.map((t, i) => {
         const selected = t.key === value;
@@ -55,7 +55,7 @@ export function CardTabs({
             onClick={() => onChange(t.key)}
             onKeyDown={(e) => onKeyDown(e, i)}
             className={cn(
-              "focus-visible:ring-ring/50 relative flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs whitespace-nowrap outline-none focus-visible:ring-[3px]",
+              "focus-visible:ring-ring/50 rounded-control text-small relative flex shrink-0 items-center gap-1.5 px-2.5 py-1 whitespace-nowrap outline-none focus-visible:ring-[3px]",
               selected
                 ? "bg-background text-foreground font-medium shadow-xs"
                 : "text-muted-foreground hover:text-foreground",

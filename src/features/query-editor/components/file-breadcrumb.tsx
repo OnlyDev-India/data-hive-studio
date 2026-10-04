@@ -26,11 +26,13 @@ export function FileBreadcrumb({
   const last = segments.length - 1;
   return (
     <div
-      className="relative z-10 flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-0.5 text-xs"
+      className="text-small relative z-10 flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-0.5"
       style={{
         backgroundColor: editorSurfaceColors.background,
         color: editorSurfaceColors.muted,
-        boxShadow: scrolled ? "0 6px 6px -6px #000" : undefined,
+        boxShadow: scrolled
+          ? "0 6px 6px -6px color-mix(in oklch, var(--foreground) 25%, transparent)"
+          : undefined,
       }}
       title={path}
       data-testid="file-breadcrumb"

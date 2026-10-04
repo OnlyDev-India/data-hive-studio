@@ -17,7 +17,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 dark:bg-background/70 fixed inset-0 z-100 bg-black/25",
+        "data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-overlay fixed inset-0 z-100",
         className,
       )}
       {...props}
@@ -37,7 +37,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "bg-popover text-popover-foreground ring-1/10 ring-ring/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-top-[2%] data-closed:slide-out-to-left-1/2 data-open:slide-in-from-top-[2%] data-open:slide-in-from-left-1/2 fixed top-[50%] left-[50%] z-100 grid max-h-[calc(100%-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border p-4 shadow-lg duration-200 sm:max-w-lg",
+          "bg-popover text-popover-foreground ring-1/10 ring-ring/10 data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-closed:slide-out-to-top-[2%] data-closed:slide-out-to-left-1/2 data-open:slide-in-from-top-[2%] data-open:slide-in-from-left-1/2 rounded-dialog fixed top-[50%] left-[50%] z-100 grid max-h-[calc(100%-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border p-4 shadow-lg duration-200 sm:max-w-lg",
           className,
         )}
         {...props}
@@ -77,7 +77,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        "bg-muted/50 -mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-lg border-t p-4 sm:flex-row sm:justify-end",
+        "bg-muted/50 rounded-b-dialog -mx-4 -mb-4 flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}
@@ -89,7 +89,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-none font-semibold", className)}
+      className={cn("text-heading leading-none font-semibold", className)}
       {...props}
     />
   );
@@ -102,7 +102,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-muted-foreground text-body", className)}
       {...props}
     />
   );

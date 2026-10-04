@@ -106,7 +106,7 @@ export function ColumnQuickFilter({
         <Filter className="size-3.5 shrink-0" />
         Filter values
         {active && (
-          <span className="text-2xs ml-auto shrink-0 opacity-80">
+          <span className="text-caption ml-auto shrink-0 opacity-80">
             {active_filter!.values?.length ?? 0}
           </span>
         )}
@@ -119,7 +119,7 @@ export function ColumnQuickFilter({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search values…"
-            className="h-7 pl-7 text-xs"
+            className="text-small h-7 pl-7"
           />
         </div>
         <div className="flex items-center gap-2 px-0.5">
@@ -127,7 +127,7 @@ export function ColumnQuickFilter({
             type="button"
             size="sm"
             variant="ghost"
-            className="text-2xs h-5 px-1.5"
+            className="text-caption h-5 px-1.5"
             onClick={() => setSelected(new Set(str_values))}
           >
             Select all
@@ -136,7 +136,7 @@ export function ColumnQuickFilter({
             type="button"
             size="sm"
             variant="ghost"
-            className="text-2xs h-5 px-1.5"
+            className="text-caption h-5 px-1.5"
             onClick={() => setSelected(new Set())}
           >
             Clear
@@ -147,14 +147,14 @@ export function ColumnQuickFilter({
         </div>
         <div className="flex max-h-60 flex-col overflow-y-auto">
           {filtered.length === 0 && !loading && (
-            <p className="text-muted-foreground px-2 py-3 text-center text-xs">
+            <p className="text-muted-foreground text-small px-2 py-3 text-center">
               No values.
             </p>
           )}
           {filtered.map((v) => (
             <label
               key={v}
-              className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs"
+              className="rounded-inset text-small flex cursor-pointer items-center gap-2 px-2 py-1"
             >
               <Checkbox
                 checked={selected.has(v)}

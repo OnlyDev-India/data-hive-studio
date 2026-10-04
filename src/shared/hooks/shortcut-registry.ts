@@ -34,6 +34,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     default: { key: "p", mod: true, shift: true },
   },
   {
+    id: "app.openSettings",
+    label: "Open settings",
+    default: { key: ",", mod: true },
+  },
+  {
     id: "grid.reload",
     label: "Reload table data",
     default: { key: "r", mod: true },
@@ -57,6 +62,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     id: "editor.save",
     label: "Save",
     default: { key: "s", mod: true },
+  },
+  {
+    id: "editor.saveToLibrary",
+    label: "Save to library",
+    default: { key: "s", mod: true, shift: true },
   },
   {
     id: "editor.search",

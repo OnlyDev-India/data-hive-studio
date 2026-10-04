@@ -431,7 +431,7 @@ export function JsonViewer({
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
           <Braces className="text-muted-foreground/40 size-8" />
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground text-body">
             No row selected. Right-click any grid cell and choose "View JSON" to
             inspect its row here.
           </p>

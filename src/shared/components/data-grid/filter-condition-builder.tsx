@@ -49,7 +49,7 @@ export function ConjunctionToggle({
   onChange: (v: "AND" | "OR") => void;
 }) {
   return (
-    <div className="bg-muted flex shrink-0 items-center gap-1 rounded-md p-0.5">
+    <div className="bg-muted rounded-control flex shrink-0 items-center gap-1 p-0.5">
       {(["AND", "OR"] as const).map((c) => (
         <Button
           key={c}
@@ -57,7 +57,7 @@ export function ConjunctionToggle({
           variant={value === c ? "default" : "ghost"}
           size="sm"
           className={cn(
-            "text-2xs h-5 cursor-pointer rounded px-2 py-0.5 font-semibold",
+            "text-caption h-5 cursor-pointer rounded px-2 py-0.5 font-semibold",
             value !== c && "text-muted-foreground",
           )}
           onClick={() => onChange(c)}

@@ -1,0 +1,27 @@
+from datetime import datetime, timezone
+from bson import Decimal128, Int64, ObjectId
+
+cursor = db["orders"].aggregate([
+    # Recent orders
+    # only status A or B
+    {
+        "$match": {
+            "_id": ObjectId("507f1f77bcf86cd799439011"),
+            "placed": {
+                "$gte": datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+            },
+            "status": { "$in": ["A", "B"] },
+            "gift": False,
+            "coupon": None
+        }
+    },
+    {
+        "$group": {
+            "_id": "$customer",
+            "total": { "$sum": Decimal128("0.10") },
+            "big": { "$max": Int64(9007199254740993) },
+            "ratio": { "$avg": 2.0 }
+        }
+    },
+    { "$limit": 10 },
+])

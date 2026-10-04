@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import {
   Code,
+  GitCompareArrows,
+  Workflow,
+  Network,
   History,
   House,
   Loader2,
@@ -36,6 +39,11 @@ import {
 } from "@/shared/api";
 import { DBIcons, IconTypeMap } from "@/shared/components/icons/types";
 import { basename } from "@/shared/lib/utils";
+import { openActiveRelationDiagram } from "./tools";
+import {
+  openAggregationPicked,
+  openPipelineFile,
+} from "@/features/aggregation-builder";
 
 export interface PaletteItem {
   id: string;
@@ -369,6 +377,43 @@ export function buildCommandItems(theme: {
           void openMongoDatabaseAndConsole(active_conn.id);
         },
       });
+    }
+    list.push({
+      id: "tab.compare",
+      label: "Compare tables",
+      hint: "Structure and data differences between two tables",
+      scope: conn_scope,
+      icon: <GitCompareArrows className="size-4" />,
+      run: () => s.openCompare(active_conn.id),
+    });
+    list.push({
+      id: "tab.relation-diagram",
+      label: "Open relation diagram",
+      hint: is_mongo
+        ? "Collections and their inferred links, as a diagram"
+        : "Tables and their foreign keys, as a diagram",
+      scope: conn_scope,
+      icon: <Network className="size-4" />,
+      run: () => void openActiveRelationDiagram(active_conn.id),
+    });
+    if (is_mongo) {
+      list.push({
+        id: "tab.aggregation",
+        label: "New aggregation",
+        hint: "Build a pipeline card by card, with each stage previewed",
+        scope: conn_scope,
+        icon: <Workflow className="size-4" />,
+        run: () => void openAggregationPicked(active_conn.id),
+      });
+      if (!WEB)
+        list.push({
+          id: "tab.aggregation-file",
+          label: "Open pipeline file",
+          hint: "A saved .js or .json pipeline, as cards",
+          scope: conn_scope,
+          icon: <Workflow className="size-4" />,
+          run: () => void openPipelineFile(active_conn.id),
+        });
     }
     list.push({
       id: "sidebar.tables",

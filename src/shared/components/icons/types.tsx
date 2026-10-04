@@ -20,6 +20,9 @@ import {
   Terminal,
   History,
   Puzzle,
+  GitCompareArrows,
+  Workflow,
+  Network,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -55,23 +58,55 @@ export type IconType =
   | "layers"
   | "extension";
 
+export const TAB_ICON_CLASS: Record<
+  | "table"
+  | "sql"
+  | "new-table"
+  | "mongo-console"
+  | "compare"
+  | "relation-diagram"
+  | "aggregation",
+  string
+> = {
+  table: "text-obj-relation",
+  "new-table": "text-obj-relation",
+  sql: "text-primary",
+  "mongo-console": "text-primary",
+  compare: "text-primary",
+  "relation-diagram": "text-obj-relation",
+  aggregation: "text-primary",
+};
+
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
-  table: <TableIcon className="size-3 shrink-0 text-sky-500" />,
-  view: <Eye className="size-3 shrink-0 text-purple-500" />,
-  materialized_view: <Layers className="size-3 shrink-0 text-indigo-500" />,
-  procedure: <Play className="size-3 shrink-0 text-green-500" />,
-  function: <FunctionSquare className="size-3 shrink-0 text-orange-500" />,
-  sequence: <ListOrdered className="size-3 shrink-0 text-pink-500" />,
-  type: <Shapes className="size-3 shrink-0 text-teal-500" />,
-  database: <DatabaseIcon className="size-3 shrink-0 text-blue-500" />,
-  folder: <FolderIcon className="size-3 shrink-0 text-amber-500" />,
-  users: <UsersIcon className="size-3 shrink-0 text-rose-500" />,
-  layers: <Layers className="size-3 shrink-0 text-indigo-500" />,
-  extension: <Puzzle className="size-3 shrink-0 text-fuchsia-500" />,
+  table: <TableIcon className="text-obj-relation size-3 shrink-0" />,
+  view: <Eye className="text-obj-relation size-3 shrink-0" />,
+  materialized_view: <Layers className="text-obj-relation size-3 shrink-0" />,
+  procedure: <Play className="text-obj-routine size-3 shrink-0" />,
+  function: <FunctionSquare className="text-obj-routine size-3 shrink-0" />,
+  sequence: <ListOrdered className="text-obj-type size-3 shrink-0" />,
+  type: <Shapes className="text-obj-type size-3 shrink-0" />,
+  database: <DatabaseIcon className="text-obj-container size-3 shrink-0" />,
+  folder: <FolderIcon className="text-obj-container size-3 shrink-0" />,
+  users: <UsersIcon className="text-obj-security size-3 shrink-0" />,
+  layers: <Layers className="text-obj-container size-3 shrink-0" />,
+  extension: <Puzzle className="text-obj-extension size-3 shrink-0" />,
   mongo: <MongoIcon className={cn("size-3.5")} />,
-  sql: <Code className={cn("size-3.5 text-emerald-400")} />,
-  "new-table": <SquarePlus className={cn("size-3.5 text-orange-400")} />,
-  "mongo-console": <Terminal className={cn("size-3.5 text-sky-400")} />,
+  sql: <Code className={cn("size-3.5", TAB_ICON_CLASS.sql)} />,
+  "new-table": (
+    <SquarePlus className={cn("size-3.5", TAB_ICON_CLASS["new-table"])} />
+  ),
+  "mongo-console": (
+    <Terminal className={cn("size-3.5", TAB_ICON_CLASS["mongo-console"])} />
+  ),
   activity: <History className={cn("text-muted-foreground size-3.5")} />,
-  roles: <UsersIcon className="size-3 shrink-0 text-rose-500" />,
+  roles: <UsersIcon className="text-obj-security size-3 shrink-0" />,
+  "relation-diagram": (
+    <Network className={cn("size-3.5", TAB_ICON_CLASS["relation-diagram"])} />
+  ),
+  compare: (
+    <GitCompareArrows className={cn("size-3.5", TAB_ICON_CLASS.compare)} />
+  ),
+  aggregation: (
+    <Workflow className={cn("size-3.5", TAB_ICON_CLASS.aggregation)} />
+  ),
 };

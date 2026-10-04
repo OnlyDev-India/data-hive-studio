@@ -1,3 +1,4 @@
+import type { ConnectionInfo } from "@/shared/api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 
 export type StudioTab =
@@ -29,6 +30,8 @@ export type StudioTab =
       database: string;
       collection: string;
       tabId: number;
+      /** A filter document the grid starts with (compare's Open row). */
+      initialFilter?: string;
     }
   /** MongoDB console (JSON query / aggregate / shell subset). Multiple per
    *  connection are allowed, like SQL editors. `database` is the console's
@@ -37,7 +40,28 @@ export type StudioTab =
   /** Singleton per connection — shows the currently selected activity entry. */
   | { kind: "activity" }
   /** Singleton per connection — the Users & Privileges tab (Postgres roles). */
-  | { kind: "roles" };
+  | { kind: "roles" }
+  /** Two tables side by side. Its setup lives in the store's `compareTabs`
+   *  under this tab's key. */
+  | { kind: "compare"; conn_id: string; id: number }
+  /** An aggregation builder on one collection. Its pipeline lives in the
+   *  store's `aggregationTabs` under this tab's key. */
+  | {
+      kind: "aggregation";
+      conn_id: string;
+      database: string;
+      collection: string;
+      id: number;
+    }
+  /** A schema's relation diagram. One per database and schema, so opening it
+   *  again focuses the tab. `database` undefined = the connection's own. */
+  | {
+      kind: "relation-diagram";
+      conn_id: string;
+      database?: string;
+      schema?: string;
+      id: number;
+    };
 
 /** `file_name`, when set, overrides the generic label for "sql"/"mongo-console"
  *  tabs once they've been saved to a file — see `SqlTabHandleBase.file_name`.
@@ -69,7 +93,27 @@ export function tabLabel(
       return "Activity";
     case "roles":
       return "Users & Privileges";
+    case "compare":
+      return "Compare";
+    case "aggregation":
+      return "Aggregation";
+    case "relation-diagram":
+      return "Diagram";
   }
+}
+
+/** Hover title naming what a fixed label tab shows, when it has one. */
+export function tabTitle(
+  tab: StudioTab,
+  conn: Pick<ConnectionInfo, "kind" | "name" | "source_path"> | undefined,
+): string | undefined {
+  if (tab.kind === "aggregation") return `${tab.database}.${tab.collection}`;
+  if (tab.kind !== "relation-diagram" || !conn) return undefined;
+  if (conn.kind === "sqlite")
+    return conn.source_path?.split(/[\\/]/).pop() ?? conn.name;
+  const database = tab.database ?? conn.name;
+  if (conn.kind === "mongodb" || !tab.schema) return database;
+  return `${database}.${tab.schema}`;
 }
 
 export function tabKey(tab: StudioTab): string {
@@ -88,6 +132,12 @@ export function tabKey(tab: StudioTab): string {
       return "activity";
     case "roles":
       return "roles";
+    case "compare":
+      return `compare:${tab.conn_id}:${tab.id}`;
+    case "aggregation":
+      return `aggregation:${tab.conn_id}:${tab.id}`;
+    case "relation-diagram":
+      return `relation-diagram:${tab.conn_id}:${tab.id}`;
   }
 }
 
@@ -105,6 +155,17 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
       a.database === b.database &&
       a.collection === b.collection &&
       a.tabId === b.tabId
+    );
+  }
+  if (a.kind === "compare") {
+    return b.kind === "compare" && a.conn_id === b.conn_id && a.id === b.id;
+  }
+  if (a.kind === "aggregation") {
+    return b.kind === "aggregation" && a.conn_id === b.conn_id && a.id === b.id;
+  }
+  if (a.kind === "relation-diagram") {
+    return (
+      b.kind === "relation-diagram" && a.conn_id === b.conn_id && a.id === b.id
     );
   }
   if (a.kind === "mongo-console") {

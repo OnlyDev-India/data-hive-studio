@@ -10,7 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui/dialog";
-import { trigger_name_from_sql, type TriggerDraft } from "./drafts";
+import {
+  trigger_name_from_sql,
+  type TriggerDraft,
+} from "@/shared/schema-drafts/drafts";
 
 /** Editable "Triggers" accordion section. SQLite has no ALTER TRIGGER, so an
  *  edit is staged as a drop + create pair (applied atomically with the rest
@@ -133,7 +136,7 @@ function TriggerRow({
 
   return (
     <div
-      className={`border-b text-sm last:border-0 ${trig.dropped ? "opacity-50" : ""}`}
+      className={`text-body border-b last:border-0 ${trig.dropped ? "opacity-50" : ""}`}
     >
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         <button
@@ -216,7 +219,7 @@ function TriggerRow({
         </div>
       </div>
       {open && (
-        <pre className="bg-muted/60 mx-3 mb-3 overflow-x-auto rounded-md p-2 font-mono text-xs leading-relaxed whitespace-pre">
+        <pre className="bg-muted/60 rounded-control text-small mx-3 mb-3 overflow-x-auto p-2 font-mono leading-relaxed whitespace-pre">
           {trig.sql}
         </pre>
       )}
@@ -278,7 +281,7 @@ function TriggerSqlDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3">
           {localError && (
-            <div className="border-destructive bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm">
+            <div className="border-destructive bg-destructive/10 text-destructive rounded-control text-body border px-3 py-2">
               {localError}
             </div>
           )}
@@ -292,9 +295,9 @@ function TriggerSqlDialog({
             placeholder={
               "CREATE TRIGGER my_trigger\nAFTER INSERT ON table_name\nFOR EACH ROW\nBEGIN\n  ...\nEND"
             }
-            className="focus-visible:ring-ring/50 min-h-40 w-full resize-y rounded-md border bg-transparent px-3 py-2 font-mono text-xs leading-relaxed shadow-xs outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring/50 rounded-control text-small min-h-40 w-full resize-y border bg-transparent px-3 py-2 font-mono leading-relaxed shadow-xs outline-none focus-visible:ring-2"
           />
-          <span className="text-muted-foreground text-xs">
+          <span className="text-muted-foreground text-small">
             {parsed_name ? (
               <>
                 Name:{" "}

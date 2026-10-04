@@ -107,10 +107,10 @@ export function CopyFieldsDialog({
           </SelectContent>
         </Select>
         {loading && <Loader2 className="size-4 animate-spin" />}
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive text-body">{error}</p>}
         {cols.length > 0 && (
-          <div className="max-h-72 overflow-auto rounded-md border">
-            <table className="w-full text-sm">
+          <div className="rounded-control max-h-72 overflow-auto border">
+            <table className="text-body w-full">
               <thead>
                 <tr>
                   <th className="bg-muted sticky top-0 w-10 border-b px-3 py-2">
@@ -148,7 +148,7 @@ export function CopyFieldsDialog({
                       />
                     </td>
                     <td className="border-b px-2 py-1.5 font-mono">{c.name}</td>
-                    <td className="text-muted-foreground border-b px-2 py-1.5 text-xs">
+                    <td className="text-muted-foreground text-small border-b px-2 py-1.5">
                       {c.data_type}
                     </td>
                   </tr>

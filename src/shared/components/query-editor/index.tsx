@@ -70,6 +70,9 @@ import { resolveSqlDoc } from "./sql-docs";
 import { sqlSignatureHelp } from "./signature-help";
 import { resolveMongoDoc } from "./nosql-docs";
 import { DocDetailBody } from "./doc-markdown";
+import { libraryCompletions } from "@/shared/library/completions";
+import { SaveToLibraryDialog } from "@/shared/library/save-to-library-dialog";
+import { libraryLanguageOf, type LibraryDraft } from "@/shared/library/types";
 import {
   Dialog,
   DialogContent,
@@ -109,7 +112,22 @@ export interface QueryEditorHandle {
     range: { from: number; to: number } | null,
     outcome?: RunOutcome,
   ) => void;
+  /** Opens the Save to library dialog on the selection, or the whole text
+   *  when nothing is selected. Does nothing when that text is blank. */
+  openSaveToLibrary: () => void;
 }
+
+// One stable source per language (completion sources are tracked by
+// identity); each reads the store on every request.
+const libraryItems = () => useStudioStore.getState().library;
+const sqlLibraryCompletions = libraryCompletions("sql", libraryItems);
+const mongoLibraryCompletions = libraryCompletions("mongo", libraryItems);
+const sqlLibrarySource = EditorState.languageData.of(() => [
+  { autocomplete: sqlLibraryCompletions },
+]);
+const mongoLibrarySource = EditorState.languageData.of(() => [
+  { autocomplete: mongoLibraryCompletions },
+]);
 
 // `linter(null)` installs the diagnostics state field/underline rendering
 // without any automatic (re-)computation — diagnostics are only ever pushed
@@ -233,6 +251,9 @@ interface QueryEditorProps {
    *  unknown-collection) linter — off doesn't touch manually-pushed run
    *  errors (`setErrors`), a separate mechanism. Default on. */
   lintEnabled?: boolean;
+  /** False while `tables`/`schema`/`jsCompletions` are still a placeholder
+   *  for the current target: syntax lint runs, unknown name checks wait. */
+  lintReady?: boolean;
   /** Draws each INSERT value's column name in front of it (SQL mode only —
    *  purely visual, the statement text is untouched). Toolbar-driven like
    *  `lintEnabled`. Default on, so read-only views get it too. */
@@ -242,6 +263,8 @@ interface QueryEditorProps {
   autoCompletion?: boolean;
   disableEnter?: boolean;
   disableContextMenu?: boolean;
+  /** Binds `editor.saveToLibrary` while this editor has focus. */
+  saveToLibrary?: boolean;
 }
 
 /**
@@ -276,11 +299,13 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       readOnly = false,
       disableWrapping = false,
       lintEnabled = true,
+      lintReady = true,
       showInsertLabels = true,
       frameLayer = true,
       autoCompletion = true,
       disableEnter = false,
       disableContextMenu = false,
+      saveToLibrary = false,
     },
     ref,
   ) {
@@ -398,7 +423,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           ...zoomOutBinding,
           handler: () => setEditorFontSize(editorFontSize - 1),
         },
-        { ...zoomResetBinding, handler: () => setEditorFontSize(14) },
+        { ...zoomResetBinding, handler: () => setEditorFontSize(13) },
       ],
       // Capture phase — some platforms/webviews treat Cmd/Ctrl +/-/0 as a
       // native page-zoom key equivalent; intercepting before that default
@@ -407,7 +432,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       { capture: true },
     );
     const fontSizeTheme = useMemo(
-      () => EditorView.theme({ "&": { fontSize: `${editorFontSize}px` } }),
+      // In rem so it follows the Scaling setting; 13 is `text-body`.
+      () =>
+        EditorView.theme({ "&": { fontSize: `${editorFontSize / 16}rem` } }),
       [editorFontSize],
     );
 
@@ -485,6 +512,38 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         openDelimitedList,
       ],
     );
+    const [librarySeed, setLibrarySeed] = useState<LibraryDraft | null>(null);
+    const openSaveToLibrary = useCallback(() => {
+      const view = cmsRef.current?.view;
+      if (!view) return true;
+      const { from, to } = view.state.selection.main;
+      const selected = view.state.sliceDoc(from, to);
+      const hasSelection = selected.trim().length > 0;
+      const text = hasSelection ? selected : view.state.doc.toString();
+      if (text.trim())
+        setLibrarySeed({
+          kind: hasSelection ? "snippet" : "query",
+          language: libraryLanguageOf(language),
+          name: "",
+          text,
+          trigger: null,
+        });
+      return true;
+    }, [language]);
+    const saveToLibraryBinding = useAppShortcut("editor.saveToLibrary");
+    const saveToLibraryKeymap = useMemo(
+      () =>
+        Prec.highest(
+          keymap.of([
+            {
+              key: toCodeMirrorKey(saveToLibraryBinding),
+              run: openSaveToLibrary,
+            },
+          ]),
+        ),
+      [saveToLibraryBinding, openSaveToLibrary],
+    );
+
     const delimitedListSettings = useStudioStore(
       (s) => s.delimitedListSettings,
     );
@@ -501,6 +560,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           onSelectionChange?.(!vu.state.selection.main.empty);
       },
       [onSelectionChange],
+    );
+    // Same identity concern; a reconfigure also drops an active snippet's
+    // fields, so Tab stopped moving through them.
+    const basicSetup = useMemo(
+      () => ({ ...basicSetupConfig, autocompletion: autoCompletion }),
+      [autoCompletion],
     );
 
     useImperativeHandle(ref, () => ({
@@ -576,6 +641,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         const view = cmsRef.current?.view;
         if (!view) return;
         markRunResult(view, range, outcome);
+      },
+      openSaveToLibrary: () => {
+        openSaveToLibrary();
       },
     }));
 
@@ -659,6 +727,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           // dot-triggered scoping so `db.` / `db.<collection>.` auto-open
           // the right subset instead of requiring a typed prefix.
           EditorState.languageData.of(() => [{ autocomplete: mongoSource }]),
+          ...(readOnly ? [] : [mongoLibrarySource]),
+          ...(saveToLibrary ? [saveToLibraryKeymap] : []),
           // Dismiss the completion popup when the user types space.
           completionDismissKeymap,
           // Manually-pushed inline error markers (see `setErrors`) plus
@@ -671,7 +741,11 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           errorLinter,
           ...(readOnly || !lintEnabled
             ? []
-            : [linter(nosqlSyntaxLinter(jsCompletions ?? []))]),
+            : [
+                linter(
+                  nosqlSyntaxLinter(lintReady ? (jsCompletions ?? []) : []),
+                ),
+              ]),
           editorTooltips,
           inlineDiagnostics,
           docHoverTooltip(resolveMongoDoc, onOpenDocDetails),
@@ -707,6 +781,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         sqlLanguageSupport(keywordCase, schema, completions),
         // Register the schema-aware source alongside lang-sql's built-ins.
         EditorState.languageData.of(() => [{ autocomplete: schemaSource }]),
+        ...(readOnly ? [] : [sqlLibrarySource]),
+        ...(saveToLibrary ? [saveToLibraryKeymap] : []),
         // Dismiss the completion popup when the user types space.
         completionDismissKeymap,
         // Manually-pushed inline error markers (see `setErrors`) plus
@@ -719,7 +795,13 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         errorLinter,
         ...(readOnly || !lintEnabled
           ? []
-          : [linter(sqlLinter(tables ?? [], schema ?? {}))]),
+          : [
+              linter(
+                lintReady
+                  ? sqlLinter(tables ?? [], schema ?? {})
+                  : sqlLinter([], {}),
+              ),
+            ]),
         editorTooltips,
         inlineDiagnostics,
         ...(showInsertLabels ? [insertColumnLabels(schema ?? {})] : []),
@@ -751,6 +833,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       runAtCursor,
       showLineNumber,
       lintEnabled,
+      lintReady,
       showInsertLabels,
       frameLayer,
       disableEnter,
@@ -758,6 +841,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       textCommandsKeymap,
       fontSizeTheme,
       keywordCase,
+      saveToLibrary,
+      saveToLibraryKeymap,
     ]);
 
     return (
@@ -796,10 +881,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
               theme="none"
               style={{ height: "100%" }}
               readOnly={readOnly}
-              basicSetup={{
-                ...basicSetupConfig,
-                autocompletion: autoCompletion,
-              }}
+              basicSetup={basicSetup}
               placeholder={
                 placeholder
                   ? placeholder
@@ -826,7 +908,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
             {docDetail && (
               <>
                 <DialogHeader>
-                  <DialogTitle className="font-mono text-base">
+                  <DialogTitle className="text-title font-mono">
                     {docDetail.signature}
                   </DialogTitle>
                   <DialogDescription>{docDetail.summary}</DialogDescription>
@@ -859,6 +941,10 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
             setDelimitedListSource(null);
           }}
           onClose={() => setDelimitedListSource(null)}
+        />
+        <SaveToLibraryDialog
+          seed={librarySeed}
+          onClose={() => setLibrarySeed(null)}
         />
       </>
     );

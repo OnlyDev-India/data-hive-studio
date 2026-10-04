@@ -10,6 +10,7 @@ pub mod activity_store;
 pub mod app_menu;
 pub mod commands;
 pub mod file_open;
+pub mod library_store;
 pub mod local_connections;
 mod legacy_servers;
 pub mod secret_store;
@@ -156,6 +157,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       commands::get_activity,
       commands::clear_activity,
+      commands::set_save_app_activity,
       commands::open_database,
       commands::connect_postgres,
       commands::connect_mongodb,
@@ -187,6 +189,8 @@ pub fn run() {
       commands::disconnect_database,
       commands::active_schema,
       commands::table_schema,
+      commands::schema_graph,
+      commands::mongo_graph,
       commands::mongo_field_tree,
       commands::run_sql,
       commands::run_sql_params,
@@ -196,6 +200,14 @@ pub fn run() {
       commands::run_sql_stream,
       commands::run_mongo_stream,
       commands::cancel_run,
+      commands::compare_data,
+      commands::compare_data_to_file,
+      commands::mongo_pipeline_compose,
+      commands::mongo_pipeline_parse,
+      commands::mongo_pipeline_render_stage,
+      commands::mongo_filter_to_match,
+      commands::mongo_pipeline_preview,
+      commands::mongo_pipeline_run_stream,
       commands::explain_sql,
       commands::explain_mongo,
       commands::save_database,
@@ -224,6 +236,8 @@ pub fn run() {
       workspace_state::load_workspace_state,
       workspace_state::save_workspace_state,
       workspace_state::clear_workspace_state,
+      library_store::library_load,
+      library_store::library_save,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

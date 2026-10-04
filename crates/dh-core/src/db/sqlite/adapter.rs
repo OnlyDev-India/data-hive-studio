@@ -1,7 +1,7 @@
-use crate::api::{ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaGraph, SchemaOp, TableInfo, TableSchema};
 use std::sync::Arc;
 use crate::db::read_only::Dialect;
-use crate::db::{BatchSink, DbAdapter, DbResult, RunHandle};
+use crate::db::{BatchSink, DbAdapter, DbResult, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
 use async_trait::async_trait;
 use super::SqliteAdapter;
 
@@ -51,6 +51,13 @@ impl DbAdapter for SqliteAdapter {
         table: &str,
     ) -> DbResult<(TableSchema, Vec<String>)> {
         SqliteAdapter::table_schema(self, table).await
+    }
+    async fn schema_graph(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> DbResult<(SchemaGraph, Vec<String>)> {
+        SqliteAdapter::schema_graph(self).await
     }
     async fn run_sql(
         &self,
@@ -148,6 +155,12 @@ impl DbAdapter for SqliteAdapter {
     ) -> DbResult<Vec<String>> {
         self.guard.check_write("duplicate table")?;
         SqliteAdapter::duplicate_table(self, source, target, copy_data).await
+    }
+    async fn compare_scan(&self, spec: &ScanSpec<'_>, run: &RunHandle, out: &ScanOut) -> DbResult<()> {
+        SqliteAdapter::compare_scan(self, spec, run, out).await
+    }
+    fn script_syntax(&self) -> ScriptSyntax {
+        ScriptSyntax::Sqlite
     }
     async fn checkpoint(&self) -> DbResult<()> {
         SqliteAdapter::checkpoint(self).await

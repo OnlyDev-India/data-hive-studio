@@ -167,6 +167,97 @@ export interface FieldShape {
   depth_truncated: boolean;
 }
 
+/** One side of a table comparison. `conn_id` is the live session at pick
+ *  time; `conn_key` (see `stableConnKey`) finds it again after a restart. */
+export interface TableRef {
+  conn_id: string;
+  conn_key: string;
+  /** Postgres / Mongo; undefined = the connection's own database. */
+  database?: string;
+  /** Postgres. */
+  schema?: string;
+  table: string;
+}
+
+/** A canonical key value; round trips so a page can resume after it. */
+export type KeyVal =
+  | { t: "int"; v: string }
+  | { t: "num"; v: string }
+  | { t: "text"; v: string }
+  | { t: "bytes"; v: string }
+  | { t: "bool"; v: boolean }
+  | { t: "ts"; v: string }
+  | { t: "uuid"; v: string }
+  | { t: "oid"; v: string }
+  | { t: "ejson"; v: string };
+
+export interface CompareDataRequest {
+  left: TableRef;
+  right: TableRef;
+  /** Never empty. */
+  key_columns: string[];
+  /** Compared columns, key columns excluded. */
+  columns: string[];
+  filter: string | null;
+  /** Resume after this key; null = from the start. */
+  after_key: KeyVal[] | null;
+  /** True on a first run: read both sides to the end for full counts. */
+  count_all: boolean;
+  page_size: number;
+  run_id: string;
+}
+
+/** One difference. `left`/`right` are display text parallel to the
+ *  request's `columns`; `changed` indexes into them. */
+export interface DiffRow {
+  kind: "left_only" | "right_only" | "changed";
+  key: KeyVal[];
+  key_display: string[];
+  left?: (string | null)[];
+  right?: (string | null)[];
+  changed?: number[];
+}
+
+export interface DiffCounts {
+  identical: number;
+  changed: number;
+  left_only: number;
+  right_only: number;
+}
+
+export interface RowsRead {
+  left: number;
+  right: number;
+}
+
+export type CompareChunk =
+  | { type: "rows"; rows: DiffRow[] }
+  | { type: "progress"; rows_read: RowsRead; counts: DiffCounts }
+  | { type: "page_full"; last_key: KeyVal[] };
+
+export interface CompareSummary {
+  status: "done" | "stopped";
+  counts: DiffCounts;
+  rows_read: RowsRead;
+  /** Known only when a first run read both sides to the end. */
+  total_diffs: number | null;
+  /** Where the next page starts; null on the last page. */
+  next_key: KeyVal[] | null;
+}
+
+/** What `compareDataToFile` writes: every difference, or a script that makes
+ *  the right side's rows match the left's. */
+export type CompareFileKind = "csv" | "json" | "sync_script";
+
+export interface CompareFileSummary {
+  status: "done" | "stopped";
+  /** Differences written; a stopped run writes no file. */
+  rows_written: number;
+  counts: DiffCounts;
+  /** Desktop only: where the file was written. */
+  path?: string;
+}
+
 export interface TableSchema {
   /** "table" | "view" | "matview" (Postgres). Absent/empty on older
    *  payloads — treat as "table". */
@@ -175,6 +266,153 @@ export interface TableSchema {
   foreign_keys: ForeignKeyInfo[];
   indexes: IndexInfo[];
   triggers: TriggerInfo[];
+}
+
+/** One schema's tables and foreign keys, for the relation diagram. Mirrors
+ *  `api/common/graph.rs`. */
+export interface SchemaGraph {
+  tables: GraphTable[];
+  links: GraphLink[];
+}
+
+export interface GraphTable {
+  /** Null on SQLite and Mongo. */
+  schema: string | null;
+  name: string;
+  /** A table in another schema, drawn without columns. */
+  stub: boolean;
+  columns: GraphColumn[];
+  /** Mongo: the collection failed to sample. */
+  error?: string;
+}
+
+export interface GraphColumn {
+  name: string;
+  data_type: string;
+  primary_key: boolean;
+  not_null: boolean;
+}
+
+/** One foreign key; `from_columns` and `to_columns` pair up by position. */
+export interface GraphLink {
+  id: string;
+  from_schema: string | null;
+  from_table: string;
+  from_columns: string[];
+  to_schema: string | null;
+  to_table: string;
+  to_columns: string[];
+  inferred: boolean;
+  on_delete?: string;
+  /** The FK columns are the referencing table's primary key or one of its
+   *  unique indexes (one to one). Missing from older servers. */
+  unique?: boolean;
+  /** Mongo: most sampled values of the field are arrays. */
+  array?: boolean;
+}
+
+export interface SchemaGraphResult {
+  graph: SchemaGraph;
+  statements: string[];
+}
+
+export type MongoGraphEvent =
+  | { kind: "start"; total: number; collections: string[] }
+  | { kind: "collection"; table: GraphTable; links: GraphLink[] }
+  | { kind: "done" }
+  | { kind: "error"; message: string };
+
+/** One aggregation builder card as Rust composes it. `body` is the stage
+ *  value as relaxed extended JSON text. */
+export interface StageSpec {
+  id: string;
+  op: string;
+  body: string;
+  enabled: boolean;
+  title?: string | null;
+  note?: string | null;
+  branches?: BranchSpec[];
+}
+
+export interface BranchSpec {
+  key: string;
+  stages: StageSpec[];
+}
+
+/** One card read back from pipeline text, with no id yet. */
+export interface StageDraft {
+  op: string;
+  body: string;
+  enabled: boolean;
+  title: string | null;
+  note: string | null;
+  branches?: { key: string; stages: StageDraft[] }[];
+}
+
+/** Pipeline text as cards, and the collection a shell call names. */
+export interface ParsedPipeline {
+  collection: string | null;
+  stages: StageDraft[];
+}
+
+export interface PipelineSpec {
+  stages: StageSpec[];
+}
+
+export interface StageError {
+  stage_id: string;
+  branch_key?: string;
+  message: string;
+}
+
+export interface ComposedPipeline {
+  /** Canonical extended JSON array, for driver code. */
+  canonical: unknown[];
+  shell: string;
+  json: string;
+  /** The Save format, with title, note and disabled markers. */
+  file: string;
+  errors: StageError[];
+}
+
+export interface PipelinePreviewRequest {
+  database: string;
+  collection: string;
+  spec: PipelineSpec;
+  /** Refresh from this card on; null refreshes every card. */
+  from: { stage_id: string; branch_key?: string | null } | null;
+  cap: number;
+  time_ms: number;
+  show: number;
+  concurrency: number;
+  run_id: string | null;
+}
+
+/** One card's preview, sent as soon as its query finishes. */
+export interface PreviewChunk {
+  stage_id: string;
+  branch_key?: string;
+  count: number;
+  columns: string[];
+  rows: (string | null)[][];
+  documents: unknown[];
+  elapsed_ms: number;
+  error?: string;
+  /** The error is the preview's time limit, not the stage itself. */
+  timed_out?: boolean;
+}
+
+export interface PreviewSummary {
+  cancelled: boolean;
+  source_estimate: number | null;
+}
+
+export interface PipelineRunRequest {
+  database: string;
+  collection: string;
+  spec: PipelineSpec;
+  allow_disk_use: boolean;
+  run_id: string | null;
 }
 
 /** One executed backend command, pushed live via the `activity://entry`

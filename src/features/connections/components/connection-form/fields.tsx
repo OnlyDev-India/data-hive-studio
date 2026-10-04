@@ -47,7 +47,7 @@ export function TextRow({
         id={fieldId(field)}
         type={type}
         placeholder={placeholder}
-        className={mono ? "font-mono text-xs" : undefined}
+        className={mono ? "text-small font-mono" : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         {...describedBy(field, error)}
@@ -82,7 +82,7 @@ export function UrlRow({
       <InputGroup>
         <InputGroupInput
           id={fieldId("url")}
-          className="font-mono text-xs"
+          className="text-small font-mono"
           placeholder={placeholder}
           value={text}
           onChange={(e) => {
@@ -122,7 +122,7 @@ export function TypeRow({
   const item = kindItem(kind);
   return (
     <FormRow label="Type">
-      <div className="flex h-7 items-center gap-2 text-sm">
+      <div className="text-body flex h-7 items-center gap-2">
         <item.icon aria-hidden className="size-4 shrink-0" />
         <span className="font-medium">{item.label}</span>
         <Button
@@ -262,7 +262,7 @@ export function NumberRows<K extends string>({
 
 export function SrvTunnelNote({ error }: { error?: string }) {
   return (
-    <div className="text-muted-foreground bg-muted/40 flex flex-col gap-1 rounded-md border px-3 py-2 text-xs">
+    <div className="text-muted-foreground bg-muted/40 rounded-control text-small flex flex-col gap-1 border px-3 py-2">
       <p>
         An SSH tunnel can't be combined with mongodb+srv://. Turn off{" "}
         <b>Use mongodb+srv://</b> on the Connection tab and list the replica set

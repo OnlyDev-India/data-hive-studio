@@ -51,7 +51,7 @@ export function SshFields({
               if (!checked) onChange("ssh_host", "");
             }}
           />
-          <Label htmlFor={id("ssh_on")} className="text-sm font-normal">
+          <Label htmlFor={id("ssh_on")} className="text-body font-normal">
             Use an SSH tunnel
           </Label>
         </div>
@@ -175,7 +175,7 @@ export function SshFields({
               <Input
                 id={id("ssh_host_key_fingerprint")}
                 disabled={off}
-                className="min-w-0 flex-1 font-mono text-xs"
+                className="text-small min-w-0 flex-1 font-mono"
                 placeholder="SHA256:..."
                 value={value.ssh_host_key_fingerprint}
                 onChange={(e) =>

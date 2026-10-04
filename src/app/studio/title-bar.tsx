@@ -191,7 +191,7 @@ function UpdateBadgeButton({ className }: { className?: string }) {
               aria-label={label}
               className={cn(
                 className,
-                phase === "ready" ? "text-emerald-500" : "text-primary",
+                phase === "ready" ? "text-success" : "text-primary",
               )}
               onClick={() => {
                 setCalloutOpen(false);
@@ -240,7 +240,7 @@ function ConnectionSwitcher() {
         data-tauri-drag-region
         className="flex h-full flex-1 items-center justify-center"
       >
-        <span className="text-muted-foreground text-xs font-medium">
+        <span className="text-muted-foreground text-small font-medium">
           DH Studio
         </span>
       </div>
@@ -261,7 +261,7 @@ function ConnectionSwitcher() {
           render={
             <button
               type="button"
-              className="hover:bg-muted flex max-w-64 min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium"
+              className="hover:bg-muted rounded-control text-small flex max-w-64 min-w-0 items-center gap-1.5 border px-2.5 py-1 font-medium"
             >
               {ActiveIcon && <ActiveIcon className="size-3.5 shrink-0" />}
               <span className="min-w-0 truncate">{active.name}</span>
@@ -287,12 +287,12 @@ function ConnectionSwitcher() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search connections…"
-                className="text-xs"
+                className="text-small"
               />
             </div>
           )}
           {filtered.length === 0 ? (
-            <p className="text-muted-foreground px-2 py-1.5 text-xs">
+            <p className="text-muted-foreground text-small px-2 py-1.5">
               No matching connections.
             </p>
           ) : (
@@ -393,7 +393,7 @@ function WindowsLinuxTitleBar() {
   return (
     <div
       {...{ [TITLE_BAR_ATTR]: "" }}
-      className="bg-background flex h-9 shrink-0 items-stretch border-b text-sm select-none"
+      className="bg-background text-body flex h-9 shrink-0 items-stretch border-b select-none"
     >
       {/* Section 1 — menu */}
       <div className="flex items-center gap-0.5 px-1">
@@ -403,7 +403,7 @@ function WindowsLinuxTitleBar() {
               render={
                 <button
                   type="button"
-                  className="hover:bg-muted rounded px-2 py-1.5 text-xs font-medium outline-none"
+                  className="hover:bg-muted text-small rounded px-2 py-1.5 font-medium outline-none"
                   // Before the click moves focus onto this button: the Edit
                   // items need to know which field the user was in.
                   onMouseDown={rememberEditTarget}
@@ -440,7 +440,7 @@ function WindowsLinuxTitleBar() {
                   >
                     {item.label}
                     {item.accel && (
-                      <DropdownMenuShortcut className="text-2xs">
+                      <DropdownMenuShortcut className="text-caption">
                         {item.accel}
                       </DropdownMenuShortcut>
                     )}

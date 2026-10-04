@@ -183,3 +183,92 @@ async fn a_running_stream_keeps_its_handle_alive_past_the_idle_limit() {
     assert!(st.handles.get("h1").0.is_some(), "the handle went idle while its stream was running");
     post(&st, "/v1/c/h1/cancel", json!({"run_id": "idle-run"})).await;
 }
+
+fn compare_body(right: &str) -> Value {
+    json!({
+        "left": {"conn_id": "h1", "table": "t"},
+        "right": {"conn_id": right, "table": "t"},
+        "key_columns": ["id"],
+        "columns": ["v"],
+        "count_all": true,
+        "page_size": 50000,
+        "run_id": "cmp-1",
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_data_diff_across_two_handles_streams_rows_then_the_summary() {
+    let st = state(cfg()).await;
+    let b = SqliteAdapter::open("u", None, &ConnGuard::default()).await.unwrap();
+    st.handles.insert("h2".into(), Arc::new(b));
+    for (h, rows) in [("h1", "(1,'a'),(2,'b')"), ("h2", "(1,'a'),(2,'B'),(3,'c')")] {
+        let sql = format!("create table t (id integer primary key, v text); insert into t values {rows}");
+        for stmt in sql.split("; ") {
+            assert_eq!(post(&st, &format!("/v1/c/{h}/sql"), json!({"sql": stmt})).await.status(), StatusCode::OK);
+        }
+    }
+
+    let res = post(&st, "/v1/c/h1/compare/data", compare_body("h2")).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let lines = events(&text(res).await);
+    let rows: Vec<&Value> = lines
+        .iter()
+        .filter(|l| l["t"] == "chunk" && l["type"] == "rows")
+        .flat_map(|l| l["rows"].as_array().unwrap())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["kind"], "changed");
+    assert_eq!(rows[1]["kind"], "right_only");
+    let done = lines.last().unwrap();
+    assert_eq!(done["t"], "done");
+    assert_eq!(done["result"]["status"], "done");
+    assert_eq!(done["result"]["total_diffs"], 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_diff_export_downloads_as_a_file() {
+    let st = state(cfg()).await;
+    let b = SqliteAdapter::open("u", None, &ConnGuard::default()).await.unwrap();
+    st.handles.insert("h2".into(), Arc::new(b));
+    for (h, rows) in [("h1", "(1,'a'),(2,'b')"), ("h2", "(1,'a'),(2,'B'),(3,'c')")] {
+        let sql = format!("create table t (id integer primary key, v text); insert into t values {rows}");
+        for stmt in sql.split("; ") {
+            assert_eq!(post(&st, &format!("/v1/c/{h}/sql"), json!({"sql": stmt})).await.status(), StatusCode::OK);
+        }
+    }
+    let mut body = compare_body("h2");
+    body["kind"] = json!("sync_script");
+
+    let res = post(&st, "/v1/c/h1/compare/file", body).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let disposition = res.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().to_string();
+    assert!(disposition.contains("t-vs-t-sync.sql"), "{disposition}");
+    let script = text(res).await;
+    assert!(script.contains("UPDATE \"t\" SET \"v\" = 'b' WHERE \"id\" = 2;"), "{script}");
+    assert!(script.contains("DELETE FROM \"t\" WHERE \"id\" = 3;"), "{script}");
+    assert!(script.trim_end().ends_with("COMMIT;"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_diff_export_that_fails_first_answers_with_the_error() {
+    let st = state(cfg()).await;
+    let mut body = compare_body("h1");
+    body["kind"] = json!("csv");
+
+    let res = post(&st, "/v1/c/h1/compare/file", body).await;
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert!(text(res).await.contains("no such table"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_data_diff_with_an_unknown_right_handle_is_refused_up_front() {
+    let st = state(cfg()).await;
+
+    let res = post(&st, "/v1/c/h1/compare/data", compare_body("gone")).await;
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert!(text(res).await.contains("right side's connection is not open"));
+}

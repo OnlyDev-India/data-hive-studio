@@ -100,7 +100,7 @@ export const docHoverTheme = EditorView.baseTheme({
     gap: "4px",
   },
   ".cm-doc-hover-sig": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontFamily: "var(--font-mono)",
     fontSize: "12.5px",
     fontWeight: "600",
     color: "var(--info-dark)",

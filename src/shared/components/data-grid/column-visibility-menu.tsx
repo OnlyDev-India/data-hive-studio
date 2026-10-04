@@ -128,10 +128,10 @@ export function ColumnVisibilityMenu({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search columns…"
-            className="h-7 pl-7 text-xs"
+            className="text-small h-7 pl-7"
           />
         </div>
-        <div className="text-muted-foreground border-border/60 text-2xs flex items-center gap-2 border-b px-2 pt-1 pb-1.5 font-medium">
+        <div className="text-muted-foreground border-border/60 text-caption flex items-center gap-2 border-b px-2 pt-1 pb-1.5 font-medium">
           <span className="size-3.5 shrink-0" />
           <Checkbox
             checked={all_shown}
@@ -143,7 +143,7 @@ export function ColumnVisibilityMenu({
         </div>
         <div className="flex max-h-72 flex-col overflow-y-auto">
           {filtered.length === 0 && (
-            <p className="text-muted-foreground px-2 py-3 text-center text-xs">
+            <p className="text-muted-foreground text-small px-2 py-3 text-center">
               No matching columns.
             </p>
           )}
@@ -159,7 +159,7 @@ export function ColumnVisibilityMenu({
                   });
               }}
               className={cn(
-                "flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs",
+                "rounded-inset text-small flex items-center gap-2 px-2 py-1.5",
                 // The ghost: the dragged column, drawn where it will drop.
                 dragging === col &&
                   "border-primary bg-primary/10 border border-dashed opacity-60",

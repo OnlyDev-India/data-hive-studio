@@ -1,11 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import {
+  BrandMark,
+  type BrandMarkMotion,
+} from "@/shared/components/brand-mark";
 import { useStudioStore } from "@/shared/store";
 import { isFreshCard, useConnectionDrafts } from "../lib/drafts";
 import { ConnectionForm } from "./connection-form/connection-form";
 import { KindPicker } from "./connection-form/kind-picker";
 import { CardDragContext, useCardDrag } from "./connection-form/use-card-drag";
 
-export function Landing() {
+// Resets only when this module reloads, so the entrance plays once per launch.
+let markIntroPlayed = false;
+
+export function Landing({ showMark = false }: { showMark?: boolean }) {
+  const [markMotion] = useState<BrandMarkMotion>(() =>
+    showMark && !markIntroPlayed ? "enter" : "none",
+  );
+  useEffect(() => {
+    if (showMark) markIntroPlayed = true;
+  }, [showMark]);
   const drafts = useConnectionDrafts();
   const request = useStudioStore((s) => s.landingForm);
   const clearRequest = useStudioStore((s) => s.clearLandingForm);
@@ -33,17 +46,25 @@ export function Landing() {
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-112 w-160 max-w-full -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklch,var(--color-primary)_14%,transparent),transparent)] blur-2xl"
         />
-        {drafts.step === "pick" ? (
-          <KindPicker
-            selected={drafts.kind}
-            onSelect={drafts.pickKind}
-            onNext={drafts.openForm}
-            showNew={!isFreshCard(drafts)}
-            onNew={drafts.reset}
-          />
-        ) : (
-          <ConnectionForm key={drafts.visit} onNew={drafts.reset} />
-        )}
+        <div className="flex max-h-full min-h-0 w-full max-w-2xl flex-col items-center gap-6">
+          {showMark && (
+            <BrandMark
+              motion={markMotion}
+              className="size-18 shrink-0 [@media(max-height:719px)]:hidden"
+            />
+          )}
+          {drafts.step === "pick" ? (
+            <KindPicker
+              selected={drafts.kind}
+              onSelect={drafts.pickKind}
+              onNext={drafts.openForm}
+              showNew={!isFreshCard(drafts)}
+              onNew={drafts.reset}
+            />
+          ) : (
+            <ConnectionForm key={drafts.visit} onNew={drafts.reset} />
+          )}
+        </div>
       </div>
     </CardDragContext.Provider>
   );

@@ -166,6 +166,17 @@ pub async fn close_all() {
     }
 }
 
+/// The adapter behind a live connection, for callers that hold two at once.
+pub(super) fn adapter_of(conn_id: &str) -> DbResult<Arc<dyn DbAdapter>> {
+    registry()
+        .lock()
+        .unwrap()
+        .connections
+        .get(conn_id)
+        .map(|(_, a)| a.clone())
+        .ok_or_else(|| DbError::NotFound(conn_id.to_string()))
+}
+
 pub(super) async fn with_connection<T, F, Fut>(conn_id: &str, f: F) -> DbResult<T>
 where
     F: FnOnce(Arc<dyn DbAdapter>) -> Fut,

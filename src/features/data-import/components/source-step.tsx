@@ -10,7 +10,7 @@ export function SourceStep({ onPick, onDrop }: Props) {
   return (
     <button
       type="button"
-      className="hover:bg-muted/50 flex h-48 w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed text-sm"
+      className="hover:bg-muted/50 rounded-control text-body flex h-48 w-full flex-col items-center justify-center gap-2 border border-dashed"
       onClick={onPick}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
@@ -21,7 +21,7 @@ export function SourceStep({ onPick, onDrop }: Props) {
     >
       <FileUp className="size-5" />
       Choose a file, or drop one here
-      <span className="text-muted-foreground text-xs">
+      <span className="text-muted-foreground text-small">
         CSV, JSON, JSON Lines or Excel (.xlsx)
       </span>
     </button>

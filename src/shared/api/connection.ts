@@ -10,6 +10,7 @@ import type {
   FieldShape,
   RoleDetail,
   SchemaObject,
+  SchemaGraphResult,
   SchemaObjectKind,
   SchemaOp,
   TableInfo,
@@ -571,6 +572,31 @@ export function tableSchema(
   );
 }
 
+/** Every table of one schema with its foreign keys, for the relation diagram.
+ *  `database`/`schema` as in `tableSchema`. */
+export function schemaGraph(
+  connId: string,
+  database?: string,
+  schema?: string,
+): Promise<SchemaGraphResult> {
+  return dedupe(
+    `schema-graph:${connId} ${database ?? ""} ${schema ?? ""}`,
+    () =>
+      dispatchDbCall<SchemaGraphResult>(connId, {
+        httpMethod: "GET",
+        httpPath: (id) => {
+          const query = new URLSearchParams();
+          if (database) query.set("database", database);
+          if (schema) query.set("schema", schema);
+          const qs = query.toString();
+          return `/v1/c/${encodeURIComponent(id)}/schema-graph${qs ? `?${qs}` : ""}`;
+        },
+        localCmd: "schema_graph",
+        args: { connId, database: database ?? null, schema: schema ?? null },
+      }),
+  );
+}
+
 /** The recursively inferred nested field shape for a MongoDB collection
  *  (spec 0001's "Fields" view) — independent of `tableSchema`/`ColumnInfo`,
  *  so the data grid's column headers are never affected by this call.
@@ -609,6 +635,12 @@ export async function clearActivity(
 ): Promise<void> {
   if (WEB) return;
   return invoke("clear_activity", { connKey, connId });
+}
+
+/** Tell the backend whether to store the app's own background entries. */
+export async function setSaveAppActivity(enabled: boolean): Promise<void> {
+  if (WEB) return;
+  return invoke("set_save_app_activity", { enabled });
 }
 
 /** Apply staged schema (DDL) ops in order; returns every statement that ran

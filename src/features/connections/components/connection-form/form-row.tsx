@@ -33,7 +33,7 @@ export function FormRow({
         <Label
           htmlFor={htmlFor}
           className={cn(
-            "text-foreground/90 text-sm font-medium @[30rem]:text-right",
+            "text-foreground/90 text-body font-medium @[30rem]:text-right",
             disabled && "opacity-50",
           )}
         >
@@ -47,7 +47,7 @@ export function FormRow({
           <p
             id={htmlFor ? `${htmlFor}-msg` : undefined}
             role="alert"
-            className="text-destructive text-xs"
+            className="text-destructive text-small"
           >
             {error}
           </p>

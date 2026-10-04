@@ -1,13 +1,18 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::api::{ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{
+    ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaGraph, SchemaOp, TableInfo, TableSchema,
+};
 use crate::db::{
     BatchSink,
     DbAdapter,
     DbResult,
     RoleDetail,
     RunHandle,
+    ScanOut,
+    ScanSpec,
     SchemaObject,
+    ScriptSyntax,
     SchemaObjectKind,
 };
 use super::PgAdapter;
@@ -26,9 +31,23 @@ impl DbAdapter for PgAdapter {
     ) -> DbResult<(TableSchema, Vec<String>)> {
         PgAdapter::table_schema(self, database, schema, table).await
     }
+    async fn schema_graph(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+    ) -> DbResult<(SchemaGraph, Vec<String>)> {
+        PgAdapter::schema_graph(self, database, schema).await
+    }
 
     async fn list_schemas(&self) -> DbResult<Vec<String>> {
         PgAdapter::list_schemas(self).await
+    }
+
+    async fn compare_scan(&self, spec: &ScanSpec<'_>, run: &RunHandle, out: &ScanOut) -> DbResult<()> {
+        PgAdapter::compare_scan(self, spec, run, out).await
+    }
+    fn script_syntax(&self) -> ScriptSyntax {
+        ScriptSyntax::Postgres
     }
 
     async fn import_rows(

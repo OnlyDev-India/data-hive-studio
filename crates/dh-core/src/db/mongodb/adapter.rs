@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::db::{BatchSink, DbAdapter, DbResult, OpOutcome, RunHandle};
+use crate::db::{BatchSink, DbAdapter, DbResult, GraphSink, OpOutcome, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
 use crate::api::{FieldShape, ImportCapabilities, ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use super::MongoAdapter;
 
@@ -8,6 +8,13 @@ use super::MongoAdapter;
 impl DbAdapter for MongoAdapter {
     async fn list_tables(&self) -> DbResult<Vec<TableInfo>> {
         MongoAdapter::list_tables(self).await
+    }
+
+    async fn compare_scan(&self, spec: &ScanSpec<'_>, run: &RunHandle, out: &ScanOut) -> DbResult<()> {
+        MongoAdapter::compare_scan(self, spec, run, out).await
+    }
+    fn script_syntax(&self) -> ScriptSyntax {
+        ScriptSyntax::Mongosh
     }
 
     async fn table_schema(
@@ -21,6 +28,10 @@ impl DbAdapter for MongoAdapter {
 
     async fn field_tree(&self, database: &str, collection: &str) -> DbResult<Vec<FieldShape>> {
         MongoAdapter::field_tree(self, database, collection).await
+    }
+
+    async fn mongo_graph(&self, database: &str, run: Option<&RunHandle>, sink: GraphSink<'_>) -> DbResult<()> {
+        MongoAdapter::mongo_graph(self, database, run, sink).await
     }
 
     async fn list_schemas(&self) -> DbResult<Vec<String>> {
@@ -92,6 +103,24 @@ impl DbAdapter for MongoAdapter {
         on_batch: BatchSink<'_>,
     ) -> DbResult<crate::api::MongoRunResult> {
         MongoAdapter::run_mongo_stream(self, db, collection, script, run, on_batch).await
+    }
+
+    async fn mongo_pipeline_preview(
+        &self,
+        req: &crate::api::PipelinePreviewRequest,
+        run: Option<&RunHandle>,
+        sink: crate::db::PreviewSink<'_>,
+    ) -> DbResult<crate::api::PreviewSummary> {
+        MongoAdapter::pipeline_preview(self, req, run, sink).await
+    }
+
+    async fn mongo_pipeline_run(
+        &self,
+        req: &crate::api::PipelineRunRequest,
+        run: Option<&RunHandle>,
+        sink: BatchSink<'_>,
+    ) -> DbResult<crate::api::MongoRunResult> {
+        MongoAdapter::pipeline_run(self, req, run, sink).await
     }
 
     async fn explain_sql(

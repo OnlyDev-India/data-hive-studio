@@ -5,6 +5,7 @@ import type {
   ExportPayload,
   QueryOp,
   SavedDbKind,
+  TableRef,
 } from "../api/types";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import type { StudioTab } from "./tab-utils";
@@ -12,6 +13,13 @@ import type { PendingChange } from "../components/data-grid/grid-context";
 import type { PaneNode } from "./pane-layout";
 import type { ShortcutBinding } from "../hooks/shortcut-registry";
 import type { DelimitedListSettings } from "@/shared/components/query-editor/delimited-list";
+import type { CatalogChange, TableDialogTarget } from "./table-dialogs";
+import type {
+  ImportSummary,
+  LibraryDraft,
+  LibraryItem,
+  LibraryResult,
+} from "../library/types";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace";
@@ -22,7 +30,98 @@ export type StudioView = "home" | "workspace";
 export interface SavedWorkspace {
   workspace: WorkspaceTabs;
   sqlSeeds: Record<string, string>;
+  /** Compare tab setups, keyed by tab key. Absent on older snapshots. */
+  compareSetups?: Record<string, CompareSetup>;
+  /** Aggregation builder setups, keyed by tab key. Absent on older snapshots. */
+  aggregationSetups?: Record<string, AggregationSetup>;
+  /** Dragged diagram box positions: `"<database>|<schema>"` → table key →
+   *  position. Absent on older snapshots. */
+  relationLayouts?: RelationLayouts;
 }
+
+export interface XY {
+  x: number;
+  y: number;
+}
+
+/** One connection's saved diagram layouts, keyed `"<database>|<schema>"`. */
+export type RelationLayouts = Record<string, Record<string, XY>>;
+
+/** What a compare tab compares. Persisted with its workspace; results never
+ *  are. */
+export interface CompareSetup {
+  left: TableRef | null;
+  right: TableRef | null;
+  /** null = the default key (the shared primary key). */
+  key_columns: string[] | null;
+  excluded_columns: string[];
+  /** "" = no filter. */
+  filter: string;
+}
+
+export const EMPTY_COMPARE_SETUP: CompareSetup = {
+  left: null,
+  right: null,
+  key_columns: null,
+  excluded_columns: [],
+  filter: "",
+};
+
+/** One aggregation builder card. `body` is the stage value as relaxed
+ *  extended JSON text, the source of truth for every view of the card. */
+export interface AggregationStage {
+  id: string;
+  op: string;
+  body: string;
+  enabled: boolean;
+  collapsed: boolean;
+  view: "form" | "json";
+  note: string | null;
+  title: string | null;
+  /** Side chains of a main chain `$facet`, `$lookup` or `$unionWith`. A
+   *  side chain card never has its own. */
+  branches?: AggregationBranch[];
+}
+
+/** One side chain: a `$facet` output, or the `pipeline` of a `$lookup` or
+ *  `$unionWith`. */
+export interface AggregationBranch {
+  key: string;
+  stages: AggregationStage[];
+}
+
+/** An aggregation builder tab's pipeline and settings. Persisted with its
+ *  workspace; previews and run results never are. */
+export interface AggregationSetup {
+  stages: AggregationStage[];
+  selected_stage_id: string | null;
+  /** How many source documents a preview reads (100 to 100,000). */
+  preview_cap: number;
+  auto_preview: boolean;
+  /** A preview query's time limit (1,000 to 120,000 ms). */
+  preview_time_ms: number;
+  allow_disk_use: boolean;
+  file_path: string | null;
+  /** The last saved file text, for the unsaved check. */
+  saved_text: string | null;
+}
+
+export const DEFAULT_AGGREGATION_SETUP: AggregationSetup = {
+  stages: [],
+  selected_stage_id: null,
+  preview_cap: 1000,
+  auto_preview: true,
+  preview_time_ms: 10_000,
+  allow_disk_use: false,
+  file_path: null,
+  saved_text: null,
+};
+
+/** What a table or collection tab shows. */
+export type PaneMode = "data" | "schema" | "diagram";
+
+/** A tool the activity bar's tools menu offers. */
+export type ToolId = "compare" | "relation-diagram" | "aggregation";
 
 /** User-customizable trigger prefixes for the command palette's quick-open
  *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
@@ -171,8 +270,14 @@ export interface WorkspaceTabs {
   nextNewTableId: number;
   nextTableId: number;
   nextMongoTabId: number;
+  /** Absent on workspaces saved before compare tabs existed. */
+  nextCompareId?: number;
+  /** Absent on workspaces saved before aggregation tabs existed. */
+  nextAggregationId?: number;
+  /** Absent on workspaces saved before relation diagram tabs existed. */
+  nextRelationDiagramId?: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
-  paneModes: Record<string, "data" | "schema">;
+  paneModes: Record<string, PaneMode>;
   /** Split-view pane tree. A never-split workspace is a single leaf holding
    *  every open tab — see `pane-layout.ts` for the shape/invariants. */
   layout: PaneNode;
@@ -411,6 +516,9 @@ export interface StudioStore {
    *  the connection-tabs collapse/expand button, the native menu's "Toggle
    *  Sidebar". */
   toggleLeftPanelOpen: () => void;
+  /** Tools pinned onto the activity bar, in pin order. App wide, persisted. */
+  pinnedTools: ToolId[];
+  setToolPinned: (id: ToolId, pinned: boolean) => void;
 
   // Per-tab open/closed state for the "bottom split" every tab kind has
   // below its main content — grid results for a SQL/Mongo-console editor
@@ -518,10 +626,10 @@ export interface StudioStore {
    *  Whether the feed is actually showing is `leftPanelOpen &&
    *  leftPanelMode === "activity"` (see the sidebar-chrome fields above) —
    *  it's not a separate flag here. */
-  /** Off by default — whether "app"-origin entries (background schema
-   *  prefetching, etc.) show in the feed alongside "user" ones. Persisted. */
-  showAppActivity: boolean;
-  setShowAppActivity: (show: boolean) => void;
+  /** "Save app queries": whether "app" origin entries are stored and shown.
+   *  Off by default. Persisted, and pushed to Rust on every change. */
+  saveAppActivity: boolean;
+  setSaveAppActivity: (enabled: boolean) => void;
   activity: ActivityEntry[];
   pushActivity: (entry: ActivityEntry) => void;
   /** Replace the whole list (hydration from get_activity on startup). */
@@ -590,6 +698,10 @@ export interface StudioStore {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  /** App settings dialog open state. */
+  settingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
+
   /** Id of the connection the disconnect-confirm dialog is asking about, or
    *  null when closed. Shared state (not per-`DisconnectDbBtn`-instance
    *  local state) so any trigger — the tab-strip icon, the action bar, or
@@ -604,6 +716,37 @@ export interface StudioStore {
   importTarget: ImportTarget | null;
   openImport: (target: ImportTarget) => void;
   closeImport: () => void;
+
+  /** Saved queries and snippets, global to every connection. Loaded once at
+   *  startup; every change rewrites the whole stored file. */
+  library: LibraryItem[];
+  /** True once the starter snippets were added. */
+  librarySeeded: boolean;
+  loadLibrary: () => Promise<void>;
+  addLibraryItem: (draft: LibraryDraft) => Promise<LibraryResult>;
+  updateLibraryItem: (
+    id: string,
+    draft: LibraryDraft,
+  ) => Promise<LibraryResult>;
+  deleteLibraryItem: (id: string) => Promise<boolean>;
+  importLibrary: (text: string) => Promise<ImportSummary | null>;
+
+  /** The Drop, Duplicate or Grants dialog's target, or null when closed.
+   *  Mounted once in `Studio` (`TableDialogsHost`); the sidebar and the
+   *  diagram both open it here. */
+  tableDialog: TableDialogTarget | null;
+  /** A Drop or Duplicate is running: a new target is ignored until it ends. */
+  tableDialogBusy: boolean;
+  openTableDialog: (target: TableDialogTarget) => void;
+  closeTableDialog: () => void;
+  setTableDialogBusy: (busy: boolean) => void;
+  /** The latest Drop or Duplicate per connection, for the sidebar to reload
+   *  the node that held the table. */
+  catalogChanges: Record<string, CatalogChange>;
+  noteCatalogChange: (
+    connId: string,
+    change: Omit<CatalogChange, "seq">,
+  ) => void;
 
   /** A newer release than the running version, once the background/on-demand
    *  check (`src/features/updater/update-check.ts`) finds one — null while
@@ -650,9 +793,9 @@ export interface StudioStore {
   resetShortcut: (id: string) => void;
   resetAllShortcuts: () => void;
 
-  /** Query-editor font size in px (Cmd/Ctrl +/-/0) — independent of the
-   *  app-wide UI scale (Settings → Appearance's `setScale`), matching dbx's
-   *  own editor-only zoom rather than tying it to the overall chrome size. */
+  /** Query-editor zoom (Cmd/Ctrl +/-/0) in px at 100% scale, default 13
+   *  (`text-body`). Applied in rem, so the app-wide Scaling setting
+   *  multiplies it. */
   editorFontSize: number;
   setEditorFontSize: (px: number) => void;
 
@@ -665,6 +808,11 @@ export interface StudioStore {
   setSqlFormatKeywordCase: (c: "preserve" | "upper" | "lower") => void;
   sqlFormatIndentWidth: number;
   setSqlFormatIndentWidth: (n: number) => void;
+
+  /** How many preview queries one builder refresh runs at a time, app wide
+   *  (1 to 8). */
+  previewConcurrency: number;
+  setPreviewConcurrency: (n: number) => void;
 
   /** Delimited-list builder dialog's last-used settings (Settings aren't
    *  exposed separately — the dialog itself is the only editor, same as
@@ -723,8 +871,61 @@ export interface StudioStore {
   openActivityTab: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Users & Privileges tab. */
   openRolesTab: (connId: string) => void;
+  /** Open a new compare tab, its left side prefilled when given. */
+  openCompare: (connId: string, left?: TableRef) => void;
+  /** Open (or focus) the relation diagram tab of one database and schema.
+   *  `focusTable` centers the diagram on that table and selects it. */
+  openRelationDiagram: (
+    connId: string,
+    opts?: { database?: string; schema?: string; focusTable?: string },
+  ) => void;
+  /** Point diagram tab `id` at another database and schema in one update,
+   *  or focus the tab that already shows them. */
+  setRelationDiagramTarget: (
+    connId: string,
+    id: number,
+    target: { database?: string; schema?: string },
+  ) => void;
+  /** Live diagram layouts per open connection, keyed by `conn_id`. Filed
+   *  into the snapshot under `stableConnKey`, never by `conn_id`. */
+  relationLayouts: Record<string, RelationLayouts>;
+  /** Save one diagram's positions, or clear them with null. */
+  setRelationLayout: (
+    connId: string,
+    key: string,
+    positions: Record<string, XY> | null,
+  ) => void;
+  /** Compare tab setups keyed by tab key. */
+  compareTabs: Record<string, CompareSetup>;
+  setCompareSetup: (key: string, setup: CompareSetup) => void;
+  /** Open a new aggregation builder tab on one collection, starting with a
+   *  `$match` card holding `seedMatch` when given, or with `init` (cards
+   *  read from text, the file they came from). */
+  openAggregation: (
+    connId: string,
+    database: string,
+    collection: string,
+    seedMatch?: string | null,
+    init?: Partial<AggregationSetup>,
+  ) => void;
+  /** Aggregation builder setups keyed by tab key. */
+  aggregationTabs: Record<string, AggregationSetup>;
+  setAggregationSetup: (key: string, setup: AggregationSetup) => void;
+  /** Point builder tab `id` at another database and collection, with an
+   *  empty pipeline and the same preview settings. */
+  setAggregationCollection: (
+    connId: string,
+    id: number,
+    database: string,
+    collection: string,
+  ) => void;
   /** Open a MongoDB collection tab (data view). */
-  openMongo: (connId: string, database: string, collection: string) => void;
+  openMongo: (
+    connId: string,
+    database: string,
+    collection: string,
+    initialFilter?: string,
+  ) => void;
   /** Open a MongoDB console tab for the given connection & database.
    *  `seedText`, when given, becomes the new console's initial script —
    *  mirrors `openSql`'s seed mechanism (e.g. opening a picked .js file).
@@ -765,9 +966,5 @@ export interface StudioStore {
   closeAllTabs: (connId: string) => void;
   closeToLeft: (connId: string, tab: StudioTab) => void;
   closeToRight: (connId: string, tab: StudioTab) => void;
-  setPaneMode: (
-    connId: string,
-    tabKey: string,
-    mode: "data" | "schema",
-  ) => void;
+  setPaneMode: (connId: string, tabKey: string, mode: PaneMode) => void;
 }

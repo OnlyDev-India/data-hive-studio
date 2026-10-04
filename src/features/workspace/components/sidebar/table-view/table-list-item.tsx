@@ -1,13 +1,3 @@
-import {
-  Copy,
-  CopyPlus,
-  Eye,
-  RefreshCw,
-  Upload,
-  ShieldCheck,
-  Table as TableIcon,
-  Trash2,
-} from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -17,9 +7,17 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
+import {
+  TableMenuItems,
+  tableMenuItems,
+  type TableAction,
+  type TableMenuItemProps,
+} from "@/shared/components/table-menu";
 import { IconTypeMap, type IconType } from "@/shared/components/icons/types";
 
-const READ_ONLY_TITLE = "Read only connection: this change is refused";
+function MenuItem({ onClick, ...rest }: TableMenuItemProps) {
+  return <ContextMenuItem onSelect={onClick} {...rest} />;
+}
 
 /** One table/view/matview/collection row — used for both the connection's
  *  own active database AND any sibling database/schema, with whichever
@@ -41,6 +39,8 @@ export function TableListItem({
   on_drop,
   on_refresh_matview,
   on_view_grants,
+  on_compare,
+  on_aggregate,
 }: {
   name: string;
   kind: string;
@@ -53,14 +53,17 @@ export function TableListItem({
   on_select?: () => void;
   on_open: () => void;
   on_view_structure?: () => void;
+  /** Postgres only: the caller leaves it out elsewhere. */
   on_view_grants?: () => void;
   on_copy?: () => void;
   on_duplicate?: () => void;
   on_import?: () => void;
   on_drop?: () => void;
   on_refresh_matview?: () => void;
+  on_compare?: () => void;
+  /** Mongo only: a new aggregation builder tab on this collection. */
+  on_aggregate?: () => void;
 }) {
-  const noun = is_mongo ? "collection" : "table";
   const iconType: IconType =
     is_mongo || kind === "table"
       ? "table"
@@ -68,6 +71,29 @@ export function TableListItem({
         ? "layers"
         : "view";
   const icon = IconTypeMap[iconType];
+  const handlers: Record<TableAction, (() => void) | undefined> = {
+    open: on_open,
+    structure: on_view_structure,
+    compare: on_compare,
+    aggregate: on_aggregate,
+    grants: on_view_grants,
+    copy: on_copy,
+    duplicate: on_duplicate,
+    import: on_import,
+    refresh_matview: on_refresh_matview,
+    drop: on_drop,
+  };
+  const offer = new Set(
+    (Object.keys(handlers) as TableAction[]).filter((a) => handlers[a]),
+  );
+  const items = tableMenuItems({
+    mongo: is_mongo,
+    pg: !is_mongo,
+    objectKind: kind,
+    readOnly: read_only,
+    busy: disabled,
+    offer,
+  });
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -78,7 +104,7 @@ export function TableListItem({
             onClick={on_select}
             onDoubleClick={on_open}
             className={cn(
-              "w-full justify-start px-2 py-1 text-left text-xs font-normal",
+              "text-small w-full justify-start px-2 py-1 text-left font-normal",
               is_selected ? "bg-muted font-medium" : "hover:bg-muted/50",
             )}
           >
@@ -89,73 +115,12 @@ export function TableListItem({
         }
       />
       <ContextMenuContent className="w-48">
-        <ContextMenuItem onSelect={on_open}>
-          <TableIcon className="text-muted-foreground size-4" />
-          Open {noun}
-        </ContextMenuItem>
-        {on_view_structure && (
-          <ContextMenuItem onSelect={on_view_structure}>
-            <Eye className="text-muted-foreground size-4" />
-            View structure
-          </ContextMenuItem>
-        )}
-        {!is_mongo && on_view_grants && (
-          <ContextMenuItem onSelect={on_view_grants}>
-            <ShieldCheck className="text-muted-foreground size-4" />
-            View grants
-          </ContextMenuItem>
-        )}
-        {on_copy && (
-          <ContextMenuItem onSelect={on_copy}>
-            <Copy className="text-muted-foreground size-4" />
-            Copy {noun} name
-          </ContextMenuItem>
-        )}
-        {on_duplicate && (
-          <ContextMenuItem
-            onSelect={on_duplicate}
-            disabled={disabled || read_only}
-            title={read_only ? READ_ONLY_TITLE : undefined}
-          >
-            <CopyPlus className="text-muted-foreground size-4" />
-            Duplicate {noun}
-          </ContextMenuItem>
-        )}
-        {on_import && (is_mongo || kind === "table") && (
-          <ContextMenuItem
-            onSelect={on_import}
-            disabled={disabled || read_only}
-            title={read_only ? READ_ONLY_TITLE : undefined}
-          >
-            <Upload className="text-muted-foreground size-4" />
-            Import into {noun}…
-          </ContextMenuItem>
-        )}
-        {(kind === "matview" || kind === "materialized_view") &&
-          on_refresh_matview && (
-            <ContextMenuItem
-              onSelect={on_refresh_matview}
-              disabled={read_only}
-              title={read_only ? READ_ONLY_TITLE : undefined}
-            >
-              <RefreshCw className="text-muted-foreground size-4" />
-              Refresh materialized view
-            </ContextMenuItem>
-          )}
-        {on_drop && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              variant="destructive"
-              onSelect={on_drop}
-              disabled={read_only}
-              title={read_only ? READ_ONLY_TITLE : undefined}
-            >
-              <Trash2 className="size-4" />
-              Drop {noun}…
-            </ContextMenuItem>
-          </>
-        )}
+        <TableMenuItems
+          items={items}
+          onPick={(a) => handlers[a]?.()}
+          Item={MenuItem}
+          Separator={ContextMenuSeparator}
+        />
       </ContextMenuContent>
     </ContextMenu>
   );

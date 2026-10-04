@@ -25,9 +25,13 @@ import { DEFAULT_DELIMITED_LIST_SETTINGS } from "@/shared/components/query-edito
 import type { SavedConnParams, StudioStore, WorkspaceTabs } from "./types";
 import { tabKey } from "./tab-utils";
 import { workspaceActions } from "./workspace";
+import { tableDialogActions } from "./table-dialogs";
+import { libraryActions } from "./library";
 import {
+  clearLayoutsFor,
   loadPendingWorkspaceRestores,
   scheduleWorkspaceSave,
+  stableKeyOfSaved,
 } from "./workspace-persistence";
 
 export function secretNoticeText(notice: SecretStoreNotice): {
@@ -136,6 +140,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ commandPaletteOpen: open });
         },
 
+        settingsOpen: false,
+        setSettingsOpen(open) {
+          set({ settingsOpen: open });
+        },
+
         disconnectPendingId: null,
         setDisconnectPendingId(id) {
           set({ disconnectPendingId: id });
@@ -204,7 +213,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ shortcutOverrides: {} });
         },
 
-        editorFontSize: 14,
+        editorFontSize: 13,
         setEditorFontSize(px) {
           set({ editorFontSize: Math.max(10, Math.min(24, Math.round(px))) });
         },
@@ -216,6 +225,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         sqlFormatIndentWidth: 2,
         setSqlFormatIndentWidth(n) {
           set({ sqlFormatIndentWidth: n });
+        },
+
+        previewConcurrency: 4,
+        setPreviewConcurrency(n) {
+          set({ previewConcurrency: Math.max(1, Math.min(8, Math.round(n))) });
         },
 
         delimitedListSettings: DEFAULT_DELIMITED_LIST_SETTINGS,
@@ -272,6 +286,14 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
          *  menu's "Toggle Sidebar"). */
         toggleLeftPanelOpen() {
           set((s) => ({ leftPanelOpen: !s.leftPanelOpen }));
+        },
+
+        pinnedTools: [],
+        setToolPinned(id, pinned) {
+          set((s) => {
+            const rest = s.pinnedTools.filter((t) => t !== id);
+            return { pinnedTools: pinned ? [...rest, id] : rest };
+          });
         },
 
         bottomPanelOpen: {},
@@ -495,6 +517,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           });
         },
         async deleteSavedLocal(name) {
+          const saved = get().savedLocal[name];
+          const layouts = (s: StudioStore) =>
+            saved ? clearLayoutsFor(s, stableKeyOfSaved(saved)) : {};
           if (WEB) {
             set((s) => {
               const next = { ...s.savedLocal };
@@ -503,6 +528,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
               return {
                 savedLocal: next,
                 pins: s.pins.filter((p) => p !== `local:${name}`),
+                ...layouts(s),
               };
             });
             return;
@@ -514,6 +540,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
             return {
               savedLocal: next,
               pins: s.pins.filter((p) => p !== `local:${name}`),
+              ...layouts(s),
             };
           });
         },
@@ -563,6 +590,8 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...schemaDesignerActions(set),
         ...connectionActions(set),
         ...workspaceActions(set),
+        ...tableDialogActions(set),
+        ...libraryActions(set, get),
       }),
       {
         name: "dh-studio-store",
@@ -598,8 +627,10 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           editorFontSize: s.editorFontSize,
           sqlFormatKeywordCase: s.sqlFormatKeywordCase,
           sqlFormatIndentWidth: s.sqlFormatIndentWidth,
+          previewConcurrency: s.previewConcurrency,
           delimitedListSettings: s.delimitedListSettings,
-          showAppActivity: s.showAppActivity,
+          saveAppActivity: s.saveAppActivity,
+          pinnedTools: s.pinnedTools,
         }),
       },
     ),

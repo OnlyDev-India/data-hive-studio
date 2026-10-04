@@ -29,13 +29,13 @@ const SCALES: { percent: number; label: string }[] = [
 /** macOS-style appearance page: a light/dark/auto theme picker with preview
  *  swatches that reflect the selected mode. */
 export function AppearanceSection() {
-  const { mode, setMode, accent, font, scale, cornerStyle } = useTheme();
+  const { mode, setMode, dark, accent, font, scale, cornerStyle } = useTheme();
 
   return (
     <div className="flex h-full flex-col gap-6">
       <header>
-        <h2 className="text-lg font-semibold">Appearance</h2>
-        <p className="text-muted-foreground mt-0.5 text-sm">
+        <h2 className="text-heading font-semibold">Appearance</h2>
+        <p className="text-muted-foreground text-body mt-0.5">
           Choose how the app looks.
         </p>
       </header>
@@ -53,7 +53,7 @@ export function AppearanceSection() {
                   key={id}
                   onClick={() => setMode(id)}
                   className={cn(
-                    "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+                    "rounded-surface text-body flex flex-col items-center gap-1 border p-2 transition-colors",
                     active
                       ? "border-primary bg-primary/10 text-foreground"
                       : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
@@ -76,7 +76,8 @@ export function AppearanceSection() {
               <AccentSwatch
                 key={acc.id}
                 id={acc.id}
-                color={acc.base}
+                name={acc.name}
+                color={dark ? acc.swatch.dark : acc.swatch.light}
                 active={accent === acc.id}
               />
             ))}
@@ -90,7 +91,7 @@ export function AppearanceSection() {
                 key={c.id}
                 id={c.id}
                 name={c.name}
-                radius={c.lg}
+                radius={c.surface}
                 active={cornerStyle === c.id}
               />
             ))}
@@ -149,104 +150,67 @@ function SettingCard({
         // `bg-card` is identical to `bg-background` in light mode here (both
         // pure white) — `bg-muted/40` stays visibly distinct from the page
         // in both themes instead.
-        "bg-muted/40 rounded-xl border p-4",
+        "bg-muted/40 rounded-dialog border p-4",
         horizontal
           ? "flex items-start justify-between gap-6"
           : "flex flex-col gap-2.5",
         className,
       )}
     >
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-body font-medium">{label}</span>
       {children}
+    </div>
+  );
+}
+
+/** One theme drawn with its real tokens. The `.light` / `.dark` class
+ *  redeclares that theme (and the current accent) for this subtree, so no
+ *  `dark:` variant may appear inside. */
+function PreviewPane({ scope }: { scope: "light" | "dark" }) {
+  return (
+    <div className={cn(scope, "bg-chrome flex flex-1 flex-col gap-0.5 p-1")}>
+      <div className="flex h-1.5 items-center gap-0.5 px-0.5">
+        <span className="bg-muted-foreground h-0.5 w-0.5 rounded-full" />
+        <span className="bg-muted-foreground h-0.5 w-0.5 rounded-full" />
+        <span className="bg-primary rounded-inset ml-auto h-0.5 w-1" />
+      </div>
+      <div className="bg-background rounded-inset flex-1 border" />
     </div>
   );
 }
 
 /** A mini window preview used by the theme picker. */
 function ThemeSwatch({ mode, active }: { mode: ThemeMode; active: boolean }) {
-  // Show a preview reflecting the RESOLVED value of this option: system folds
-  // into the current resolved dark state.
-  const previewDark = mode === "dark";
-  const previewSystem = mode === "system";
+  const scopes = mode === "system" ? (["dark", "light"] as const) : [mode];
   return (
     <div
       className={cn(
-        "flex h-11 w-18 flex-col gap-0.5 rounded-md border p-1 transition-shadow",
+        "rounded-control flex h-11 w-18 overflow-hidden border transition-shadow",
         active && "border-primary shadow-sm",
       )}
     >
-      {previewSystem ? (
-        <div className="flex h-1.5! items-center">
-          <div className="flex h-1.5 flex-1 items-center gap-0.5 rounded-l-full bg-neutral-700 px-0.5">
-            <span className="h-0.5 w-0.5 rounded-full bg-neutral-400" />
-            <span className="h-0.5 w-0.5 rounded-full bg-neutral-500" />
-          </div>
-          <div className="flex h-1.5 flex-1 items-center gap-0.5 rounded-r-full bg-neutral-200 px-0.5">
-            <span className="ml-auto h-0.5 w-1 rounded-sm bg-neutral-800" />
-          </div>
-        </div>
-      ) : (
-        <div
-          className={cn(
-            "flex h-1.5 items-center gap-0.5 rounded-sm px-0.5",
-            previewDark ? "bg-neutral-700" : "bg-neutral-200",
-          )}
-        >
-          <span
-            className={cn(
-              "h-0.5 w-0.5 rounded-full",
-              previewDark ? "bg-neutral-400" : "bg-neutral-400",
-            )}
-          />
-          <span
-            className={cn(
-              "h-0.5 w-0.5 rounded-full",
-              previewDark ? "bg-neutral-500" : "bg-neutral-400",
-            )}
-          />
-          <span
-            className={cn(
-              "ml-auto h-0.5 w-1 rounded-sm",
-              previewDark ? "bg-neutral-400" : "bg-neutral-300",
-            )}
-          />
-        </div>
-      )}
-      <div className="flex flex-1 overflow-hidden rounded-sm border">
-        {previewSystem ? (
-          <>
-            <div className="flex-1 bg-neutral-800" />
-            <div className="flex-1 bg-white" />
-          </>
-        ) : (
-          <div
-            className={cn(
-              "flex-1 rounded-sm",
-              previewDark ? "bg-neutral-800" : "bg-white",
-            )}
-          />
-        )}
-      </div>
+      {scopes.map((s) => (
+        <PreviewPane key={s} scope={s} />
+      ))}
     </div>
   );
 }
 
 function AccentSwatch({
   id,
+  name,
   color,
   active,
 }: {
   id: AccentId;
+  name: string;
   color: string;
   active: boolean;
 }) {
   const { setAccent } = useTheme();
-  // Graphite is the default monochrome accent — no accent color stored, so
-  // render it as a neutral gray swatch with a diagonal slash.
-  const isGraphite = id === "graphite";
   return (
     <button
-      aria-label={`Accent ${id}`}
+      aria-label={`Accent ${name}`}
       aria-pressed={active}
       onClick={() => setAccent(id)}
       className={cn(
@@ -255,21 +219,9 @@ function AccentSwatch({
           ? "border-foreground ring-primary/30 ring-2 ring-offset-1"
           : "border-border hover:border-foreground/40",
       )}
-      style={isGraphite ? undefined : { backgroundColor: color }}
-      title={id}
-    >
-      {isGraphite && (
-        <span
-          className="block size-6 rounded-full"
-          style={{
-            background:
-              "repeating-linear-gradient(45deg, transparent 0 3px, currentColor 3px 4px)",
-            color: "var(--muted-foreground)",
-            opacity: 0.55,
-          }}
-        />
-      )}
-    </button>
+      style={{ backgroundColor: color }}
+      title={name}
+    />
   );
 }
 
@@ -292,16 +244,16 @@ function FontSwatch({
       onClick={() => setFont(id)}
       title={name}
       className={cn(
-        "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+        "rounded-surface text-body flex flex-col items-center gap-1 border p-2 transition-colors",
         active
           ? "border-primary bg-primary/10 text-foreground"
           : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
       )}
     >
-      <span className="text-base leading-none" style={{ fontFamily: stack }}>
+      <span className="text-title leading-none" style={{ fontFamily: stack }}>
         Ag
       </span>
-      <span className="text-2xs font-medium">{name}</span>
+      <span className="text-caption font-medium">{name}</span>
     </button>
   );
 }
@@ -325,7 +277,7 @@ function CornerSwatch({
       onClick={() => setCornerStyle(id)}
       title={name}
       className={cn(
-        "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+        "rounded-surface text-body flex flex-col items-center gap-1 border p-2 transition-colors",
         active
           ? "border-primary bg-primary/10 text-foreground"
           : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
@@ -335,7 +287,7 @@ function CornerSwatch({
         className="border-foreground/50 block size-5 border-2"
         style={{ borderRadius: radius }}
       />
-      <span className="text-2xs font-medium">{name}</span>
+      <span className="text-caption font-medium">{name}</span>
     </button>
   );
 }
@@ -357,7 +309,7 @@ function ScaleSwatch({
       onClick={() => setScale(percent)}
       title={`${label} — ${percent}%`}
       className={cn(
-        "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+        "rounded-surface text-body flex flex-col items-center gap-1 border p-2 transition-colors",
         active
           ? "border-primary bg-primary/10 text-foreground"
           : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
@@ -369,7 +321,7 @@ function ScaleSwatch({
       >
         Aa
       </span>
-      <span className="text-2xs font-medium">{percent}%</span>
+      <span className="text-caption font-medium">{percent}%</span>
     </button>
   );
 }

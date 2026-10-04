@@ -27,7 +27,9 @@ export function summarizeUnappliedWork(
   const nt = s.newTables[key];
   if (nt?.has_draft) parts.push("table definition");
   if (include_queries && s.sqlTabs[key]?.is_dirty)
-    parts.push("unsaved queries");
+    parts.push(
+      key.startsWith("aggregation:") ? "unsaved pipeline" : "unsaved queries",
+    );
   return parts;
 }
 

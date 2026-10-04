@@ -1,4 +1,4 @@
-use crate::api::{FieldShape, TableInfo, TableSchema};
+use crate::api::{FieldShape, SchemaGraphResult, TableInfo, TableSchema};
 use super::types::{CatalogOverview, DbResult, RoleDetail, SchemaObject, SchemaObjectKind};
 use super::registry::with_connection;
 
@@ -104,7 +104,7 @@ pub async fn field_tree(
     res
 }
 
-named_ddl_op!(set_active_schema, set_active_schema, "schema", "SET SCHEMA {}");
+named_ddl_op!(set_active_schema, set_active_schema, "schema", "SET SCHEMA {}", "app");
 
 /// Create a new collection (MongoDB). `database` (`None` = this
 /// connection's own primary database) targets a sibling database's catalog
@@ -124,16 +124,15 @@ pub async fn create_collection(
     })
     .await;
     match &res {
-        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "app"),
-        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "app"),
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "user"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "user"),
     }
     res
 }
 
 /// Refresh a materialized view. `database`/`schema`: `None` = this
 /// connection's own primary database / active schema — see
-/// `DbAdapter::table_schema`'s doc comment for the general semantics. A
-/// sidebar action, never the editor — app-initiated.
+/// `DbAdapter::table_schema`'s doc comment for the general semantics.
 pub async fn refresh_matview(
     conn_id: &str,
     database: Option<&str>,
@@ -150,14 +149,13 @@ pub async fn refresh_matview(
     })
     .await;
     match &res {
-        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "app"),
-        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "app"),
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "user"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "user"),
     }
     res
 }
 
-/// Drop a schema; `cascade` also drops every object inside it. A
-/// sidebar/schema-designer action, never the editor — app-initiated.
+/// Drop a schema; `cascade` also drops every object inside it.
 pub async fn drop_schema(conn_id: &str, name: &str, cascade: bool) -> DbResult<()> {
     let t = std::time::Instant::now();
     let target = format!("DROP SCHEMA {}{}", name, if cascade { " CASCADE" } else { "" });
@@ -167,8 +165,8 @@ pub async fn drop_schema(conn_id: &str, name: &str, cascade: bool) -> DbResult<(
     })
     .await;
     match &res {
-        Ok(()) => crate::activity::log_ok_origin(conn_id, "drop_table", &target, t, 0, "app"),
-        Err(e) => crate::activity::log_err_origin(conn_id, "drop_table", &target, t, e, "app"),
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "drop_table", &target, t, 0, "user"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "drop_table", &target, t, e, "user"),
     }
     res
 }
@@ -179,9 +177,7 @@ pub async fn active_schema(conn_id: &str) -> DbResult<String> {
 }
 
 /// Schema introspection — the Schema tab, the sidebar tree, and autocomplete
-/// prefetching all funnel through here, and none of them are the SQL/Mongo
-/// editor, so this always logs as app-initiated (see `run_sql`/`run_mongo`
-/// for the only "user" sources).
+/// prefetching all funnel through here, so this always logs as app-initiated.
 pub async fn table_schema(
     conn_id: &str,
     database: Option<&str>,
@@ -207,4 +203,34 @@ pub async fn table_schema(
         Err(e) => crate::activity::log_err_origin(conn_id, "schema", &target, t, e, "app"),
     }
     res.map(|(schema, _)| schema)
+}
+
+/// The ER diagram's whole schema graph. Logged like `table_schema`, with
+/// every catalog statement it ran.
+pub async fn schema_graph(
+    conn_id: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+) -> DbResult<SchemaGraphResult> {
+    let t = std::time::Instant::now();
+    let target = format!("schema graph {}", schema.unwrap_or(""));
+    let database = database.map(str::to_string);
+    let schema = schema.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.schema_graph(database.as_deref(), schema.as_deref()).await
+    })
+    .await;
+    match &res {
+        Ok((graph, stmts)) if !stmts.is_empty() => crate::activity::log_stmt_ok_origin(
+            conn_id,
+            "schema",
+            &stmts.join("\n\n"),
+            t,
+            graph.tables.len() as i64,
+            "app",
+        ),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "schema", &target, t, 0, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "schema", &target, t, e, "app"),
+    }
+    res.map(|(graph, statements)| SchemaGraphResult { graph, statements })
 }

@@ -79,8 +79,8 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-accent/40 flex min-w-0 flex-col overflow-hidden rounded-lg border">
-      <h3 className="border-b px-3 py-2 text-sm font-medium">{title}</h3>
+    <section className="bg-accent/40 rounded-surface flex min-w-0 flex-col overflow-hidden border">
+      <h3 className="text-body border-b px-3 py-2 font-medium">{title}</h3>
       <div className="max-h-80 min-h-0 overflow-auto">{children}</div>
     </section>
   );

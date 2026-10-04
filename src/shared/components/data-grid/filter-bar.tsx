@@ -113,7 +113,7 @@ export function FilterBar({
               size="iconXs"
               variant="secondary"
               className={cn(
-                "h-6 gap-1 font-mono text-xs",
+                "text-small h-6 gap-1 font-mono",
                 active_count > 0
                   ? "text-info hover:bg-info/15"
                   : "text-muted-foreground",
@@ -141,7 +141,9 @@ export function FilterBar({
           />
         </PopoverContent>
       </Popover>
-      <span className="shrink-0 font-mono text-xs text-orange-400">Where</span>
+      <span className="text-muted-foreground text-small shrink-0 font-mono">
+        Where
+      </span>
       <Popover open={textFilterOpen} onOpenChange={setTextFilterOpen}>
         <PopoverTrigger
           render={
@@ -149,7 +151,7 @@ export function FilterBar({
               size="sm"
               variant="ghost"
               className={cn(
-                "group h-6 w-full min-w-0 flex-1 cursor-text! justify-between gap-1 truncate px-2 font-mono text-xs hover:bg-transparent",
+                "group text-small h-6 w-full min-w-0 flex-1 cursor-text! justify-between gap-1 truncate px-2 font-mono hover:bg-transparent",
                 active_count > 0 ? "text-info" : "text-muted-foreground",
               )}
             >
@@ -168,7 +170,7 @@ export function FilterBar({
                       : "e.g. age >= 18")}
                 </span>
                 {active_count > 0 && (
-                  <span className="bg-info/15 text-info shrink-0 rounded px-1 text-[10px] font-semibold">
+                  <span className="bg-info/15 text-info text-caption shrink-0 rounded px-1 font-semibold">
                     {active_count}
                   </span>
                 )}
@@ -191,7 +193,7 @@ export function FilterBar({
                 compact
                 lineNumbers={false}
                 foldable={false}
-                className="rounded-md"
+                className="rounded-control"
                 extraExtensions={mongoExtraExtensions}
               />
             ) : (
@@ -203,7 +205,7 @@ export function FilterBar({
                 lintEnabled={false}
                 showLineNumber={false}
                 onKeyDown={handleKeyDown}
-                className="rounded-md"
+                className="rounded-control"
                 frameLayer={false}
                 autoCompletion={false}
                 placeholder="e.g. age >= 18 AND name LIKE 'a%'"

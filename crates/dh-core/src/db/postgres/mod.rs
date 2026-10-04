@@ -12,9 +12,13 @@ mod rows;
 mod cancel;
 mod exec;
 mod stream;
+mod compare;
 #[cfg(test)]
 mod stream_tests;
 mod catalog;
+mod graph;
+#[cfg(test)]
+mod graph_tests;
 mod objects;
 mod query;
 mod explain;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
+  filterToMatch,
   mongoFieldTree,
   tableSchema,
   type FieldShape,
@@ -20,9 +21,11 @@ import { JsonViewer } from "@/features/inspector";
 import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 import { ModeTabs } from "./mode-tabs";
 import { FieldsTree, MongoSchemaEditor } from "@/features/schema-designer";
-import { useStudioStore, usePaneMode } from "@/shared/store";
+import { useStudioStore, usePaneMode, type PaneMode } from "@/shared/store";
+import { CollectionDiagram } from "./table-diagram";
 import type { GridFilter } from "@/shared/components/data-grid/types";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Workflow } from "lucide-react";
+import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 
 export function MongoCollectionPane({
@@ -30,12 +33,15 @@ export function MongoCollectionPane({
   tab_key,
   database,
   collection,
+  initial_filter,
   on_modified,
 }: {
   conn_id: string;
   tab_key: string;
   database: string;
   collection: string;
+  /** A filter document the grid starts with. */
+  initial_filter?: string;
   on_modified: () => void;
 }) {
   // Subscribe to the grid's bridge so the pane re-renders with its live state
@@ -60,15 +66,19 @@ export function MongoCollectionPane({
   const mode = usePaneMode(conn_id, tab_key);
   const setPaneMode = useStudioStore((s) => s.setPaneMode);
   const setMode = useCallback(
-    (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
+    (m: PaneMode) => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
   );
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
 
   const [schema, setSchema] = useState<TableSchema | null>(null);
   const [failed, setFailed] = useState(false);
   const [fail_error, setFailError] = useState<string | null>(null);
   const [filters, setFilters] = useState<GridFilter[]>([]);
-  const [custom_where, setCustomWhere] = useState("");
+  const [custom_where, setCustomWhere] = useState(initial_filter ?? "");
+  // The header element the Diagram mode renders its controls into; a state
+  // callback ref so the diagram renders again once it exists.
+  const [diagram_slot, setDiagramSlot] = useState<HTMLElement | null>(null);
   const [refresh_rev, setRefreshRev] = useState(0);
   const [schema_rev, setSchemaRev] = useState(0);
 
@@ -174,6 +184,19 @@ export function MongoCollectionPane({
     setFilters((cur) =>
       cur.map((f) => (f.id === id ? { ...f, conjunction } : f)),
     );
+  // A new builder tab on this collection, its first `$match` holding the
+  // grid's filter. A filter the seed can't read goes in as typed, so the
+  // card shows why.
+  const open_aggregation = () => {
+    const raw = custom_where.trim() || null;
+    void filterToMatch(filters, raw)
+      .catch(() => raw)
+      .then((seed) =>
+        useStudioStore
+          .getState()
+          .openAggregation(conn_id, database, collection, seed),
+      );
+  };
   const clear_filters = () => {
     setFilters([]);
     setCustomWhere("");
@@ -220,6 +243,7 @@ export function MongoCollectionPane({
   const is_loading =
     !failed &&
     !(paused && mode === "data") &&
+    mode !== "diagram" &&
     (mode === "data"
       ? !gridBridge || !!gridBridge.loading
       : !schema || !!schemaEdit?.busy);
@@ -245,6 +269,12 @@ export function MongoCollectionPane({
           />
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {mode === "diagram" && (
+            <div
+              ref={setDiagramSlot}
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+            />
+          )}
           {mode === "data" && gridBridge && (
             <GridActionBar
               bridge={gridBridge}
@@ -275,9 +305,23 @@ export function MongoCollectionPane({
             />
           )}
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={open_aggregation}
+          title={
+            filters.length > 0 || custom_where.trim()
+              ? "Build an aggregation on this collection, starting from the current filter"
+              : "Build an aggregation on this collection"
+          }
+        >
+          <Workflow className="size-3.5" />
+          Aggregate
+        </Button>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {failed && (
+        {failed && mode !== "diagram" && (
           <div
             role="alert"
             className={cn(
@@ -287,7 +331,7 @@ export function MongoCollectionPane({
                 : "items-center px-3 py-8 text-center",
             )}
           >
-            <p className="text-destructive flex items-center gap-2 text-sm">
+            <p className="text-destructive text-body flex items-center gap-2">
               <AlertCircle className="h-4 w-4" />
               {mode === "data"
                 ? `Couldn’t load the structure of “${collection}”, so editing is off.`
@@ -296,7 +340,7 @@ export function MongoCollectionPane({
             {fail_error && (
               <pre
                 className={cn(
-                  "border-destructive/30 bg-destructive/5 text-destructive overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap",
+                  "border-destructive/30 bg-destructive/5 text-destructive rounded-control text-small overflow-x-auto border p-2 text-left font-mono whitespace-pre-wrap",
                   mode === "data" ? "max-h-20 overflow-y-auto" : "max-w-lg",
                 )}
               >
@@ -386,6 +430,14 @@ export function MongoCollectionPane({
               on_dropped={on_modified}
             />
           </div>
+        )}
+        {mode === "diagram" && conn && (
+          <CollectionDiagram
+            conn={conn}
+            database={database}
+            collection={collection}
+            toolbarHost={diagram_slot}
+          />
         )}
         {/* One overlay for the whole span, including the moment before the
             grid has published its own bridge, so its style never swaps. */}

@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { usePaneMode, useStudioStore } from "@/shared/store";
+import { usePaneMode, useStudioStore, type PaneMode } from "@/shared/store";
 import { executeOp, tableSchema, type TableSchema } from "@/shared/api";
 import { Grid } from "@/shared/components/data-grid/grid";
 import { QueryLoadingOverlay } from "@/shared/components/data-grid/query-loading-overlay";
@@ -28,6 +28,7 @@ import {
 } from "@/shared/components/data-grid/types";
 import { cn } from "@/shared/lib/utils";
 import { ModeTabs } from "./mode-tabs";
+import { TableDiagram } from "./table-diagram";
 import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
 
 // The schema editor is a large surface; load it only when its tab first
@@ -101,9 +102,10 @@ export function TablePane({
   const schemaEdit = useStudioStore((s) => s.schemaEdits[tab_key] ?? null);
   const schemaPane = useStudioStore((s) => s.schemaPanes[tab_key] ?? null);
   const setMode = useCallback(
-    (m: "data" | "schema") => setPaneMode(conn_id, tab_key, m),
+    (m: PaneMode) => setPaneMode(conn_id, tab_key, m),
     [setPaneMode, conn_id, tab_key],
   );
+  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
 
   // Data pane state: schema, distinct values, and the UI filters (also used by
   // the FilterBar in this pane's header).
@@ -114,6 +116,9 @@ export function TablePane({
   const [distinct, setDistinct] = useState<DistinctMap>({});
   const [filters, setFilters] = useState<GridFilter[]>(initial_filters ?? []);
   const [custom_where, setCustomWhere] = useState("");
+  // The header element the Diagram mode renders its controls into; a state
+  // callback ref so the diagram renders again once it exists.
+  const [diagram_slot, setDiagramSlot] = useState<HTMLElement | null>(null);
 
   // Stable callback so the grid bridge memo doesn't recompute every render.
   const bump_refresh = useCallback(() => setRefreshRev((r) => r + 1), []);
@@ -322,6 +327,7 @@ export function TablePane({
   const is_loading =
     !failed &&
     !(paused && mode === "data") &&
+    mode !== "diagram" &&
     (mode === "data" ? !gridBridge || grid_loading : !schema || schema_busy);
   const [loading_start, setLoadingStart] = useState<number | null>(null);
   useEffect(() => {
@@ -348,13 +354,19 @@ export function TablePane({
               on_change={setMode}
             />
           ) : (
-            <span className="text-muted-foreground px-1 py-1 text-xs font-medium">
+            <span className="text-muted-foreground text-small px-1 py-1 font-medium">
               {schema?.kind === "matview" ? "Materialized view" : "View"} ·
               read-only data
             </span>
           )}
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          {mode === "diagram" && (
+            <div
+              ref={setDiagramSlot}
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+            />
+          )}
           {mode === "data" && gridBridge && (
             <GridActionBar
               bridge={gridBridge}
@@ -399,7 +411,7 @@ export function TablePane({
         </div>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {failed && (
+        {failed && mode !== "diagram" && (
           <SchemaLoadError
             table={table}
             error={fail_error}
@@ -494,6 +506,15 @@ export function TablePane({
             </Suspense>
           </div>
         )}
+        {mode === "diagram" && conn && (
+          <TableDiagram
+            conn={conn}
+            table={table}
+            database={database}
+            schema={db_schema}
+            toolbarHost={diagram_slot}
+          />
+        )}
         {/* Covers the whole loading span, including the moment before the
             grid has published its own bridge. */}
         {loading_start !== null && (
@@ -528,7 +549,7 @@ function SchemaLoadError({
           : "items-center px-3 py-8 text-center",
       )}
     >
-      <p className="text-destructive text-sm">
+      <p className="text-destructive text-body">
         {compact
           ? `Couldn't load the structure of “${table}”, so editing is off.`
           : `Failed to load schema for “${table}”.`}
@@ -536,7 +557,7 @@ function SchemaLoadError({
       {error && (
         <pre
           className={cn(
-            "border-destructive/30 bg-destructive/5 text-destructive overflow-x-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap",
+            "border-destructive/30 bg-destructive/5 text-destructive rounded-control text-small overflow-x-auto border p-2 text-left font-mono whitespace-pre-wrap",
             compact ? "max-h-20 overflow-y-auto" : "max-w-lg",
           )}
         >

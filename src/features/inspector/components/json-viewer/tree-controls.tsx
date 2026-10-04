@@ -48,12 +48,12 @@ export function TreeControls({
           }}
           placeholder="Search in row…"
           disabled={disabled}
-          className="h-6 w-full min-w-0 pl-6 text-xs"
+          className="text-small h-6 w-full min-w-0 pl-6"
         />
       </label>
       {searching && (
         <>
-          <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
+          <span className="text-muted-foreground text-caption shrink-0 tabular-nums">
             {matchCount === 0
               ? "0/0"
               : `${(activeMatch % matchCount) + 1}/${matchCount}`}

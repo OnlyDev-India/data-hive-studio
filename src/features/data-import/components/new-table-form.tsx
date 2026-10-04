@@ -21,8 +21,8 @@ export function NewTableForm({ columns, onColumns, db }: Props) {
   return (
     <div>
       <div>
-        <table className="w-full text-sm">
-          <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
+        <table className="text-body w-full">
+          <thead className="bg-muted text-muted-foreground text-small sticky top-0 z-10">
             <tr>
               <th className="px-3 py-1.5 text-left font-medium">
                 {docs ? "Field" : "Column"}
@@ -48,7 +48,7 @@ export function NewTableForm({ columns, onColumns, db }: Props) {
                 </td>
                 <td className="px-3 py-1">
                   <select
-                    className="bg-input/30 h-8 w-full rounded-md border px-2 text-sm"
+                    className="bg-input/30 rounded-control text-body h-8 w-full border px-2"
                     aria-label={`Type for ${c.name}`}
                     value={c.kind}
                     onChange={(e) =>

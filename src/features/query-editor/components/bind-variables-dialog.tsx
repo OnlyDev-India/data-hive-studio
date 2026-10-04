@@ -63,7 +63,7 @@ export function BindVariablesDialog({
         <div className="flex flex-col gap-3">
           {names?.map((name, i) => (
             <div key={name} className="flex flex-col gap-1">
-              <Label className="font-mono text-xs">{name}</Label>
+              <Label className="text-small font-mono">{name}</Label>
               <Input
                 autoFocus={i === 0}
                 value={values[name] ?? ""}
@@ -78,13 +78,13 @@ export function BindVariablesDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
             Cancel
-            <kbd className="bg-muted text-muted-foreground text-3xs ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+            <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
               ESC
             </kbd>
           </Button>
           <Button onClick={submit}>
             Run
-            <kbd className="bg-muted text-muted-foreground text-3xs ml-1 rounded-md border px-1.5 py-0.5 font-medium">
+            <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
               ENTER
             </kbd>
           </Button>

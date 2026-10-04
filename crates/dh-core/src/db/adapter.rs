@@ -1,21 +1,26 @@
 use crate::db::RunHandle;
+use super::compare::{ScanOut, ScanSpec, ScriptSyntax};
 use std::sync::Arc;
 use async_trait::async_trait;
 use crate::api::{
     FieldShape,
     MongoRunResult,
+    PipelinePreviewRequest,
+    PipelineRunRequest,
+    PreviewSummary,
     PlanResult,
     ImportCapabilities,
     ImportReport,
     ImportRequest,
     QueryOp,
     QueryResult,
+    SchemaGraph,
     SchemaOp,
     TableInfo,
     TableSchema,
 };
 use serde_json;
-use super::types::{BatchSink, CatalogOverview, DbError, DbResult, OpOutcome, RoleDetail, SchemaObject, SchemaObjectKind};
+use super::types::{BatchSink, GraphSink, PreviewSink, CatalogOverview, DbError, DbResult, OpOutcome, RoleDetail, SchemaObject, SchemaObjectKind};
 
 /// One database family's driver: connection handling plus every operation
 /// the UI can perform. SQLite ships as the built-in adapter; other engines
@@ -40,6 +45,31 @@ pub trait DbAdapter: Send + Sync {
         schema: Option<&str>,
         table: &str,
     ) -> DbResult<(TableSchema, Vec<String>)>;
+    /// Every table of one schema with its columns and foreign keys, for the
+    /// ER diagram, in a fixed number of catalog queries. Returns the
+    /// statements it ran. `database`/`schema` as in `table_schema`.
+    async fn schema_graph(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+    ) -> DbResult<(SchemaGraph, Vec<String>)> {
+        Err(DbError::InvalidOperation(
+            "the ER diagram is not supported by this adapter".into(),
+        ))
+    }
+    /// Sample every collection of `database` for the Mongo ER diagram,
+    /// sending each through `sink` with the links it suggests. Stops early
+    /// when `run` is cancelled. Non-Mongo adapters reject it.
+    async fn mongo_graph(
+        &self,
+        _database: &str,
+        _run: Option<&RunHandle>,
+        _sink: GraphSink<'_>,
+    ) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "the collection diagram is only available on MongoDB connections".into(),
+        ))
+    }
     /// `database`: `None` = this connection's own database. `schema`, when
     /// given (Postgres only — ignored elsewhere), resolves every
     /// UNQUALIFIED name in `sql` through that schema instead of the
@@ -127,6 +157,21 @@ pub trait DbAdapter: Send + Sync {
         schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> DbResult<Vec<String>>;
+    /// The language a data sync script for this engine is written in.
+    fn script_syntax(&self) -> ScriptSyntax;
+    /// Read one side of a table data diff, ordered by the key and read only,
+    /// sending row batches to `out` until it says stop. Arms a canceller on
+    /// `run` (with `add_canceller`, as the other side shares the run).
+    async fn compare_scan(
+        &self,
+        _spec: &ScanSpec<'_>,
+        _run: &RunHandle,
+        _out: &ScanOut,
+    ) -> DbResult<()> {
+        Err(DbError::InvalidOperation(
+            "comparing table data is not supported by this adapter yet".into(),
+        ))
+    }
     /// Duplicate a table/collection under a new name; returns the statements
     /// that ran (activity log). `copy_data` is honored by MongoDB (the
     /// sidebar's right-click "Duplicate collection" offers a copy-data
@@ -336,6 +381,24 @@ pub trait DbAdapter: Send + Sync {
         Err(DbError::InvalidOperation(
             "Mongo console commands are only available on MongoDB connections".into(),
         ))
+    }
+    /// Preview aggregation builder cards on a capped slice. MongoDB only.
+    async fn mongo_pipeline_preview(
+        &self,
+        _req: &PipelinePreviewRequest,
+        _run: Option<&RunHandle>,
+        _sink: PreviewSink<'_>,
+    ) -> DbResult<PreviewSummary> {
+        Err(DbError::InvalidOperation("pipelines are only available on MongoDB connections".into()))
+    }
+    /// Run an aggregation builder pipeline in full, streaming. MongoDB only.
+    async fn mongo_pipeline_run(
+        &self,
+        _req: &PipelineRunRequest,
+        _run: Option<&RunHandle>,
+        _sink: BatchSink<'_>,
+    ) -> DbResult<MongoRunResult> {
+        Err(DbError::InvalidOperation("pipelines are only available on MongoDB connections".into()))
     }
     /// Recursively inferred nested field shape for a MongoDB collection (spec
     /// 0001's "Fields" view) — sampled the same way as `inferred_schema`

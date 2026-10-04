@@ -26,8 +26,8 @@ export function SqlFormatSection() {
   return (
     <div className="flex h-full flex-col gap-6">
       <header>
-        <h2 className="text-lg font-semibold">SQL Format</h2>
-        <p className="text-muted-foreground mt-0.5 text-sm">
+        <h2 className="text-heading font-semibold">SQL Format</h2>
+        <p className="text-muted-foreground text-body mt-0.5">
           Options for the SQL editor's Format button. Keyword case also applies
           to keyword suggestions.
         </p>
@@ -44,14 +44,14 @@ export function SqlFormatSection() {
                 onClick={() => setKeywordCase(c.id)}
                 title={c.preview}
                 className={cn(
-                  "flex flex-col items-start gap-1 rounded-lg border p-2 text-sm transition-colors",
+                  "rounded-surface text-body flex flex-col items-start gap-1 border p-2 transition-colors",
                   keyword_case === c.id
                     ? "border-primary bg-primary/10 text-foreground"
                     : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
                 )}
               >
                 <span className="font-medium">{c.label}</span>
-                <code className="text-2xs font-mono">{c.preview}</code>
+                <code className="text-caption font-mono">{c.preview}</code>
               </button>
             ))}
           </div>
@@ -66,14 +66,14 @@ export function SqlFormatSection() {
                 aria-pressed={indent_width === n}
                 onClick={() => setIndentWidth(n)}
                 className={cn(
-                  "flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors",
+                  "rounded-surface text-body flex flex-col items-center gap-1 border p-2 transition-colors",
                   indent_width === n
                     ? "border-primary bg-primary/10 text-foreground"
                     : "text-muted-foreground hover:border-foreground/20 hover:bg-muted/40",
                 )}
               >
                 <span className="font-medium">{n}</span>
-                <span className="text-2xs">spaces</span>
+                <span className="text-caption">spaces</span>
               </button>
             ))}
           </div>
@@ -95,11 +95,11 @@ function SettingCard({
   return (
     <div
       className={cn(
-        "bg-muted/40 flex flex-col gap-2.5 rounded-xl border p-4",
+        "bg-muted/40 rounded-dialog flex flex-col gap-2.5 border p-4",
         className,
       )}
     >
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-body font-medium">{label}</span>
       {children}
     </div>
   );

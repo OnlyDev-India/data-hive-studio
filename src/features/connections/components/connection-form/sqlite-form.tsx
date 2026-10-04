@@ -50,8 +50,8 @@ export function SqliteForm({
           <p
             className={
               v.path
-                ? "min-w-0 flex-1 truncate font-mono text-xs"
-                : "text-muted-foreground min-w-0 flex-1 text-xs"
+                ? "text-small min-w-0 flex-1 truncate font-mono"
+                : "text-muted-foreground text-small min-w-0 flex-1"
             }
             title={v.path ?? undefined}
           >

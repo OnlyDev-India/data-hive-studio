@@ -13,10 +13,10 @@ export function SummaryCards({
       {items.map(([label, value]) => (
         <div
           key={label}
-          className="bg-accent/40 min-w-0 rounded-lg border px-3 py-2"
+          className="bg-accent/40 rounded-surface min-w-0 border px-3 py-2"
         >
-          <div className="text-muted-foreground text-xs">{label}</div>
-          <div className="truncate text-sm font-medium" title={value}>
+          <div className="text-muted-foreground text-small">{label}</div>
+          <div className="text-body truncate font-medium" title={value}>
             {value}
           </div>
         </div>

@@ -63,8 +63,8 @@ export function ColumnMapping({
     onMapping(next);
   }
   return (
-    <table className="w-full text-sm">
-      <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
+    <table className="text-body w-full">
+      <thead className="bg-muted text-muted-foreground text-small sticky top-0 z-10">
         <tr>
           <th className="border-b px-3 py-2 text-left font-medium">Source</th>
           <th className="border-b px-3 py-2 text-left font-medium">Target</th>
@@ -78,7 +78,7 @@ export function ColumnMapping({
             </td>
             <td className="px-3 py-1.5">
               <select
-                className="bg-input/30 h-8 w-full rounded-md border px-2 font-mono text-sm"
+                className="bg-input/30 rounded-control text-body h-8 w-full border px-2 font-mono"
                 aria-label={`Target for ${h || `column ${i + 1}`}`}
                 value={targetOf(i)}
                 onChange={(e) => pick(i, e.target.value)}

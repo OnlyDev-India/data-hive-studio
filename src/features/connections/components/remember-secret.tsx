@@ -13,7 +13,7 @@ export function RememberSecret({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <label className="flex items-center gap-2 text-sm">
+      <label className="text-body flex items-center gap-2">
         <Checkbox
           checked={checked}
           onCheckedChange={(v) => onChange(v === true)}

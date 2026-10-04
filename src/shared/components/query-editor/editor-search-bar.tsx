@@ -183,7 +183,7 @@ export function EditorSearchBar({
   const query_invalid = useRegex && query !== "" && !queryValid;
 
   return (
-    <div className="bg-popover absolute top-2 right-2 z-30 flex flex-col gap-1 rounded-md border p-1 shadow-md">
+    <div className="bg-popover rounded-control absolute top-2 right-2 z-30 flex flex-col gap-1 border p-1 shadow-md">
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
@@ -210,7 +210,7 @@ export function EditorSearchBar({
           aria-label="Find"
           aria-invalid={query_invalid}
           className={cn(
-            "bg-muted h-6 w-40 border-none text-xs shadow-none focus-visible:ring-0",
+            "bg-muted text-small h-6 w-40 border-none shadow-none focus-visible:ring-0",
             query_invalid && "text-destructive",
           )}
           onKeyDown={(e) => {
@@ -247,7 +247,7 @@ export function EditorSearchBar({
         >
           <Regex className="size-3.5" />
         </Button>
-        <span className="text-muted-foreground text-2xs w-12 shrink-0 text-center tabular-nums">
+        <span className="text-muted-foreground text-caption w-12 shrink-0 text-center tabular-nums">
           {count === 0 ? "0/0" : `${active + 1}/${count}`}
         </span>
         <Button
@@ -289,7 +289,7 @@ export function EditorSearchBar({
             onChange={(e) => apply_replace_text(e.target.value)}
             placeholder="Replace…"
             aria-label="Replace with"
-            className="bg-muted h-6 w-40 border-none text-xs shadow-none focus-visible:ring-0"
+            className="bg-muted text-small h-6 w-40 border-none shadow-none focus-visible:ring-0"
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.key === "Enter") {

@@ -1,7 +1,7 @@
 import type { ConnectionInfo } from "../api/types";
 import { useStudioStore } from "./store";
 import { tabKey } from "./tab-utils";
-import type { WorkspaceTabs } from "./types";
+import type { PaneMode, WorkspaceTabs } from "./types";
 import { DEFAULT_WORKSPACE } from "./workspace";
 
 /** The workspace (tabs) for a connection. Stable default until the first action. */
@@ -9,8 +9,8 @@ export function useWorkspace(connId: string): WorkspaceTabs {
   return useStudioStore((s) => s.workspaces[connId] ?? DEFAULT_WORKSPACE);
 }
 
-/** The visible data/schema mode of a table pane (keyed by tab instance). */
-export function usePaneMode(connId: string, tabKey: string): "data" | "schema" {
+/** The visible data/schema/diagram mode of a table pane (keyed by tab instance). */
+export function usePaneMode(connId: string, tabKey: string): PaneMode {
   return useStudioStore(
     (s) => s.workspaces[connId]?.paneModes[tabKey] ?? "data",
   );

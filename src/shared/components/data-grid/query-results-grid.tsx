@@ -331,14 +331,14 @@ export function QueryResultsGrid({
               className="flex h-full flex-col items-center justify-center gap-3 px-3 py-8 text-center"
             >
               <AlertCircle className="text-destructive size-5" />
-              <p className="text-sm">The query failed.</p>
-              <pre className="border-destructive/30 bg-destructive/5 text-destructive max-h-64 max-w-2xl overflow-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap">
+              <p className="text-body">The query failed.</p>
+              <pre className="border-destructive/30 bg-destructive/5 text-destructive rounded-control text-small max-h-64 max-w-2xl overflow-auto border p-2 text-left font-mono whitespace-pre-wrap">
                 {result.error}
               </pre>
             </div>
           ) : ctl.row_count === 0 ? (
             !loading && (
-              <p className="text-muted-foreground px-3 py-8 text-center text-sm">
+              <p className="text-muted-foreground text-body px-3 py-8 text-center">
                 No rows.
               </p>
             )

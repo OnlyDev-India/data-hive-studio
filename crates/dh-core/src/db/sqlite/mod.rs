@@ -7,6 +7,7 @@
 
 mod interrupt;
 mod catalog;
+mod graph;
 mod query;
 mod explain;
 mod edit;
@@ -14,6 +15,7 @@ mod schema_ops;
 mod alter;
 mod duplicate;
 mod import_rows;
+mod compare;
 mod adapter;
 #[cfg(test)]
 mod import_tests;

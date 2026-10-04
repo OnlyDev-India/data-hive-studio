@@ -1,4 +1,5 @@
 import type { StoreApi } from "zustand";
+import { setSaveAppActivity } from "@/shared/api";
 import type { StudioStore } from "@/shared/store/types";
 
 type SetState = StoreApi<StudioStore>["setState"];
@@ -7,13 +8,12 @@ type SetState = StoreApi<StudioStore>["setState"];
  *  `activity://entry` Tauri event; newest first, capped, session-only. */
 export function activityActions(set: SetState) {
   return {
-    // Off by default — most entries logged as "app" origin are background
-    // schema-introspection noise (autocomplete prefetch, sidebar cache
-    // warming), not something the user asked to see. Persisted (see
-    // store.ts's `partialize`) so the choice survives a restart.
-    showAppActivity: false,
-    setShowAppActivity(show: boolean) {
-      set({ showAppActivity: show });
+    // Persisted (see store.ts's `partialize`). Rust owns the gate, so every
+    // change is pushed to it; the shell sends the rehydrated value at startup.
+    saveAppActivity: false,
+    setSaveAppActivity(enabled: boolean) {
+      set({ saveAppActivity: enabled });
+      void setSaveAppActivity(enabled).catch(() => {});
     },
     // Backend caps the ring buffer at 500; the store mirrors that bound.
     // Explicit type (not just `[]`, which TS infers as `never[]`) so this

@@ -117,7 +117,7 @@ export function AddIndexDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3">
           {localError && (
-            <div className="border-destructive bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm">
+            <div className="border-destructive bg-destructive/10 text-destructive rounded-control text-body border px-3 py-2">
               {localError}
             </div>
           )}
@@ -128,7 +128,7 @@ export function AddIndexDialog({
             placeholder="index name"
             aria-label="Index name"
           />
-          <label className="flex items-center gap-2 text-sm">
+          <label className="text-body flex items-center gap-2">
             <Switch
               checked={unique}
               onCheckedChange={(v) => setUnique(v === true)}
@@ -137,7 +137,7 @@ export function AddIndexDialog({
             Unique index
           </label>
           {mongo && (
-            <label className="flex items-center gap-2 text-sm">
+            <label className="text-body flex items-center gap-2">
               <Switch
                 checked={sparse}
                 onCheckedChange={(v) => setSparse(v === true)}
@@ -147,16 +147,16 @@ export function AddIndexDialog({
             </label>
           )}
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-xs font-medium">
+            <span className="text-muted-foreground text-small font-medium">
               Columns{mongo ? " (click to flip sort direction)" : ""}
             </span>
             {columns.length === 0 ? (
-              <span className="text-muted-foreground text-sm">
+              <span className="text-muted-foreground text-body">
                 No columns available.
               </span>
             ) : (
               columns.map((col) => (
-                <div key={col} className="flex items-center gap-2 text-sm">
+                <div key={col} className="text-body flex items-center gap-2">
                   <label className="flex flex-1 items-center gap-2">
                     <Checkbox
                       checked={selected.includes(col)}
@@ -168,7 +168,7 @@ export function AddIndexDialog({
                     <button
                       type="button"
                       title={`Sort ${(dirs[col] ?? 1) < 0 ? "descending" : "ascending"} — click to flip`}
-                      className="bg-muted text-muted-foreground hover:text-foreground flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs"
+                      className="bg-muted text-muted-foreground hover:text-foreground text-small flex items-center gap-0.5 rounded px-1.5 py-0.5"
                       onClick={() =>
                         setDirs((d) => ({
                           ...d,
@@ -193,8 +193,8 @@ export function AddIndexDialog({
           </div>
           {mongo && (
             <>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted-foreground text-xs font-medium">
+              <label className="text-body flex flex-col gap-1">
+                <span className="text-muted-foreground text-small font-medium">
                   TTL — expire documents after (seconds, optional)
                 </span>
                 <Input
@@ -205,8 +205,8 @@ export function AddIndexDialog({
                   placeholder="e.g. 3600"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted-foreground text-xs font-medium">
+              <label className="text-body flex flex-col gap-1">
+                <span className="text-muted-foreground text-small font-medium">
                   Partial filter expression (optional)
                 </span>
                 <Input

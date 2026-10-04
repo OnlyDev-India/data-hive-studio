@@ -229,15 +229,7 @@ fn find_command(coll: &str, args: &str) -> DbResult<Document> {
 }
 
 fn aggregate_command(coll: &str, args: &str) -> Result<Document, String> {
-    let parsed: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(args))
-        .map_err(|e| format!("invalid pipeline JSON: {e}"))?;
-    let Some(items) = parsed.as_array() else {
-        return Err("aggregate pipeline must be a JSON array".into());
-    };
-    let stages = items
-        .iter()
-        .map(|v| bson::to_document(v).map_err(|e| format!("invalid pipeline stage: {e}")))
-        .collect::<Result<Vec<Document>, String>>()?;
+    let stages = super::pipeline::stage_array(args)?;
     Ok(doc! { "aggregate": coll, "pipeline": stages, "cursor": {} })
 }
 

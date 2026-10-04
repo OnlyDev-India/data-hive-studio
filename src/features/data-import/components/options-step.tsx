@@ -3,7 +3,7 @@ import { Button, Checkbox, Input, Label, Switch } from "@/shared/components/ui";
 import { cn } from "@/shared/lib/utils";
 import type { Encoding, ParseOptions, ParsedFile } from "../lib/types";
 
-const SELECT = "bg-input/30 h-9 w-full rounded-md border px-2 text-sm";
+const SELECT = "bg-input/30 h-9 w-full rounded-control border px-2 text-body";
 const FORMATS = {
   csv: "CSV",
   json: "JSON",
@@ -91,7 +91,7 @@ export function OptionsStep(p: Props) {
         </Field>
       </div>
 
-      <section className="bg-accent/40 space-y-2 rounded-lg border p-3">
+      <section className="bg-accent/40 rounded-surface space-y-2 border p-3">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr]">
           <Field label="Target">
             <div className="grid grid-cols-2 gap-2">
@@ -105,12 +105,14 @@ export function OptionsStep(p: Props) {
                     aria-pressed={on}
                     onClick={() => p.onMode(c.mode)}
                     className={cn(
-                      "bg-input/30 rounded-md border px-3 py-2 text-left disabled:opacity-50",
+                      "bg-input/30 rounded-control border px-3 py-2 text-left disabled:opacity-50",
                       on && "border-foreground",
                     )}
                   >
-                    <span className="block text-sm font-medium">{c.title}</span>
-                    <span className="text-muted-foreground block truncate text-xs">
+                    <span className="text-body block font-medium">
+                      {c.title}
+                    </span>
+                    <span className="text-muted-foreground text-small block truncate">
                       {c.hint}
                     </span>
                   </button>
@@ -130,7 +132,7 @@ export function OptionsStep(p: Props) {
         </div>
       </section>
 
-      <section className="bg-accent/40 space-y-3 rounded-lg border p-3">
+      <section className="bg-accent/40 rounded-surface space-y-3 border p-3">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {text && (
             <Field label="Encoding">
@@ -177,7 +179,7 @@ export function OptionsStep(p: Props) {
         )}
       </section>
 
-      <div className="flex items-center gap-3 text-sm">
+      <div className="text-body flex items-center gap-3">
         <Button
           variant={p.stale ? "default" : "secondary"}
           onClick={p.onReload}
@@ -204,7 +206,7 @@ function Field({
 }) {
   return (
     <div className="min-w-0 space-y-1.5">
-      <div className="text-sm font-medium">{label}</div>
+      <div className="text-body font-medium">{label}</div>
       {children}
     </div>
   );

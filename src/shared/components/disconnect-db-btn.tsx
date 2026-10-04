@@ -13,7 +13,7 @@ const DisconnectDbBtn = ({ conn }: { conn: ConnectionInfo | null }) => {
     <span
       aria-disabled={!conn}
       className={cn(
-        "hover:text-destructive hover:bg-destructive/10 cursor-pointer rounded-sm p-0.5",
+        "hover:text-destructive hover:bg-destructive/10 rounded-inset cursor-pointer p-0.5",
         !conn && "cursor-not-allowed opacity-50",
       )}
       onClick={(e) => {

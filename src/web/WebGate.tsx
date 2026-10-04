@@ -103,14 +103,14 @@ export function WebGate({ children }: GateProps) {
       {children}
       <DialogPrimitive.Root open={state !== "ready"} onOpenChange={() => {}}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Backdrop className="fixed inset-0 z-100 bg-black/50" />
+          <DialogPrimitive.Backdrop className="bg-overlay fixed inset-0 z-100" />
           <DialogPrimitive.Popup className="bg-card fixed top-[50%] left-[50%] z-100 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-2xl border p-6 shadow-xl">
             {state === "prompt" ? (
               <form onSubmit={(e) => void submit(e)}>
-                <DialogPrimitive.Title className="text-lg font-semibold">
+                <DialogPrimitive.Title className="text-heading font-semibold">
                   Access key
                 </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-muted-foreground mt-1 text-sm">
+                <DialogPrimitive.Description className="text-muted-foreground text-body mt-1">
                   This server asks for an access key before it will connect to a
                   database.
                 </DialogPrimitive.Description>
@@ -124,7 +124,7 @@ export function WebGate({ children }: GateProps) {
                   onChange={(e) => setKey(e.target.value)}
                 />
                 {error && (
-                  <p className="text-destructive mt-2 text-xs">{error}</p>
+                  <p className="text-destructive text-small mt-2">{error}</p>
                 )}
                 <div className="mt-4 flex justify-end">
                   <Button type="submit" disabled={busy || !key.trim()}>
@@ -134,10 +134,10 @@ export function WebGate({ children }: GateProps) {
               </form>
             ) : state === "unreachable" ? (
               <>
-                <DialogPrimitive.Title className="text-lg font-semibold">
+                <DialogPrimitive.Title className="text-heading font-semibold">
                   Cannot reach the server
                 </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-destructive mt-2 text-xs break-words">
+                <DialogPrimitive.Description className="text-destructive text-small mt-2 break-words">
                   {error}
                 </DialogPrimitive.Description>
                 <div className="mt-4 flex justify-end">
@@ -146,10 +146,10 @@ export function WebGate({ children }: GateProps) {
               </>
             ) : (
               <>
-                <DialogPrimitive.Title className="text-lg font-semibold">
+                <DialogPrimitive.Title className="text-heading font-semibold">
                   DH Studio
                 </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-muted-foreground mt-6 flex items-center gap-2.5 text-sm">
+                <DialogPrimitive.Description className="text-muted-foreground text-body mt-6 flex items-center gap-2.5">
                   <Loader2 className="size-4 animate-spin" />
                   Connecting to the server…
                 </DialogPrimitive.Description>

@@ -1,7 +1,17 @@
 import type { StoreApi } from "zustand";
 import type { GridFilter } from "@/shared/components/data-grid/types";
 import { tabEquals, tabKey, type StudioTab } from "./tab-utils";
-import type { StudioStore, WorkspaceTabs } from "./types";
+import { useRelationGraphs } from "./relation-graphs";
+import type { TableRef } from "../api/types";
+import {
+  DEFAULT_AGGREGATION_SETUP,
+  EMPTY_COMPARE_SETUP,
+  type AggregationSetup,
+  type PaneMode,
+  type StudioStore,
+  type WorkspaceTabs,
+  type XY,
+} from "./types";
 import {
   addKeyToLeaf,
   allLeaves,
@@ -291,6 +301,238 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
+    openCompare(connId: string, left?: TableRef) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const id = cur.nextCompareId ?? 0;
+        const tab: StudioTab = { kind: "compare", conn_id: connId, id };
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextCompareId: id + 1 },
+          tab,
+        );
+        return {
+          workspaces: putWs(state.workspaces, connId, next),
+          compareTabs: {
+            ...state.compareTabs,
+            [tabKey(tab)]: { ...EMPTY_COMPARE_SETUP, left: left ?? null },
+          },
+        };
+      });
+    },
+    openAggregation(
+      connId: string,
+      database: string,
+      collection: string,
+      seedMatch?: string | null,
+      init?: Partial<AggregationSetup>,
+    ) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const id = cur.nextAggregationId ?? 0;
+        const tab: StudioTab = {
+          kind: "aggregation",
+          conn_id: connId,
+          database,
+          collection,
+          id,
+        };
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextAggregationId: id + 1 },
+          tab,
+        );
+        const stages = seedMatch
+          ? [
+              {
+                id: crypto.randomUUID(),
+                op: "$match",
+                body: seedMatch,
+                enabled: true,
+                collapsed: false,
+                view: "json" as const,
+                note: null,
+                title: null,
+              },
+            ]
+          : [];
+        return {
+          workspaces: putWs(state.workspaces, connId, next),
+          aggregationTabs: {
+            ...state.aggregationTabs,
+            [tabKey(tab)]: { ...DEFAULT_AGGREGATION_SETUP, stages, ...init },
+          },
+        };
+      });
+    },
+    openRelationDiagram(
+      connId: string,
+      opts: Parameters<StudioStore["openRelationDiagram"]>[1] = {},
+    ) {
+      const { schema, focusTable } = opts;
+      let key = "";
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const conn = state.open.find((c) => c.id === connId);
+        const database =
+          opts.database ?? (conn?.kind === "mongodb" ? conn.name : undefined);
+        const existing = cur.tabs.find(
+          (t) =>
+            t.kind === "relation-diagram" &&
+            t.database === database &&
+            t.schema === schema,
+        );
+        if (existing) {
+          key = tabKey(existing);
+          return {
+            workspaces: putWs(
+              state.workspaces,
+              connId,
+              focusExistingTab(cur, existing),
+            ),
+          };
+        }
+        const id = cur.nextRelationDiagramId ?? 0;
+        const tab: StudioTab = {
+          kind: "relation-diagram",
+          conn_id: connId,
+          ...(database !== undefined ? { database } : {}),
+          ...(schema !== undefined ? { schema } : {}),
+          id,
+        };
+        key = tabKey(tab);
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextRelationDiagramId: id + 1 },
+          tab,
+        );
+        return { workspaces: putWs(state.workspaces, connId, next) };
+      });
+      if (focusTable && key)
+        useRelationGraphs.getState().requestFocus(key, focusTable, schema);
+    },
+    setRelationDiagramTarget(
+      connId: string,
+      id: number,
+      target: { database?: string; schema?: string },
+    ) {
+      set((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const tab = cur.tabs.find(
+          (t) => t.kind === "relation-diagram" && t.id === id,
+        );
+        if (!tab || tab.kind !== "relation-diagram") return state;
+        const conn = state.open.find((c) => c.id === connId);
+        // Postgres files its own database as undefined, like the sidebar.
+        const database =
+          conn?.kind !== "mongodb" && target.database === conn?.name
+            ? undefined
+            : target.database;
+        const { schema } = target;
+        if (tab.database === database && tab.schema === schema) return state;
+        const other = cur.tabs.find(
+          (t) =>
+            t.kind === "relation-diagram" &&
+            t.id !== id &&
+            t.database === database &&
+            t.schema === schema,
+        );
+        if (other)
+          return {
+            workspaces: putWs(
+              state.workspaces,
+              connId,
+              focusExistingTab(cur, other),
+            ),
+          };
+        const next: StudioTab = {
+          kind: "relation-diagram",
+          conn_id: tab.conn_id,
+          ...(database !== undefined ? { database } : {}),
+          ...(schema !== undefined ? { schema } : {}),
+          id: tab.id,
+        };
+        return {
+          workspaces: putWs(state.workspaces, connId, {
+            ...cur,
+            tabs: cur.tabs.map((t) => (t === tab ? next : t)),
+            active:
+              cur.active && tabEquals(cur.active, tab) ? next : cur.active,
+          }),
+        };
+      });
+    },
+    relationLayouts: {},
+    setRelationLayout(
+      connId: string,
+      key: string,
+      positions: Record<string, XY> | null,
+    ) {
+      set((state) => {
+        const layouts = { ...state.relationLayouts[connId] };
+        if (positions) layouts[key] = positions;
+        else if (key in layouts) delete layouts[key];
+        else return state;
+        const relationLayouts = { ...state.relationLayouts };
+        // An empty map must not keep a snapshot entry alive.
+        if (Object.keys(layouts).length > 0) relationLayouts[connId] = layouts;
+        else delete relationLayouts[connId];
+        return { relationLayouts };
+      });
+    },
+    compareTabs: {},
+    setCompareSetup(key: string, setup: StudioStore["compareTabs"][string]) {
+      set((state) => ({
+        compareTabs: { ...state.compareTabs, [key]: setup },
+      }));
+    },
+    aggregationTabs: {},
+    setAggregationSetup(
+      key: string,
+      setup: StudioStore["aggregationTabs"][string],
+    ) {
+      set((state) => ({
+        aggregationTabs: { ...state.aggregationTabs, [key]: setup },
+      }));
+    },
+    setAggregationCollection(
+      connId: string,
+      id: number,
+      database: string,
+      collection: string,
+    ) {
+      set((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const tab = cur.tabs.find(
+          (t) => t.kind === "aggregation" && t.id === id,
+        );
+        if (
+          !tab ||
+          tab.kind !== "aggregation" ||
+          (tab.database === database && tab.collection === collection)
+        )
+          return state;
+        const next: StudioTab = { ...tab, database, collection };
+        const key = tabKey(tab);
+        const old = state.aggregationTabs[key] ?? DEFAULT_AGGREGATION_SETUP;
+        return {
+          workspaces: putWs(state.workspaces, connId, {
+            ...cur,
+            tabs: cur.tabs.map((t) => (t === tab ? next : t)),
+            active:
+              cur.active && tabEquals(cur.active, tab) ? next : cur.active,
+          }),
+          // A new pipeline that keeps the tab's preview settings.
+          aggregationTabs: {
+            ...state.aggregationTabs,
+            [key]: {
+              ...old,
+              stages: [],
+              selected_stage_id: null,
+              file_path: null,
+              saved_text: null,
+            },
+          },
+        };
+      });
+    },
     openSql(
       connId: string,
       seedText?: string,
@@ -334,7 +576,12 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
-    openMongo(connId: string, database: string, collection: string) {
+    openMongo(
+      connId: string,
+      database: string,
+      collection: string,
+      initialFilter?: string,
+    ) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = {
@@ -343,6 +590,7 @@ export function workspaceActions(set: SetState) {
           database,
           collection,
           tabId: cur.nextMongoTabId,
+          ...(initialFilter ? { initialFilter } : {}),
         };
         return {
           workspaces: putWs(
@@ -466,6 +714,10 @@ export function workspaceActions(set: SetState) {
         delete sqlSeeds[key];
         const seedFilePaths = { ...state.seedFilePaths };
         delete seedFilePaths[key];
+        const compareTabs = { ...state.compareTabs };
+        delete compareTabs[key];
+        const aggregationTabs = { ...state.aggregationTabs };
+        delete aggregationTabs[key];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -477,6 +729,8 @@ export function workspaceActions(set: SetState) {
           }),
           sqlSeeds,
           seedFilePaths,
+          compareTabs,
+          aggregationTabs,
         };
       });
     },
@@ -632,7 +886,7 @@ export function workspaceActions(set: SetState) {
     closeToRight(connId: string, tab: StudioTab) {
       bulkCloseTabs(set, connId, tab, "right");
     },
-    setPaneMode(connId: string, tabKey: string, mode: "data" | "schema") {
+    setPaneMode(connId: string, tabKey: string, mode: PaneMode) {
       set((state) => {
         const cur = state.workspaces[connId];
         if (!cur) return state;

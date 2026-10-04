@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
-import { getActivity, type ActivityEntry } from "@/shared/api";
+import {
+  getActivity,
+  setSaveAppActivity,
+  type ActivityEntry,
+} from "@/shared/api";
 import { WEB, webRelease } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
@@ -11,10 +15,13 @@ import { Landing } from "@/features/connections";
 import { NotificationToast } from "@/features/notifications";
 import { Sidebar } from "@/features/workspace";
 import { CommandPalette } from "./command-palette";
+import { CollectionPickerHost } from "@/shared/components/collection-picker";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 import { UpdateDialog } from "@/features/updater";
+import { SettingsHost } from "@/features/settings";
 import { ImportDialog } from "@/features/data-import";
+import { TableDialogsHost } from "@/features/table-dialogs";
 import Workspace from "./workspace";
 
 export function Studio() {
@@ -167,6 +174,7 @@ export function Studio() {
       }
       unlisten = un;
       try {
+        await setSaveAppActivity(useStudioStore.getState().saveAppActivity);
         const entries = await getActivity(500);
         if (!cancelled) useStudioStore.getState().setActivity(entries);
       } catch {
@@ -259,7 +267,7 @@ export function Studio() {
               />
             </EdgePanelSlot>
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              <Landing />
+              <Landing showMark />
             </div>
           </>
         ) : (
@@ -284,9 +292,12 @@ export function Studio() {
       </div>
       <ActionBar />
       <CommandPalette />
+      <SettingsHost />
       <DisconnectDialog />
       <UpdateDialog />
       <ImportDialog />
+      <TableDialogsHost />
+      <CollectionPickerHost />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
     </div>
@@ -302,7 +313,7 @@ function WebWarningBanner() {
   }, []);
   if (!msg) return null;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700">
+    <div className="border-warning/40 bg-warning-light text-small text-warning-dark flex shrink-0 items-center gap-2 border-b px-4 py-1.5">
       <AlertTriangle className="size-3.5 shrink-0" />
       <span>{msg}</span>
     </div>

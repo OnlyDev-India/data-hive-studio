@@ -151,7 +151,7 @@ export function MongoNewCollectionTab({
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-6">
       <div className="flex gap-3">
         <div className="grid flex-1 gap-2">
-          <label className="text-sm font-medium">Collection name</label>
+          <label className="text-body font-medium">Collection name</label>
           <Input
             autoFocus
             placeholder="users"
@@ -163,7 +163,7 @@ export function MongoNewCollectionTab({
           />
         </div>
         <div className="grid gap-2">
-          <label className="text-sm font-medium">Database</label>
+          <label className="text-body font-medium">Database</label>
           <Select
             value={database || null}
             onValueChange={(v) => v && setDatabase(v)}
@@ -206,8 +206,8 @@ export function MongoNewCollectionTab({
         </div>
       </div>
 
-      <div className="bg-background rounded-md border p-3">
-        <div className="text-muted-foreground mb-1 flex justify-between text-xs font-medium">
+      <div className="bg-background rounded-control border p-3">
+        <div className="text-muted-foreground text-small mb-1 flex justify-between font-medium">
           <span>Preview</span>
           <Button
             variant="ghost"
@@ -228,7 +228,7 @@ export function MongoNewCollectionTab({
           onRunTarget={() => {}}
           lintEnabled={false}
           showLineNumber={false}
-          className="rounded-md"
+          className="rounded-control"
           frameLayer={false}
           autoCompletion={false}
           placeholder="e.g. age >= 18 AND name LIKE 'a%'"
@@ -237,7 +237,7 @@ export function MongoNewCollectionTab({
           disableEnter
           disableContextMenu
         />
-        {/* <pre className="bg-muted/50 max-h-40 overflow-auto rounded p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+        {/* <pre className="bg-muted/50 max-h-40 overflow-auto rounded p-2 font-mono text-small leading-relaxed whitespace-pre-wrap">
           <code>
             {trimmed
               ? `db.createCollection("${trimmed}")`
@@ -246,7 +246,7 @@ export function MongoNewCollectionTab({
         </pre> */}
       </div>
 
-      <p className="text-muted-foreground text-xs">
+      <p className="text-muted-foreground text-small">
         MongoDB is schemaless — there's nothing else to define here. Add fields
         by inserting documents once the collection is open, and manage indexes
         from its Schema tab.

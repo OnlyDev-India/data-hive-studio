@@ -34,7 +34,7 @@ export function GridLoadState({
             : "text-muted-foreground size-4"
         }
       />
-      <p className="text-sm">
+      <p className="text-body">
         {kind === "stopped"
           ? "Query stopped."
           : kind === "paused"
@@ -42,7 +42,7 @@ export function GridLoadState({
             : "Couldn't load the rows."}
       </p>
       {kind === "error" && error && (
-        <pre className="border-destructive/30 bg-destructive/5 text-destructive max-h-32 max-w-lg overflow-auto rounded-md border p-2 text-left font-mono text-xs whitespace-pre-wrap">
+        <pre className="border-destructive/30 bg-destructive/5 text-destructive rounded-control text-small max-h-32 max-w-lg overflow-auto border p-2 text-left font-mono whitespace-pre-wrap">
           {error}
         </pre>
       )}
@@ -51,7 +51,7 @@ export function GridLoadState({
         Reload
       </Button>
       {!WEB && (
-        <p className="text-muted-foreground text-xs">
+        <p className="text-muted-foreground text-small">
           or press{" "}
           <KbdGroup>
             {reload_key.map((key, idx) => (

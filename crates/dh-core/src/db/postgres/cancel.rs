@@ -103,7 +103,7 @@ pub(super) fn pg_run_error(e: sqlx::Error, run: &RunHandle) -> DbError {
 
 /// Builds the run's canceller: a new connection (never from the pool) that
 /// asks the server to cancel backend `pid`'s current query.
-fn pg_canceller(options: PgConnectOptions, pid: i32) -> Canceller {
+pub(super) fn pg_canceller(options: PgConnectOptions, pid: i32) -> Canceller {
     let last_attempt = std::sync::Mutex::new(None::<Instant>);
     Box::new(move || {
         {

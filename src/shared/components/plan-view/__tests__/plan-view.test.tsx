@@ -2,8 +2,7 @@ import { beforeAll, describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PlanNode, PlanResult } from "@/shared/api";
-import { PlanView } from "../plan-view";
-import type { PlanTab } from "../../lib/use-plan-tabs";
+import { PlanView, type PlanCall } from "../plan-view";
 
 // jsdom has no layout, so the virtualizer would see a zero height list and
 // render no rows.
@@ -35,12 +34,9 @@ function node(patch: Partial<PlanNode>): PlanNode {
   };
 }
 
-function tab(patch: Partial<PlanResult> | null): PlanTab {
+function tab(patch: Partial<PlanResult> | null): PlanCall {
   return {
-    id: -1,
-    label: "Plan 1",
     statement: "SELECT 1",
-    source: "SELECT 1",
     result:
       patch === null
         ? null

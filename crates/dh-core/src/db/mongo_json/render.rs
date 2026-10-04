@@ -8,6 +8,13 @@ pub fn render(doc: &Document) -> String {
     out
 }
 
+/// Render one BSON value the same way.
+pub fn render_bson(v: &Bson) -> String {
+    let mut out = String::new();
+    render_value(v, &mut out, 0);
+    out
+}
+
 fn render_document(doc: &Document, out: &mut String, depth: usize) {
     out.push('{');
     let mut first = true;

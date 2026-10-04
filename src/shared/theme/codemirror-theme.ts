@@ -16,29 +16,29 @@ import {
 // palette instead of the app's light/dark-flipping CSS tokens.
 export const appEditorTheme = EditorView.theme({
   "&": {
-    fontSize: "14px",
+    fontSize: "var(--text-body)",
     height: "100%",
   },
   "&.cm-focused": {
     outline: "none",
   },
   ".cm-scroller": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontFamily: "var(--font-mono)",
     lineHeight: "1.5",
   },
   ".cm-lineNumbers .cm-gutterElement": {
     padding: "0 0.4em 0 0.5em",
   },
   ".cm-tooltip": {
-    borderRadius: "var(--radius-md)",
+    borderRadius: "var(--radius-surface)",
   },
 
   // Completion dropdown: tint each option by its kind so the list reads like
   // highlighted code (keywords blue, columns amber, tables green) instead of
   // a wall of plain foreground text.
   ".cm-tooltip.cm-tooltip-autocomplete > ul": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: "13px",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--text-body)",
   },
   ".cm-completionIcon": {
     opacity: 1,
@@ -68,6 +68,21 @@ export const appEditorTheme = EditorView.theme({
   },
   ".cm-completionIcon-function, .cm-completionIcon-method": {
     color: color.malibu,
+  },
+  // Saved library items (src/shared/library/completions.ts).
+  ".cm-completionIcon-library-snippet": {
+    color: color.violet,
+    "&::after": { content: "'✂'" },
+  },
+  ".cm-completionIcon-library-query": {
+    color: color.violet,
+    "&::after": { content: "'★'" },
+  },
+  ".cm-library-preview": {
+    margin: "0",
+    fontFamily: "var(--font-mono)",
+    whiteSpace: "pre-wrap",
+    maxWidth: "28rem",
   },
   "li .cm-completionIcon-keyword ~ .cm-completionLabel": {
     color: color.malibu,
@@ -165,7 +180,7 @@ export const appEditorTheme = EditorView.theme({
   },
   ".cm-statement-frame-layer .cm-statement-frame": {
     border: "0.5px solid var(--success)",
-    borderRadius: "var(--radius-md)",
+    borderRadius: "var(--radius-surface)",
     pointerEvents: "none",
   },
 });

@@ -48,15 +48,15 @@ export function ReconnectDialog({
           </DialogDescription>
         </DialogHeader>
         {work.length > 0 && (
-          <div className="flex flex-col gap-1.5 text-sm">
+          <div className="text-body flex flex-col gap-1.5">
             <p className="text-destructive">
               Reconnecting closes the open connection, so this would be lost:
             </p>
-            <ul className="bg-muted/30 flex max-h-48 flex-col gap-1 overflow-y-auto rounded-md border p-3">
+            <ul className="bg-muted/30 rounded-control flex max-h-48 flex-col gap-1 overflow-y-auto border p-3">
               {work.map((item, i) => (
                 <li key={i} className="flex flex-col">
                   <span className="font-medium">{item.label}</span>
-                  <span className="text-muted-foreground text-xs">
+                  <span className="text-muted-foreground text-small">
                     {item.parts.join(", ")}
                   </span>
                 </li>

@@ -192,10 +192,10 @@ function LeafPaneView({
           <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
             <Database className="text-muted-foreground/30 size-10" />
             <div className="flex flex-col gap-1">
-              <h2 className="text-foreground text-sm font-medium">
+              <h2 className="text-foreground text-body font-medium">
                 No tab open
               </h2>
-              <p className="text-muted-foreground max-w-xs text-sm">
+              <p className="text-muted-foreground text-body max-w-xs">
                 Open a table from the sidebar, or start something new here.
               </p>
             </div>

@@ -1,15 +1,13 @@
 use crate::api::{QueryChunk, QueryOp, QueryResult};
 use super::adapter::DbAdapter;
 use super::types::{BatchSink, DbError, DbResult};
-use super::activity_log::{activity_rows, op_label};
+use super::activity_log::{activity_rows, op_label, op_origin};
 use super::runs;
 use super::registry::with_connection;
 
-/// `origin` distinguishes the SQL editor's "Run" (its non-streaming
-/// fallback transport, used over HTTP/web — see `run_sql_stream`'s doc
-/// comment) from every other caller of this same function (the sidebar's
-/// own housekeeping queries, the schema designer's "create table" apply):
-/// only the former is a query the user actually wrote and ran themselves.
+/// `origin` comes from the caller: "user" for the SQL editor's non-streaming
+/// Run, the schema designer's create table and a drop view, "app" for the
+/// sidebar's own housekeeping queries (such as the grants lookup).
 pub async fn run_sql(
     conn_id: &str,
     database: Option<&str>,
@@ -34,8 +32,7 @@ pub async fn run_sql(
     res
 }
 
-/// Only ever called for a grid-built DML/DDL statement (never free-form
-/// editor SQL) — always logged as app-initiated.
+/// A grid-built DML/DDL statement the user saved, logged as user-initiated.
 pub async fn execute_params(
     conn_id: &str,
     database: Option<&str>,
@@ -52,8 +49,8 @@ pub async fn execute_params(
     })
     .await;
     match &res {
-        Ok(n) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, *n as i64, "app"),
-        Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, "app"),
+        Ok(n) => crate::activity::log_stmt_ok_origin(conn_id, "sql", &full_sql, t, *n as i64, "user"),
+        Err(e) => crate::activity::log_stmt_err_origin(conn_id, "sql", &full_sql, t, e, "user"),
     }
     res
 }
@@ -82,9 +79,8 @@ pub async fn run_sql_params(
     res
 }
 
-/// The data grid's structured select/count/insert/update/delete actions —
-/// never the SQL editor (which always goes through `run_sql`/
-/// `run_sql_stream` instead) — so always logged as app-initiated.
+/// The data grid's structured select/count/insert/update/delete actions.
+/// Reads log as the app's own, writes as the user's (`op_origin`).
 pub async fn execute_op(
     conn_id: &str,
     database: Option<&str>,
@@ -93,6 +89,7 @@ pub async fn execute_op(
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let (kind, target) = op_label(op);
+    let origin = op_origin(op);
     let op = op.clone();
     let database = database.map(str::to_string);
     let schema = schema.map(str::to_string);
@@ -103,7 +100,7 @@ pub async fn execute_op(
     match &res {
         Ok(outcome) => match &outcome.sql {
             Some(sql) => {
-                crate::activity::log_stmt_ok_origin(conn_id, kind, sql, t, activity_rows(&outcome.result), "app")
+                crate::activity::log_stmt_ok_origin(conn_id, kind, sql, t, activity_rows(&outcome.result), origin)
             }
             None => crate::activity::log_ok_origin(
                 conn_id,
@@ -111,10 +108,10 @@ pub async fn execute_op(
                 &target,
                 t,
                 activity_rows(&outcome.result),
-                "app",
+                origin,
             ),
         },
-        Err(e) => crate::activity::log_err_origin(conn_id, kind, &target, t, e, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, kind, &target, t, e, origin),
     }
     res.map(|outcome| outcome.result)
 }
@@ -122,7 +119,7 @@ pub async fn execute_op(
 /// Streaming variant of [`execute_op`]: SELECT-shaped ops push row batches
 /// through `on_batch` as they arrive; the returned result omits rows (the
 /// caller assembles those from the chunks). Writes never touch the channel.
-/// Same app-initiated origin as `execute_op` — see its doc comment.
+/// Same origin rule as `execute_op`.
 pub async fn execute_op_stream(
     conn_id: &str,
     database: Option<&str>,
@@ -132,6 +129,7 @@ pub async fn execute_op_stream(
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let (kind, target) = op_label(op);
+    let origin = op_origin(op);
     let op = op.clone();
     let database = database.map(str::to_string);
     let schema = schema.map(str::to_string);
@@ -143,10 +141,10 @@ pub async fn execute_op_stream(
     match &res {
         // Streamed rows never land in the result — log 0 and rely on duration.
         Ok(outcome) => match &outcome.sql {
-            Some(sql) => crate::activity::log_stmt_ok_origin(conn_id, kind, sql, t, 0, "app"),
-            None => crate::activity::log_ok_origin(conn_id, kind, &target, t, 0, "app"),
+            Some(sql) => crate::activity::log_stmt_ok_origin(conn_id, kind, sql, t, 0, origin),
+            None => crate::activity::log_ok_origin(conn_id, kind, &target, t, 0, origin),
         },
-        Err(e) => crate::activity::log_err_origin(conn_id, kind, &target, t, e, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, kind, &target, t, e, origin),
     }
     res.map(|outcome| outcome.result)
 }

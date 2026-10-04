@@ -19,6 +19,7 @@ rows round-trip through the same text-editing UI as SQL rows.
 | `mongo_json/` | MQL extended JSON parser (`parse`) and renderer (`render`) for BSON documents |
 | `mongo_sql/` | Translates SQL shaped queries into Mongo `find`/`aggregate` calls |
 | `explain/` | Turns each engine's explain output into one `PlanNode` tree (`postgres`, `sqlite`, `mongo`), plus `support` (which statements Explain accepts) and `tree` (ids and the node cap). The per backend `explain.rs` files run the call; the types live in `api/common/plan.rs` |
+| `compare/` | The table data diff: `merge` walks two key ordered scans, `canon` holds the typed cell equality and key order, `page` and `file` collect the differences for the grid or a file, `script` writes the data sync script. Each backend's `compare.rs` runs its side's read only scan; the types live in `api/common/compare.rs` |
 
 ## Conventions
 

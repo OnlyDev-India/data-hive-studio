@@ -306,7 +306,7 @@ export function NewTableTab({
     let created = false;
     try {
       for (const [i, stmt] of built.statements.entries()) {
-        await runSql(conn_id, stmt, "app", target_database);
+        await runSql(conn_id, stmt, "user", target_database);
         if (i === 0) created = true;
       }
       push_notification({
@@ -447,7 +447,7 @@ export function NewTableTab({
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-6">
       <div className="flex gap-3">
         <div className="grid flex-1 gap-2">
-          <label className="text-sm font-medium">Table name</label>
+          <label className="text-body font-medium">Table name</label>
           <Input
             placeholder="users"
             value={table_name}
@@ -457,7 +457,7 @@ export function NewTableTab({
         {is_pg && (
           <>
             <div className="grid gap-2">
-              <label className="text-sm font-medium">Database</label>
+              <label className="text-body font-medium">Database</label>
               <Select
                 value={database || null}
                 onValueChange={(v) => v && setDatabase(v)}
@@ -477,7 +477,7 @@ export function NewTableTab({
               </Select>
             </div>
             <div className="grid gap-2">
-              <label className="text-sm font-medium">Schema</label>
+              <label className="text-body font-medium">Schema</label>
               <Select
                 // `null`, not `undefined`: Base UI decides controlled vs
                 // uncontrolled on the first render, and the schema is empty
@@ -531,7 +531,7 @@ export function NewTableTab({
 
       {/* The tabs and their tools sit on top of the grid, in one box, so they
           read as part of the table. */}
-      <div className="flex min-h-56 flex-1 flex-col overflow-hidden rounded-lg border">
+      <div className="rounded-surface flex min-h-56 flex-1 flex-col overflow-hidden border">
         <div className="flex shrink-0 items-center gap-3 border-b p-1">
           <TabBar
             value={tab}
@@ -546,7 +546,7 @@ export function NewTableTab({
             <div className="relative w-44 shrink-0">
               <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
               <Input
-                className="h-7 rounded-full pl-8 text-sm"
+                className="text-body h-7 rounded-full pl-8"
                 placeholder="Search column"
                 aria-label="Search column"
                 value={query}
@@ -663,8 +663,8 @@ export function NewTableTab({
         />
       )}
 
-      <div className="bg-background flex h-44 shrink-0 flex-col rounded-md border p-3">
-        <div className="text-muted-foreground mb-1 flex justify-between text-xs font-medium">
+      <div className="bg-background rounded-control flex h-44 shrink-0 flex-col border p-3">
+        <div className="text-muted-foreground text-small mb-1 flex justify-between font-medium">
           <span>Generated SQL</span>
           <Button
             variant="ghost"
@@ -687,7 +687,7 @@ export function NewTableTab({
               onRunTarget={() => {}}
               lintEnabled={false}
               showLineNumber={false}
-              className="rounded-md"
+              className="rounded-control"
               frameLayer={false}
               autoCompletion={false}
               placeholder="e.g. age >= 18 AND name LIKE 'a%'"

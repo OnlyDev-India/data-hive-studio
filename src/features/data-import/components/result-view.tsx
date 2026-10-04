@@ -43,11 +43,11 @@ function headline(o: Outcome): string {
 export function ResultView({ outcome, onSaveFailed, saving }: Props) {
   const list = outcome.failures.slice(0, SHOWN);
   return (
-    <div className="space-y-2 text-sm">
+    <div className="text-body space-y-2">
       <p>{headline(outcome)}</p>
       {outcome.failedTotal > 0 && (
         <>
-          <ul className="bg-muted/40 max-h-52 overflow-y-auto rounded-md border p-2 text-xs">
+          <ul className="bg-muted/40 rounded-control text-small max-h-52 overflow-y-auto border p-2">
             {list.map((f) => (
               <li key={`${f.rowIndex}-${f.column ?? ""}`}>
                 Row {f.sourceRow}: {failureText(f)}
@@ -55,7 +55,7 @@ export function ResultView({ outcome, onSaveFailed, saving }: Props) {
             ))}
           </ul>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground text-xs">
+            <span className="text-muted-foreground text-small">
               Showing {list.length.toLocaleString()} of{" "}
               {outcome.failedTotal.toLocaleString()} failed rows
               {outcome.truncated

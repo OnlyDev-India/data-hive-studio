@@ -96,7 +96,7 @@ export function ActionBar() {
 
   return (
     <TooltipProvider delay={500}>
-      <footer className="bg-muted/60 text-muted-foreground flex h-9 shrink-0 items-stretch overflow-hidden border-t text-xs select-none">
+      <footer className="bg-muted/60 text-muted-foreground text-small flex h-9 shrink-0 items-stretch overflow-hidden border-t select-none">
         {/* Section 1 — empty spacer, kept for layout: this used to hold the
             disconnect button, now moved to the sidebar's database row
             context menu (see `TablesBrowser` in tables-view.tsx). */}
@@ -115,7 +115,7 @@ export function ActionBar() {
           </span>
           {conn && <ConnFlags conn={conn} />}
           {conn && (
-            <span className="text-3xs shrink-0 tracking-wide uppercase">
+            <span className="text-caption shrink-0">
               {prettyKind(conn.kind)}
             </span>
           )}
@@ -145,7 +145,7 @@ export function ActionBar() {
                   </span>
                   {query_preview && (
                     <code
-                      className="text-muted-foreground/70 text-2xs min-w-0 truncate font-mono"
+                      className="text-muted-foreground/70 text-caption min-w-0 truncate font-mono"
                       title={query_preview}
                     >
                       {query_preview}
@@ -196,7 +196,7 @@ export function ActionBar() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 gap-1 px-2 text-xs"
+                      className="text-small h-6 gap-1 px-2"
                       disabled={bridge.read_only || bridge.pending_exists}
                       onClick={() =>
                         openImport({
@@ -227,7 +227,7 @@ export function ActionBar() {
               >
                 <Button
                   size="sm"
-                  className="h-6 px-2 text-xs"
+                  className="text-small h-6 px-2"
                   disabled={
                     newTable.creating || !newTable.valid || !!conn?.read_only
                   }
@@ -258,7 +258,7 @@ function Pagination({
   bridge: Pick<GridBridge, "page" | "total_pages" | "set_page">;
 }) {
   return (
-    <div className="flex items-center rounded-md border">
+    <div className="rounded-control flex items-center border">
       <Button
         variant="ghost"
         size="iconXs"
@@ -269,7 +269,7 @@ function Pagination({
       >
         <ChevronLeft className="size-3.5" />
       </Button>
-      <span className="text-2xs flex h-6 shrink-0 items-center border-x px-1.5">
+      <span className="text-caption flex h-6 shrink-0 items-center border-x px-1.5">
         {bridge.page + 1} / {bridge.total_pages}
       </span>
       <Button
@@ -300,8 +300,8 @@ function LimitInput({
     if (n !== value) onChange(n);
   };
   return (
-    <div className="flex h-6 items-center gap-1 rounded-md border px-1.5">
-      <span className="text-3xs tracking-wide uppercase">Limit</span>
+    <div className="rounded-control flex h-6 items-center gap-1 border px-1.5">
+      <span className="text-caption">Limit</span>
       <Input
         type="number"
         min={1}
@@ -314,7 +314,7 @@ function LimitInput({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        className="w-10 rounded-none border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
+        className="text-small w-10 rounded-none border-none bg-transparent p-0 shadow-none focus-visible:ring-0"
       />
     </div>
   );

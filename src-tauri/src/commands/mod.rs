@@ -19,12 +19,16 @@ mod browse;
 mod query;
 mod ddl;
 mod system;
+mod compare;
+mod pipeline;
 
 pub use connect::*;
 pub use browse::*;
 pub use query::*;
 pub use ddl::*;
 pub use system::*;
+pub use compare::*;
+pub use pipeline::*;
 
 fn to_err(e: crate::db::DbError) -> String {
     e.to_string()

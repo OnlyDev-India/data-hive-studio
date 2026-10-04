@@ -43,7 +43,7 @@ export function ResultViewTabs({
               variant="ghost"
               size="sm"
               className={cn(
-                "h-6 gap-1 px-2 text-xs",
+                "text-small h-6 gap-1 px-2",
                 selected && "bg-muted text-foreground",
               )}
               aria-label={t.label}

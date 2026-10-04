@@ -68,9 +68,8 @@ import {
   substituteBindVariables,
 } from "../lib/bind-variables";
 import { compressSql } from "../lib/compress-sql";
-import { isPlanStale } from "../lib/plan-tree";
 import { usePlanTabs } from "../lib/use-plan-tabs";
-import { PlanView } from "./plan-view";
+import { isPlanStale, PlanView } from "@/shared/components/plan-view";
 import {
   looksLikeMongoWrite,
   MONGO_WRITE_NOTE,
@@ -208,7 +207,7 @@ export function ResultTabStrip({
               tabIndex={0}
               onClick={() => on_select(item.id)}
               className={cn(
-                "flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-sm whitespace-nowrap select-none",
+                "rounded-control text-body flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 px-2.5 py-1 whitespace-nowrap select-none",
                 item.id === active_id
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -625,6 +624,8 @@ function SqlEditorBody({
   const [schema_tables, setSchemaTables] = useState<Record<string, string[]>>(
     {},
   );
+  // The database `schema_tables` was loaded for; lint waits until it matches.
+  const [schema_tables_db, setSchemaTablesDb] = useState<string | null>(null);
   const schema_tables_cache = useRef(new Map<string, string[]>());
   useEffect(() => {
     if (!is_pg || known_schemas.length === 0) return;
@@ -658,6 +659,7 @@ function SqlEditorBody({
             [];
         }
         setSchemaTables(next);
+        setSchemaTablesDb(database);
       })();
     }, 1500);
     return () => {
@@ -674,12 +676,17 @@ function SqlEditorBody({
   // table reference against the NEW database kept linting as "unknown" and
   // vice versa.
   const [mongo_db_tables, setMongoDbTables] = useState<string[]>([]);
+  const [mongo_db_tables_db, setMongoDbTablesDb] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
     if (conn?.kind !== "mongodb" || !database) return;
     let cancelled = false;
     void listSchemaObjects(conn_id, "", "table", target_database)
       .then((objects) => {
-        if (!cancelled) setMongoDbTables(objects.map((o) => o.name));
+        if (cancelled) return;
+        setMongoDbTables(objects.map((o) => o.name));
+        setMongoDbTablesDb(database);
       })
       .catch(() => {
         /* stays whatever it was — hints/lint just fall back to `tables` below */
@@ -717,6 +724,13 @@ function SqlEditorBody({
           : tables,
     [is_pg, schema_tables, tables, conn?.kind, mongo_db_tables],
   );
+  // The fallbacks above are fine for completions but would lint every table
+  // outside them as unknown, so name checks wait for the real list.
+  const lint_ready = is_pg
+    ? schema_tables_db === database
+    : conn?.kind === "mongodb"
+      ? mongo_db_tables_db === database
+      : !target_database;
 
   const setSql = useCallback(
     (v: string) => {
@@ -1371,6 +1385,7 @@ function SqlEditorBody({
         is_dirty={is_dirty}
         on_save={() => void save_sql()}
         on_open={() => void open_sql_file()}
+        on_save_to_library={() => editorRef.current?.openSaveToLibrary()}
       />
       {file_path && (
         <FileBreadcrumb path={file_path} scrolled={editor_scroll.scrolled} />
@@ -1394,7 +1409,9 @@ function SqlEditorBody({
           schema={schema}
           schemaTables={is_pg ? schema_tables : undefined}
           lintEnabled={lint_enabled}
+          lintReady={lint_ready}
           showInsertLabels={insert_labels_enabled}
+          saveToLibrary
           height="100%"
         />
       </div>
@@ -1453,7 +1470,7 @@ function SqlEditorBody({
               ) : active === null ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 px-3 py-8 text-center">
                   <Play className="text-muted-foreground size-5" />
-                  <p className="text-muted-foreground text-sm">
+                  <p className="text-muted-foreground text-body">
                     Run a query to see results.
                   </p>
                 </div>
@@ -1571,7 +1588,7 @@ function LoadingNote({ rows_loaded }: { rows_loaded: number }) {
   return (
     <div
       role="status"
-      className="text-muted-foreground bg-muted/40 flex shrink-0 items-center gap-x-2 border-b px-3 py-1.5 text-xs"
+      className="text-muted-foreground bg-muted/40 text-small flex shrink-0 items-center gap-x-2 border-b px-3 py-1.5"
     >
       <Loader2 className="size-3 shrink-0 animate-spin" />
       <span>Loading, {rows_loaded.toLocaleString()} rows so far</span>
@@ -1597,7 +1614,7 @@ function StoppedNote({
   return (
     <div
       role="status"
-      className="text-muted-foreground bg-muted/40 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-b px-3 py-1.5 text-xs"
+      className="text-muted-foreground bg-muted/40 text-small flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-b px-3 py-1.5"
     >
       <Square className="size-3 shrink-0" />
       <span>{stoppedStatusLine(elapsed_ms, rows_loaded)}</span>
@@ -1701,7 +1718,7 @@ export function SqlResults({
           // Rows arrived, then the run failed: keep the rows, error on top.
           <div
             role="alert"
-            className="border-destructive/30 bg-destructive/5 text-destructive shrink-0 border-b px-3 py-2 text-sm"
+            className="border-destructive/30 bg-destructive/5 text-destructive text-body shrink-0 border-b px-3 py-2"
           >
             {result.error}
           </div>
@@ -1720,7 +1737,7 @@ export function SqlResults({
     );
 
   return (
-    <div className="text-muted-foreground m-4 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs">
+    <div className="text-muted-foreground rounded-control text-small m-4 flex items-center gap-2 border px-3 py-1.5">
       <Badge>Done</Badge>
     </div>
   );
@@ -1765,6 +1782,7 @@ function MongoEditorBody({
   tab_key,
   database,
   on_modified,
+  on_open_in_builder,
 }: {
   conn_id: string;
   tab_key: string;
@@ -1773,6 +1791,7 @@ function MongoEditorBody({
    *  an already-open grid tab on the same collection refreshes instead of
    *  showing stale data until a manual reload. */
   on_modified?: () => void;
+  on_open_in_builder?: (text: string, database: string) => void;
 }) {
   // The connection's own database vs. the CURRENT one (switched via the
   // toolbar picker below, or by typing `use <db>` — both update `db`,
@@ -1800,6 +1819,7 @@ function MongoEditorBody({
   // used to only ever fetch the connection's OWN database once on mount,
   // silently offering the wrong database's collection names after a switch.
   const [collections, setCollections] = useState<string[]>([]);
+  const [collections_db, setCollectionsDb] = useState<string | null>(null);
 
   const {
     panelRef: bottomPanelRef,
@@ -1903,7 +1923,9 @@ function MongoEditorBody({
           "table",
           db && db !== database ? db : undefined,
         );
-        if (!cancelled) setCollections(objects.map((o) => o.name));
+        if (cancelled) return;
+        setCollections(objects.map((o) => o.name));
+        setCollectionsDb(db);
       } catch {
         /* sidebar already reports connection errors */
       }
@@ -2355,6 +2377,16 @@ function MongoEditorBody({
         on_stop_all={stop_all}
         on_explain={() => explain_target()}
         on_explain_analyze={() => explain_target(true)}
+        on_open_in_builder={
+          on_open_in_builder &&
+          (() => {
+            // The statement Run would run: the selection, or the one at the
+            // cursor.
+            const target = editorRef.current?.getTargets()[0];
+            const text = target && strip_comments(target.text);
+            if (text) on_open_in_builder(text, db);
+          })
+        }
         db_kind="mongodb"
         database={db}
         databases={databases}
@@ -2365,6 +2397,7 @@ function MongoEditorBody({
         is_dirty={is_dirty}
         on_save={() => void save_script()}
         on_open={() => void open_script_file()}
+        on_save_to_library={() => editorRef.current?.openSaveToLibrary()}
       />
       {file_path && (
         <FileBreadcrumb path={file_path} scrolled={editor_scroll.scrolled} />
@@ -2386,6 +2419,8 @@ function MongoEditorBody({
           jsCompletions={collections}
           connId={conn_id}
           lintEnabled={lint_enabled}
+          lintReady={collections_db === db}
+          saveToLibrary
           height="100%"
         />
       </div>
@@ -2443,7 +2478,7 @@ function MongoEditorBody({
               ) : !active ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 px-3 py-8 text-center">
                   <Play className="text-muted-foreground size-5" />
-                  <p className="text-muted-foreground text-sm">
+                  <p className="text-muted-foreground text-body">
                     Run a command to see results.
                   </p>
                 </div>
@@ -2610,7 +2645,7 @@ function MongoResults({
         // Rows arrived, then the run failed: keep the rows, error on top.
         <div
           role="alert"
-          className="border-destructive/30 bg-destructive/5 text-destructive shrink-0 border-b px-3 py-2 text-sm whitespace-pre-wrap"
+          className="border-destructive/30 bg-destructive/5 text-destructive text-body shrink-0 border-b px-3 py-2 whitespace-pre-wrap"
         >
           {result.error}
         </div>
@@ -2653,6 +2688,9 @@ export type EditorTabProps =
       /** Called after a successful write (insertOne/updateMany/deleteOne/…)
        *  so an already-open grid tab on the same collection refreshes. */
       on_modified?: () => void;
+      /** Opens the aggregate at the cursor in the aggregation builder.
+       *  Omitted = no Open in builder button. */
+      on_open_in_builder?: (text: string, database: string) => void;
     };
 
 /** The SQL console and the Mongo shell console are the same shape end to
@@ -2679,6 +2717,7 @@ export function EditorTab(props: EditorTabProps) {
       tab_key={props.tab_key}
       database={props.database}
       on_modified={props.on_modified}
+      on_open_in_builder={props.on_open_in_builder}
     />
   );
 }

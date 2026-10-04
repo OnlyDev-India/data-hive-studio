@@ -2,70 +2,46 @@ import { useMemo, useState } from "react";
 import { History, Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import { Switch } from "@/shared/components/ui/switch";
-import { Label } from "@/shared/components/ui/label";
 import { useStudioStore } from "@/shared/store";
 import { clearActivity, type ActivityEntry } from "@/shared/api";
 import { cn } from "@/shared/lib/utils";
 
-/** Per-kind badge colors + labels for the feed. */
-const KINDS: Record<string, { label: string; cls: string }> = {
-  select: {
-    label: "SELECT",
-    cls: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-  },
-  count: { label: "COUNT", cls: "bg-muted text-muted-foreground" },
-  distinct: {
-    label: "DISTINCT",
-    cls: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
-  },
-  insert: {
-    label: "INSERT",
-    cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  },
-  update: {
-    label: "UPDATE",
-    cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  },
-  delete: {
-    label: "DELETE",
-    cls: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-  },
-  drop_table: {
-    label: "DROP",
-    cls: "bg-red-500/15 text-red-600 dark:text-red-400",
-  },
-  sql: { label: "SQL", cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
-  ddl: {
-    label: "DDL",
-    cls: "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400",
-  },
-  duplicate: {
-    label: "CLONE",
-    cls: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
-  },
-  schema: {
-    label: "SCHEMA",
-    cls: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
-  },
-  explain: {
-    label: "EXPLAIN",
-    cls: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400",
-  },
-  connect: {
-    label: "CONNECT",
-    cls: "bg-green-500/15 text-green-600 dark:text-green-400",
-  },
-  disconnect: { label: "CLOSE", cls: "bg-muted text-muted-foreground" },
+type Tone =
+  "neutral" | "success" | "warning" | "destructive" | "info" | "primary";
+
+/** Badge color says how risky the action was, the label says what it was. */
+const TONE_CLASS: Record<Tone, string> = {
+  neutral: "bg-muted text-muted-foreground",
+  success: "bg-success-light text-success-dark",
+  warning: "bg-warning-light text-warning-dark",
+  destructive: "bg-destructive-light text-destructive-dark",
+  info: "bg-info-light text-info-dark",
+  primary: "bg-primary-light text-primary-dark",
+};
+
+const KINDS: Record<string, { label: string; tone: Tone }> = {
+  select: { label: "SELECT", tone: "neutral" },
+  count: { label: "COUNT", tone: "neutral" },
+  distinct: { label: "DISTINCT", tone: "neutral" },
+  explain: { label: "EXPLAIN", tone: "neutral" },
+  connect: { label: "CONNECT", tone: "neutral" },
+  disconnect: { label: "CLOSE", tone: "neutral" },
+  insert: { label: "INSERT", tone: "success" },
+  duplicate: { label: "CLONE", tone: "success" },
+  update: { label: "UPDATE", tone: "warning" },
+  delete: { label: "DELETE", tone: "destructive" },
+  drop_table: { label: "DROP", tone: "destructive" },
+  ddl: { label: "DDL", tone: "info" },
+  schema: { label: "SCHEMA", tone: "info" },
+  sql: { label: "SQL", tone: "primary" },
 };
 
 function kindStyle(kind: string) {
-  return (
-    KINDS[kind] ?? {
-      label: kind.toUpperCase(),
-      cls: "bg-muted text-muted-foreground",
-    }
-  );
+  const { label, tone } = KINDS[kind] ?? {
+    label: kind.toUpperCase(),
+    tone: "neutral",
+  };
+  return { label, cls: TONE_CLASS[tone] };
 }
 
 function fmtTime(ms: number) {
@@ -102,7 +78,7 @@ function EntryRow({
         }
       }}
       className={cn(
-        "rounded-md border px-2 py-1.5",
+        "rounded-control border px-2 py-1.5",
         selected
           ? "border-primary/50 bg-primary/5"
           : entry.ok
@@ -113,24 +89,24 @@ function EntryRow({
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-3xs shrink-0 font-mono">
+        <span className="text-muted-foreground text-caption shrink-0 font-mono">
           {fmtTime(entry.ts_ms)}
         </span>
         <span
           className={cn(
-            "text-3xs shrink-0 rounded px-1 py-px font-semibold",
+            "text-caption shrink-0 rounded px-1 py-px font-mono font-semibold",
             style.cls,
           )}
         >
           {style.label}
         </span>
         <span
-          className="min-w-0 flex-1 truncate font-mono text-xs"
+          className="text-small min-w-0 flex-1 truncate font-mono"
           title={entry.target}
         >
           {entry.target || "—"}
         </span>
-        <span className="text-muted-foreground text-3xs shrink-0 tabular-nums">
+        <span className="text-muted-foreground text-caption shrink-0 tabular-nums">
           {entry.rows > 0 && (
             <>
               {entry.rows} row{entry.rows === 1 ? "" : "s"} ·{" "}
@@ -141,7 +117,7 @@ function EntryRow({
       </div>
       {entry.error && (
         <p
-          className="text-destructive mt-1 line-clamp-3 pl-18 text-xs"
+          className="text-destructive text-small mt-1 line-clamp-3 pl-18"
           title={entry.error}
         >
           {entry.error}
@@ -175,9 +151,9 @@ export function ActivityFeed({
   const full = useStudioStore((s) => s.activity);
   const detail = useStudioStore((s) => s.activityDetail);
   const clearEntriesFor = useStudioStore((s) => s.clearActivityEntriesFor);
-  const show_app_activity = useStudioStore((s) => s.showAppActivity);
-  const setShowAppActivity = useStudioStore((s) => s.setShowAppActivity);
+  const save_app_activity = useStudioStore((s) => s.saveAppActivity);
   const [filter, setFilter] = useState("");
+  const [shown_origin, setShownOrigin] = useState<OriginFilter>("all");
 
   const activity = useMemo(() => {
     if (!conn_id && !conn_key) return full;
@@ -186,20 +162,16 @@ export function ActivityFeed({
     );
   }, [full, conn_id, conn_key]);
 
-  // "app" = the app's own background work (schema prefetching for
-  // autocomplete, cache warming) rather than something the user asked for.
-  // Off by default — most people only care about what THEY ran. Entries
-  // logged before this field existed have no `origin` at all; treat those
-  // as "user" (the whole log used to be user-only) so old history doesn't
-  // just vanish.
-  const app_count = useMemo(
-    () => activity.filter((e) => e.origin === "app").length,
-    [activity],
-  );
+  // App entries show only while "Save app queries" is on, and then the
+  // origin filter picks all, yours or the app's. Entries with no `origin`
+  // predate the field and count as user.
+  const origin = save_app_activity ? shown_origin : "user";
   const visible = useMemo(
     () =>
-      show_app_activity ? activity : activity.filter((e) => e.origin !== "app"),
-    [activity, show_app_activity],
+      origin === "all"
+        ? activity
+        : activity.filter((e) => (e.origin === "app") === (origin === "app")),
+    [activity, origin],
   );
 
   const filtered = useMemo(() => {
@@ -227,9 +199,9 @@ export function ActivityFeed({
       {/* Header row — mirrors the tables-mode toolbar rhythm. */}
       <div className="flex shrink-0 items-center gap-2">
         <History className="text-muted-foreground size-4 shrink-0" />
-        <h2 className="text-sm font-semibold">Activity</h2>
+        <h2 className="text-body font-semibold">Activity</h2>
         {visible.length > 0 && (
-          <span className="bg-muted text-muted-foreground text-3xs rounded-full px-1.5 py-px tabular-nums">
+          <span className="bg-muted text-muted-foreground text-caption rounded-full px-1.5 py-px tabular-nums">
             {visible.length}
           </span>
         )}
@@ -257,30 +229,19 @@ export function ActivityFeed({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         placeholder="Filter by table, kind or error…"
-        className="shrink-0 text-xs"
+        className="text-small shrink-0"
       />
-      <div className="flex shrink-0 items-center gap-1.5 px-0.5">
-        <Switch
-          id="show-app-activity"
-          checked={show_app_activity}
-          onCheckedChange={setShowAppActivity}
-          className="h-4 w-8 [&>span]:size-3"
-        />
-        <Label
-          htmlFor="show-app-activity"
-          className="text-muted-foreground text-2xs font-normal"
-        >
-          Show app queries{app_count > 0 ? ` (${app_count})` : ""}
-        </Label>
-      </div>
+      {save_app_activity && (
+        <OriginToggle value={shown_origin} onChange={setShownOrigin} />
+      )}
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         {filtered.length === 0 ? (
-          <p className="text-muted-foreground px-1 py-6 text-center text-xs">
-            {activity.length === 0
-              ? "No commands yet — everything the backend runs shows up here."
-              : visible.length === 0
-                ? "Nothing but app-run queries here — toggle above to see them."
-                : "Nothing matches this filter."}
+          <p className="text-muted-foreground text-small px-1 py-6 text-center">
+            {visible.length > 0
+              ? "Nothing matches this filter."
+              : origin === "app"
+                ? "No app queries yet."
+                : "No queries yet. Queries you run show up here."}
           </p>
         ) : (
           filtered.map((e) => (
@@ -294,5 +255,49 @@ export function ActivityFeed({
         )}
       </div>
     </>
+  );
+}
+
+type OriginFilter = "all" | "user" | "app";
+
+const ORIGINS: { value: OriginFilter; label: string; hint: string }[] = [
+  { value: "all", label: "All", hint: "Your queries and the app's" },
+  { value: "user", label: "Mine", hint: "Only the queries you ran" },
+  { value: "app", label: "App", hint: "Only the app's own background queries" },
+];
+
+/** Which entries the feed lists, shown while app queries are saved. */
+function OriginToggle({
+  value,
+  onChange,
+}: {
+  value: OriginFilter;
+  onChange: (v: OriginFilter) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Show"
+      className="bg-muted rounded-control flex shrink-0 items-center p-0.5"
+    >
+      {ORIGINS.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          title={o.hint}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "rounded-inset text-small focus-visible:ring-ring/50 h-6 flex-1 px-2 outline-none focus-visible:ring-2",
+            value === o.value
+              ? "bg-background text-foreground font-medium shadow-xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

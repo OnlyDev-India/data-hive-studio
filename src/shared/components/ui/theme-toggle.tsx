@@ -10,7 +10,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       type="button"
       aria-label="Toggle theme"
       className={cn(
-        "hover:bg-accent inline-flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors",
+        "hover:bg-accent inline-flex size-8 cursor-pointer items-center justify-center rounded-control transition-colors",
         className,
       )}
       onClick={toggle}

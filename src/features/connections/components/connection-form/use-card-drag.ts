@@ -16,23 +16,39 @@ interface Size {
   height: number;
 }
 
-/** Keep a centred card inside its area, `margin` px from each edge. */
+interface Box extends Size {
+  left: number;
+  top: number;
+}
+
+/** Keep the card inside its area, `margin` px from each edge. `card` is its untranslated box within the area. */
 export function clampOffset(
   offset: Offset,
   area: Size,
-  card: Size,
+  card: Box,
   margin = 0,
 ): Offset {
-  const limit = (a: number, c: number) => Math.max(0, (a - c) / 2 - margin);
-  const lx = limit(area.width, card.width);
-  const ly = limit(area.height, card.height);
+  const axis = (v: number, a: number, start: number, len: number) => {
+    const lo = margin - start;
+    const hi = a - margin - start - len;
+    return lo > hi ? 0 : Math.min(hi, Math.max(lo, v));
+  };
   return {
-    x: Math.min(lx, Math.max(-lx, offset.x)),
-    y: Math.min(ly, Math.max(-ly, offset.y)),
+    x: axis(offset.x, area.width, card.left, card.width),
+    y: axis(offset.y, area.height, card.top, card.height),
   };
 }
 
 const size = (el: HTMLElement): Size => ({
+  width: el.clientWidth,
+  height: el.clientHeight,
+});
+
+// offsetLeft/offsetTop ignore the transform and are relative to the area,
+// which is the card's offsetParent (it is `relative`).
+const box = (el: HTMLElement): Box => ({
+  left: el.offsetLeft,
+  top: el.offsetTop,
   width: el.offsetWidth,
   height: el.offsetHeight,
 });
@@ -50,7 +66,7 @@ export function useCardDrag(margin: number) {
 
   const clamp = useCallback(
     (o: Offset) =>
-      area && card ? clampOffset(o, size(area), size(card), margin) : o,
+      area && card ? clampOffset(o, size(area), box(card), margin) : o,
     [area, card, margin],
   );
 

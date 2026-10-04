@@ -15,7 +15,7 @@ export function ColumnChips({
   const all = [...columns, ...value.filter((v) => !columns.includes(v))];
   if (all.length === 0)
     return (
-      <span className="text-muted-foreground text-xs">No columns yet</span>
+      <span className="text-muted-foreground text-small">No columns yet</span>
     );
   return (
     <div className="flex flex-wrap gap-1">
@@ -30,7 +30,7 @@ export function ColumnChips({
               onChange(on ? value.filter((v) => v !== c) : [...value, c])
             }
             className={cn(
-              "rounded-md border px-2 py-0.5 font-mono text-xs",
+              "rounded-control text-small border px-2 py-0.5 font-mono",
               on
                 ? "bg-accent text-accent-foreground border-foreground/40"
                 : "text-muted-foreground",

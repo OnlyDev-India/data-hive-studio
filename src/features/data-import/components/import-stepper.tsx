@@ -8,7 +8,7 @@ export type StepName = (typeof STEPS)[number];
 export function ImportStepper({ current }: { current: StepName }) {
   const at = STEPS.indexOf(current);
   return (
-    <ol className="bg-accent/40 flex rounded-lg border px-4 py-3">
+    <ol className="bg-accent/40 rounded-surface flex border px-4 py-3">
       {STEPS.map((name, i) => (
         <li
           key={name}
@@ -23,7 +23,7 @@ export function ImportStepper({ current }: { current: StepName }) {
           )}
           <span
             className={cn(
-              "bg-background relative flex size-6 items-center justify-center rounded-full border text-xs font-medium",
+              "bg-background text-small relative flex size-6 items-center justify-center rounded-full border font-medium",
               i === at && "bg-foreground text-background border-transparent",
               i > at && "text-muted-foreground",
             )}
@@ -32,7 +32,7 @@ export function ImportStepper({ current }: { current: StepName }) {
           </span>
           <span
             className={cn(
-              "text-sm",
+              "text-body",
               i === at ? "font-medium" : "text-muted-foreground",
             )}
           >

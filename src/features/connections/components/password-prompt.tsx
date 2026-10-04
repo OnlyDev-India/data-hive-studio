@@ -73,7 +73,7 @@ export function PasswordPrompt({
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={!!error}
           />
-          <label className="flex items-center gap-2 text-sm">
+          <label className="text-body flex items-center gap-2">
             <Checkbox
               checked={save}
               onCheckedChange={(v) => setSave(v === true)}
@@ -83,7 +83,7 @@ export function PasswordPrompt({
           {error && (
             <p
               role="alert"
-              className="text-destructive wrap-break-words text-xs"
+              className="text-destructive wrap-break-words text-small"
             >
               {error}
             </p>

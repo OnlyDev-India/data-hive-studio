@@ -135,7 +135,7 @@ export function LazyObjectRows({
   if (state === "loading" || state === undefined) return null;
   if (state === null || state.length === 0) {
     return (
-      <p className="text-muted-foreground py-1 text-sm" style={pad}>
+      <p className="text-muted-foreground text-body py-1" style={pad}>
         {empty_label}
       </p>
     );
@@ -146,7 +146,7 @@ export function LazyObjectRows({
         {state.map((obj) => (
           <div
             key={obj.name}
-            className="text-foreground/80 truncate py-0.5 font-mono text-sm"
+            className="text-foreground/80 text-body truncate py-0.5 font-mono"
             style={pad}
             title={obj.extra ? `${obj.name} — ${obj.extra}` : obj.name}
           >
@@ -169,7 +169,7 @@ export function LazyObjectRows({
           <div key={obj.name}>
             <button
               type="button"
-              className="text-foreground/80 hover:text-foreground flex w-full min-w-0 items-center gap-1 py-0.5 text-left font-mono text-sm"
+              className="text-foreground/80 hover:text-foreground text-body flex w-full min-w-0 items-center gap-1 py-0.5 text-left font-mono"
               style={pad}
               disabled={!obj.extra}
               title={obj.name}
@@ -204,7 +204,7 @@ export function LazyObjectRows({
                 {obj.extra.split(", ").map((v, i) => (
                   <span
                     key={i}
-                    className="text-muted-foreground wrap-break-words text-sm"
+                    className="text-muted-foreground wrap-break-words text-body"
                   >
                     {v}
                   </span>
@@ -234,6 +234,8 @@ export function LazyTableRows({
   on_import,
   on_drop,
   on_refresh_matview,
+  on_compare,
+  on_aggregate,
   is_mongo,
   kind = "table",
   selected_name,
@@ -256,6 +258,8 @@ export function LazyTableRows({
   on_import?: (name: string) => void;
   on_drop?: (name: string) => void;
   on_refresh_matview?: (name: string) => void;
+  on_compare?: (name: string) => void;
+  on_aggregate?: (name: string) => void;
   is_mongo?: boolean;
   kind?: IconType;
   selected_name?: string | null;
@@ -269,7 +273,7 @@ export function LazyTableRows({
   if (state === "loading" || state === undefined) return null;
   if (state === null || state.length === 0) {
     return (
-      <p className="text-muted-foreground py-1 text-sm" style={pad}>
+      <p className="text-muted-foreground text-body py-1" style={pad}>
         {empty_label}
       </p>
     );
@@ -298,6 +302,8 @@ export function LazyTableRows({
             on_refresh_matview={
               on_refresh_matview && (() => on_refresh_matview(obj.name))
             }
+            on_compare={on_compare && (() => on_compare(obj.name))}
+            on_aggregate={on_aggregate && (() => on_aggregate(obj.name))}
           />
         </div>
       ))}

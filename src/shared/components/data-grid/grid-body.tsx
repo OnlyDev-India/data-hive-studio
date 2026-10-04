@@ -68,12 +68,12 @@ export function GridBody() {
         {/* Header: corner cell (row-number gutter header) then column headers.
           Sticks to the top of the scroller while rows window underneath. */}
         <div
-          className="bg-muted text-muted-foreground sticky top-0 z-8 flex w-max min-w-full border-b text-xs font-medium select-none"
+          className="bg-muted text-muted-foreground text-small sticky top-0 z-8 flex w-max min-w-full border-b font-medium select-none"
           // Its height comes from the header cells, so with no columns it
           // would collapse to the "#" text.
           style={{ height: HEADER_HEIGHT_PX }}
         >
-          <div className="border-border/40 bg-muted text-2xs sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r">
+          <div className="border-border/40 bg-muted text-caption sticky left-0 z-8 flex w-12 shrink-0 items-center justify-center border-r">
             <span>#</span>
           </div>
           {headers.map(([col, sort, isPinned, px]) => (
@@ -109,8 +109,8 @@ export function GridBody() {
                 data-index={idx}
                 className={cn(
                   "hover:bg-muted/30 absolute top-0 left-0 flex w-max border-b transition-colors",
-                  is_pending && "bg-yellow-300/10",
-                  is_deleted && "bg-destructive/10",
+                  is_pending && "bg-diff-change",
+                  is_deleted && "bg-diff-remove",
                 )}
                 style={{
                   // Absolute + top (instead of transform) keeps rows OUT of
@@ -124,11 +124,11 @@ export function GridBody() {
               >
                 <div
                   className={cn(
-                    "border-border/40 bg-muted text-muted-foreground text-2xs sticky left-0 z-7 flex w-12 shrink-0 cursor-pointer items-center justify-center border-r select-none",
+                    "border-border/40 bg-muted text-muted-foreground text-caption sticky left-0 z-7 flex w-12 shrink-0 cursor-pointer items-center justify-center border-r select-none",
                     gutter_sel &&
                       "bg-primary text-primary-foreground font-medium",
-                    is_pending && "bg-yellow-300/20",
-                    is_deleted && "bg-destructive/15 text-destructive",
+                    is_pending && "bg-diff-change text-diff-change-foreground",
+                    is_deleted && "bg-diff-remove text-diff-remove-foreground",
                   )}
                   title={`Select row ${row_offset + idx + 1}`}
                   onMouseDown={(e) => {
@@ -179,7 +179,7 @@ export function GridBody() {
           })}
         </div>
         {row_count === 0 && (
-          <p className="text-muted-foreground px-3 py-8 text-center text-sm">
+          <p className="text-muted-foreground text-body px-3 py-8 text-center">
             No rows.
           </p>
         )}

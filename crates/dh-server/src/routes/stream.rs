@@ -10,15 +10,15 @@
 
 use super::data::op_reads;
 use super::{fail, handle_of, Live, Shared};
-use crate::bodies::{CancelBody, ExecuteOpBody, RunMongoBody, SqlBody};
+use crate::bodies::{CancelBody, ExecuteOpBody, MongoGraphBody, RunMongoBody, SqlBody};
 use axum::body::{Body, Bytes};
 use axum::extract::{RawPathParams, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use dh_core::api::QueryChunk;
+use dh_core::api::{MongoGraphEvent, QueryChunk};
 use dh_core::db::{
-    mongo_script_class, run_mongo_stream_on, run_sql_stream_on, sql_class, DbError, DbResult, Dialect, StmtClass,
+    mongo_graph_on, mongo_script_class, run_mongo_stream_on, run_sql_stream_on, sql_class, DbError, DbResult, Dialect, StmtClass,
 };
 use futures_util::future::BoxFuture;
 use futures_util::Stream;
@@ -36,7 +36,7 @@ use tokio::sync::mpsc;
 /// server holds no more rows than this for a stream.
 const QUEUE: usize = 4;
 
-type Sink = Box<dyn FnMut(QueryChunk) -> DbResult<()> + Send>;
+type Sink<C = QueryChunk> = Box<dyn FnMut(C) -> DbResult<()> + Send>;
 
 enum Event {
     /// One finished NDJSON line, with its newline.
@@ -46,10 +46,10 @@ enum Event {
 }
 
 #[derive(Serialize)]
-struct ChunkLine<'a> {
+struct ChunkLine<'a, C> {
     t: &'static str,
     #[serde(flatten)]
-    chunk: &'a QueryChunk,
+    chunk: &'a C,
 }
 
 fn line(value: &impl Serialize) -> Bytes {
@@ -146,6 +146,26 @@ pub(super) async fn mongo_run_stream(
     .await
 }
 
+/// The Mongo ER diagram, one `chunk` line per sampled collection. It only
+/// reads, so a read only server allows it.
+pub(super) async fn mongo_graph_stream(
+    State(st): State<Shared>,
+    Live(a): Live,
+    params: RawPathParams,
+    Json(b): Json<MongoGraphBody>,
+) -> Response {
+    let handle = handle_of(&params);
+    let (run_id, id) = (b.run_id.clone(), handle.clone());
+    stream_response::<MongoGraphEvent>(st, handle, run_id.clone(), move |sink| {
+        Box::pin(async move {
+            let mut sink = sink;
+            mongo_graph_on(&*a, &id, &b.database, run_id.as_deref(), &mut *sink).await?;
+            Ok(Value::Null)
+        })
+    })
+    .await
+}
+
 /// Stop a running stream. Cancel is allowed on a read only server: it writes
 /// nothing. The run registry key is the handle plus the run id, so one handle
 /// cannot stop another handle's run.
@@ -157,18 +177,18 @@ pub(super) async fn cancel(Live(_a): Live, params: RawPathParams, Json(b): Json<
 /// Run `work` on its own task, feeding its chunks to a response body. Nothing
 /// is sent until the first line is ready, so a run that fails first still
 /// answers with a normal status.
-async fn stream_response(
+pub(super) async fn stream_response<C: Serialize + Send + 'static>(
     st: Shared,
     handle: String,
     run_id: Option<String>,
-    work: impl FnOnce(Sink) -> BoxFuture<'static, DbResult<Value>> + Send + 'static,
+    work: impl FnOnce(Sink<C>) -> BoxFuture<'static, DbResult<Value>> + Send + 'static,
 ) -> Response {
     let (tx, mut rx) = mpsc::channel::<Event>(QUEUE);
     let sent = Arc::new(AtomicBool::new(false));
 
     let sink_tx = tx.clone();
     let sink_sent = sent.clone();
-    let sink: Sink = Box::new(move |chunk| {
+    let sink: Sink<C> = Box::new(move |chunk: C| {
         let bytes = line(&ChunkLine { t: "chunk", chunk: &chunk });
         sink_sent.store(true, Ordering::SeqCst);
         // The run calls this from async code, so waiting for room must not
@@ -209,7 +229,7 @@ async fn stream_response(
 
 /// A running stream counts as use of its handle, so a run longer than the
 /// idle timeout does not lose its pool.
-fn keep_handle_alive(st: Shared, handle: String) -> tokio::task::JoinHandle<()> {
+pub(super) fn keep_handle_alive(st: Shared, handle: String) -> tokio::task::JoinHandle<()> {
     let every = (st.handles.idle() / 3).clamp(Duration::from_millis(10), Duration::from_secs(60));
     tokio::spawn(async move {
         loop {

@@ -1,5 +1,15 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// Without these, `text-caption` reads as a color and loses to `text-muted-foreground`.
+const twMerge = extendTailwindMerge({
+  extend: {
+    theme: {
+      text: ["caption", "small", "body", "title", "heading", "display"],
+      radius: ["inset", "control", "surface", "dialog", "pill"],
+    },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

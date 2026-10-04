@@ -102,6 +102,9 @@ export function connectionActions(set: SetState) {
           if (tab.kind === "table" || tab.kind === "mongo")
             pausedTabs[tabKey(tab)] = true;
         }
+        const relationLayouts = { ...state.relationLayouts };
+        if (pending.relationLayouts)
+          relationLayouts[conn.id] = pending.relationLayouts;
         return {
           open,
           recent,
@@ -109,6 +112,12 @@ export function connectionActions(set: SetState) {
           view: "workspace",
           workspaces: { ...state.workspaces, [conn.id]: pending.workspace },
           sqlSeeds: { ...state.sqlSeeds, ...pending.sqlSeeds },
+          compareTabs: { ...state.compareTabs, ...pending.compareSetups },
+          aggregationTabs: {
+            ...state.aggregationTabs,
+            ...pending.aggregationSetups,
+          },
+          relationLayouts,
           pendingWorkspaceRestore,
           pausedTabs,
         };
@@ -129,6 +138,8 @@ export function connectionActions(set: SetState) {
               [stableConnKey(closing)]: saved,
             }
           : state.pendingWorkspaceRestore;
+        const relationLayouts = { ...state.relationLayouts };
+        delete relationLayouts[id];
         if (open.length === 0) {
           const workspaces = { ...state.workspaces };
           delete workspaces[id];
@@ -137,6 +148,7 @@ export function connectionActions(set: SetState) {
             activeId: null,
             view: "home",
             workspaces,
+            relationLayouts,
             pendingWorkspaceRestore,
             // The landing page shares the SAME left-panel state as a
             // connection's workspace — without this, disconnecting while
@@ -149,6 +161,7 @@ export function connectionActions(set: SetState) {
         return {
           open,
           activeId: state.activeId === id ? open[0].id : state.activeId,
+          relationLayouts,
           pendingWorkspaceRestore,
         };
       });

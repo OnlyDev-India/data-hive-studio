@@ -12,10 +12,13 @@ mod console_guard;
 pub use console_guard::mongo_script_class;
 mod convert;
 mod field_tree;
+mod graph;
+mod infer_links;
 mod schema;
 mod indexes;
 mod documents;
 mod stream;
+mod compare;
 #[cfg(test)]
 mod stream_live_tests;
 mod console;
@@ -27,6 +30,10 @@ mod import_rows;
 mod import_tests;
 mod ddl;
 mod explain;
+mod pipeline;
+pub use pipeline::{
+    compose_pipeline, filter_to_match, parse_pipeline, preview_activity_text, render_stage, spec_write_stage,
+};
 mod adapter;
 #[cfg(test)]
 mod tests;

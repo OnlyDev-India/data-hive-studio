@@ -51,14 +51,14 @@ export function PreviewTable({
 
   if (view.names.length === 0) {
     return (
-      <p className="text-muted-foreground p-3 text-sm">
+      <p className="text-muted-foreground text-body p-3">
         Map at least one column to see the rows.
       </p>
     );
   }
   return (
     <div>
-      <table className="w-full text-xs">
+      <table className="text-small w-full">
         <thead className="bg-muted text-muted-foreground sticky top-0 z-10">
           <tr>
             <th className="px-2 py-1 text-left font-medium">Row</th>

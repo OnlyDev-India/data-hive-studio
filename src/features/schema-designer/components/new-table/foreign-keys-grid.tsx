@@ -70,11 +70,11 @@ export function ForeignKeysGrid({
       <p className={EMPTY_HINT}>
         No foreign keys. Add one to reference another table. The target column
         must be that table's primary key (
-        <KeyRound className="inline size-3 text-amber-500" />) or UNIQUE (·U).
+        <KeyRound className="text-obj-key inline size-3" />) or UNIQUE (·U).
       </p>
     );
   return (
-    <table className="w-full min-w-max text-sm">
+    <table className="text-body w-full min-w-max">
       <thead>
         <tr>
           <th className={`${TH_NUM} w-9 text-center`}>#</th>
@@ -95,7 +95,7 @@ export function ForeignKeysGrid({
           return (
             <tr key={idx}>
               <td
-                className={`${TD_NUM} ${ROW_PAD} text-muted-foreground text-center text-xs`}
+                className={`${TD_NUM} ${ROW_PAD} text-muted-foreground text-small text-center`}
               >
                 {idx + 1}
               </td>
@@ -200,7 +200,7 @@ export function ForeignKeysGrid({
                         <SelectItem key={c} value={c}>
                           {c}
                           {meta?.pk === c ? (
-                            <KeyRound className="size-4 text-amber-500!" />
+                            <KeyRound className="text-obj-key! size-4" />
                           ) : (
                             " ·U"
                           )}
