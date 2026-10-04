@@ -64,17 +64,20 @@ export function StateOverlay({ state }: { state: CanvasState }) {
 export function DiagramEmpty({
   title,
   description,
+  icon,
   children,
 }: {
   title: string;
   description?: string;
+  /** Replaces the network icon. */
+  icon?: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <DiagramOverlay>
       <Empty className="border-none">
         <EmptyHeader>
-          <Network className="text-muted-foreground size-6" />
+          {icon ?? <Network className="text-muted-foreground size-6" />}
           <EmptyTitle>{title}</EmptyTitle>
           {description && <EmptyDescription>{description}</EmptyDescription>}
         </EmptyHeader>

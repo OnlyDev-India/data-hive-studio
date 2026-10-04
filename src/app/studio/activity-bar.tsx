@@ -33,7 +33,7 @@ import {
 import { DatabaseIcon, HouseIcon } from "@/shared/components/icons";
 import { SquarePlusIcon } from "@/shared/components/icons/pluse-square";
 import { useStudioStore } from "@/shared/store";
-import { TOOLS, type Tool } from "./tools";
+import { toolsFor, type Tool } from "./tools";
 
 const BAR_BUTTON_CLASS = "group hover:bg-primary/20";
 const DISABLED_CLASS =
@@ -227,10 +227,14 @@ export function ActivityBar({
   // App settings dialog (gear button at the bottom of the bar).
   const [settings_open, set_settings_open] = useState(false);
   const pinnedTools = useStudioStore((s) => s.pinnedTools);
+  const kind = useStudioStore(
+    (s) => s.open.find((c) => c.id === conn_id)?.kind,
+  );
+  const tools = toolsFor(kind);
   const pinned = pinnedTools
-    .map((id) => TOOLS.find((t) => t.id === id))
+    .map((id) => tools.find((t) => t.id === id))
     .filter((t): t is Tool => !!t);
-  const unpinned = TOOLS.filter((t) => !pinnedTools.includes(t.id));
+  const unpinned = tools.filter((t) => !pinnedTools.includes(t.id));
   const tools_disabled = actions_disabled || !conn_id;
   const run_tool = (tool: Tool) => {
     if (conn_id && !tools_disabled) tool.run(conn_id);

@@ -5,6 +5,9 @@ use async_trait::async_trait;
 use crate::api::{
     FieldShape,
     MongoRunResult,
+    PipelinePreviewRequest,
+    PipelineRunRequest,
+    PreviewSummary,
     PlanResult,
     ImportCapabilities,
     ImportReport,
@@ -17,7 +20,7 @@ use crate::api::{
     TableSchema,
 };
 use serde_json;
-use super::types::{BatchSink, GraphSink, CatalogOverview, DbError, DbResult, OpOutcome, RoleDetail, SchemaObject, SchemaObjectKind};
+use super::types::{BatchSink, GraphSink, PreviewSink, CatalogOverview, DbError, DbResult, OpOutcome, RoleDetail, SchemaObject, SchemaObjectKind};
 
 /// One database family's driver: connection handling plus every operation
 /// the UI can perform. SQLite ships as the built-in adapter; other engines
@@ -378,6 +381,24 @@ pub trait DbAdapter: Send + Sync {
         Err(DbError::InvalidOperation(
             "Mongo console commands are only available on MongoDB connections".into(),
         ))
+    }
+    /// Preview aggregation builder cards on a capped slice. MongoDB only.
+    async fn mongo_pipeline_preview(
+        &self,
+        _req: &PipelinePreviewRequest,
+        _run: Option<&RunHandle>,
+        _sink: PreviewSink<'_>,
+    ) -> DbResult<PreviewSummary> {
+        Err(DbError::InvalidOperation("pipelines are only available on MongoDB connections".into()))
+    }
+    /// Run an aggregation builder pipeline in full, streaming. MongoDB only.
+    async fn mongo_pipeline_run(
+        &self,
+        _req: &PipelineRunRequest,
+        _run: Option<&RunHandle>,
+        _sink: BatchSink<'_>,
+    ) -> DbResult<MongoRunResult> {
+        Err(DbError::InvalidOperation("pipelines are only available on MongoDB connections".into()))
     }
     /// Recursively inferred nested field shape for a MongoDB collection (spec
     /// 0001's "Fields" view) — sampled the same way as `inferred_schema`

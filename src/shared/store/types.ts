@@ -26,6 +26,8 @@ export interface SavedWorkspace {
   sqlSeeds: Record<string, string>;
   /** Compare tab setups, keyed by tab key. Absent on older snapshots. */
   compareSetups?: Record<string, CompareSetup>;
+  /** Aggregation builder setups, keyed by tab key. Absent on older snapshots. */
+  aggregationSetups?: Record<string, AggregationSetup>;
   /** Dragged diagram box positions: `"<database>|<schema>"` → table key →
    *  position. Absent on older snapshots. */
   relationLayouts?: RelationLayouts;
@@ -59,11 +61,61 @@ export const EMPTY_COMPARE_SETUP: CompareSetup = {
   filter: "",
 };
 
+/** One aggregation builder card. `body` is the stage value as relaxed
+ *  extended JSON text, the source of truth for every view of the card. */
+export interface AggregationStage {
+  id: string;
+  op: string;
+  body: string;
+  enabled: boolean;
+  collapsed: boolean;
+  view: "form" | "json";
+  note: string | null;
+  title: string | null;
+  /** Side chains of a main chain `$facet`, `$lookup` or `$unionWith`. A
+   *  side chain card never has its own. */
+  branches?: AggregationBranch[];
+}
+
+/** One side chain: a `$facet` output, or the `pipeline` of a `$lookup` or
+ *  `$unionWith`. */
+export interface AggregationBranch {
+  key: string;
+  stages: AggregationStage[];
+}
+
+/** An aggregation builder tab's pipeline and settings. Persisted with its
+ *  workspace; previews and run results never are. */
+export interface AggregationSetup {
+  stages: AggregationStage[];
+  selected_stage_id: string | null;
+  /** How many source documents a preview reads (100 to 100,000). */
+  preview_cap: number;
+  auto_preview: boolean;
+  /** A preview query's time limit (1,000 to 120,000 ms). */
+  preview_time_ms: number;
+  allow_disk_use: boolean;
+  file_path: string | null;
+  /** The last saved file text, for the unsaved check. */
+  saved_text: string | null;
+}
+
+export const DEFAULT_AGGREGATION_SETUP: AggregationSetup = {
+  stages: [],
+  selected_stage_id: null,
+  preview_cap: 1000,
+  auto_preview: true,
+  preview_time_ms: 10_000,
+  allow_disk_use: false,
+  file_path: null,
+  saved_text: null,
+};
+
 /** What a table or collection tab shows. */
 export type PaneMode = "data" | "schema" | "diagram";
 
 /** A tool the activity bar's tools menu offers. */
-export type ToolId = "compare" | "relation-diagram";
+export type ToolId = "compare" | "relation-diagram" | "aggregation";
 
 /** User-customizable trigger prefixes for the command palette's quick-open
  *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
@@ -214,6 +266,8 @@ export interface WorkspaceTabs {
   nextMongoTabId: number;
   /** Absent on workspaces saved before compare tabs existed. */
   nextCompareId?: number;
+  /** Absent on workspaces saved before aggregation tabs existed. */
+  nextAggregationId?: number;
   /** Absent on workspaces saved before relation diagram tabs existed. */
   nextRelationDiagramId?: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
@@ -731,6 +785,11 @@ export interface StudioStore {
   sqlFormatIndentWidth: number;
   setSqlFormatIndentWidth: (n: number) => void;
 
+  /** How many preview queries one builder refresh runs at a time, app wide
+   *  (1 to 8). */
+  previewConcurrency: number;
+  setPreviewConcurrency: (n: number) => void;
+
   /** Delimited-list builder dialog's last-used settings (Settings aren't
    *  exposed separately — the dialog itself is the only editor, same as
    *  `paletteKeywords`/`shortcutOverrides` above). */
@@ -815,6 +874,19 @@ export interface StudioStore {
   /** Compare tab setups keyed by tab key. */
   compareTabs: Record<string, CompareSetup>;
   setCompareSetup: (key: string, setup: CompareSetup) => void;
+  /** Open a new aggregation builder tab on one collection, starting with a
+   *  `$match` card holding `seedMatch` when given, or with `init` (cards
+   *  read from text, the file they came from). */
+  openAggregation: (
+    connId: string,
+    database: string,
+    collection: string,
+    seedMatch?: string | null,
+    init?: Partial<AggregationSetup>,
+  ) => void;
+  /** Aggregation builder setups keyed by tab key. */
+  aggregationTabs: Record<string, AggregationSetup>;
+  setAggregationSetup: (key: string, setup: AggregationSetup) => void;
   /** Open a MongoDB collection tab (data view). */
   openMongo: (
     connId: string,

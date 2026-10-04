@@ -15,8 +15,7 @@ import {
   moveActive,
   parentIndex,
   type PlanRow,
-} from "../lib/plan-tree";
-import type { PlanTab } from "../lib/use-plan-tabs";
+} from "./plan-tree";
 
 const DIALECT_LABEL: Record<PlanResult["dialect"], string> = {
   postgres: "PostgreSQL",
@@ -24,13 +23,25 @@ const DIALECT_LABEL: Record<PlanResult["dialect"], string> = {
   mongodb: "MongoDB",
 };
 
+/** What a plan view needs of the call it shows. */
+export interface PlanCall {
+  /** What was explained, shown while the database answers. */
+  statement: string;
+  /** Null while the database is still answering. */
+  result: PlanResult | null;
+  mode: PlanResult["mode"];
+  /** Set only when Stop can reach the call. */
+  run_id: string | null;
+  stopping: boolean;
+}
+
 /** What a Plan tab shows: the plan as a tree, or why there is none. */
 export function PlanView({
   tab,
   stale = false,
   on_stop,
 }: {
-  tab: PlanTab;
+  tab: PlanCall;
   /** Stops the call while the database is still answering. */
   on_stop?: () => void;
   /** The editor no longer holds this tab's statement. */

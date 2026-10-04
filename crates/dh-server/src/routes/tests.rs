@@ -742,3 +742,61 @@ async fn an_import_loads_rows_and_reports_them() {
     let (status, text) = call(&st, "POST", &format!("{base}/import/capabilities"), &[], Some(json!({}))).await;
     assert_eq!((status, text.as_str()), (StatusCode::OK, "{\"atomic\":true}"));
 }
+
+fn pipeline(stages: Value) -> Value {
+    json!({ "stages": stages })
+}
+
+#[tokio::test]
+async fn compose_and_the_filter_seed_need_no_handle() {
+    let st = AppState::new(cfg());
+    let spec = pipeline(json!([
+        { "id": "a", "op": "$match", "body": "{ status: \"A\" }", "enabled": true },
+        { "id": "b", "op": "$limit", "body": "{ oops", "enabled": true },
+    ]));
+    let (code, body) = call(&st, "POST", "/v1/mongo/pipeline/compose", &[], Some(json!({ "collection": "orders", "spec": spec }))).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert!(v["shell"].as_str().unwrap().starts_with("db.orders.aggregate(["));
+    assert_eq!(v["errors"][0]["stage_id"], "b");
+
+    let filters = json!([{ "column": "n", "op": "gt", "value": "5" }]);
+    let (code, body) = call(&st, "POST", "/v1/mongo/pipeline/filter-match", &[], Some(json!({ "filters": filters }))).await;
+    assert_eq!((code, body.as_str()), (StatusCode::OK, "\"{ n: { $gt: 5 } }\""));
+    let (_, body) = call(&st, "POST", "/v1/mongo/pipeline/filter-match", &[], Some(json!({}))).await;
+    assert_eq!(body, "null");
+
+    let value = json!({ "n": { "$gt": { "$numberLong": "5" } } });
+    let (code, body) = call(&st, "POST", "/v1/mongo/pipeline/render", &[], Some(json!({ "op": "$match", "value": value }))).await;
+    assert_eq!((code, body.as_str()), (StatusCode::OK, "\"{ n: { $gt: 5 } }\""));
+
+    let text = "db.orders.aggregate([\n  // @title Big\n  { $match: { n: { $gt: 5 } } }\n])";
+    let (code, body) = call(&st, "POST", "/v1/mongo/pipeline/parse", &[], Some(json!({ "text": text }))).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["collection"], "orders");
+    assert_eq!(v["stages"][0]["title"], "Big");
+    let (code, _) = call(&st, "POST", "/v1/mongo/pipeline/parse", &[], Some(json!({ "text": "db.c.find()" }))).await;
+    assert!(code.is_client_error() || code.is_server_error());
+}
+
+#[tokio::test]
+async fn a_read_only_server_refuses_a_pipeline_run_that_writes_but_not_a_preview() {
+    let (st, h) = state_with_handle(Config { read_only: true, ..cfg() }).await;
+    let writes = pipeline(json!([
+        { "id": "a", "op": "$match", "body": "{}", "enabled": true },
+        { "id": "b", "op": "$out", "body": "\"copy\"", "enabled": true },
+    ]));
+    let run = json!({ "database": "d", "collection": "c", "spec": writes });
+    let (code, _) = call(&st, "POST", &format!("/v1/c/{h}/mongo/pipeline/run-stream"), &[], Some(run)).await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+
+    // Past the switch, the SQLite handle answers that pipelines are Mongo only.
+    let preview = json!({
+        "database": "d", "collection": "c", "spec": pipeline(json!([])),
+        "cap": 1000, "time_ms": 1000, "show": 20, "concurrency": 4,
+    });
+    let (code, body) = call(&st, "POST", &format!("/v1/c/{h}/mongo/pipeline/preview-stream"), &[], Some(preview)).await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(body.contains("only available on MongoDB"), "{body}");
+}

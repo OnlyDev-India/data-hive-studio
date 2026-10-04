@@ -4,6 +4,7 @@ import { tabKey, type StudioTab } from "./tab-utils";
 import { DEFAULT_WORKSPACE } from "./workspace";
 import type { PaneNode } from "./pane-layout";
 import type {
+  AggregationSetup,
   CompareSetup,
   SavedConnParams,
   SavedWorkspace,
@@ -182,17 +183,21 @@ export function savedWorkspaceOf(
     };
   const sqlSeeds: Record<string, string> = {};
   const compareSetups: Record<string, CompareSetup> = {};
+  const aggregationSetups: Record<string, AggregationSetup> = {};
   for (const tab of ws.tabs) {
     const tk = tabKey(tab);
     const seed = state.sqlSeeds[tk];
     if (seed !== undefined) sqlSeeds[tk] = seed;
     const setup = state.compareTabs[tk];
     if (setup) compareSetups[tk] = setup;
+    const pipeline = state.aggregationTabs[tk];
+    if (pipeline) aggregationSetups[tk] = pipeline;
   }
   return {
     workspace: ws,
     sqlSeeds,
     ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
+    ...(Object.keys(aggregationSetups).length > 0 ? { aggregationSetups } : {}),
     ...(relationLayouts ? { relationLayouts } : {}),
   };
 }

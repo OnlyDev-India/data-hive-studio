@@ -236,22 +236,10 @@ impl MongoAdapter {
                 })
             }
             "aggregate" => {
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&super::mongo_json::quote_bare_keys(&call.args))
-                        .map_err(|e| DbError::InvalidOperation(format!("invalid pipeline JSON: {e}")))?;
-                if !parsed.is_array() {
-                    return Ok(f("aggregate pipeline must be a JSON array".into()));
-                }
-                let stages: Vec<bson::Document> = parsed
-                    .as_array()
-                    .unwrap_or(&Vec::new())
-                    .iter()
-                    .map(|v| {
-                        bson::to_document(v).map_err(|e| {
-                            DbError::InvalidOperation(format!("invalid pipeline stage: {e}"))
-                        })
-                    })
-                    .collect::<DbResult<_>>()?;
+                let stages = match super::pipeline::stage_array(&call.args) {
+                    Ok(stages) => stages,
+                    Err(e) => return Ok(f(e)),
+                };
                 let cursor = col
                     .aggregate(stages)
                     .batch_size(super::stream::CURSOR_BATCH)

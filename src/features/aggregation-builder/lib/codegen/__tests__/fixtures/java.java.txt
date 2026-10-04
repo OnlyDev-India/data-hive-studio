@@ -1,0 +1,11 @@
+import java.util.Arrays;
+import com.mongodb.client.AggregateIterable;
+import org.bson.Document;
+
+AggregateIterable<Document> result = db.getCollection("orders").aggregate(Arrays.asList(
+    // Recent orders
+    // only status A or B
+    Document.parse("{\"$match\":{\"_id\":{\"$oid\":\"507f1f77bcf86cd799439011\"},\"placed\":{\"$gte\":{\"$date\":{\"$numberLong\":\"1767225600000\"}}},\"status\":{\"$in\":[\"A\",\"B\"]},\"gift\":false,\"coupon\":null}}"),
+    Document.parse("{\"$group\":{\"_id\":\"$customer\",\"total\":{\"$sum\":{\"$numberDecimal\":\"0.10\"}},\"big\":{\"$max\":{\"$numberLong\":\"9007199254740993\"}},\"ratio\":{\"$avg\":{\"$numberDouble\":\"2.0\"}}}}"),
+    Document.parse("{\"$limit\":{\"$numberLong\":\"10\"}}")
+));

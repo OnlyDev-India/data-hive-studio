@@ -322,6 +322,99 @@ export type MongoGraphEvent =
   | { kind: "done" }
   | { kind: "error"; message: string };
 
+/** One aggregation builder card as Rust composes it. `body` is the stage
+ *  value as relaxed extended JSON text. */
+export interface StageSpec {
+  id: string;
+  op: string;
+  body: string;
+  enabled: boolean;
+  title?: string | null;
+  note?: string | null;
+  branches?: BranchSpec[];
+}
+
+export interface BranchSpec {
+  key: string;
+  stages: StageSpec[];
+}
+
+/** One card read back from pipeline text, with no id yet. */
+export interface StageDraft {
+  op: string;
+  body: string;
+  enabled: boolean;
+  title: string | null;
+  note: string | null;
+  branches?: { key: string; stages: StageDraft[] }[];
+}
+
+/** Pipeline text as cards, and the collection a shell call names. */
+export interface ParsedPipeline {
+  collection: string | null;
+  stages: StageDraft[];
+}
+
+export interface PipelineSpec {
+  stages: StageSpec[];
+}
+
+export interface StageError {
+  stage_id: string;
+  branch_key?: string;
+  message: string;
+}
+
+export interface ComposedPipeline {
+  /** Canonical extended JSON array, for driver code. */
+  canonical: unknown[];
+  shell: string;
+  json: string;
+  /** The Save format, with title, note and disabled markers. */
+  file: string;
+  errors: StageError[];
+}
+
+export interface PipelinePreviewRequest {
+  database: string;
+  collection: string;
+  spec: PipelineSpec;
+  /** Refresh from this card on; null refreshes every card. */
+  from: { stage_id: string; branch_key?: string | null } | null;
+  cap: number;
+  time_ms: number;
+  show: number;
+  concurrency: number;
+  run_id: string | null;
+}
+
+/** One card's preview, sent as soon as its query finishes. */
+export interface PreviewChunk {
+  stage_id: string;
+  branch_key?: string;
+  count: number;
+  columns: string[];
+  rows: (string | null)[][];
+  documents: unknown[];
+  elapsed_ms: number;
+  error?: string;
+  /** The error is the preview's time limit, not the stage itself. */
+  timed_out?: boolean;
+}
+
+export interface PreviewSummary {
+  cancelled: boolean;
+  source_estimate: number | null;
+}
+
+export interface PipelineRunRequest {
+  database: string;
+  collection: string;
+  spec: PipelineSpec;
+  allow_disk_use: boolean;
+  run_id: string | null;
+}
+
 /** One executed backend command, pushed live via the `activity://entry`
  *  event and hydratable through get_activity. */
 export interface ActivityEntry {

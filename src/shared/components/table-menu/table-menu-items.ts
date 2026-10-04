@@ -8,6 +8,7 @@ import {
   Table as TableIcon,
   Trash2,
   Upload,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -15,6 +16,7 @@ export type TableAction =
   | "open"
   | "structure"
   | "compare"
+  | "aggregate"
   | "grants"
   | "copy"
   | "duplicate"
@@ -39,6 +41,7 @@ export const ALL_TABLE_ACTIONS: ReadonlySet<TableAction> = new Set([
   "open",
   "structure",
   "compare",
+  "aggregate",
   "grants",
   "copy",
   "duplicate",
@@ -95,6 +98,15 @@ export function tableMenuItems({
       disabled: false,
     },
     tableLike,
+  );
+  add(
+    {
+      action: "aggregate",
+      label: "New aggregation",
+      icon: Workflow,
+      disabled: false,
+    },
+    mongo,
   );
   add(
     {

@@ -6,6 +6,7 @@ mod browse;
 mod compare;
 mod data;
 mod mongo;
+mod pipeline;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -274,6 +275,18 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/mongo/run-stream", post(stream::mongo_run_stream))
         .route("/v1/c/{handle}/mongo/graph-stream", post(stream::mongo_graph_stream))
         .route("/v1/c/{handle}/mongo/explain", post(mongo::explain))
+        .route(
+            "/v1/c/{handle}/mongo/pipeline/preview-stream",
+            post(pipeline::preview_stream),
+        )
+        .route(
+            "/v1/c/{handle}/mongo/pipeline/run-stream",
+            post(pipeline::run_stream),
+        )
+        .route("/v1/mongo/pipeline/parse", post(pipeline::parse))
+        .route("/v1/mongo/pipeline/compose", post(pipeline::compose))
+        .route("/v1/mongo/pipeline/render", post(pipeline::render))
+        .route("/v1/mongo/pipeline/filter-match", post(pipeline::filter_match))
         .route(
             "/v1/c/{handle}/mongo/collections",
             post(mongo::create_collection),

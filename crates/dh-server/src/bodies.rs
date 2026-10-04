@@ -1,7 +1,7 @@
 //! Request bodies of the data routes. The path, method and shape of each are
 //! unchanged from the old server.
 
-use dh_core::api::{ImportRequest, QueryOp, SchemaOp};
+use dh_core::api::{GridFilterCond, ImportRequest, PipelineSpec, QueryOp, SchemaOp};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct SqlBody {
@@ -142,6 +142,35 @@ pub struct MongoGraphBody {
     pub database: String,
     #[serde(default)]
     pub run_id: Option<String>,
+}
+
+/// The aggregation builder's cards to compose. Needs no connection.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ComposePipelineBody {
+    pub collection: String,
+    pub spec: PipelineSpec,
+}
+
+/// Pipeline text to read back into cards.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ParsePipelineBody {
+    pub text: String,
+}
+
+/// A stage value in canonical Extended JSON to render as card body text.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct RenderStageBody {
+    pub op: String,
+    pub value: serde_json::Value,
+}
+
+/// A collection grid's filter to turn into a `$match` card body.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct FilterMatchBody {
+    #[serde(default)]
+    pub filters: Vec<GridFilterCond>,
+    #[serde(default)]
+    pub custom_where: Option<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]

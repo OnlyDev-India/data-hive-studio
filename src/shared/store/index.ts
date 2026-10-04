@@ -2,6 +2,10 @@ export { useStudioStore, bootstrapWorkspaceRestore } from "./store";
 export {
   DEFAULT_PALETTE_KEYWORDS,
   EMPTY_COMPARE_SETUP,
+  DEFAULT_AGGREGATION_SETUP,
+  type AggregationSetup,
+  type AggregationBranch,
+  type AggregationStage,
   type CompareSetup,
   type PaneMode,
   type ToolId,

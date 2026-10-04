@@ -105,6 +105,24 @@ impl DbAdapter for MongoAdapter {
         MongoAdapter::run_mongo_stream(self, db, collection, script, run, on_batch).await
     }
 
+    async fn mongo_pipeline_preview(
+        &self,
+        req: &crate::api::PipelinePreviewRequest,
+        run: Option<&RunHandle>,
+        sink: crate::db::PreviewSink<'_>,
+    ) -> DbResult<crate::api::PreviewSummary> {
+        MongoAdapter::pipeline_preview(self, req, run, sink).await
+    }
+
+    async fn mongo_pipeline_run(
+        &self,
+        req: &crate::api::PipelineRunRequest,
+        run: Option<&RunHandle>,
+        sink: BatchSink<'_>,
+    ) -> DbResult<crate::api::MongoRunResult> {
+        MongoAdapter::pipeline_run(self, req, run, sink).await
+    }
+
     async fn explain_sql(
         &self,
         database: Option<&str>,

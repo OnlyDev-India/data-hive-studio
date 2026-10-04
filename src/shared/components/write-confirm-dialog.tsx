@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AlertTriangle, CornerDownLeft } from "lucide-react";
 import {
   Button,
@@ -7,6 +8,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Input,
+  Label,
 } from "@/shared/components/ui";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
 
@@ -26,11 +29,8 @@ export interface ConfirmItem {
  *  the environment chip in the title so it is clear where it will run. */
 export function WriteConfirmDialog({
   items,
-  description,
-  title = "Confirm before running",
-  confirmLabel = "Run anyway",
-  onConfirm,
   onCancel,
+  ...rest
 }: {
   /** `null` closes the dialog. */
   items: ConfirmItem[] | null;
@@ -39,51 +39,93 @@ export function WriteConfirmDialog({
   /** The connection's label and lock, shown as a chip beside the title. */
   title?: string;
   confirmLabel?: string;
+  /** A name the user types before Confirm unlocks, for the riskiest writes. */
+  typeToConfirm?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const open = items !== null;
-  useShortcuts([{ key: "Enter", handler: onConfirm }], { enabled: open });
-
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+    <Dialog open={items !== null} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="text-destructive size-4" />
-            {title}
-          </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <ul className="bg-muted/30 rounded-control text-body flex max-h-64 flex-col gap-2 overflow-y-auto border p-3">
-          {items?.map((item, i) => (
-            <li key={i} className="flex flex-col gap-0.5">
-              <code className="wrap-break-words text-small font-mono">
-                {item.text}
-              </code>
-              {item.reasons.map((reason) => (
-                <span key={reason} className="text-destructive text-small">
-                  {reason}
-                </span>
-              ))}
-            </li>
-          ))}
-        </ul>
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-            <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
-              ESC
-            </kbd>
-          </Button>
-          <Button variant="destructive" onClick={onConfirm}>
-            {confirmLabel}
-            <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
-              <CornerDownLeft className="size-4" strokeWidth={1.75} />
-            </kbd>
-          </Button>
-        </DialogFooter>
+        {items && <ConfirmBody items={items} onCancel={onCancel} {...rest} />}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Mounted per open, so the typed name starts empty every time. */
+function ConfirmBody({
+  items,
+  description,
+  title = "Confirm before running",
+  confirmLabel = "Run anyway",
+  typeToConfirm,
+  onConfirm,
+  onCancel,
+}: {
+  items: ConfirmItem[];
+  description: string;
+  title?: string;
+  confirmLabel?: string;
+  typeToConfirm?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const unlocked = !typeToConfirm || typed === typeToConfirm;
+  useShortcuts([{ key: "Enter", handler: onConfirm }], { enabled: unlocked });
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <AlertTriangle className="text-destructive size-4" />
+          {title}
+        </DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+      <ul className="bg-muted/30 rounded-control text-body flex max-h-64 flex-col gap-2 overflow-y-auto border p-3">
+        {items?.map((item, i) => (
+          <li key={i} className="flex flex-col gap-0.5">
+            <code className="wrap-break-words text-small font-mono">
+              {item.text}
+            </code>
+            {item.reasons.map((reason) => (
+              <span key={reason} className="text-destructive text-small">
+                {reason}
+              </span>
+            ))}
+          </li>
+        ))}
+      </ul>
+      {typeToConfirm && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="write-confirm-typed" className="text-small">
+            Type <code className="font-mono">{typeToConfirm}</code> to confirm
+          </Label>
+          <Input
+            id="write-confirm-typed"
+            autoFocus
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            className="font-mono"
+          />
+        </div>
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>
+          Cancel
+          <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
+            ESC
+          </kbd>
+        </Button>
+        <Button variant="destructive" onClick={onConfirm} disabled={!unlocked}>
+          {confirmLabel}
+          <kbd className="bg-muted text-muted-foreground text-caption rounded-control ml-1 border px-1.5 py-0.5 font-medium">
+            <CornerDownLeft className="size-4" strokeWidth={1.75} />
+          </kbd>
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

@@ -81,11 +81,6 @@ export function CanvasControls({
   /** Nothing drawn: the controls stay on screen but can't be used. */
   disabled: boolean;
 }) {
-  const zoom = [
-    { label: "Zoom in", icon: Plus, onClick: onZoomIn },
-    { label: "Zoom out", icon: Minus, onClick: onZoomOut },
-    { label: "Fit to screen", icon: Maximize, onClick: onFit },
-  ];
   return (
     <>
       <Panel
@@ -102,26 +97,53 @@ export function CanvasControls({
         <TableSearch graph={graph} onPick={onPick} disabled={disabled} />
         {end}
       </Panel>
-      <Panel
-        position="bottom-left"
-        role="group"
-        aria-label="Zoom"
-        className={cn(CARD, "flex flex-col")}
-      >
-        {zoom.map(({ label, icon: Icon, onClick }) => (
-          <Button
-            key={label}
-            size="iconXs"
-            variant="ghost"
-            onClick={onClick}
-            disabled={disabled}
-            aria-label={label}
-            title={label}
-          >
-            <Icon className="size-3.5" />
-          </Button>
-        ))}
-      </Panel>
+      <ZoomControls
+        onZoomIn={onZoomIn}
+        onZoomOut={onZoomOut}
+        onFit={onFit}
+        disabled={disabled}
+      />
     </>
+  );
+}
+
+/** The zoom stack, floating bottom left on any React Flow canvas. */
+export function ZoomControls({
+  onZoomIn,
+  onZoomOut,
+  onFit,
+  disabled = false,
+}: {
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onFit: () => void;
+  disabled?: boolean;
+}) {
+  const zoom = [
+    { label: "Zoom in", icon: Plus, onClick: onZoomIn },
+    { label: "Zoom out", icon: Minus, onClick: onZoomOut },
+    { label: "Fit to screen", icon: Maximize, onClick: onFit },
+  ];
+  return (
+    <Panel
+      position="bottom-left"
+      role="group"
+      aria-label="Zoom"
+      className={cn(CARD, "flex flex-col")}
+    >
+      {zoom.map(({ label, icon: Icon, onClick }) => (
+        <Button
+          key={label}
+          size="iconXs"
+          variant="ghost"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+          title={label}
+        >
+          <Icon className="size-3.5" />
+        </Button>
+      ))}
+    </Panel>
   );
 }

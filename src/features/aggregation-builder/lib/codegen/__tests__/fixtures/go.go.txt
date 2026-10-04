@@ -1,0 +1,12 @@
+// Stage 1: Recent orders
+// only status A or B
+pipelineJSON := `[
+  {"$match":{"_id":{"$oid":"507f1f77bcf86cd799439011"},"placed":{"$gte":{"$date":{"$numberLong":"1767225600000"}}},"status":{"$in":["A","B"]},"gift":false,"coupon":null}},
+  {"$group":{"_id":"$customer","total":{"$sum":{"$numberDecimal":"0.10"}},"big":{"$max":{"$numberLong":"9007199254740993"}},"ratio":{"$avg":{"$numberDouble":"2.0"}}}},
+  {"$limit":{"$numberLong":"10"}}
+]`
+var pipeline []bson.D
+if err := bson.UnmarshalExtJSON([]byte(pipelineJSON), true, &pipeline); err != nil {
+	log.Fatal(err)
+}
+cursor, err := db.Collection("orders").Aggregate(ctx, pipeline)

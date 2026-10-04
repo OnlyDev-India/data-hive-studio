@@ -6,6 +6,7 @@ import {
   SquarePlus,
   Table as TableIcon,
   Terminal,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import type { StudioTab } from "@/shared/store";
@@ -54,6 +55,12 @@ export function TabTypeIcon({
       return (
         <GitCompareArrows
           className={cn("size-3.5", TAB_ICON_CLASS.compare, className)}
+        />
+      );
+    case "aggregation":
+      return (
+        <Workflow
+          className={cn("size-3.5", TAB_ICON_CLASS.aggregation, className)}
         />
       );
     case "relation-diagram":

@@ -30,6 +30,10 @@ mod import_rows;
 mod import_tests;
 mod ddl;
 mod explain;
+mod pipeline;
+pub use pipeline::{
+    compose_pipeline, filter_to_match, parse_pipeline, preview_activity_text, render_stage, spec_write_stage,
+};
 mod adapter;
 #[cfg(test)]
 mod tests;

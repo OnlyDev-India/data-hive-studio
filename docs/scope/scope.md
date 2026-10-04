@@ -31,8 +31,9 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | R   | Command palette                | Existing | existing    |
 | 5   | Table comparison view          | Slice 5  | in-progress |
 | 14  | Saved queries and snippets     | Slice 14 | planned     |
-| 15  | Mongo aggregation builder      | Slice 15 | planned     |
+| 15  | Mongo aggregation builder      | Slice 15 | in-progress |
 | 16  | Relation diagram               | Slice 16 | in-progress |
+| 33  | Activity log app query setting | Slice 33 | in-progress |
 
 
 
@@ -151,13 +152,21 @@ code in `src/features/query-editor`, `src/features/workspace/components/sidebar`
 
 
 
-### 15. Mongo aggregation builder · needs a decision
+### 15. Mongo aggregation builder · in-progress
 
-A visual builder for Mongo pipelines: add stages one by one (match, group, sort, project, lookup, and so on), see each stage's output, and send the pipeline to the editor or the grid. The design pass settles how much of the pipeline language the first cut covers and how stage previews stay cheap on large collections.
-**Done when:** you can build a multi stage aggregation for a Mongo collection stage by stage, see the result after each stage, and run or copy the final pipeline.
-code in `src/features/table-explorer/components/mongo-collection-pane.tsx`, `crates/dh-core/src/db/mongodb`
+A visual builder for Mongo pipelines, drawn on a canvas like the relation diagram: each stage (match, group, sort, project, lookup, and so on) is a card you add, edit, reorder and link, with its output previewed beside it, and the pipeline goes to the editor or the grid. The design pass settles how much it reuses `relation-canvas` (pan, zoom, controls, layout), whether `$lookup`, `$unionWith` and `$facet` show as branches off the main chain, how much of the pipeline language the first cut covers, and how stage previews stay cheap on large collections.
+**Done when:** on a canvas for a Mongo collection you can build a multi stage aggregation card by card, see the result after each stage, and run or copy the final pipeline.
+spec [0019](../specs/0019-mongo-aggregation-builder/index.md) · code in `src/features/aggregation-builder`, `src/shared/components/relation-canvas`, `src/features/table-explorer/components/mongo-collection-pane.tsx`, `src/shared/components/plan-view`, `src/shared/components/collection-picker.tsx`, `crates/dh-core/src/db/mongodb/pipeline`, `crates/dh-server/src/routes`
 
-- [ ] Design it (spec): `/architect mongo aggregation builder`
+- [x] Design it (spec): `/architect mongo aggregation builder`
+- [x] Build it: `/develop mongo aggregation builder`
+  - [x] Thin thread: aggregation tab and persistence, Rust compose and capped concurrent previews, canvas with JSON cards, bottom panel, streamed Run, Copy shell and JSON, collection pane entry with seeded `$match`, server routes · AC-1, AC-2, AC-3, AC-5, AC-6, AC-8, AC-10, AC-13, AC-19
+  - [x] Errors and safety: card error states, write stages pinned last and refused in previews, typed confirm on Production, activity entry per refresh, settings popover · AC-6, AC-7, AC-8, AC-9, AC-18, AC-20
+  - [x] Forms, field suggestions, card actions and undo: eight stage forms, palette, drag reorder, duplicate, toggles, title and note, undo and redo · AC-2, AC-3, AC-15
+  - [x] Branches: `$facet`, `$lookup` and `$unionWith` side chains with their own previews · AC-4
+  - [x] Import, files, entry points, export: parse, paste, open and save files, console and menu entries, driver codegen, Explain, image export, offline states · AC-1, AC-10, AC-11, AC-12, AC-13, AC-14, AC-16, AC-17
+- [ ] Verify it: `/check verify mongo aggregation builder`
+- [ ] Test it: `/test mongo aggregation builder`
 
 
 
@@ -192,6 +201,26 @@ spec [0018](../specs/0018-er-diagram/index.md) · code in `src/shared/components
 
 
 
+## Slice 33: Activity log app query setting
+
+
+
+### 33. Activity log app query setting · in-progress
+
+Move the app queries choice out of the activity sidebar and into Settings as a "Save app queries" switch, off by default. While it is off, the app's own background work is never recorded, so it stops pushing your queries out of the 500 entry history; app entries saved earlier stay on disk but stay hidden, and turning the switch on shows them again. The sidebar loses its "Show app queries" toggle and lists only the queries you run (or both, when the setting is on). The design pass settles which actions count as app vs user (connect and disconnect, schema prefetch, an explicit schema switch), where the switch is read (Rust before the write, so nothing reaches disk), and how the setting reaches the team server build.
+**Done when:** with the setting off, running queries and browsing the sidebar records only your own queries and the activity sidebar shows no toggle; turning it on in Settings starts saving app queries and shows them, older ones included.
+spec [0020](../specs/0020-activity-app-query-setting.md) · code in `src/features/activity`, `src/features/settings`, `crates/dh-core/src/activity.rs`, `crates/dh-core/src/db`, `src-tauri/src/commands/system.rs`
+
+- [x] Design it (spec): `/architect activity log app query setting`
+- [ ] Build it: `/develop activity log app query setting`
+  - [ ] Retag origins: grid saves, DDL, drops, duplicate, import, refusals and the schema designer apply become user; reads, connects, schema switch and compare stay app · AC-2, AC-3
+  - [ ] Rust gate: `SAVE_APP` flag checked in `push`, the `set_save_app_activity` command, and the frontend api call · AC-1, AC-6, AC-8, AC-9
+  - [ ] Settings and sidebar: "Activity log" Settings section with the switch (hidden on web), `saveAppActivity` replaces `showAppActivity`, feed loses its toggle · AC-4, AC-5, AC-6, AC-7, AC-10
+- [ ] Verify it: `/check verify activity log app query setting`
+- [ ] Test it: `/test activity log app query setting`
+
+
+
 ## Deferred
 
 Out of scope for the current build pass, kept so the plan stays honest.
@@ -211,8 +240,10 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Install script lint and uninstall**: run `shellcheck` and PSScriptAnalyzer on the install templates in PR checks, and add an uninstall command if users ask · from spec 0014 · code in `scripts/install`, `.github/workflows/pr-checks.yml`
 - **Relation diagram extras**: dismiss or add Mongo inferred links (saved per connection), auto refresh open diagrams after in app DDL (start by merging the shell's `objectCreated` into `noteCatalogChange`), close a dropped table's open tabs, apply a Mongo drop or duplicate to the cached sample instead of resampling, copy as Mermaid `erDiagram`, remember Relation or ER per tab and save ER positions, read Mongo unique indexes, and fold join tables that have extra columns · from spec 0018 · code in `src/shared/components/relation-canvas`, `crates/dh-core/src/db/mongodb`
 - **Wider stable connection key**: `stableConnKey` is kind plus database name, so two servers with a same named database share saved tabs, ER layouts and activity history. Widen it to `kind:user@host:port/database` on both the TS and Rust sides, with a one time fallback to the old key · from spec 0018 · code in `src/shared/store/workspace-persistence.ts`, `crates/dh-core/src/db/registry.rs`
+- **Log Mongo grid saves**: a Mongo document update or insert from the grid logs nothing when it works, only a read only refusal. Log a successful save as a user entry, the same as a SQL grid save · from spec 0020 · code in `crates/dh-core/src/db/documents.rs`
 - **Grid column layout by stable key**: the grid's column widths and order are keyed by `conn_id`, so they reset on every connect. Move them onto `stableConnKey` · from spec 0018 · code in `src/shared/components/data-grid`
 - **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`
+- **Aggregation builder extras**: nested side chains (a branch inside a branch, now JSON inside the card), and a per tab `$sample` preview mode if the first N documents prove unrepresentative · from spec 0019 · code in `src/features/aggregation-builder`, `crates/dh-core/src/db/mongodb/pipeline`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 

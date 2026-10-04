@@ -1,10 +1,13 @@
-use crate::api::{DbKind, MongoGraphEvent, QueryChunk, QueryResult};
+use crate::api::{DbKind, MongoGraphEvent, PreviewChunk, QueryChunk, QueryResult};
 
 /// Sink receiving streamed row batches during SELECT-shaped operations.
 pub type BatchSink<'a> = &'a mut (dyn FnMut(QueryChunk) -> DbResult<()> + Send);
 
 /// Sink receiving the Mongo ER diagram as each collection is sampled.
 pub type GraphSink<'a> = &'a mut (dyn FnMut(MongoGraphEvent) -> DbResult<()> + Send);
+
+/// Sink receiving each aggregation builder card's preview as it finishes.
+pub type PreviewSink<'a> = &'a mut (dyn FnMut(PreviewChunk) -> DbResult<()> + Send);
 
 /// An error produced by the database layer.
 #[derive(Debug, thiserror::Error)]

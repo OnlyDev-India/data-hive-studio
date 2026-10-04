@@ -40,6 +40,7 @@ export function TableListItem({
   on_refresh_matview,
   on_view_grants,
   on_compare,
+  on_aggregate,
 }: {
   name: string;
   kind: string;
@@ -60,6 +61,8 @@ export function TableListItem({
   on_drop?: () => void;
   on_refresh_matview?: () => void;
   on_compare?: () => void;
+  /** Mongo only: a new aggregation builder tab on this collection. */
+  on_aggregate?: () => void;
 }) {
   const iconType: IconType =
     is_mongo || kind === "table"
@@ -72,6 +75,7 @@ export function TableListItem({
     open: on_open,
     structure: on_view_structure,
     compare: on_compare,
+    aggregate: on_aggregate,
     grants: on_view_grants,
     copy: on_copy,
     duplicate: on_duplicate,

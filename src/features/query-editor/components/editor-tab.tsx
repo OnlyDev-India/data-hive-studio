@@ -68,9 +68,8 @@ import {
   substituteBindVariables,
 } from "../lib/bind-variables";
 import { compressSql } from "../lib/compress-sql";
-import { isPlanStale } from "../lib/plan-tree";
 import { usePlanTabs } from "../lib/use-plan-tabs";
-import { PlanView } from "./plan-view";
+import { isPlanStale, PlanView } from "@/shared/components/plan-view";
 import {
   looksLikeMongoWrite,
   MONGO_WRITE_NOTE,
@@ -1765,6 +1764,7 @@ function MongoEditorBody({
   tab_key,
   database,
   on_modified,
+  on_open_in_builder,
 }: {
   conn_id: string;
   tab_key: string;
@@ -1773,6 +1773,7 @@ function MongoEditorBody({
    *  an already-open grid tab on the same collection refreshes instead of
    *  showing stale data until a manual reload. */
   on_modified?: () => void;
+  on_open_in_builder?: (text: string, database: string) => void;
 }) {
   // The connection's own database vs. the CURRENT one (switched via the
   // toolbar picker below, or by typing `use <db>` — both update `db`,
@@ -2355,6 +2356,16 @@ function MongoEditorBody({
         on_stop_all={stop_all}
         on_explain={() => explain_target()}
         on_explain_analyze={() => explain_target(true)}
+        on_open_in_builder={
+          on_open_in_builder &&
+          (() => {
+            // The statement Run would run: the selection, or the one at the
+            // cursor.
+            const target = editorRef.current?.getTargets()[0];
+            const text = target && strip_comments(target.text);
+            if (text) on_open_in_builder(text, db);
+          })
+        }
         db_kind="mongodb"
         database={db}
         databases={databases}
@@ -2653,6 +2664,9 @@ export type EditorTabProps =
       /** Called after a successful write (insertOne/updateMany/deleteOne/…)
        *  so an already-open grid tab on the same collection refreshes. */
       on_modified?: () => void;
+      /** Opens the aggregate at the cursor in the aggregation builder.
+       *  Omitted = no Open in builder button. */
+      on_open_in_builder?: (text: string, database: string) => void;
     };
 
 /** The SQL console and the Mongo shell console are the same shape end to
@@ -2679,6 +2693,7 @@ export function EditorTab(props: EditorTabProps) {
       tab_key={props.tab_key}
       database={props.database}
       on_modified={props.on_modified}
+      on_open_in_builder={props.on_open_in_builder}
     />
   );
 }

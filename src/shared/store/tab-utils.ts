@@ -44,6 +44,15 @@ export type StudioTab =
   /** Two tables side by side. Its setup lives in the store's `compareTabs`
    *  under this tab's key. */
   | { kind: "compare"; conn_id: string; id: number }
+  /** An aggregation builder on one collection. Its pipeline lives in the
+   *  store's `aggregationTabs` under this tab's key. */
+  | {
+      kind: "aggregation";
+      conn_id: string;
+      database: string;
+      collection: string;
+      id: number;
+    }
   /** A schema's relation diagram. One per database and schema, so opening it
    *  again focuses the tab. `database` undefined = the connection's own. */
   | {
@@ -86,6 +95,8 @@ export function tabLabel(
       return "Users & Privileges";
     case "compare":
       return "Compare";
+    case "aggregation":
+      return "Aggregation";
     case "relation-diagram":
       return "Diagram";
   }
@@ -96,6 +107,7 @@ export function tabTitle(
   tab: StudioTab,
   conn: Pick<ConnectionInfo, "kind" | "name" | "source_path"> | undefined,
 ): string | undefined {
+  if (tab.kind === "aggregation") return `${tab.database}.${tab.collection}`;
   if (tab.kind !== "relation-diagram" || !conn) return undefined;
   if (conn.kind === "sqlite")
     return conn.source_path?.split(/[\\/]/).pop() ?? conn.name;
@@ -122,6 +134,8 @@ export function tabKey(tab: StudioTab): string {
       return "roles";
     case "compare":
       return `compare:${tab.conn_id}:${tab.id}`;
+    case "aggregation":
+      return `aggregation:${tab.conn_id}:${tab.id}`;
     case "relation-diagram":
       return `relation-diagram:${tab.conn_id}:${tab.id}`;
   }
@@ -145,6 +159,9 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
   }
   if (a.kind === "compare") {
     return b.kind === "compare" && a.conn_id === b.conn_id && a.id === b.id;
+  }
+  if (a.kind === "aggregation") {
+    return b.kind === "aggregation" && a.conn_id === b.conn_id && a.id === b.id;
   }
   if (a.kind === "relation-diagram") {
     return (

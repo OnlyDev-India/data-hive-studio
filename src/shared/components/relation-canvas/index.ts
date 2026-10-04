@@ -1,6 +1,7 @@
 export { RelationCanvas, type RelationCanvasProps } from "./relation-canvas";
 export { TableSearch } from "./components/table-search";
 export { CanvasButton } from "./components/canvas-button";
+export { ZoomControls } from "./components/canvas-controls";
 export { NotationToggle, type Notation } from "./components/notation-toggle";
 export {
   DiagramEmpty,
@@ -10,7 +11,7 @@ export {
   type CanvasState,
 } from "./components/graph-states";
 export { actFromDiagram, openFromDiagram } from "./lib/open";
-export { exportBase } from "./lib/export";
+export { exportBase, exportDiagram, type ExportFormat } from "./lib/export";
 export {
   adjacency,
   findTable,

@@ -221,6 +221,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           set({ sqlFormatIndentWidth: n });
         },
 
+        previewConcurrency: 4,
+        setPreviewConcurrency(n) {
+          set({ previewConcurrency: Math.max(1, Math.min(8, Math.round(n))) });
+        },
+
         delimitedListSettings: DEFAULT_DELIMITED_LIST_SETTINGS,
         setDelimitedListSettings(s) {
           set({ delimitedListSettings: s });
@@ -615,6 +620,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           editorFontSize: s.editorFontSize,
           sqlFormatKeywordCase: s.sqlFormatKeywordCase,
           sqlFormatIndentWidth: s.sqlFormatIndentWidth,
+          previewConcurrency: s.previewConcurrency,
           delimitedListSettings: s.delimitedListSettings,
           showAppActivity: s.showAppActivity,
           pinnedTools: s.pinnedTools,

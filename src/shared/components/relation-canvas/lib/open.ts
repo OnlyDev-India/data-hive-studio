@@ -54,6 +54,9 @@ export function actFromDiagram(
         table: t.name,
       });
       return;
+    case "aggregate":
+      if (db !== undefined) s.openAggregation(conn.id, db, t.name);
+      return;
     case "import":
       s.openImport({ connId: conn.id, table: t.name, database: db, schema });
       return;

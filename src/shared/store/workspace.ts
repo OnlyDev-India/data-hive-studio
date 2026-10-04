@@ -4,7 +4,9 @@ import { tabEquals, tabKey, type StudioTab } from "./tab-utils";
 import { useRelationGraphs } from "./relation-graphs";
 import type { TableRef } from "../api/types";
 import {
+  DEFAULT_AGGREGATION_SETUP,
   EMPTY_COMPARE_SETUP,
+  type AggregationSetup,
   type PaneMode,
   type StudioStore,
   type WorkspaceTabs,
@@ -317,6 +319,50 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
+    openAggregation(
+      connId: string,
+      database: string,
+      collection: string,
+      seedMatch?: string | null,
+      init?: Partial<AggregationSetup>,
+    ) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const id = cur.nextAggregationId ?? 0;
+        const tab: StudioTab = {
+          kind: "aggregation",
+          conn_id: connId,
+          database,
+          collection,
+          id,
+        };
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextAggregationId: id + 1 },
+          tab,
+        );
+        const stages = seedMatch
+          ? [
+              {
+                id: crypto.randomUUID(),
+                op: "$match",
+                body: seedMatch,
+                enabled: true,
+                collapsed: false,
+                view: "json" as const,
+                note: null,
+                title: null,
+              },
+            ]
+          : [];
+        return {
+          workspaces: putWs(state.workspaces, connId, next),
+          aggregationTabs: {
+            ...state.aggregationTabs,
+            [tabKey(tab)]: { ...DEFAULT_AGGREGATION_SETUP, stages, ...init },
+          },
+        };
+      });
+    },
     openRelationDiagram(
       connId: string,
       opts: Parameters<StudioStore["openRelationDiagram"]>[1] = {},
@@ -435,6 +481,15 @@ export function workspaceActions(set: SetState) {
     setCompareSetup(key: string, setup: StudioStore["compareTabs"][string]) {
       set((state) => ({
         compareTabs: { ...state.compareTabs, [key]: setup },
+      }));
+    },
+    aggregationTabs: {},
+    setAggregationSetup(
+      key: string,
+      setup: StudioStore["aggregationTabs"][string],
+    ) {
+      set((state) => ({
+        aggregationTabs: { ...state.aggregationTabs, [key]: setup },
       }));
     },
     openSql(
@@ -620,6 +675,8 @@ export function workspaceActions(set: SetState) {
         delete seedFilePaths[key];
         const compareTabs = { ...state.compareTabs };
         delete compareTabs[key];
+        const aggregationTabs = { ...state.aggregationTabs };
+        delete aggregationTabs[key];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -632,6 +689,7 @@ export function workspaceActions(set: SetState) {
           sqlSeeds,
           seedFilePaths,
           compareTabs,
+          aggregationTabs,
         };
       });
     },

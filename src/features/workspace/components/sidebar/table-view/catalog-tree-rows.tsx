@@ -235,6 +235,7 @@ export function LazyTableRows({
   on_drop,
   on_refresh_matview,
   on_compare,
+  on_aggregate,
   is_mongo,
   kind = "table",
   selected_name,
@@ -258,6 +259,7 @@ export function LazyTableRows({
   on_drop?: (name: string) => void;
   on_refresh_matview?: (name: string) => void;
   on_compare?: (name: string) => void;
+  on_aggregate?: (name: string) => void;
   is_mongo?: boolean;
   kind?: IconType;
   selected_name?: string | null;
@@ -301,6 +303,7 @@ export function LazyTableRows({
               on_refresh_matview && (() => on_refresh_matview(obj.name))
             }
             on_compare={on_compare && (() => on_compare(obj.name))}
+            on_aggregate={on_aggregate && (() => on_aggregate(obj.name))}
           />
         </div>
       ))}

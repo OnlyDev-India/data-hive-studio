@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
+  filterToMatch,
   mongoFieldTree,
   tableSchema,
   type FieldShape,
@@ -23,7 +24,8 @@ import { FieldsTree, MongoSchemaEditor } from "@/features/schema-designer";
 import { useStudioStore, usePaneMode, type PaneMode } from "@/shared/store";
 import { CollectionDiagram } from "./table-diagram";
 import type { GridFilter } from "@/shared/components/data-grid/types";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Workflow } from "lucide-react";
+import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 
 export function MongoCollectionPane({
@@ -182,6 +184,19 @@ export function MongoCollectionPane({
     setFilters((cur) =>
       cur.map((f) => (f.id === id ? { ...f, conjunction } : f)),
     );
+  // A new builder tab on this collection, its first `$match` holding the
+  // grid's filter. A filter the seed can't read goes in as typed, so the
+  // card shows why.
+  const open_aggregation = () => {
+    const raw = custom_where.trim() || null;
+    void filterToMatch(filters, raw)
+      .catch(() => raw)
+      .then((seed) =>
+        useStudioStore
+          .getState()
+          .openAggregation(conn_id, database, collection, seed),
+      );
+  };
   const clear_filters = () => {
     setFilters([]);
     setCustomWhere("");
@@ -290,6 +305,20 @@ export function MongoCollectionPane({
             />
           )}
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={open_aggregation}
+          title={
+            filters.length > 0 || custom_where.trim()
+              ? "Build an aggregation on this collection, starting from the current filter"
+              : "Build an aggregation on this collection"
+          }
+        >
+          <Workflow className="size-3.5" />
+          Aggregate
+        </Button>
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
         {failed && mode !== "diagram" && (

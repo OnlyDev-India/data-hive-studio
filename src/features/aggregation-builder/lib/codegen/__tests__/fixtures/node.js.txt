@@ -1,0 +1,24 @@
+import { Decimal128, Long, ObjectId } from "mongodb";
+
+const cursor = db.collection("orders").aggregate([
+  // Recent orders
+  // only status A or B
+  {
+    $match: {
+      _id: new ObjectId("507f1f77bcf86cd799439011"),
+      placed: { $gte: new Date("2026-01-01T00:00:00.000Z") },
+      status: { $in: ["A", "B"] },
+      gift: false,
+      coupon: null
+    }
+  },
+  {
+    $group: {
+      _id: "$customer",
+      total: { $sum: Decimal128.fromString("0.10") },
+      big: { $max: Long.fromString("9007199254740993") },
+      ratio: { $avg: 2.0 }
+    }
+  },
+  { $limit: 10 },
+]);

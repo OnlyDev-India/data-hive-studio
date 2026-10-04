@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
-import { GitCompareArrows, Network } from "lucide-react";
-import { getActiveSchema } from "@/shared/api";
+import { GitCompareArrows, Network, Workflow } from "lucide-react";
+import { openAggregationPicked } from "@/features/aggregation-builder";
+import { getActiveSchema, type DbKind } from "@/shared/api";
 import { useStudioStore, type ToolId } from "@/shared/store";
 
 export interface Tool {
@@ -9,6 +10,13 @@ export interface Tool {
   icon: LucideIcon;
   /** Opens the tool in the given connection's workspace. */
   run: (conn_id: string) => void;
+  /** The connection kinds it works on; every kind when absent. */
+  kinds?: DbKind[];
+}
+
+/** The tools a connection of `kind` can use. */
+export function toolsFor(kind: DbKind | undefined): Tool[] {
+  return TOOLS.filter((t) => !t.kinds || (kind && t.kinds.includes(kind)));
 }
 
 /** The relation diagram of the connection's current database and schema: the
@@ -48,5 +56,12 @@ export const TOOLS: Tool[] = [
     label: "Relation diagram",
     icon: Network,
     run: (conn_id) => void openActiveRelationDiagram(conn_id),
+  },
+  {
+    id: "aggregation",
+    label: "Aggregation builder",
+    icon: Workflow,
+    run: (conn_id) => void openAggregationPicked(conn_id),
+    kinds: ["mongodb"],
   },
 ];

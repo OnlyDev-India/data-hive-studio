@@ -45,6 +45,10 @@ import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
 import { MongoNewCollectionTab, RolesTab } from "@/features/schema-designer";
 import { CompareTab } from "@/features/compare";
 import { RelationDiagramTab } from "@/features/relation-diagram";
+import {
+  AggregationTab,
+  openPipelineText,
+} from "@/features/aggregation-builder";
 import { ActivityBar } from "./activity-bar";
 import { reopenByKey } from "./reopen-connection";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
@@ -821,6 +825,9 @@ function WorkspaceContent({
                   tab_key={key}
                   database={tab.database}
                   on_modified={bump}
+                  on_open_in_builder={(text, database) =>
+                    void openPipelineText(conn_id, text, { database })
+                  }
                 />
               </Suspense>
             ) : tab.kind === "activity" ? (
@@ -836,6 +843,13 @@ function WorkspaceContent({
               />
             ) : tab.kind === "relation-diagram" ? (
               <RelationDiagramTab conn_id={conn_id} tab_key={key} tab={tab} />
+            ) : tab.kind === "aggregation" ? (
+              <AggregationTab
+                conn_id={conn_id}
+                tab_key={key}
+                tab={tab}
+                active={is_active}
+              />
             ) : tab.kind !== "new-table" ? null : conn.kind === "mongodb" ? (
               <MongoNewCollectionTab
                 conn_id={conn_id}

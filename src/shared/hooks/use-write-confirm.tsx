@@ -13,6 +13,8 @@ export interface WriteConfirmRequest {
   description: string;
   title?: string;
   confirm_label?: string;
+  /** A name the user must type before Confirm unlocks. */
+  type_to_confirm?: string;
 }
 
 interface Pending extends WriteConfirmRequest {
@@ -76,6 +78,7 @@ export function useWriteConfirm(conn_id: string): {
       description={pending?.description ?? ""}
       title={pending?.title}
       confirmLabel={pending?.confirm_label}
+      typeToConfirm={pending?.type_to_confirm}
       onConfirm={() => settle(true)}
       onCancel={() => settle(false)}
     />

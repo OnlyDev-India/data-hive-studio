@@ -113,6 +113,10 @@ export function connectionActions(set: SetState) {
           workspaces: { ...state.workspaces, [conn.id]: pending.workspace },
           sqlSeeds: { ...state.sqlSeeds, ...pending.sqlSeeds },
           compareTabs: { ...state.compareTabs, ...pending.compareSetups },
+          aggregationTabs: {
+            ...state.aggregationTabs,
+            ...pending.aggregationSetups,
+          },
           relationLayouts,
           pendingWorkspaceRestore,
           pausedTabs,

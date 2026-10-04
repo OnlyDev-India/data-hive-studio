@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   Code,
   GitCompareArrows,
+  Workflow,
   Network,
   History,
   House,
@@ -39,6 +40,10 @@ import {
 import { DBIcons, IconTypeMap } from "@/shared/components/icons/types";
 import { basename } from "@/shared/lib/utils";
 import { openActiveRelationDiagram } from "./tools";
+import {
+  openAggregationPicked,
+  openPipelineFile,
+} from "@/features/aggregation-builder";
 
 export interface PaletteItem {
   id: string;
@@ -391,6 +396,25 @@ export function buildCommandItems(theme: {
       icon: <Network className="size-4" />,
       run: () => void openActiveRelationDiagram(active_conn.id),
     });
+    if (is_mongo) {
+      list.push({
+        id: "tab.aggregation",
+        label: "New aggregation",
+        hint: "Build a pipeline card by card, with each stage previewed",
+        scope: conn_scope,
+        icon: <Workflow className="size-4" />,
+        run: () => void openAggregationPicked(active_conn.id),
+      });
+      if (!WEB)
+        list.push({
+          id: "tab.aggregation-file",
+          label: "Open pipeline file",
+          hint: "A saved .js or .json pipeline, as cards",
+          scope: conn_scope,
+          icon: <Workflow className="size-4" />,
+          run: () => void openPipelineFile(active_conn.id),
+        });
+    }
     list.push({
       id: "sidebar.tables",
       label: "Browse tables",

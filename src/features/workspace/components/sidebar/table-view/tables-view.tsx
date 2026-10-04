@@ -169,6 +169,7 @@ export function TablesBrowser({
   const pg_current_db = recents_db ?? conn_name ?? "";
   const conn_info = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const open_compare = useStudioStore((s) => s.openCompare);
+  const open_aggregation = useStudioStore((s) => s.openAggregation);
   const open_relation_diagram = useStudioStore((s) => s.openRelationDiagram);
   /** A compare tab with this table as its left side. `database` undefined =
    *  the connection's own (Postgres); Mongo always names it. */
@@ -1104,6 +1105,11 @@ export function TablesBrowser({
             }
           }}
           on_view_structure={(name) => open_structure(conn_id, name)}
+          on_aggregate={
+            is_mongo
+              ? (name) => open_aggregation(conn_id, pg_current_db, name)
+              : undefined
+          }
           on_compare={(name) =>
             is_mongo
               ? compare_with(name, pg_current_db)
@@ -1715,6 +1721,9 @@ export function TablesBrowser({
                           open_structure(conn_id, name, db, "")
                         }
                         on_compare={(name) => compare_with(name, db)}
+                        on_aggregate={(name) =>
+                          open_aggregation(conn_id, db, name)
+                        }
                         on_copy={(name) => void copy_name(name)}
                         on_duplicate={(name) =>
                           open_table_dialog({
