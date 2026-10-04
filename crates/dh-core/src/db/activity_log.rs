@@ -95,17 +95,26 @@ pub(crate) fn inline_placeholders(sql: &str, params: &[Option<String>], dollar: 
 }
 
 /// A write refused because the connection is read only is a failed entry in
-/// the Activity log (spec 0007). Document saves and inserts log nothing when
-/// they work, so only the refusal is recorded here, as app initiated.
+/// the Activity log. Document saves and inserts log nothing when they work,
+/// so only the refusal is recorded here, as user initiated.
 pub(super) fn log_refusal<T>(conn_id: &str, kind: &str, target: &str, t: std::time::Instant, res: &DbResult<T>) {
     if let Err(e @ DbError::ReadOnly(_)) = res {
-        crate::activity::log_err_origin(conn_id, kind, target, t, e, "app");
+        crate::activity::log_err_origin(conn_id, kind, target, t, e, "user");
     }
 }
 
-/// Run a structured operation. The connection's adapter turns the details
-/// into dialect SQL (the single place query creation happens) and executes
-/// it, returning rows for reads and the affected count for writes.
+/// Grid reads are the app's own; grid writes and drops are the user's.
+pub(super) fn op_origin(op: &QueryOp) -> &'static str {
+    match op {
+        QueryOp::Select { .. } | QueryOp::Count { .. } | QueryOp::SelectDistinct { .. } => "app",
+        QueryOp::Insert { .. }
+        | QueryOp::Update { .. }
+        | QueryOp::BulkUpdate { .. }
+        | QueryOp::Delete { .. }
+        | QueryOp::DropTable { .. } => "user",
+    }
+}
+
 /// Coarse (kind, target) labels for the activity log, derived from the op.
 pub(super) fn op_label(op: &QueryOp) -> (&'static str, String) {
     match op {
@@ -131,5 +140,27 @@ pub(super) fn op_label(op: &QueryOp) -> (&'static str, String) {
         ),
         QueryOp::Delete { table, .. } => ("delete", format!("DELETE {table}")),
         QueryOp::DropTable { table } => ("drop_table", format!("DROP TABLE {table}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grid_reads_are_app_and_grid_writes_are_user() {
+        let t = || "t".to_string();
+        let ops = [
+            QueryOp::Select { table: t(), filters: vec![], custom_where: None, order_by: vec![], limit: None, offset: None },
+            QueryOp::Count { table: t(), filters: vec![], custom_where: None },
+            QueryOp::SelectDistinct { table: t(), column: t(), limit: None },
+            QueryOp::Insert { table: t(), values: Default::default(), skip_empty: false },
+            QueryOp::Update { table: t(), set: Default::default(), match_row: Default::default() },
+            QueryOp::BulkUpdate { table: t(), column: t(), value: None, filters: vec![], custom_where: None },
+            QueryOp::Delete { table: t(), match_row: Default::default() },
+            QueryOp::DropTable { table: t() },
+        ];
+        let origins: Vec<_> = ops.iter().map(op_origin).collect();
+        assert_eq!(origins, ["app", "app", "app", "user", "user", "user", "user", "user"]);
     }
 }

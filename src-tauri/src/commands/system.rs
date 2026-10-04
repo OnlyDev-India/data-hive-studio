@@ -16,6 +16,12 @@ pub fn clear_activity(app: tauri::AppHandle, conn_key: Option<String>, conn_id: 
     crate::activity_store::persist(&app);
 }
 
+/// Store the app's own background entries too, or only the user's.
+#[tauri::command]
+pub fn set_save_app_activity(enabled: bool) {
+    crate::activity::set_save_app(enabled);
+}
+
 /// Read a file from disk as raw bytes (opened via the native dialog).
 #[tauri::command]
 pub fn read_file(path: String) -> Result<Vec<u8>, String> {

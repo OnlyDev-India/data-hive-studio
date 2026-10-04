@@ -156,6 +156,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       commands::get_activity,
       commands::clear_activity,
+      commands::set_save_app_activity,
       commands::open_database,
       commands::connect_postgres,
       commands::connect_mongodb,

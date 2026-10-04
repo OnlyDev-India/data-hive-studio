@@ -51,6 +51,7 @@ import {
 } from "../lib/codegen";
 import { fieldSuggestions, joinedCollection, treePaths } from "../lib/fields";
 import {
+  EMPTY_HISTORY,
   historyOf,
   record,
   redo,
@@ -91,9 +92,11 @@ import {
   type PanelTab,
   type PanelView,
 } from "./builder-bottom-panel";
+import { CollectionPicker } from "./collection-picker";
 import { PasteDialog } from "./paste-dialog";
 import { PipelineCanvas } from "./pipeline-canvas";
 import { SettingsPopover } from "./settings-popover";
+import { SwitchCollectionDialog } from "./switch-collection-dialog";
 
 type AggregationTabKind = Extract<StudioTab, { kind: "aggregation" }>;
 
@@ -509,9 +512,111 @@ export function AggregationTab({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, ready, file]);
 
+  // Another collection starts an empty pipeline, so a pipeline that is not
+  // saved to its file asks first.
+  const [switch_to, setSwitchTo] = useState<{
+    database: string;
+    collection: string;
+  } | null>(null);
+  const setCollection = useStudioStore((s) => s.setAggregationCollection);
+  const switchCollection = (to: { database: string; collection: string }) => {
+    history.close();
+    setHistory(tab_key, EMPTY_HISTORY);
+    setHist(EMPTY_HISTORY);
+    setCollection(conn_id, tab.id, to.database, to.collection);
+  };
+  const pickCollection = (database: string, collection: string) => {
+    const kept = !!file.file_name && !file.is_dirty;
+    if (setup.stages.length === 0 || kept)
+      switchCollection({ database, collection });
+    else setSwitchTo({ database, collection });
+  };
+
   const tail = setup.stages.at(-1);
   const can_append = !tail || !isWriteOp(tail.op);
   const fix_first = "Fix or disable the stages with errors first";
+
+  const history_buttons = (
+    <>
+      <Button
+        variant="ghost"
+        size="iconXs"
+        onClick={history.undo}
+        disabled={hist.past.length === 0}
+        aria-label="Undo"
+        title="Undo (⌘Z)"
+      >
+        <Undo2 className="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="iconXs"
+        onClick={history.redo}
+        disabled={hist.future.length === 0}
+        aria-label="Redo"
+        title="Redo (⇧⌘Z)"
+      >
+        <Redo2 className="size-3.5" />
+      </Button>
+    </>
+  );
+
+  const bar = (
+    <div
+      role="toolbar"
+      aria-label="Pipeline"
+      className="flex shrink-0 items-center gap-1 border-b px-2 py-1"
+    >
+      <CollectionPicker
+        conn_id={conn_id}
+        database={database}
+        collection={collection}
+        onPick={pickCollection}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="sm" title="Paste, open or save">
+              <FileText className="size-3.5" />
+              File
+              <ChevronDown className="size-3" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="start" className="w-52">
+          <DropdownMenuItem onClick={() => setPasting(true)}>
+            Paste pipeline…
+          </DropdownMenuItem>
+          {!WEB && (
+            <>
+              <DropdownMenuItem
+                onClick={() =>
+                  void openPipelineFile(conn_id, { database, collection })
+                }
+              >
+                Open pipeline file…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!ready}
+                title={has_errors ? fix_first : undefined}
+                onClick={() => void file.save(false)}
+              >
+                Save
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!ready}
+                title={has_errors ? fix_first : undefined}
+                onClick={() => void file.save(true)}
+              >
+                Save as…
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 
   const toolbar = (
     <div
@@ -519,34 +624,6 @@ export function AggregationTab({
       aria-label="Aggregation"
       className="flex flex-wrap items-center justify-end gap-1.5"
     >
-      <span
-        className="text-small text-muted-foreground max-w-48 min-w-0 truncate pl-1.5 font-mono"
-        title={`${database}.${collection}`}
-      >
-        {database}.<span className="text-foreground">{collection}</span>
-      </span>
-      <div className="flex items-center">
-        <Button
-          variant="ghost"
-          size="iconXs"
-          onClick={history.undo}
-          disabled={hist.past.length === 0}
-          aria-label="Undo"
-          title="Undo (⌘Z)"
-        >
-          <Undo2 className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="iconXs"
-          onClick={history.redo}
-          disabled={hist.future.length === 0}
-          aria-label="Redo"
-          title="Redo (⇧⌘Z)"
-        >
-          <Redo2 className="size-3.5" />
-        </Button>
-      </div>
       {!setup.auto_preview && (
         <Button
           variant="outline"
@@ -568,48 +645,6 @@ export function AggregationTab({
         </span>
       )}
       <div className="flex items-center gap-1.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="ghost" size="sm" title="Paste, open or save">
-                <FileText className="size-3.5" />
-                File
-                <ChevronDown className="size-3" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onClick={() => setPasting(true)}>
-              Paste pipeline…
-            </DropdownMenuItem>
-            {!WEB && (
-              <>
-                <DropdownMenuItem
-                  onClick={() =>
-                    void openPipelineFile(conn_id, { database, collection })
-                  }
-                >
-                  Open pipeline file…
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!ready}
-                  title={has_errors ? fix_first : undefined}
-                  onClick={() => void file.save(false)}
-                >
-                  Save
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!ready}
-                  title={has_errors ? fix_first : undefined}
-                  onClick={() => void file.save(true)}
-                >
-                  Save as…
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
         <SettingsPopover
           id={tab_key}
           setup={setup}
@@ -708,6 +743,7 @@ export function AggregationTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {bar}
       {offline && (
         <div
           role="status"
@@ -746,6 +782,7 @@ export function AggregationTab({
             sampled={sampled}
             actions={actions}
             toolbar={toolbar}
+            history={history_buttons}
             exportName={
               file.file_name?.replace(/\.[^.]+$/, "") ??
               `${collection}-pipeline`
@@ -777,6 +814,27 @@ export function AggregationTab({
         onOpenChange={setPasting}
         canAppend={can_append}
         onApply={onPaste}
+      />
+      <SwitchCollectionDialog
+        to={
+          switch_to &&
+          (switch_to.database === database
+            ? switch_to.collection
+            : `${switch_to.database}.${switch_to.collection}`)
+        }
+        canSave={!WEB && ready}
+        onCancel={() => setSwitchTo(null)}
+        onDiscard={() => {
+          if (switch_to) switchCollection(switch_to);
+          setSwitchTo(null);
+        }}
+        onSave={async () => {
+          const to = switch_to;
+          if (to && (await file.save(false))) {
+            switchCollection(to);
+            setSwitchTo(null);
+          }
+        }}
       />
       {confirm.dialog}
     </div>

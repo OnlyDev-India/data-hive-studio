@@ -622,7 +622,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
           sqlFormatIndentWidth: s.sqlFormatIndentWidth,
           previewConcurrency: s.previewConcurrency,
           delimitedListSettings: s.delimitedListSettings,
-          showAppActivity: s.showAppActivity,
+          saveAppActivity: s.saveAppActivity,
           pinnedTools: s.pinnedTools,
         }),
       },

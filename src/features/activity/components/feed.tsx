@@ -2,8 +2,6 @@ import { useMemo, useState } from "react";
 import { History, Trash2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import { Switch } from "@/shared/components/ui/switch";
-import { Label } from "@/shared/components/ui/label";
 import { useStudioStore } from "@/shared/store";
 import { clearActivity, type ActivityEntry } from "@/shared/api";
 import { cn } from "@/shared/lib/utils";
@@ -153,9 +151,9 @@ export function ActivityFeed({
   const full = useStudioStore((s) => s.activity);
   const detail = useStudioStore((s) => s.activityDetail);
   const clearEntriesFor = useStudioStore((s) => s.clearActivityEntriesFor);
-  const show_app_activity = useStudioStore((s) => s.showAppActivity);
-  const setShowAppActivity = useStudioStore((s) => s.setShowAppActivity);
+  const save_app_activity = useStudioStore((s) => s.saveAppActivity);
   const [filter, setFilter] = useState("");
+  const [shown_origin, setShownOrigin] = useState<OriginFilter>("all");
 
   const activity = useMemo(() => {
     if (!conn_id && !conn_key) return full;
@@ -164,20 +162,16 @@ export function ActivityFeed({
     );
   }, [full, conn_id, conn_key]);
 
-  // "app" = the app's own background work (schema prefetching for
-  // autocomplete, cache warming) rather than something the user asked for.
-  // Off by default — most people only care about what THEY ran. Entries
-  // logged before this field existed have no `origin` at all; treat those
-  // as "user" (the whole log used to be user-only) so old history doesn't
-  // just vanish.
-  const app_count = useMemo(
-    () => activity.filter((e) => e.origin === "app").length,
-    [activity],
-  );
+  // App entries show only while "Save app queries" is on, and then the
+  // origin filter picks all, yours or the app's. Entries with no `origin`
+  // predate the field and count as user.
+  const origin = save_app_activity ? shown_origin : "user";
   const visible = useMemo(
     () =>
-      show_app_activity ? activity : activity.filter((e) => e.origin !== "app"),
-    [activity, show_app_activity],
+      origin === "all"
+        ? activity
+        : activity.filter((e) => (e.origin === "app") === (origin === "app")),
+    [activity, origin],
   );
 
   const filtered = useMemo(() => {
@@ -237,28 +231,17 @@ export function ActivityFeed({
         placeholder="Filter by table, kind or error…"
         className="text-small shrink-0"
       />
-      <div className="flex shrink-0 items-center gap-1.5 px-0.5">
-        <Switch
-          id="show-app-activity"
-          checked={show_app_activity}
-          onCheckedChange={setShowAppActivity}
-          className="h-4 w-8 [&>span]:size-3"
-        />
-        <Label
-          htmlFor="show-app-activity"
-          className="text-muted-foreground text-caption font-normal"
-        >
-          Show app queries{app_count > 0 ? ` (${app_count})` : ""}
-        </Label>
-      </div>
+      {save_app_activity && (
+        <OriginToggle value={shown_origin} onChange={setShownOrigin} />
+      )}
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <p className="text-muted-foreground text-small px-1 py-6 text-center">
-            {activity.length === 0
-              ? "No commands yet — everything the backend runs shows up here."
-              : visible.length === 0
-                ? "Nothing but app-run queries here — toggle above to see them."
-                : "Nothing matches this filter."}
+            {visible.length > 0
+              ? "Nothing matches this filter."
+              : origin === "app"
+                ? "No app queries yet."
+                : "No queries yet. Queries you run show up here."}
           </p>
         ) : (
           filtered.map((e) => (
@@ -272,5 +255,49 @@ export function ActivityFeed({
         )}
       </div>
     </>
+  );
+}
+
+type OriginFilter = "all" | "user" | "app";
+
+const ORIGINS: { value: OriginFilter; label: string; hint: string }[] = [
+  { value: "all", label: "All", hint: "Your queries and the app's" },
+  { value: "user", label: "Mine", hint: "Only the queries you ran" },
+  { value: "app", label: "App", hint: "Only the app's own background queries" },
+];
+
+/** Which entries the feed lists, shown while app queries are saved. */
+function OriginToggle({
+  value,
+  onChange,
+}: {
+  value: OriginFilter;
+  onChange: (v: OriginFilter) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Show"
+      className="bg-muted rounded-control flex shrink-0 items-center p-0.5"
+    >
+      {ORIGINS.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          title={o.hint}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "rounded-inset text-small focus-visible:ring-ring/50 h-6 flex-1 px-2 outline-none focus-visible:ring-2",
+            value === o.value
+              ? "bg-background text-foreground font-medium shadow-xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

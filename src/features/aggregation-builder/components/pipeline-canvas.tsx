@@ -109,6 +109,8 @@ export interface PipelineCanvasProps {
   actions: CardActions;
   /** The tab's controls, floating top right on the canvas. */
   toolbar?: ReactNode;
+  /** Undo and redo, on top of the zoom stack bottom left. */
+  history?: ReactNode;
   /** The image export's file name, without the extension. */
   exportName: string;
 }
@@ -145,6 +147,7 @@ function CanvasInner({
   sampled,
   actions,
   toolbar,
+  history,
   exportName,
 }: PipelineCanvasProps) {
   const rf = useReactFlow<FlowNode>();
@@ -569,6 +572,7 @@ function CanvasInner({
                 })
               }
               disabled={stages.length === 0}
+              top={history}
             />
           </ReactFlow>
           <StagePalette

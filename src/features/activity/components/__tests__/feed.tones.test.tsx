@@ -23,7 +23,7 @@ describe("ActivityFeed kind badges", () => {
   beforeEach(() => {
     useStudioStore.setState({
       activity: [],
-      showAppActivity: false,
+      saveAppActivity: false,
       activityDetail: null,
     });
   });

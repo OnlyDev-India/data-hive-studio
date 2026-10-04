@@ -129,7 +129,7 @@ export function TableDialogsHost() {
       await runSql(
         t.connId,
         `DROP VIEW IF EXISTS ${qualified}`,
-        "app",
+        "user",
         t.database,
       );
     });

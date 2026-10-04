@@ -107,7 +107,7 @@ describe("update state", () => {
       );
 
       await persistApi().rehydrate();
-      useStudioStore.setState({ showAppActivity: true });
+      useStudioStore.setState({ saveAppActivity: true });
 
       expect(persisted_keys()).not.toContain("skippedUpdateVersion");
     });

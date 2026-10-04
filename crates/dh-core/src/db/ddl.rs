@@ -2,11 +2,11 @@ use crate::api::SchemaOp;
 use super::types::DbResult;
 use super::registry::with_connection;
 
-named_ddl_op!(create_database, create_database, "ddl", "CREATE DATABASE {}");
+named_ddl_op!(create_database, create_database, "ddl", "CREATE DATABASE {}", "user");
 
-named_ddl_op!(drop_database, drop_database, "drop_table", "DROP DATABASE {}");
+named_ddl_op!(drop_database, drop_database, "drop_table", "DROP DATABASE {}", "user");
 
-named_ddl_op!(create_schema, create_schema, "ddl", "CREATE SCHEMA {}");
+named_ddl_op!(create_schema, create_schema, "ddl", "CREATE SCHEMA {}", "user");
 
 pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {
     let conn_id = conn_id.to_string();
@@ -16,8 +16,7 @@ pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {
 /// Duplicate a table/collection under a new name. `copy_data` controls
 /// whether documents are copied too (MongoDB only for now — SQL adapters
 /// always copy structure + indexes + data regardless of this flag, pending
-/// the same UI for SQL tables). A sidebar action, never the editor —
-/// app-initiated.
+/// the same UI for SQL tables).
 pub async fn duplicate_table(
     conn_id: &str,
     database: Option<&str>,
@@ -43,18 +42,17 @@ pub async fn duplicate_table(
     match &res {
         // The adapter returns every statement it ran — one entry, its own SQL.
         Ok(stmts) if !stmts.is_empty() => {
-            crate::activity::log_stmt_ok_origin(conn_id, "duplicate", &format!("{};", stmts.join("\n\n")), t, 0, "app")
+            crate::activity::log_stmt_ok_origin(conn_id, "duplicate", &format!("{};", stmts.join("\n\n")), t, 0, "user")
         }
-        Ok(_) => crate::activity::log_ok_origin(conn_id, "duplicate", &label, t, 0, "app"),
-        Err(e) => crate::activity::log_err_origin(conn_id, "duplicate", &label, t, e, "app"),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "duplicate", &label, t, 0, "user"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "duplicate", &label, t, e, "user"),
     }
     res
 }
 
 /// Apply staged schema (DDL) ops as ONE transaction — all statements commit
 /// together, or a failure on any op rolls the whole batch back. Returns every
-/// statement that ran so the UI can show/copy what happened. The schema
-/// designer's "Apply" button, never the editor — app-initiated.
+/// statement that ran so the UI can show/copy what happened.
 pub async fn apply_schema_ops(
     conn_id: &str,
     database: Option<&str>,
@@ -73,10 +71,10 @@ pub async fn apply_schema_ops(
     match &res {
         // The batch already returns every executed statement — log them all.
         Ok(stmts) if !stmts.is_empty() => {
-            crate::activity::log_stmt_ok_origin(conn_id, "ddl", &format!("{};", stmts.join(";\n")), t, stmts.len() as i64, "app")
+            crate::activity::log_stmt_ok_origin(conn_id, "ddl", &format!("{};", stmts.join(";\n")), t, stmts.len() as i64, "user")
         }
-        Ok(_) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "app"),
-        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "app"),
+        Ok(_) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "user"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "user"),
     }
     res
 }

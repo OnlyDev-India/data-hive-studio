@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -32,15 +32,13 @@ pub struct ActivityEntry {
     pub duration_ms: f64,
     pub error: Option<String>,
     pub sql: Option<String>,
-    /// "user" for something the user directly asked for (a console
-    /// statement, a grid edit, an explicit DDL/schema action) vs "app" for
-    /// everything else the app logs on its own initiative — background
-    /// schema introspection for autocomplete/the sidebar tree, and
-    /// connect/disconnect lifecycle events (plumbing, not a query the user
-    /// ran). Explicit per call site rather than inferred from `kind` —
-    /// `kind == "schema"` covers BOTH an explicit "switch active schema"
-    /// (user) and a background describe-table prefetch (app), so `kind`
-    /// alone can't tell them apart.
+    /// "user" for something the user directly asked for: editor runs,
+    /// Explain, grid saves, drops, DDL, duplicate, import, compare export, a
+    /// read only refusal. "app" for the app's own work: grid reads, UI built
+    /// filters, connect and disconnect, schema introspection, `SET SCHEMA`,
+    /// compare runs, pipeline previews, sidebar housekeeping. App entries are
+    /// only stored while `set_save_app(true)`. Explicit per call site, since
+    /// `kind` alone can't tell them apart.
     #[serde(default = "default_origin")]
     pub origin: String,
     /// Stable identity for the connection this entry belongs to — NOT
@@ -60,6 +58,13 @@ const CAP: usize = 500;
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
 static LOG: Mutex<VecDeque<ActivityEntry>> = Mutex::new(VecDeque::new());
+/// Whether `app` entries are stored. Off until the host says otherwise.
+static SAVE_APP: AtomicBool = AtomicBool::new(false);
+
+/// Turn storing the app's own entries on or off. Entries already stored stay.
+pub fn set_save_app(enabled: bool) {
+    SAVE_APP.store(enabled, Ordering::Relaxed);
+}
 
 /// Host-provided sink for live entries (e.g. forwards to the Tauri event
 /// system). The core stays UI-agnostic — no Tauri dependency here.
@@ -122,6 +127,9 @@ pub fn restore(entries: Vec<ActivityEntry>) {
 }
 
 fn push(mut entry: ActivityEntry) {
+    if entry.origin == "app" && !SAVE_APP.load(Ordering::Relaxed) {
+        return;
+    }
     entry.id = next_id();
     if let Some(resolve) = CONN_KEY_RESOLVER.get() {
         entry.conn_key = resolve(&entry.conn_id);
@@ -400,6 +408,45 @@ mod tests {
         let back: Vec<ActivityEntry> = serde_json::from_str(&json).unwrap();
         assert_eq!(back[0].origin, "app");
         assert_eq!(back[0].conn_key.as_deref(), Some("sqlite:/tmp/x.db"));
+    }
+
+    /// One test for every flag change, since the flag is process wide.
+    #[test]
+    fn app_entries_are_only_stored_while_saving_is_on() {
+        static EMITTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        set_emitter(Arc::new(|e: &ActivityEntry| {
+            if e.conn_id == "save-app-test" {
+                EMITTED.lock().unwrap().push(e.target.clone());
+            }
+        }));
+        let mine = || -> Vec<String> {
+            let mut entries: Vec<_> =
+                snapshot(CAP).into_iter().filter(|e| e.conn_id == "save-app-test").collect();
+            entries.sort_by_key(|e| e.id);
+            entries.into_iter().map(|e| e.target).collect()
+        };
+        let t = Instant::now();
+
+        set_save_app(false);
+        log_ok_origin("save-app-test", "select", "app off", t, 0, "app");
+        log_ok_origin("save-app-test", "insert", "user off", t, 0, "user");
+        assert_eq!(mine(), vec!["user off"]);
+
+        set_save_app(true);
+        log_ok_origin("save-app-test", "select", "app on", t, 0, "app");
+        log_ok_origin("save-app-test", "insert", "user on", t, 0, "user");
+        set_save_app(false);
+        assert_eq!(mine(), vec!["user off", "app on", "user on"]);
+
+        // Turning it off again keeps what was stored.
+        log_ok_origin("save-app-test", "select", "app off again", t, 0, "app");
+        assert_eq!(mine().len(), 3);
+
+        // Only meaningful when this test won the first `set_emitter`.
+        let emitted = EMITTED.lock().unwrap().clone();
+        if !emitted.is_empty() {
+            assert_eq!(emitted, vec!["user off", "app on", "user on"]);
+        }
     }
 
     #[test]

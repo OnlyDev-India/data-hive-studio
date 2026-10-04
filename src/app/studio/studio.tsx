@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
-import { getActivity, type ActivityEntry } from "@/shared/api";
+import {
+  getActivity,
+  setSaveAppActivity,
+  type ActivityEntry,
+} from "@/shared/api";
 import { WEB, webRelease } from "@/shared/api/web";
 import { useStudioStore } from "@/shared/store";
 import { useShortcuts } from "@/shared/hooks/use-shortcut";
@@ -169,6 +173,7 @@ export function Studio() {
       }
       unlisten = un;
       try {
+        await setSaveAppActivity(useStudioStore.getState().saveAppActivity);
         const entries = await getActivity(500);
         if (!cancelled) useStudioStore.getState().setActivity(entries);
       } catch {

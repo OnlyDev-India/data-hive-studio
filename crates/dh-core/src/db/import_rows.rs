@@ -53,9 +53,9 @@ pub async fn import_rows(
             ),
             t,
             r.inserted as i64,
-            "app",
+            "user",
         ),
-        Err(e) => crate::activity::log_err_origin(conn_id, "import", &label, t, e, "app"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "import", &label, t, e, "user"),
     }
     res
 }

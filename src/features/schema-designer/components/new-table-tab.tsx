@@ -306,7 +306,7 @@ export function NewTableTab({
     let created = false;
     try {
       for (const [i, stmt] of built.statements.entries()) {
-        await runSql(conn_id, stmt, "app", target_database);
+        await runSql(conn_id, stmt, "user", target_database);
         if (i === 0) created = true;
       }
       push_notification({

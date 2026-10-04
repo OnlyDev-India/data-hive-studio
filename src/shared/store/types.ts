@@ -620,10 +620,10 @@ export interface StudioStore {
    *  Whether the feed is actually showing is `leftPanelOpen &&
    *  leftPanelMode === "activity"` (see the sidebar-chrome fields above) —
    *  it's not a separate flag here. */
-  /** Off by default — whether "app"-origin entries (background schema
-   *  prefetching, etc.) show in the feed alongside "user" ones. Persisted. */
-  showAppActivity: boolean;
-  setShowAppActivity: (show: boolean) => void;
+  /** "Save app queries": whether "app" origin entries are stored and shown.
+   *  Off by default. Persisted, and pushed to Rust on every change. */
+  saveAppActivity: boolean;
+  setSaveAppActivity: (enabled: boolean) => void;
   activity: ActivityEntry[];
   pushActivity: (entry: ActivityEntry) => void;
   /** Replace the whole list (hydration from get_activity on startup). */
@@ -887,6 +887,14 @@ export interface StudioStore {
   /** Aggregation builder setups keyed by tab key. */
   aggregationTabs: Record<string, AggregationSetup>;
   setAggregationSetup: (key: string, setup: AggregationSetup) => void;
+  /** Point builder tab `id` at another database and collection, with an
+   *  empty pipeline and the same preview settings. */
+  setAggregationCollection: (
+    connId: string,
+    id: number,
+    database: string,
+    collection: string,
+  ) => void;
   /** Open a MongoDB collection tab (data view). */
   openMongo: (
     connId: string,

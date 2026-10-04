@@ -107,17 +107,20 @@ export function CanvasControls({
   );
 }
 
-/** The zoom stack, floating bottom left on any React Flow canvas. */
+/** The zoom stack, floating bottom left on any React Flow canvas. `top`
+ *  goes above the zoom buttons in the same card, such as undo and redo. */
 export function ZoomControls({
   onZoomIn,
   onZoomOut,
   onFit,
   disabled = false,
+  top,
 }: {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
   disabled?: boolean;
+  top?: ReactNode;
 }) {
   const zoom = [
     { label: "Zoom in", icon: Plus, onClick: onZoomIn },
@@ -131,6 +134,12 @@ export function ZoomControls({
       aria-label="Zoom"
       className={cn(CARD, "flex flex-col")}
     >
+      {top && (
+        <>
+          {top}
+          <div role="separator" className="bg-border mx-1 my-0.5 h-px" />
+        </>
+      )}
       {zoom.map(({ label, icon: Icon, onClick }) => (
         <Button
           key={label}

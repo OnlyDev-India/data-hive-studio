@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Code2, Info, Keyboard, Palette, Search } from "lucide-react";
+import { Code2, History, Info, Keyboard, Palette, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,11 +15,18 @@ import { AppearanceSection } from "./appearance";
 import { CommandPaletteSection } from "./command-palette-section";
 import { ShortcutsSection } from "./shortcuts-section";
 import { SqlFormatSection } from "./sql-format-section";
+import { ActivitySection } from "./activity-section";
 import { AboutSection } from "./about";
 import { Button } from "@/shared/components/ui";
+import { WEB } from "@/shared/api/web";
 
 type SectionId =
-  "appearance" | "command-palette" | "shortcuts" | "sql-format" | "about";
+  | "appearance"
+  | "command-palette"
+  | "shortcuts"
+  | "sql-format"
+  | "activity"
+  | "about";
 
 interface SectionMeta {
   id: SectionId;
@@ -27,11 +34,15 @@ interface SectionMeta {
   icon: typeof Palette;
 }
 
-const SECTIONS: SectionMeta[] = [
+export const SECTIONS: SectionMeta[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "command-palette", label: "Command Palette", icon: Search },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "sql-format", label: "SQL Format", icon: Code2 },
+  // The browser build has no activity log.
+  ...(WEB
+    ? []
+    : [{ id: "activity" as const, label: "Activity log", icon: History }]),
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -87,6 +98,7 @@ export function SettingsDialog({
                   {section === "command-palette" && <CommandPaletteSection />}
                   {section === "shortcuts" && <ShortcutsSection />}
                   {section === "sql-format" && <SqlFormatSection />}
+                  {section === "activity" && <ActivitySection />}
                   {section === "about" && <AboutSection />}
                 </div>
               </div>

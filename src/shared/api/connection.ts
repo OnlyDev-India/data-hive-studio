@@ -637,6 +637,12 @@ export async function clearActivity(
   return invoke("clear_activity", { connKey, connId });
 }
 
+/** Tell the backend whether to store the app's own background entries. */
+export async function setSaveAppActivity(enabled: boolean): Promise<void> {
+  if (WEB) return;
+  return invoke("set_save_app_activity", { enabled });
+}
+
 /** Apply staged schema (DDL) ops in order; returns every statement that ran
  * (for display/copy). Throws on the first failing op. `database`/`schema`:
  * omitted = this connection's own primary database/active schema. */

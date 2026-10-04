@@ -30,10 +30,11 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | Q   | Native shell                   | Existing | existing    |
 | R   | Command palette                | Existing | existing    |
 | 5   | Table comparison view          | Slice 5  | in-progress |
-| 14  | Saved queries and snippets     | Slice 14 | planned     |
+| 14  | Saved queries and snippets     | Slice 14 | in-progress |
 | 15  | Mongo aggregation builder      | Slice 15 | in-progress |
 | 16  | Relation diagram               | Slice 16 | in-progress |
 | 33  | Activity log app query setting | Slice 33 | in-progress |
+| 34  | SQL query builder              | Slice 34 | planned     |
 
 
 
@@ -136,13 +137,19 @@ code in `src/features/compare`, `src/shared/components/diff-grid`, `crates/dh-co
 
 
 
-### 14. Saved queries and snippets
+### 14. Saved queries and snippets · in-progress
 
-A per connection library of named saved queries and snippets you can search, insert into the editor, edit, and delete, kept across restarts.
-**Done when:** you can save the current editor text under a name, find it later from a searchable list, insert it into any editor tab for that connection, and it is still there after restarting the app.
-code in `src/features/query-editor`, `src/features/workspace/components/sidebar`
+A global library of named saved queries and snippets (tagged SQL or Mongo, available on every connection) you can search, insert into the editor, edit, and delete, kept across restarts, in the desktop app and the web UI.
+**Done when:** you can save the current editor text under a name, find it later from a searchable list in Settings, insert it into any editor tab of its language through suggestions, and it is still there after restarting the app.
+spec [0021](../specs/0021-saved-queries-snippets.md)
+code in `src/features/query-editor`, `src/features/settings`, `src/shared/library`, `src/shared/components/query-editor`, `src-tauri/src/library_store.rs`
 
+- [x] Design it (spec): `/architect saved queries and snippets`
 - [ ] Build it: `/develop saved queries and snippets`
+  - [ ] Thin thread: save from the editor, storage on desktop and web, SQL and Mongo suggestions with snippet tab stops (AC-1, AC-5, AC-6, AC-7, AC-9)
+  - [ ] Settings Library section: list, search, filters, create, edit, delete, validation, open in editor (AC-2, AC-3, AC-4, AC-8)
+  - [ ] Corrupt file recovery, starter snippets, export and import (AC-9, AC-10, AC-11, AC-12)
+  - [ ] Tests and the full check run (AC-13)
 - [ ] Verify it: `/check verify saved queries and snippets`
 - [ ] Test it: `/test saved queries and snippets`
 
@@ -212,12 +219,25 @@ Move the app queries choice out of the activity sidebar and into Settings as a "
 spec [0020](../specs/0020-activity-app-query-setting.md) · code in `src/features/activity`, `src/features/settings`, `crates/dh-core/src/activity.rs`, `crates/dh-core/src/db`, `src-tauri/src/commands/system.rs`
 
 - [x] Design it (spec): `/architect activity log app query setting`
-- [ ] Build it: `/develop activity log app query setting`
-  - [ ] Retag origins: grid saves, DDL, drops, duplicate, import, refusals and the schema designer apply become user; reads, connects, schema switch and compare stay app · AC-2, AC-3
-  - [ ] Rust gate: `SAVE_APP` flag checked in `push`, the `set_save_app_activity` command, and the frontend api call · AC-1, AC-6, AC-8, AC-9
-  - [ ] Settings and sidebar: "Activity log" Settings section with the switch (hidden on web), `saveAppActivity` replaces `showAppActivity`, feed loses its toggle · AC-4, AC-5, AC-6, AC-7, AC-10
+- [x] Build it: `/develop activity log app query setting`
+  - [x] Retag origins: grid saves, DDL, drops, duplicate, import, refusals and the schema designer apply become user; reads, connects, schema switch and compare stay app · AC-2, AC-3
+  - [x] Rust gate: `SAVE_APP` flag checked in `push`, the `set_save_app_activity` command, and the frontend api call · AC-1, AC-6, AC-8, AC-9
+  - [x] Settings and sidebar: "Activity log" Settings section with the switch (hidden on web), `saveAppActivity` replaces `showAppActivity`, feed loses its toggle · AC-4, AC-5, AC-6, AC-7, AC-10
 - [ ] Verify it: `/check verify activity log app query setting`
 - [ ] Test it: `/test activity log app query setting`
+
+
+
+## Slice 34: SQL query builder
+
+
+
+### 34. SQL query builder · needs a decision
+
+The SQL version of the Mongo aggregation builder, for PostgreSQL and SQLite: each clause (FROM, JOIN, WHERE, GROUP BY with aggregates like COUNT, SUM and AVG, HAVING, ORDER BY, LIMIT) is a card on the same canvas, with the rows after that clause previewed beside it, and the SQL goes to the editor or runs into the grid. The design pass settles how much of the aggregation builder's canvas, cards, undo and preview pipeline it shares, how joins are picked (foreign key suggestions vs free form), how clause previews stay cheap on large tables, and whether an existing SELECT can be parsed back into cards.
+**Done when:** on a canvas for a Postgres or SQLite table you can build a joined, filtered, grouped query card by card, see the rows after each clause, and run it or send the SQL to the editor.
+
+- [ ] Design it (spec): `/architect sql query builder`
 
 
 
@@ -228,6 +248,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Stopped status in the activity log**: a stopped query is logged as a failed entry with the message "Stopped by user". Give the activity record a real "stopped" status so stopped runs leave the failed filter · from spec 0006 · code in `crates/dh-core/src/activity.rs`
 - **Break up the longest backend functions**: the file split moved long functions whole, so MongoDB `run_db_call`, `table_schema`, and `apply_schema_ops_batch` stay long. Cut them by step · from spec 0009 · code in `crates/dh-core/src/db`
 - **Row cap and load more for huge results**: streamed results have no row cap, so a runaway SELECT can fill app memory and Stop is the only guard. Add a cap with a load more cursor, and backpressure on the desktop channel, if memory pressure shows up · from spec 0011 · code in `src/shared/api/streaming.ts`, `crates/dh-core/src/db`
+- **Stable id for saved connections**: saved connections are keyed by name, so a rename moves only pins while layouts and saved workspaces filed under `kind:name` stay behind. Give each saved connection a random id and key those on it · from spec 0021 · code in `src/shared/store/store.ts`, `src-tauri/src/local_connections`
 - **Import upsert and skip duplicates**: import is insert only, so a clash with an existing key is a bad row. Add Skip duplicates and an Update on duplicate (upsert) mode, with a key to match on and separate Mongo handling · from spec 0008 · code in `src/features/data-import`, `crates/dh-core/src/db/import.rs`
 - **Import beyond 200,000 rows**: an import is one request capped at 200,000 rows and 100 MB. Larger loads need an import session that keeps a transaction open across batches, with timeouts and cleanup on desktop and server · from spec 0008 · code in `crates/dh-core/src/db/import.rs`
 - **Compare across engines**: table comparison only pairs tables of the same engine. Postgres vs SQLite (and so on) needs a type mapping layer and looser equality rules · from spec 0018 · code in `crates/dh-core/src/db/compare`

@@ -6,11 +6,11 @@ import type { CancelOutcome, DbKind, QueryOp, QueryResult } from "./types";
 /** Run arbitrary SQL. Returns rows for SELECT, affected count for DML/DDL.
  * Rejects (throws) when the statement fails.
  *
- * `origin` tags the activity-log entry: "user" for a query the user
- * actually wrote and ran (the SQL editor's own fallback transport — see
- * `runSqlStream`), "app" (the default) for everything else that happens to
- * share this same call — the sidebar's housekeeping queries, the schema
- * designer's "create table" apply, etc.
+ * `origin` tags the activity-log entry: "user" for something the user asked
+ * for (the SQL editor's fallback transport, the schema designer's create
+ * table, a drop view), "app" (the default) for the app's own housekeeping
+ * queries, such as the grants lookup. App entries are only stored while
+ * "Save app queries" is on.
  *
  * `schema` (Postgres only, ignored elsewhere): resolves every unqualified
  * name in `sql` through that schema instead of the connection's own

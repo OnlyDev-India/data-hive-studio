@@ -492,6 +492,47 @@ export function workspaceActions(set: SetState) {
         aggregationTabs: { ...state.aggregationTabs, [key]: setup },
       }));
     },
+    setAggregationCollection(
+      connId: string,
+      id: number,
+      database: string,
+      collection: string,
+    ) {
+      set((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const tab = cur.tabs.find(
+          (t) => t.kind === "aggregation" && t.id === id,
+        );
+        if (
+          !tab ||
+          tab.kind !== "aggregation" ||
+          (tab.database === database && tab.collection === collection)
+        )
+          return state;
+        const next: StudioTab = { ...tab, database, collection };
+        const key = tabKey(tab);
+        const old = state.aggregationTabs[key] ?? DEFAULT_AGGREGATION_SETUP;
+        return {
+          workspaces: putWs(state.workspaces, connId, {
+            ...cur,
+            tabs: cur.tabs.map((t) => (t === tab ? next : t)),
+            active:
+              cur.active && tabEquals(cur.active, tab) ? next : cur.active,
+          }),
+          // A new pipeline that keeps the tab's preview settings.
+          aggregationTabs: {
+            ...state.aggregationTabs,
+            [key]: {
+              ...old,
+              stages: [],
+              selected_stage_id: null,
+              file_path: null,
+              saved_text: null,
+            },
+          },
+        };
+      });
+    },
     openSql(
       connId: string,
       seedText?: string,

@@ -91,7 +91,7 @@ export function BuilderBottomPanel({
   return (
     <section
       aria-label="Pipeline output"
-      className="bg-background flex h-full min-h-0 flex-col"
+      className="bg-background flex h-full min-h-0 w-full min-w-0 flex-col"
     >
       <div className="bg-editor-toolbar flex shrink-0 items-center gap-2 border-b px-3 py-1">
         <Segmented

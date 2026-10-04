@@ -41,7 +41,7 @@ export function StagePalette({
   return (
     <aside
       aria-label="Stage palette"
-      className="bg-background rounded-surface absolute top-2 left-2 z-10 flex max-h-[calc(100%-8rem)] w-52 flex-col border shadow-xs"
+      className="bg-background rounded-surface absolute top-2 left-2 z-10 flex max-h-[calc(100%-10.5rem)] w-52 flex-col border shadow-xs"
     >
       <div className="flex items-center gap-1 border-b py-1 pr-1 pl-2">
         <span className="text-small text-muted-foreground font-medium">
