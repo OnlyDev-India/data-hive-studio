@@ -624,6 +624,8 @@ function SqlEditorBody({
   const [schema_tables, setSchemaTables] = useState<Record<string, string[]>>(
     {},
   );
+  // The database `schema_tables` was loaded for; lint waits until it matches.
+  const [schema_tables_db, setSchemaTablesDb] = useState<string | null>(null);
   const schema_tables_cache = useRef(new Map<string, string[]>());
   useEffect(() => {
     if (!is_pg || known_schemas.length === 0) return;
@@ -657,6 +659,7 @@ function SqlEditorBody({
             [];
         }
         setSchemaTables(next);
+        setSchemaTablesDb(database);
       })();
     }, 1500);
     return () => {
@@ -673,12 +676,17 @@ function SqlEditorBody({
   // table reference against the NEW database kept linting as "unknown" and
   // vice versa.
   const [mongo_db_tables, setMongoDbTables] = useState<string[]>([]);
+  const [mongo_db_tables_db, setMongoDbTablesDb] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
     if (conn?.kind !== "mongodb" || !database) return;
     let cancelled = false;
     void listSchemaObjects(conn_id, "", "table", target_database)
       .then((objects) => {
-        if (!cancelled) setMongoDbTables(objects.map((o) => o.name));
+        if (cancelled) return;
+        setMongoDbTables(objects.map((o) => o.name));
+        setMongoDbTablesDb(database);
       })
       .catch(() => {
         /* stays whatever it was — hints/lint just fall back to `tables` below */
@@ -716,6 +724,13 @@ function SqlEditorBody({
           : tables,
     [is_pg, schema_tables, tables, conn?.kind, mongo_db_tables],
   );
+  // The fallbacks above are fine for completions but would lint every table
+  // outside them as unknown, so name checks wait for the real list.
+  const lint_ready = is_pg
+    ? schema_tables_db === database
+    : conn?.kind === "mongodb"
+      ? mongo_db_tables_db === database
+      : !target_database;
 
   const setSql = useCallback(
     (v: string) => {
@@ -1370,6 +1385,7 @@ function SqlEditorBody({
         is_dirty={is_dirty}
         on_save={() => void save_sql()}
         on_open={() => void open_sql_file()}
+        on_save_to_library={() => editorRef.current?.openSaveToLibrary()}
       />
       {file_path && (
         <FileBreadcrumb path={file_path} scrolled={editor_scroll.scrolled} />
@@ -1393,7 +1409,9 @@ function SqlEditorBody({
           schema={schema}
           schemaTables={is_pg ? schema_tables : undefined}
           lintEnabled={lint_enabled}
+          lintReady={lint_ready}
           showInsertLabels={insert_labels_enabled}
+          saveToLibrary
           height="100%"
         />
       </div>
@@ -1801,6 +1819,7 @@ function MongoEditorBody({
   // used to only ever fetch the connection's OWN database once on mount,
   // silently offering the wrong database's collection names after a switch.
   const [collections, setCollections] = useState<string[]>([]);
+  const [collections_db, setCollectionsDb] = useState<string | null>(null);
 
   const {
     panelRef: bottomPanelRef,
@@ -1904,7 +1923,9 @@ function MongoEditorBody({
           "table",
           db && db !== database ? db : undefined,
         );
-        if (!cancelled) setCollections(objects.map((o) => o.name));
+        if (cancelled) return;
+        setCollections(objects.map((o) => o.name));
+        setCollectionsDb(db);
       } catch {
         /* sidebar already reports connection errors */
       }
@@ -2376,6 +2397,7 @@ function MongoEditorBody({
         is_dirty={is_dirty}
         on_save={() => void save_script()}
         on_open={() => void open_script_file()}
+        on_save_to_library={() => editorRef.current?.openSaveToLibrary()}
       />
       {file_path && (
         <FileBreadcrumb path={file_path} scrolled={editor_scroll.scrolled} />
@@ -2397,6 +2419,8 @@ function MongoEditorBody({
           jsCompletions={collections}
           connId={conn_id}
           lintEnabled={lint_enabled}
+          lintReady={collections_db === db}
+          saveToLibrary
           height="100%"
         />
       </div>

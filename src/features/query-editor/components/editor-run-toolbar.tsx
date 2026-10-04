@@ -8,6 +8,7 @@ import {
   Button,
 } from "@/shared/components/ui";
 import {
+  BookmarkPlus,
   FolderOpen,
   ListTree,
   PlayIcon,
@@ -68,6 +69,7 @@ export function EditorRunToolbar({
   is_dirty,
   on_save,
   on_open,
+  on_save_to_library,
   wrap,
   onToggleWrap,
 }: {
@@ -117,6 +119,8 @@ export function EditorRunToolbar({
   is_dirty?: boolean;
   on_save?: () => void;
   on_open?: () => void;
+  /** Saves the selection, or the whole text, to the library. */
+  on_save_to_library?: () => void;
   wrap?: boolean;
   onToggleWrap?: () => void;
 }) {
@@ -261,6 +265,15 @@ export function EditorRunToolbar({
               color="primary"
               disabled={!is_dirty}
               onClick={on_save}
+            />
+          )}
+          {on_save_to_library && (
+            <ToolbarIconButton
+              icon={BookmarkPlus}
+              label="Save to library"
+              color="primary"
+              disabled={!has_text}
+              onClick={on_save_to_library}
             />
           )}
         </div>

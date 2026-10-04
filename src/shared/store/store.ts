@@ -26,6 +26,7 @@ import type { SavedConnParams, StudioStore, WorkspaceTabs } from "./types";
 import { tabKey } from "./tab-utils";
 import { workspaceActions } from "./workspace";
 import { tableDialogActions } from "./table-dialogs";
+import { libraryActions } from "./library";
 import {
   clearLayoutsFor,
   loadPendingWorkspaceRestores,
@@ -137,6 +138,11 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         commandPaletteOpen: false,
         setCommandPaletteOpen(open) {
           set({ commandPaletteOpen: open });
+        },
+
+        settingsOpen: false,
+        setSettingsOpen(open) {
+          set({ settingsOpen: open });
         },
 
         disconnectPendingId: null,
@@ -585,6 +591,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...connectionActions(set),
         ...workspaceActions(set),
         ...tableDialogActions(set),
+        ...libraryActions(set, get),
       }),
       {
         name: "dh-studio-store",

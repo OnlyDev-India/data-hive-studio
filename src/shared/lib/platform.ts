@@ -119,6 +119,29 @@ export async function pickPipelineFile(): Promise<{
   return { path, name, text: new TextDecoder().decode(new Uint8Array(bytes)) };
 }
 
+/** Native "Open" dialog for a library export, read as UTF-8. Null when
+ *  cancelled. */
+export async function pickLibraryFile(): Promise<string | null> {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "Library export", extensions: ["json"] }],
+  });
+  if (!path || Array.isArray(path)) return null;
+  return new TextDecoder().decode(new Uint8Array(await readFile(path)));
+}
+
+/** Native "Save as" dialog for a library export, then writes it. Returns the
+ *  chosen path, or null when cancelled. */
+export async function saveLibraryFile(text: string): Promise<string | null> {
+  const path = await save({
+    defaultPath: "dh-library.json",
+    filters: [{ name: "Library export", extensions: ["json"] }],
+  });
+  if (!path || Array.isArray(path)) return null;
+  await writeFile(path, Array.from(new TextEncoder().encode(text)));
+  return path;
+}
+
 /** Native "Save as" dialog for a pipeline file. Null when cancelled. */
 export async function pickPipelineSavePath(
   name: string,

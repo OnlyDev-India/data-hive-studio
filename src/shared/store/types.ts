@@ -14,6 +14,12 @@ import type { PaneNode } from "./pane-layout";
 import type { ShortcutBinding } from "../hooks/shortcut-registry";
 import type { DelimitedListSettings } from "@/shared/components/query-editor/delimited-list";
 import type { CatalogChange, TableDialogTarget } from "./table-dialogs";
+import type {
+  ImportSummary,
+  LibraryDraft,
+  LibraryItem,
+  LibraryResult,
+} from "../library/types";
 
 /** Which top-level screen fills the workspace area. */
 export type StudioView = "home" | "workspace";
@@ -692,6 +698,10 @@ export interface StudioStore {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  /** App settings dialog open state. */
+  settingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
+
   /** Id of the connection the disconnect-confirm dialog is asking about, or
    *  null when closed. Shared state (not per-`DisconnectDbBtn`-instance
    *  local state) so any trigger — the tab-strip icon, the action bar, or
@@ -706,6 +716,20 @@ export interface StudioStore {
   importTarget: ImportTarget | null;
   openImport: (target: ImportTarget) => void;
   closeImport: () => void;
+
+  /** Saved queries and snippets, global to every connection. Loaded once at
+   *  startup; every change rewrites the whole stored file. */
+  library: LibraryItem[];
+  /** True once the starter snippets were added. */
+  librarySeeded: boolean;
+  loadLibrary: () => Promise<void>;
+  addLibraryItem: (draft: LibraryDraft) => Promise<LibraryResult>;
+  updateLibraryItem: (
+    id: string,
+    draft: LibraryDraft,
+  ) => Promise<LibraryResult>;
+  deleteLibraryItem: (id: string) => Promise<boolean>;
+  importLibrary: (text: string) => Promise<ImportSummary | null>;
 
   /** The Drop, Duplicate or Grants dialog's target, or null when closed.
    *  Mounted once in `Studio` (`TableDialogsHost`); the sidebar and the

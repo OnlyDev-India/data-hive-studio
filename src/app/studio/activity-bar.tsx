@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Ellipsis,
   History,
@@ -9,7 +8,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
-import { SettingsDialog } from "@/features/settings";
 import {
   Tooltip,
   TooltipContent,
@@ -224,8 +222,7 @@ export function ActivityBar({
   on_sql,
   on_activity,
 }: ActivityBarProps) {
-  // App settings dialog (gear button at the bottom of the bar).
-  const [settings_open, set_settings_open] = useState(false);
+  const setSettingsOpen = useStudioStore((s) => s.setSettingsOpen);
   const pinnedTools = useStudioStore((s) => s.pinnedTools);
   const kind = useStudioStore(
     (s) => s.open.find((c) => c.id === conn_id)?.kind,
@@ -314,12 +311,11 @@ export function ActivityBar({
           <BarButton
             active={false}
             label="Settings"
-            onClick={() => set_settings_open(true)}
+            onClick={() => setSettingsOpen(true)}
           >
             <Settings className="size-5" />
           </BarButton>
         </div>
-        <SettingsDialog open={settings_open} onOpenChange={set_settings_open} />
       </nav>
     </TooltipProvider>
   );

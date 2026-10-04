@@ -8,7 +8,7 @@ import {
   type PaletteKeywords,
 } from "@/shared/store";
 
-const FIELDS: {
+export const FIELDS: {
   key: keyof PaletteKeywords;
   label: string;
   description: string;

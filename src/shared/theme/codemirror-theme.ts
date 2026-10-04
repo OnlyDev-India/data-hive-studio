@@ -69,6 +69,21 @@ export const appEditorTheme = EditorView.theme({
   ".cm-completionIcon-function, .cm-completionIcon-method": {
     color: color.malibu,
   },
+  // Saved library items (src/shared/library/completions.ts).
+  ".cm-completionIcon-library-snippet": {
+    color: color.violet,
+    "&::after": { content: "'✂'" },
+  },
+  ".cm-completionIcon-library-query": {
+    color: color.violet,
+    "&::after": { content: "'★'" },
+  },
+  ".cm-library-preview": {
+    margin: "0",
+    fontFamily: "var(--font-mono)",
+    whiteSpace: "pre-wrap",
+    maxWidth: "28rem",
+  },
   "li .cm-completionIcon-keyword ~ .cm-completionLabel": {
     color: color.malibu,
   },

@@ -48,6 +48,7 @@ export async function runStartupBootstrap(
   const work = (async () => {
     await Promise.all([
       useStudioStore.getState().hydrateSavedLocal(),
+      useStudioStore.getState().loadLibrary(),
       bootstrapWorkspaceRestore(),
       preloadStudioChunk(),
     ]);

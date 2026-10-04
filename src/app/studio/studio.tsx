@@ -19,6 +19,7 @@ import { CollectionPickerHost } from "@/shared/components/collection-picker";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 import { UpdateDialog } from "@/features/updater";
+import { SettingsHost } from "@/features/settings";
 import { ImportDialog } from "@/features/data-import";
 import { TableDialogsHost } from "@/features/table-dialogs";
 import Workspace from "./workspace";
@@ -291,6 +292,7 @@ export function Studio() {
       </div>
       <ActionBar />
       <CommandPalette />
+      <SettingsHost />
       <DisconnectDialog />
       <UpdateDialog />
       <ImportDialog />

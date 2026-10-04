@@ -34,7 +34,7 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 15  | Mongo aggregation builder      | Slice 15 | in-progress |
 | 16  | Relation diagram               | Slice 16 | in-progress |
 | 33  | Activity log app query setting | Slice 33 | in-progress |
-| 34  | SQL query builder              | Slice 34 | planned     |
+| 34  | SQL query builder              | Slice 34 | in-progress |
 
 
 
@@ -145,11 +145,11 @@ spec [0021](../specs/0021-saved-queries-snippets.md)
 code in `src/features/query-editor`, `src/features/settings`, `src/shared/library`, `src/shared/components/query-editor`, `src-tauri/src/library_store.rs`
 
 - [x] Design it (spec): `/architect saved queries and snippets`
-- [ ] Build it: `/develop saved queries and snippets`
-  - [ ] Thin thread: save from the editor, storage on desktop and web, SQL and Mongo suggestions with snippet tab stops (AC-1, AC-5, AC-6, AC-7, AC-9)
-  - [ ] Settings Library section: list, search, filters, create, edit, delete, validation, open in editor (AC-2, AC-3, AC-4, AC-8)
-  - [ ] Corrupt file recovery, starter snippets, export and import (AC-9, AC-10, AC-11, AC-12)
-  - [ ] Tests and the full check run (AC-13)
+- [x] Build it: `/develop saved queries and snippets`
+  - [x] Thin thread: save from the editor, storage on desktop and web, SQL and Mongo suggestions with snippet tab stops (AC-1, AC-5, AC-6, AC-7, AC-9)
+  - [x] Settings Library section: list, search, filters, create, edit, delete, validation, open in editor (AC-2, AC-3, AC-4, AC-8)
+  - [x] Corrupt file recovery, starter snippets, export and import (AC-9, AC-10, AC-11, AC-12)
+  - [x] Tests and the full check run (AC-13)
 - [ ] Verify it: `/check verify saved queries and snippets`
 - [ ] Test it: `/test saved queries and snippets`
 
@@ -232,12 +232,22 @@ spec [0020](../specs/0020-activity-app-query-setting.md) · code in `src/feature
 
 
 
-### 34. SQL query builder · needs a decision
+### 34. SQL query builder · in-progress
 
 The SQL version of the Mongo aggregation builder, for PostgreSQL and SQLite: each clause (FROM, JOIN, WHERE, GROUP BY with aggregates like COUNT, SUM and AVG, HAVING, ORDER BY, LIMIT) is a card on the same canvas, with the rows after that clause previewed beside it, and the SQL goes to the editor or runs into the grid. The design pass settles how much of the aggregation builder's canvas, cards, undo and preview pipeline it shares, how joins are picked (foreign key suggestions vs free form), how clause previews stay cheap on large tables, and whether an existing SELECT can be parsed back into cards.
 **Done when:** on a canvas for a Postgres or SQLite table you can build a joined, filtered, grouped query card by card, see the rows after each clause, and run it or send the SQL to the editor.
 
-- [ ] Design it (spec): `/architect sql query builder`
+spec [0021](../specs/0021-sql-query-builder/index.md) · code in `src/features/query-builder`, `src/shared/components/builder-canvas`, `src/features/aggregation-builder`, `src/shared/api/sql-builder.ts`, `crates/dh-core/src/db/sql_builder`, `crates/dh-server/src/routes`
+
+- [x] Design it (spec): `/architect sql query builder`
+- [ ] Build it: `/develop sql query builder`
+  - [ ] Shared builder parts: move the engine neutral aggregation builder parts into `shared/components/builder-canvas`, Mongo builder unchanged · AC-18
+  - [ ] Thin thread: tab kind and sidebar entry, composer, read only Rust preview command and route, canvas with SQL view cards, Run with the read only flag, Copy SQL, then errors, settings and activity entries · AC-1, AC-3, AC-5, AC-6, AC-7, AC-8, AC-9, AC-13, AC-15, AC-16, AC-17
+  - [ ] Forms and joins: clause forms with the SQL flip, column suggestions, JOIN reorder, foreign key join suggestions and aliases · AC-3, AC-4
+  - [ ] Database, schema and editor handoff: header dropdowns with Keep, Clear or Cancel, schema qualified output, Open in SQL editor, parse back with Paste SQL and Open in builder, palette and tools menu · AC-1, AC-2, AC-10, AC-11
+  - [ ] Undo, restore and offline through the shared parts · AC-12, AC-13, AC-14
+- [ ] Verify it: `/check verify sql query builder`
+- [ ] Test it: `/test sql query builder`
 
 
 
@@ -265,6 +275,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Grid column layout by stable key**: the grid's column widths and order are keyed by `conn_id`, so they reset on every connect. Move them onto `stableConnKey` · from spec 0018 · code in `src/shared/components/data-grid`
 - **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`
 - **Aggregation builder extras**: nested side chains (a branch inside a branch, now JSON inside the card), and a per tab `$sample` preview mode if the first N documents prove unrepresentative · from spec 0019 · code in `src/features/aggregation-builder`, `crates/dh-core/src/db/mongodb/pipeline`
+- **Query builder extras**: computed expressions and a DISTINCT toggle in the SELECT form (SQL view only for now), Explain, card titles, notes and disable, image export, an own save and open file format, a Query builder button in the table pane header, and "Then" steps that wrap the query so far as a CTE · from spec 0021 · code in `src/features/query-builder`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 

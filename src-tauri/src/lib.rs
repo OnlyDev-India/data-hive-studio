@@ -10,6 +10,7 @@ pub mod activity_store;
 pub mod app_menu;
 pub mod commands;
 pub mod file_open;
+pub mod library_store;
 pub mod local_connections;
 mod legacy_servers;
 pub mod secret_store;
@@ -235,6 +236,8 @@ pub fn run() {
       workspace_state::load_workspace_state,
       workspace_state::save_workspace_state,
       workspace_state::clear_workspace_state,
+      library_store::library_load,
+      library_store::library_save,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
