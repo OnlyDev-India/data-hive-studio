@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FieldShape, IndexInfo, TableSchema } from "@/shared/api";
+import type { DdlNamedRow } from "@/shared/components/diff-grid/types";
 import { flatten_fields, mongo_structure_diff } from "../mongo-structure";
 
 const field = (
@@ -90,9 +91,9 @@ describe("mongo_structure_diff", () => {
       ["update", "age", "age"],
     ]);
     const indexes = sections.find((s) => s.entity === "index")!;
-    expect(indexes.rows.map((r) => [r.kind, r.name])).toEqual([
-      ["delete", "old_1"],
-    ]);
+    expect(
+      (indexes.rows as DdlNamedRow[]).map((r) => [r.kind, r.name]),
+    ).toEqual([["delete", "old_1"]]);
   });
 
   it("is empty when both collections match", () => {

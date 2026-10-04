@@ -10,7 +10,7 @@ vi.mock("@/shared/api", () => ({
   previewPipeline: (...args: unknown[]) => previewPipeline(...args),
 }));
 
-import { useStudioStore, type StudioState } from "@/shared/store";
+import { useStudioStore, type StudioStore } from "@/shared/store";
 import { DEFAULT_AGGREGATION_SETUP } from "@/shared/store/types";
 import { usePreviews } from "../use-previews";
 
@@ -56,7 +56,7 @@ function setup() {
 beforeEach(() => {
   previewPipeline.mockReset();
   useStudioStore.setState({
-    open: [{ id: "c1", kind: "mongodb" }] as unknown as StudioState["open"],
+    open: [{ id: "c1", kind: "mongodb" }] as unknown as StudioStore["open"],
   });
 });
 

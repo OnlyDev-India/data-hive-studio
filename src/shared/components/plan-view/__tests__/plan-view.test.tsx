@@ -36,10 +36,7 @@ function node(patch: Partial<PlanNode>): PlanNode {
 
 function tab(patch: Partial<PlanResult> | null): PlanCall {
   return {
-    id: -1,
-    label: "Plan 1",
     statement: "SELECT 1",
-    source: "SELECT 1",
     result:
       patch === null
         ? null

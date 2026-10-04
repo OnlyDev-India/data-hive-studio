@@ -4,6 +4,7 @@ import { QueryEditor } from "../index";
 
 // Line 1 lints without any table list; line 2 only with one.
 const SQL = "SELECT *;\nSELECT * FROM sales.orders;";
+const HANDLERS = { onChange: () => {}, onRun: () => {}, onRunTarget: () => {} };
 
 function inlineMessages(container: HTMLElement) {
   return [...container.querySelectorAll(".cm-inline-diagnostic")].map((el) =>
@@ -14,7 +15,12 @@ function inlineMessages(container: HTMLElement) {
 describe("QueryEditor lintReady", () => {
   it("holds unknown table checks while the table list is a placeholder", async () => {
     const { container } = render(
-      <QueryEditor value={SQL} tables={["users"]} lintReady={false} />,
+      <QueryEditor
+        {...HANDLERS}
+        value={SQL}
+        tables={["users"]}
+        lintReady={false}
+      />,
     );
     await waitFor(
       () =>
@@ -27,7 +33,7 @@ describe("QueryEditor lintReady", () => {
 
   it("runs them once the list is real", async () => {
     const { container } = render(
-      <QueryEditor value={SQL} tables={["users"]} />,
+      <QueryEditor {...HANDLERS} value={SQL} tables={["users"]} />,
     );
     await waitFor(
       () =>

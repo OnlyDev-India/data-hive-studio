@@ -7,7 +7,14 @@ import { QueryEditor } from "../index";
 
 function Host() {
   const [value, setValue] = useState("");
-  return <QueryEditor value={value} onChange={setValue} />;
+  return (
+    <QueryEditor
+      value={value}
+      onChange={setValue}
+      onRun={() => {}}
+      onRunTarget={() => {}}
+    />
+  );
 }
 
 function selected(view: EditorView) {
