@@ -151,16 +151,22 @@ pub async fn merge(
             };
             let flow = match order {
                 Ordering::Less => {
+                    // Hand the row over before reading on: a Stop seen by
+                    // `next` must not drop a row already counted.
                     counts.left_only += 1;
                     let row = l.take().expect("left row");
+                    let flow =
+                        out.diff(Diff { kind: DiffKind::LeftOnly, left: Some(row), right: None, changed: vec![] })?;
                     l = left.next().await?;
-                    out.diff(Diff { kind: DiffKind::LeftOnly, left: Some(row), right: None, changed: vec![] })?
+                    flow
                 }
                 Ordering::Greater => {
                     counts.right_only += 1;
                     let row = r.take().expect("right row");
+                    let flow =
+                        out.diff(Diff { kind: DiffKind::RightOnly, left: None, right: Some(row), changed: vec![] })?;
                     r = right.next().await?;
-                    out.diff(Diff { kind: DiffKind::RightOnly, left: None, right: Some(row), changed: vec![] })?
+                    flow
                 }
                 Ordering::Equal => {
                     let (a, b) = (l.take().expect("left row"), r.take().expect("right row"));
