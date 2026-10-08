@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ComponentProps } from "react";
 import { ChevronDown, Code, Plus, X } from "lucide-react";
 import {
   FormLabel,
@@ -353,9 +353,10 @@ function ColumnInput({
   );
 }
 
-function TableButton({ children }: { children: ReactNode }) {
+function TableButton({ children, ...props }: ComponentProps<typeof Button>) {
   return (
     <Button
+      {...props}
       variant="outline"
       size="sm"
       className="nodrag h-6 min-w-0 flex-1 justify-between px-2 font-mono"

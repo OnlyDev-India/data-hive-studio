@@ -471,8 +471,8 @@ pub trait DbAdapter: Send + Sync {
             "dropping databases is not supported by this adapter".into(),
         ))
     }
-    /// Create a schema in the active catalog.
-    async fn create_schema(&self, _name: &str) -> DbResult<()> {
+    /// Create a schema. `database`: `None` = this connection's own database.
+    async fn create_schema(&self, _database: Option<&str>, _name: &str) -> DbResult<()> {
         Err(DbError::InvalidOperation(
             "creating schemas is not supported by this adapter".into(),
         ))

@@ -6,7 +6,22 @@ named_ddl_op!(create_database, create_database, "ddl", "CREATE DATABASE {}", "us
 
 named_ddl_op!(drop_database, drop_database, "drop_table", "DROP DATABASE {}", "user");
 
-named_ddl_op!(create_schema, create_schema, "ddl", "CREATE SCHEMA {}", "user");
+/// Create a schema. `database`: `None` = this connection's own database.
+pub async fn create_schema(conn_id: &str, database: Option<&str>, name: &str) -> DbResult<()> {
+    let t = std::time::Instant::now();
+    let target = format!("CREATE SCHEMA {name}");
+    let name = name.to_string();
+    let database = database.map(str::to_string);
+    let res = with_connection(conn_id, move |a| async move {
+        a.create_schema(database.as_deref(), &name).await
+    })
+    .await;
+    match &res {
+        Ok(()) => crate::activity::log_ok_origin(conn_id, "ddl", &target, t, 0, "user"),
+        Err(e) => crate::activity::log_err_origin(conn_id, "ddl", &target, t, e, "user"),
+    }
+    res
+}
 
 pub async fn save_database(conn_id: &str) -> DbResult<Vec<u8>> {
     let conn_id = conn_id.to_string();

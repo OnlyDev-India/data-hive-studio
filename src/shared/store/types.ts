@@ -665,6 +665,9 @@ export interface StudioStore {
   /** The database and schema a SQL tab opened with (the query builder's
    *  Open in SQL editor), by tab key. Set once, deleted by closeTab. */
   sqlTargets: Record<string, SqlTarget>;
+  /** The database and schema a New table or New collection tab starts on,
+   *  by tab key. Set once, deleted by closeTab. */
+  newTableTargets: Record<string, SqlTarget>;
 
   /** Generic notification center (action-bar bell). Any feature can push a
    *  notification — e.g. applied schema changes, export results, failed
@@ -936,7 +939,8 @@ export interface StudioStore {
     paneId?: string,
     target?: SqlTarget,
   ) => void;
-  openNewTable: (connId: string, paneId?: string) => void;
+  /** `target` presets the tab's database and schema pickers. */
+  openNewTable: (connId: string, paneId?: string, target?: SqlTarget) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
   openActivityTab: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Users & Privileges tab. */

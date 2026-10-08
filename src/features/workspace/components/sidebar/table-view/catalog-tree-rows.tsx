@@ -4,6 +4,7 @@ import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { IconTypeMap, type IconType } from "@/shared/components/icons/types";
 import type { SchemaObject } from "@/shared/api";
+import { treeMenuItems, TreeRowMenu } from "@/shared/components/tree-menu";
 import { depthPadding } from "./catalog-tree-utils";
 import { TableListItem } from "./table-list-item";
 
@@ -111,9 +112,28 @@ export function TreeToggleRow({
   );
 }
 
+const LEAF_MENU = treeMenuItems({ kind: "leaf" });
+
+/** The line a list shows when its fetch failed (`null`) or came back empty. */
+function EmptyLine({
+  state,
+  empty_label,
+  pad,
+}: {
+  state: null | unknown[];
+  empty_label: string;
+  pad: React.CSSProperties;
+}) {
+  return (
+    <p className="text-muted-foreground text-body py-1" style={pad}>
+      {state === null ? "Failed to load." : empty_label}
+    </p>
+  );
+}
+
 /** Content of a lazily-fetched, non-openable category (Procedures/
- *  Functions/Sequences/Types) — a name plus its optional `extra` context,
- *  no click action. `collapsible_extra` (Types: an enum's
+ *  Functions/Sequences/Types/Extensions) — a name plus its optional `extra`
+ *  context, no click action; right click (or Shift+F10) copies the name. `collapsible_extra` (Types: an enum's
  *  labels, a composite's field list, a domain's base type — often too long
  *  for one line) renders `extra` in its own expand/collapse row instead of
  *  crammed inline next to the name. */
@@ -122,11 +142,13 @@ export function LazyObjectRows({
   empty_label,
   depth,
   collapsible_extra = false,
+  on_copy,
 }: {
   state: "loading" | SchemaObject[] | null | undefined;
   empty_label: string;
   depth: number;
   collapsible_extra?: boolean;
+  on_copy: (name: string) => void;
 }) {
   const pad = depthPadding(depth);
   const [open_names, setOpenNames] = useState<Set<string>>(new Set());
@@ -134,29 +156,31 @@ export function LazyObjectRows({
   // nothing to render here while its fetch is in flight.
   if (state === "loading" || state === undefined) return null;
   if (state === null || state.length === 0) {
-    return (
-      <p className="text-muted-foreground text-body py-1" style={pad}>
-        {empty_label}
-      </p>
-    );
+    return <EmptyLine state={state} empty_label={empty_label} pad={pad} />;
   }
   if (!collapsible_extra) {
     return (
       <>
         {state.map((obj) => (
-          <div
+          <TreeRowMenu
             key={obj.name}
-            className="text-foreground/80 text-body truncate py-0.5 font-mono"
-            style={pad}
-            title={obj.extra ? `${obj.name} — ${obj.extra}` : obj.name}
+            items={LEAF_MENU}
+            onPick={() => on_copy(obj.name)}
           >
-            {obj.name}
-            {obj.extra && (
-              <span className="text-muted-foreground ml-1.5 font-sans">
-                {obj.extra}
-              </span>
-            )}
-          </div>
+            <div
+              tabIndex={0}
+              className="text-foreground/80 text-body focus-visible:bg-muted/50 truncate rounded py-0.5 font-mono outline-none"
+              style={pad}
+              title={obj.extra ? `${obj.name} — ${obj.extra}` : obj.name}
+            >
+              {obj.name}
+              {obj.extra && (
+                <span className="text-muted-foreground ml-1.5 font-sans">
+                  {obj.extra}
+                </span>
+              )}
+            </div>
+          </TreeRowMenu>
         ))}
       </>
     );
@@ -167,31 +191,33 @@ export function LazyObjectRows({
         const is_open = open_names.has(obj.name);
         return (
           <div key={obj.name}>
-            <button
-              type="button"
-              className="text-foreground/80 hover:text-foreground text-body flex w-full min-w-0 items-center gap-1 py-0.5 text-left font-mono"
-              style={pad}
-              disabled={!obj.extra}
-              title={obj.name}
-              onClick={() =>
-                setOpenNames((cur) => {
-                  const next = new Set(cur);
-                  if (next.has(obj.name)) next.delete(obj.name);
-                  else next.add(obj.name);
-                  return next;
-                })
-              }
-            >
-              {obj.extra && (
-                <ChevronRight
-                  className={cn(
-                    "size-2.5 shrink-0 transition-transform",
-                    is_open && "rotate-90",
-                  )}
-                />
-              )}
-              <span className="truncate">{obj.name}</span>
-            </button>
+            <TreeRowMenu items={LEAF_MENU} onPick={() => on_copy(obj.name)}>
+              <button
+                type="button"
+                className="text-foreground/80 hover:text-foreground text-body flex w-full min-w-0 items-center gap-1 py-0.5 text-left font-mono"
+                style={pad}
+                disabled={!obj.extra}
+                title={obj.name}
+                onClick={() =>
+                  setOpenNames((cur) => {
+                    const next = new Set(cur);
+                    if (next.has(obj.name)) next.delete(obj.name);
+                    else next.add(obj.name);
+                    return next;
+                  })
+                }
+              >
+                {obj.extra && (
+                  <ChevronRight
+                    className={cn(
+                      "size-2.5 shrink-0 transition-transform",
+                      is_open && "rotate-90",
+                    )}
+                  />
+                )}
+                <span className="truncate">{obj.name}</span>
+              </button>
+            </TreeRowMenu>
             {is_open && obj.extra && (
               <div
                 className="flex flex-col gap-0.5 py-0.5 pr-2"
@@ -274,11 +300,7 @@ export function LazyTableRows({
   // The owning TreeToggleRow's chevron is the loading indicator now.
   if (state === "loading" || state === undefined) return null;
   if (state === null || state.length === 0) {
-    return (
-      <p className="text-muted-foreground text-body py-1" style={pad}>
-        {empty_label}
-      </p>
-    );
+    return <EmptyLine state={state} empty_label={empty_label} pad={pad} />;
   }
   return (
     <>

@@ -3,7 +3,6 @@ import { Button } from "@/shared/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
@@ -11,13 +10,12 @@ import {
   TableMenuItems,
   tableMenuItems,
   type TableAction,
-  type TableMenuItemProps,
 } from "@/shared/components/table-menu";
+import {
+  ContextMenuEntry,
+  openMenuFromKey,
+} from "@/shared/components/tree-menu";
 import { IconTypeMap, type IconType } from "@/shared/components/icons/types";
-
-function MenuItem({ onClick, ...rest }: TableMenuItemProps) {
-  return <ContextMenuItem onSelect={onClick} {...rest} />;
-}
 
 /** One table/view/matview/collection row — used for both the connection's
  *  own active database AND any sibling database/schema, with whichever
@@ -107,6 +105,7 @@ export function TableListItem({
             data-table={name}
             onClick={on_select}
             onDoubleClick={on_open}
+            onKeyDown={openMenuFromKey}
             className={cn(
               "text-small w-full justify-start px-2 py-1 text-left font-normal",
               is_selected ? "bg-muted font-medium" : "hover:bg-muted/50",
@@ -122,7 +121,7 @@ export function TableListItem({
         <TableMenuItems
           items={items}
           onPick={(a) => handlers[a]?.()}
-          Item={MenuItem}
+          Item={ContextMenuEntry}
           Separator={ContextMenuSeparator}
         />
       </ContextMenuContent>

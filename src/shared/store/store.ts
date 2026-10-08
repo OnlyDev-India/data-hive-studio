@@ -368,6 +368,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         // (openFileTab) — see the doc comment on the type.
         seedFilePaths: {},
         sqlTargets: {},
+        newTableTargets: {},
 
         recentParams: (() => {
           try {

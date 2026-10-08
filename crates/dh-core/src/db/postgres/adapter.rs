@@ -112,8 +112,8 @@ impl DbAdapter for PgAdapter {
         PgAdapter::drop_database(self, name).await
     }
 
-    async fn create_schema(&self, name: &str) -> DbResult<()> {
-        PgAdapter::create_schema(self, name).await
+    async fn create_schema(&self, database: Option<&str>, name: &str) -> DbResult<()> {
+        PgAdapter::create_schema(self, database, name).await
     }
 
     async fn drop_schema(&self, name: &str, cascade: bool) -> DbResult<()> {

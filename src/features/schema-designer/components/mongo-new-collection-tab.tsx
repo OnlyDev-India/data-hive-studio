@@ -43,6 +43,10 @@ export function MongoNewCollectionTab({
   on_created,
 }: MongoNewCollectionTabProps) {
   const [name, setName] = useState("");
+  // A sidebar database row's New collection presets its database.
+  const [preset_database] = useState(
+    () => useStudioStore.getState().newTableTargets[tab_key]?.database,
+  );
   const [own_database, setOwnDatabase] = useState("");
   const [database, setDatabase] = useState("");
   const [databases, setDatabases] = useState<string[]>([]);
@@ -69,7 +73,7 @@ export function MongoNewCollectionTab({
         if (cancelled) return;
         setDatabases(overview.databases);
         setOwnDatabase(overview.active_schema);
-        setDatabase(overview.active_schema);
+        setDatabase(preset_database ?? overview.active_schema);
       } catch {
         /* selector stays empty — creation still targets the connection's
          * active db (server default when `database` is omitted). */
@@ -78,6 +82,7 @@ export function MongoNewCollectionTab({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- preset_database is read once on mount
   }, [conn_id]);
 
   const trimmed = name.trim();

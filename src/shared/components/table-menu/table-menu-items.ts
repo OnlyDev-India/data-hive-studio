@@ -26,8 +26,9 @@ export type TableAction =
   | "refresh_matview"
   | "drop";
 
-export interface TableMenuItem {
-  action: TableAction;
+/** One menu row; `A` is the surface's own action union. */
+export interface MenuEntry<A extends string = string> {
+  action: A;
   label: string;
   icon: LucideIcon;
   disabled: boolean;
@@ -35,6 +36,8 @@ export interface TableMenuItem {
   destructive?: boolean;
   separatorBefore?: boolean;
 }
+
+export type TableMenuItem = MenuEntry<TableAction>;
 
 export const READ_ONLY_TITLE = "Read only connection: this change is refused";
 

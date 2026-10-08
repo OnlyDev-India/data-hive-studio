@@ -647,11 +647,19 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
-    openNewTable(connId: string, paneId?: string) {
+    openNewTable(connId: string, paneId?: string, target?: SqlTarget) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);
         const tab: StudioTab = { kind: "new-table", id: cur.nextNewTableId };
         return {
+          ...(target
+            ? {
+                newTableTargets: {
+                  ...state.newTableTargets,
+                  [tabKey(tab)]: target,
+                },
+              }
+            : {}),
           workspaces: putWs(
             state.workspaces,
             connId,
@@ -755,6 +763,8 @@ export function workspaceActions(set: SetState) {
         delete seedFilePaths[key];
         const sqlTargets = { ...state.sqlTargets };
         delete sqlTargets[key];
+        const newTableTargets = { ...state.newTableTargets };
+        delete newTableTargets[key];
         const compareTabs = { ...state.compareTabs };
         delete compareTabs[key];
         const aggregationTabs = { ...state.aggregationTabs };
@@ -773,6 +783,7 @@ export function workspaceActions(set: SetState) {
           sqlSeeds,
           seedFilePaths,
           sqlTargets,
+          newTableTargets,
           compareTabs,
           aggregationTabs,
           queryBuilderTabs,

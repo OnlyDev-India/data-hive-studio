@@ -96,7 +96,7 @@ export const AddCard = memo(function AddCard({ data }: NodeProps<AddCardNode>) {
           variant="outline"
           size="sm"
           className={cn(
-            "nodrag bg-background rounded-pill border-dashed",
+            "nodrag nopan bg-background rounded-pill border-dashed",
             data.active && "border-primary text-primary",
           )}
         >

@@ -65,6 +65,7 @@ class Observer {
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", Observer);
+  Element.prototype.scrollIntoView = vi.fn();
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
     media: query,
@@ -134,6 +135,17 @@ describe("QueryBuilderTab", () => {
     // The WHERE form shows its condition row.
     expect(screen.getByDisplayValue("total")).toBeInTheDocument();
     expect(screen.getByDisplayValue("5")).toBeInTheDocument();
+  });
+
+  it("opens the table picker from the FROM form", async () => {
+    mount();
+    // React Flow keeps unmeasured nodes hidden in jsdom, so find by text.
+    const pick = (await screen.findByText("orders")).closest("button")!;
+    expect(pick).toHaveAttribute("aria-haspopup");
+    await act(async () => pick.click());
+    expect(
+      await screen.findByPlaceholderText("Find a table…"),
+    ).toBeInTheDocument();
   });
 
   it("runs the whole query read only", async () => {

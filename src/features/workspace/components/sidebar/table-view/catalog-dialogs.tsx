@@ -11,6 +11,8 @@ import { Input } from "@/shared/components/ui/input";
 export interface DdlDialogState {
   kind: "db-create" | "db-drop" | "schema-create" | "schema-drop";
   name: string;
+  /** schema-create: the database it goes in (the row's raw name). */
+  database?: string;
 }
 
 /** Create/drop database or schema (Postgres). */
@@ -48,7 +50,10 @@ export function DbSchemaDdlDialog({
           <DialogTitle className="flex items-center gap-2">
             {dialog?.kind === "db-create" && "Create database"}
             {dialog?.kind === "db-drop" && "Drop database"}
-            {dialog?.kind === "schema-create" && "Create schema"}
+            {dialog?.kind === "schema-create" &&
+              (dialog.database
+                ? `Create schema in ${dialog.database}`
+                : "Create schema")}
             {dialog?.kind === "schema-drop" && "Drop schema"}
           </DialogTitle>
         </DialogHeader>

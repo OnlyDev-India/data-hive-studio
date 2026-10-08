@@ -11,6 +11,14 @@ describe("isConnectionLost", () => {
       true,
     );
     expect(isConnectionLost("TypeError: Failed to fetch")).toBe(true);
+    expect(
+      isConnectionLost(
+        "400 — pool timed out while waiting for an open connection",
+      ),
+    ).toBe(true);
+    expect(
+      isConnectionLost("attempted to acquire a connection on a closed pool"),
+    ).toBe(true);
     expect(isConnectionLost("Unrecognized pipeline stage name: '$mtach'")).toBe(
       false,
     );

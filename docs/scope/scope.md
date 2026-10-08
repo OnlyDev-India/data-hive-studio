@@ -264,12 +264,12 @@ Once you connect, every collapsible row in the sidebar tree gets a right click m
 spec [0022](../specs/0022-sidebar-tree-context-menus.md) · code in `src/features/workspace/components/sidebar/table-view`, `src/shared/components/tree-menu`, `src/shared/components/table-menu`, `src/shared/store`, `src/features/query-editor`, `src/features/schema-designer`, `crates/dh-core/src/db/postgres`
 
 - [x] Design it (spec): `/architect sidebar tree context menus`
-- [ ] Build it: `/develop sidebar tree context menus`
-  - [ ] Split `tables-view.tsx` into Postgres, Mongo and SQLite files plus a shared tree hook, no behavior change · AC-16
-  - [ ] Thin thread: `treeMenuItems` builder and shared renderer, Postgres category headers with Refresh and New table (preset target), then SQL templates with a preset database for the other kinds, Extensions and Users & Privileges · AC-1, AC-2, AC-3, AC-4, AC-5, AC-14
-  - [ ] Database and schema rows: Postgres common set with Collapse all and Expand all categories, New schema in any database through Rust, Mongo database menu · AC-6, AC-7, AC-8, AC-9, AC-10
-  - [ ] SQLite Tables and Views headers with their menus and the keyboard walk · AC-11, AC-12
-  - [ ] Leaf Copy name, Shift+F10 and Menu key on every row, failure and read only pass · AC-13, AC-14, AC-15, AC-17
+- [x] Build it: `/develop sidebar tree context menus`
+  - [x] Split `tables-view.tsx` into Postgres, Mongo and SQLite files plus a shared tree hook, no behavior change · AC-16
+  - [x] Thin thread: `treeMenuItems` builder and shared renderer, Postgres category headers with Refresh and New table (preset target), then SQL templates with a preset database for the other kinds, Extensions and Users & Privileges · AC-1, AC-2, AC-3, AC-4, AC-5, AC-14
+  - [x] Database and schema rows: Postgres common set with Collapse all and Expand all categories, New schema in any database through Rust, Mongo database menu · AC-6, AC-7, AC-8, AC-9, AC-10
+  - [x] SQLite Tables and Views headers with their menus and the keyboard walk · AC-11, AC-12
+  - [x] Leaf Copy name, Shift+F10 and Menu key on every row, failure and read only pass · AC-13, AC-14, AC-15, AC-17
 - [ ] Verify it: `/check verify sidebar tree context menus`
 - [ ] Test it: `/test sidebar tree context menus`
 
