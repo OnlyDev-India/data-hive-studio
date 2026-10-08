@@ -1,15 +1,8 @@
 import type { StageError } from "@/shared/api";
+import type { CardFault } from "@/shared/components/builder-canvas";
 import type { AggregationStage } from "@/shared/store";
 import { isBranching } from "./model";
 import type { CardPreview } from "./use-previews";
-
-export interface CardFault {
-  /** Why the card fails: its text, the server, or the time limit. */
-  error?: string;
-  timed_out?: boolean;
-  /** The earlier card that holds this one back, such as "stage 3". */
-  blocked_by?: string;
-}
 
 /** How a card is named when it holds others back. */
 export function cardName(
@@ -105,9 +98,4 @@ export function cardFaults(
     }
   });
   return out;
-}
-
-/** Whether any card fails, which holds back Run, Copy, Save and Explain. */
-export function hasFault(faults: Record<string, CardFault>): boolean {
-  return Object.values(faults).some((f) => f.error);
 }

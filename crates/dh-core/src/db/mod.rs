@@ -49,6 +49,7 @@ mod import;
 mod import_rows;
 mod compare;
 mod pipeline;
+mod sql_builder;
 
 pub use types::*;
 pub use adapter::*;
@@ -61,6 +62,7 @@ pub use ddl::*;
 pub use explain::{explain_mongo, explain_sql, MAX_PLAN_NODES};
 pub use import_rows::*;
 pub use pipeline::*;
+pub use sql_builder::{sql_builder_preview, sql_builder_preview_on, SqlPreviewSink};
 pub use compare::{
     compare_data, compare_data_on, compare_data_to_file, compare_to_writer_on, CompareSink, ScanOut, ScanRow,
     ScanSpec, ScriptSyntax, DIFF_PAGE_SIZE,

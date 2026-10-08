@@ -34,6 +34,8 @@ export interface SavedWorkspace {
   compareSetups?: Record<string, CompareSetup>;
   /** Aggregation builder setups, keyed by tab key. Absent on older snapshots. */
   aggregationSetups?: Record<string, AggregationSetup>;
+  /** Query builder setups, keyed by tab key. Absent on older snapshots. */
+  queryBuilderSetups?: Record<string, QueryBuilderSetup>;
   /** Dragged diagram box positions: `"<database>|<schema>"` → table key →
    *  position. Absent on older snapshots. */
   relationLayouts?: RelationLayouts;
@@ -117,11 +119,73 @@ export const DEFAULT_AGGREGATION_SETUP: AggregationSetup = {
   saved_text: null,
 };
 
+/** The SQL clauses a query builder card can hold, in the order they sit. */
+export type ClauseKind =
+  "from" | "join" | "where" | "group" | "having" | "select" | "order" | "limit";
+
+/** One query builder card. `body` is the clause's SQL fragment without its
+ *  keyword (`orders o`, `LEFT JOIN customers c ON ...`, `total > 10`), the
+ *  source of truth for every view of the card. */
+export interface Clause {
+  id: string;
+  kind: ClauseKind;
+  body: string;
+  /** GROUP BY only: the aggregate list, such as `COUNT(*) AS n`. */
+  aggregates: string | null;
+  view: "form" | "sql";
+}
+
+/** A query builder tab's query and settings. Persisted with its workspace;
+ *  previews and run results never are. */
+export interface QueryBuilderSetup {
+  /** Postgres only; null on SQLite. */
+  database: string | null;
+  /** The Postgres default schema bare table names resolve to; null on
+   *  SQLite. */
+  schema: string | null;
+  clauses: Clause[];
+  selected_clause_id: string | null;
+  /** How many FROM rows a preview reads (100 to 100,000). */
+  preview_cap: number;
+  auto_preview: boolean;
+  /** A preview query's time limit (1,000 to 120,000 ms). */
+  preview_time_ms: number;
+}
+
+/** A FROM card holding `body`, the card every query builder starts with. */
+export function fromClause(body = ""): Clause {
+  return {
+    id: crypto.randomUUID(),
+    kind: "from",
+    body,
+    aggregates: null,
+    view: "form",
+  };
+}
+
+export const DEFAULT_QUERY_BUILDER_SETUP: QueryBuilderSetup = {
+  database: null,
+  schema: null,
+  clauses: [],
+  selected_clause_id: null,
+  preview_cap: 1000,
+  auto_preview: true,
+  preview_time_ms: 10_000,
+};
+
+/** A SQL tab's starting database and schema; undefined is the
+ *  connection's own. */
+export interface SqlTarget {
+  database?: string;
+  schema?: string;
+}
+
 /** What a table or collection tab shows. */
 export type PaneMode = "data" | "schema" | "diagram";
 
 /** A tool the activity bar's tools menu offers. */
-export type ToolId = "compare" | "relation-diagram" | "aggregation";
+export type ToolId =
+  "compare" | "relation-diagram" | "aggregation" | "query-builder";
 
 /** User-customizable trigger prefixes for the command palette's quick-open
  *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
@@ -274,6 +338,8 @@ export interface WorkspaceTabs {
   nextCompareId?: number;
   /** Absent on workspaces saved before aggregation tabs existed. */
   nextAggregationId?: number;
+  /** Absent on workspaces saved before query builder tabs existed. */
+  nextQueryBuilderId?: number;
   /** Absent on workspaces saved before relation diagram tabs existed. */
   nextRelationDiagramId?: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
@@ -596,6 +662,9 @@ export interface StudioStore {
    *  already-saved (clean baseline, saves write back to this path) instead of unsaved new
    *  work — same lifecycle as sqlSeeds (set once, deleted by closeTab). */
   seedFilePaths: Record<string, string>;
+  /** The database and schema a SQL tab opened with (the query builder's
+   *  Open in SQL editor), by tab key. Set once, deleted by closeTab. */
+  sqlTargets: Record<string, SqlTarget>;
 
   /** Generic notification center (action-bar bell). Any feature can push a
    *  notification — e.g. applied schema changes, export results, failed
@@ -865,6 +934,7 @@ export interface StudioStore {
     seedText?: string,
     seedFilePath?: string,
     paneId?: string,
+    target?: SqlTarget,
   ) => void;
   openNewTable: (connId: string, paneId?: string) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
@@ -919,6 +989,12 @@ export interface StudioStore {
     database: string,
     collection: string,
   ) => void;
+  /** Open a new query builder tab; `init` sets its database, schema and
+   *  cards, an empty FROM card when it names none. */
+  openQueryBuilder: (connId: string, init?: Partial<QueryBuilderSetup>) => void;
+  /** Query builder setups keyed by tab key. */
+  queryBuilderTabs: Record<string, QueryBuilderSetup>;
+  setQueryBuilderSetup: (key: string, setup: QueryBuilderSetup) => void;
   /** Open a MongoDB collection tab (data view). */
   openMongo: (
     connId: string,

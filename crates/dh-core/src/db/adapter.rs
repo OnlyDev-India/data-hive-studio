@@ -120,6 +120,30 @@ pub trait DbAdapter: Send + Sync {
         run: Option<&RunHandle>,
         on_batch: BatchSink<'_>,
     ) -> DbResult<QueryResult>;
+    /// Run one SELECT read only, whatever the connection's own flag:
+    /// Postgres in a `READ ONLY` transaction that is rolled back, SQLite with
+    /// `query_only` on. `time_ms` caps it (a time limit error past it). Rows
+    /// stream to `on_batch` as in `run_sql_stream`. `run` may be shared by
+    /// several of these at once; each arms its own canceller on it. SQL
+    /// engines only.
+    async fn run_read_only(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _sql: &str,
+        _time_ms: Option<u64>,
+        _run: Option<&RunHandle>,
+        _on_batch: BatchSink<'_>,
+    ) -> DbResult<QueryResult> {
+        Err(DbError::InvalidOperation(
+            "the query builder is only available on SQL connections".into(),
+        ))
+    }
+    /// How many connections this adapter's pool holds, so a batch of
+    /// parallel reads can leave one free.
+    fn pool_size(&self) -> u32 {
+        1
+    }
     /// The plan of one SQL statement. Never runs it: `analyze`
     /// (real timings) is the only mode that does. A statement Explain does
     /// not accept and a database error come back inside the [`PlanResult`].

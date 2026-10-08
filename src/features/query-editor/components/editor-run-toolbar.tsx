@@ -21,6 +21,7 @@ import {
   TextSelect,
   Timer,
   Workflow,
+  Blocks,
   WrapText,
 } from "lucide-react";
 import { DBIcons, type DbIconKind } from "@/shared/components/icons/types";
@@ -56,6 +57,7 @@ export function EditorRunToolbar({
   on_explain,
   on_explain_analyze,
   on_open_in_builder,
+  open_in_builder_label = "Open in aggregation builder",
   db_kind,
   database,
   databases,
@@ -95,6 +97,7 @@ export function EditorRunToolbar({
   /** Mongo console only: the aggregate at the cursor as cards in a new
    *  aggregation builder tab. */
   on_open_in_builder?: () => void;
+  open_in_builder_label?: string;
   /** Drives the colored connection-type icon next to the database picker. */
   db_kind?: DbIconKind;
   /** Omitted entirely (both `databases` and `on_database_change` absent) =
@@ -195,8 +198,8 @@ export function EditorRunToolbar({
           )}
           {on_open_in_builder && (
             <ToolbarIconButton
-              icon={Workflow}
-              label="Open in aggregation builder"
+              icon={db_kind === "mongodb" ? Workflow : Blocks}
+              label={open_in_builder_label}
               color="info"
               disabled={!has_text}
               onClick={on_open_in_builder}

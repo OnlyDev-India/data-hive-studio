@@ -53,6 +53,9 @@ export type StudioTab =
       collection: string;
       id: number;
     }
+  /** A SQL query builder (Postgres and SQLite). Its database, schema and
+   *  clauses live in the store's `queryBuilderTabs` under this tab's key. */
+  | { kind: "query-builder"; conn_id: string; id: number }
   /** A schema's relation diagram. One per database and schema, so opening it
    *  again focuses the tab. `database` undefined = the connection's own. */
   | {
@@ -97,6 +100,8 @@ export function tabLabel(
       return "Compare";
     case "aggregation":
       return "Aggregation";
+    case "query-builder":
+      return "Query builder";
     case "relation-diagram":
       return "Diagram";
   }
@@ -136,6 +141,8 @@ export function tabKey(tab: StudioTab): string {
       return `compare:${tab.conn_id}:${tab.id}`;
     case "aggregation":
       return `aggregation:${tab.conn_id}:${tab.id}`;
+    case "query-builder":
+      return `query-builder:${tab.conn_id}:${tab.id}`;
     case "relation-diagram":
       return `relation-diagram:${tab.conn_id}:${tab.id}`;
   }
@@ -162,6 +169,11 @@ export function tabEquals(a: StudioTab, b: StudioTab | null): boolean {
   }
   if (a.kind === "aggregation") {
     return b.kind === "aggregation" && a.conn_id === b.conn_id && a.id === b.id;
+  }
+  if (a.kind === "query-builder") {
+    return (
+      b.kind === "query-builder" && a.conn_id === b.conn_id && a.id === b.id
+    );
   }
   if (a.kind === "relation-diagram") {
     return (

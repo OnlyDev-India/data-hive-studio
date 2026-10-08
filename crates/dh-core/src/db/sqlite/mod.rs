@@ -9,6 +9,7 @@ mod interrupt;
 mod catalog;
 mod graph;
 mod query;
+mod read_only;
 mod explain;
 mod edit;
 mod schema_ops;
@@ -21,6 +22,8 @@ mod adapter;
 mod import_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod read_only_tests;
 
 use std::path::PathBuf;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};

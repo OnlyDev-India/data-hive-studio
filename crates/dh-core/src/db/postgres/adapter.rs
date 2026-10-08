@@ -172,6 +172,22 @@ impl DbAdapter for PgAdapter {
         PgAdapter::run_sql_stream(self, database, schema, sql, run, on_batch).await
     }
 
+    async fn run_read_only(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        sql: &str,
+        time_ms: Option<u64>,
+        run: Option<&RunHandle>,
+        on_batch: BatchSink<'_>,
+    ) -> DbResult<QueryResult> {
+        PgAdapter::run_read_only(self, database, schema, sql, time_ms, run, on_batch).await
+    }
+
+    fn pool_size(&self) -> u32 {
+        self.pool.options().get_max_connections()
+    }
+
     async fn explain_sql(
         &self,
         database: Option<&str>,

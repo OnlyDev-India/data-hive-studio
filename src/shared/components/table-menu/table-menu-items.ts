@@ -9,6 +9,7 @@ import {
   Trash2,
   Upload,
   Workflow,
+  Blocks,
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,6 +18,7 @@ export type TableAction =
   | "structure"
   | "compare"
   | "aggregate"
+  | "query_builder"
   | "grants"
   | "copy"
   | "duplicate"
@@ -42,6 +44,7 @@ export const ALL_TABLE_ACTIONS: ReadonlySet<TableAction> = new Set([
   "structure",
   "compare",
   "aggregate",
+  "query_builder",
   "grants",
   "copy",
   "duplicate",
@@ -107,6 +110,15 @@ export function tableMenuItems({
       disabled: false,
     },
     mongo,
+  );
+  add(
+    {
+      action: "query_builder",
+      label: "New query builder",
+      icon: Blocks,
+      disabled: false,
+    },
+    !mongo,
   );
   add(
     {

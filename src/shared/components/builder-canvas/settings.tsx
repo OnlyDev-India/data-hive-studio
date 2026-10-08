@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Settings2 } from "lucide-react";
-import { useStudioStore, type AggregationSetup } from "@/shared/store";
+import { useStudioStore } from "@/shared/store";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -12,20 +12,36 @@ import {
 import { Separator } from "@/shared/components/ui/separator";
 import { Switch } from "@/shared/components/ui/switch";
 
-/** The builder's settings: this tab's preview and Run options, and the app
- *  wide limit on parallel preview queries. */
-export function SettingsPopover({
+/** The preview settings every builder tab keeps. */
+export interface PreviewSettings {
+  auto_preview: boolean;
+  preview_cap: number;
+  preview_time_ms: number;
+}
+
+/** The builder's settings: this tab's preview options, any the engine adds
+ *  (`children`), and the app wide limit on parallel preview queries. */
+export function BuilderSettings({
   id,
-  setup,
+  settings,
   onChange,
+  unit,
+  source,
+  children,
 }: {
   /** Prefix for the field ids, unique per tab. */
   id: string;
-  setup: AggregationSetup;
-  onChange: (patch: Partial<AggregationSetup>) => void;
+  settings: PreviewSettings;
+  onChange: (patch: Partial<PreviewSettings>) => void;
+  /** What the cap counts, "docs" or "rows". */
+  unit: string;
+  /** What previews read from, "collection" or "table". */
+  source: string;
+  children?: ReactNode;
 }) {
   const concurrency = useStudioStore((s) => s.previewConcurrency);
   const setConcurrency = useStudioStore((s) => s.setPreviewConcurrency);
+  const noun = unit === "docs" ? "documents" : unit;
   return (
     <Popover>
       <PopoverTrigger
@@ -46,15 +62,15 @@ export function SettingsPopover({
           id={`${id}-auto`}
           label="Auto preview"
           hint="Refresh the cards after you stop typing."
-          checked={setup.auto_preview}
+          checked={settings.auto_preview}
           onChange={(v) => onChange({ auto_preview: v })}
         />
         <NumberSetting
           id={`${id}-cap`}
           label="Preview input"
-          unit="docs"
-          hint="Previews read this many documents from the collection."
-          value={setup.preview_cap}
+          unit={unit}
+          hint={`Previews read this many ${noun} from the ${source}.`}
+          value={settings.preview_cap}
           min={100}
           max={100_000}
           onChange={(n) => onChange({ preview_cap: n })}
@@ -64,18 +80,12 @@ export function SettingsPopover({
           label="Preview time limit"
           unit="s"
           hint="A card that takes longer shows a time limit error."
-          value={setup.preview_time_ms / 1000}
+          value={settings.preview_time_ms / 1000}
           min={1}
           max={120}
           onChange={(n) => onChange({ preview_time_ms: n * 1000 })}
         />
-        <ToggleSetting
-          id={`${id}-disk`}
-          label="Allow disk use"
-          hint="Lets Run spill large sorts and groups to disk."
-          checked={setup.allow_disk_use}
-          onChange={(v) => onChange({ allow_disk_use: v })}
-        />
+        {children}
         <Separator />
         <p className="text-small font-medium">All builders</p>
         <NumberSetting
@@ -92,7 +102,7 @@ export function SettingsPopover({
   );
 }
 
-function ToggleSetting({
+export function ToggleSetting({
   id,
   label,
   hint,
@@ -119,7 +129,7 @@ function ToggleSetting({
 }
 
 /** A whole number kept within `min` and `max`, saved on blur or Enter. */
-function NumberSetting({
+export function NumberSetting({
   id,
   label,
   unit,

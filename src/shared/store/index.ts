@@ -3,6 +3,12 @@ export {
   DEFAULT_PALETTE_KEYWORDS,
   EMPTY_COMPARE_SETUP,
   DEFAULT_AGGREGATION_SETUP,
+  DEFAULT_QUERY_BUILDER_SETUP,
+  fromClause,
+  type Clause,
+  type ClauseKind,
+  type QueryBuilderSetup,
+  type SqlTarget,
   type AggregationSetup,
   type AggregationBranch,
   type AggregationStage,
@@ -52,3 +58,4 @@ export {
   type GraphEntry,
   type GraphStatus,
 } from "./relation-graphs";
+export { openQueryBuilderFor } from "./query-builder";

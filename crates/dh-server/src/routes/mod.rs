@@ -7,6 +7,7 @@ mod compare;
 mod data;
 mod mongo;
 mod pipeline;
+mod sql_builder;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -282,6 +283,10 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route(
             "/v1/c/{handle}/mongo/pipeline/run-stream",
             post(pipeline::run_stream),
+        )
+        .route(
+            "/v1/c/{handle}/sql/builder/preview-stream",
+            post(sql_builder::preview_stream),
         )
         .route("/v1/mongo/pipeline/parse", post(pipeline::parse))
         .route("/v1/mongo/pipeline/compose", post(pipeline::compose))

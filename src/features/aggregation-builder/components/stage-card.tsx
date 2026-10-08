@@ -1,17 +1,14 @@
-import { memo, useMemo, useState } from "react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { memo, useMemo } from "react";
+import type { Node, NodeProps } from "@xyflow/react";
 import {
-  AlertCircle,
   Braces,
   ChevronDown,
   ChevronRight,
-  Clock,
   CopyPlus,
   Eye,
   EyeOff,
   GripVertical,
   ListChecks,
-  Loader2,
   MoreHorizontal,
   PenLine,
   Plus,
@@ -19,6 +16,13 @@ import {
   Trash2,
   Type,
 } from "lucide-react";
+import type { PreviewChunk } from "@/shared/api";
+import {
+  CardFooter as SharedCardFooter,
+  CardFrame,
+  PreviewStatus as SharedPreviewStatus,
+  type CardFault,
+} from "@/shared/components/builder-canvas";
 import type { AggregationStage } from "@/shared/store";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
@@ -33,11 +37,9 @@ import { Switch } from "@/shared/components/ui/switch";
 import { BsonEditor } from "@/shared/components/query-editor/bson-json-editor";
 import { cn } from "@/shared/lib/utils";
 import { useCardActions, useCardFields } from "../lib/card-actions";
-import type { CardFault } from "../lib/card-state";
 import { fieldCompletions } from "../lib/field-completions";
-import { countLabel, docLine, docText } from "../lib/format";
+import { docLine, docText } from "../lib/format";
 import { hasForm } from "../lib/forms";
-import { CARD_WIDTH } from "../lib/layout";
 import type { ChainRef } from "../lib/model";
 import { isWriteOp, operatorOf } from "../lib/operators";
 import type { CardPreview } from "../lib/use-previews";
@@ -62,8 +64,6 @@ export interface StageCardData extends Record<string, unknown> {
 
 export type StageCardNode = Node<StageCardData, "stage">;
 
-const HIDDEN_HANDLE = "pointer-events-none opacity-0!";
-
 export const StageCard = memo(function StageCard({
   data,
   selected,
@@ -83,23 +83,14 @@ export const StageCard = memo(function StageCard({
   const writes = isWriteOp(stage.op);
   const form = stage.view === "form" && hasForm(stage.op);
   return (
-    <div
-      style={{ width: CARD_WIDTH }}
-      aria-label={`${label}, ${stage.op}${stage.enabled ? "" : ", disabled"}`}
-      className={cn(
-        "bg-card text-card-foreground rounded-surface border shadow-xs transition-shadow",
-        selected && "ring-ring/60 ring-2",
-        error && "border-destructive/50",
-        !stage.enabled && "border-dashed",
-        dragging && "shadow-lg",
-      )}
+    <CardFrame
+      label={`${label}, ${stage.op}${stage.enabled ? "" : ", disabled"}`}
+      selected={!!selected}
+      dragging={!!dragging}
+      error={!!error}
+      dashed={!stage.enabled}
+      sideHandle={!chain}
     >
-      <Handle
-        type="target"
-        position={Position.Top}
-        isConnectable={false}
-        className={HIDDEN_HANDLE}
-      />
       <div
         className={cn(
           "flex items-center gap-1 py-1 pr-1 pl-1",
@@ -244,22 +235,7 @@ export const StageCard = memo(function StageCard({
       {stage.enabled && (
         <CardFooter op={stage.op} preview={preview} fault={fault} />
       )}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        isConnectable={false}
-        className={HIDDEN_HANDLE}
-      />
-      {!chain && (
-        <Handle
-          id="side"
-          type="source"
-          position={Position.Right}
-          isConnectable={false}
-          className={HIDDEN_HANDLE}
-        />
-      )}
-    </div>
+    </CardFrame>
   );
 });
 
@@ -394,60 +370,24 @@ function PreviewStatus({
         Writes
       </Badge>
     );
-  if (fault?.timed_out)
-    return (
-      <Badge variant="warning">
-        <Clock />
-        Timed out
-      </Badge>
-    );
-  if (fault?.error)
-    return (
-      <Badge variant="destructive">
-        <AlertCircle />
-        Error
-      </Badge>
-    );
-  if (!preview) return null;
-  const chunk = preview.chunk;
-  const offline = preview.status === "offline";
-  const held = !!fault?.blocked_by || preview.status === "waiting" || offline;
   return (
-    <span
-      className={cn(
-        "text-small text-muted-foreground flex items-center gap-1.5 truncate tabular-nums",
-        held && "opacity-50",
-      )}
-    >
-      {offline && (
-        <Badge variant="muted" title="Previews resume once the server answers">
-          Not connected
-        </Badge>
-      )}
-      {preview.status === "running" && !held && (
-        <Loader2
-          aria-label="Previewing"
-          className="size-3 shrink-0 animate-spin motion-reduce:animate-none"
-        />
-      )}
-      {chunk && !chunk.error && (
-        <span
-          title={`${chunk.count.toLocaleString()} documents out, in ${chunk.elapsed_ms} ms`}
-        >
-          {countLabel(chunk.count, cap, sampled)}
-        </span>
-      )}
-      {sampled && chunk && !chunk.error && (
-        <Badge
-          variant="muted"
-          title={`Previews read the first ${cap.toLocaleString()} documents of the collection. Run gives the exact result.`}
-        >
-          sampled
-        </Badge>
-      )}
-    </span>
+    <SharedPreviewStatus
+      preview={preview}
+      fault={fault}
+      cap={cap}
+      sampled={sampled}
+      noun="documents"
+      source="documents of the collection"
+    />
   );
 }
+
+const firstDocument = (chunk: PreviewChunk) => {
+  const first = chunk.documents[0];
+  return first === undefined
+    ? null
+    : { line: docLine(first), text: docText(first) };
+};
 
 function CardFooter({
   op,
@@ -458,85 +398,20 @@ function CardFooter({
   preview: CardPreview | undefined;
   fault: CardFault | undefined;
 }) {
-  const [open, setOpen] = useState(false);
-  if (fault?.error)
-    return (
-      <p
-        role="alert"
-        className={cn(
-          "text-small border-t px-3 py-1.5 font-mono whitespace-pre-wrap",
-          fault.timed_out ? "text-warning" : "text-destructive",
-        )}
-      >
-        {fault.error}
-        {fault.timed_out &&
-          ". Raise the limit in the builder settings, or narrow an earlier stage."}
-      </p>
-    );
-  if (isWriteOp(op))
+  if (isWriteOp(op) && !fault?.error)
     return (
       <p className="text-muted-foreground text-small border-t px-3 py-1.5">
         Runs only with Run, never in a preview.
       </p>
     );
-  const blocked = fault?.blocked_by;
-  const offline = preview?.status === "offline";
-  const waiting = (blocked || preview?.status === "waiting" || offline) && (
-    <p className="text-muted-foreground text-small flex items-center gap-1.5 border-t px-3 py-1.5">
-      <Clock className="size-3" />
-      {blocked
-        ? `Waiting on ${blocked}`
-        : offline
-          ? "Not connected, showing the last preview"
-          : "Waiting on an earlier stage"}
-    </p>
-  );
-  const first = preview?.chunk?.documents[0];
-  if (!preview?.chunk || preview.chunk.error) return waiting || null;
-  if (first === undefined)
-    return (
-      <>
-        {waiting}
-        <p
-          className={cn(
-            "text-muted-foreground text-small border-t px-3 py-1.5",
-            waiting && "opacity-50",
-          )}
-        >
-          No documents come out of this stage.
-        </p>
-      </>
-    );
   return (
-    <>
-      {waiting}
-      <div
-        className={cn(
-          "border-t",
-          waiting ? "opacity-50" : preview.status === "running" && "opacity-60",
-        )}
-      >
-        <button
-          type="button"
-          className="nodrag text-small hover:bg-muted/60 rounded-b-surface flex w-full min-w-0 items-center gap-1 px-2 py-1.5 text-left"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          {open ? (
-            <ChevronDown className="text-muted-foreground size-3 shrink-0" />
-          ) : (
-            <ChevronRight className="text-muted-foreground size-3 shrink-0" />
-          )}
-          <span className="text-muted-foreground truncate font-mono">
-            {docLine(first)}
-          </span>
-        </button>
-        {open && (
-          <pre className="nodrag nowheel text-small max-h-64 overflow-auto px-3 pb-2 font-mono whitespace-pre select-text">
-            {docText(first)}
-          </pre>
-        )}
-      </div>
-    </>
+    <SharedCardFooter
+      preview={preview}
+      fault={fault}
+      firstRow={firstDocument}
+      empty="No documents come out of this stage."
+      earlier="Waiting on an earlier stage"
+      timeoutHint=". Raise the limit in the builder settings, or narrow an earlier stage."
+    />
   );
 }

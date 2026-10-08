@@ -208,6 +208,7 @@ pub fn run() {
       commands::mongo_filter_to_match,
       commands::mongo_pipeline_preview,
       commands::mongo_pipeline_run_stream,
+      commands::sql_builder_preview,
       commands::explain_sql,
       commands::explain_mongo,
       commands::save_database,

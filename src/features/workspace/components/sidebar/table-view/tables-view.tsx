@@ -40,6 +40,7 @@ import {
   type SchemaObjectKind,
 } from "@/shared/api";
 import {
+  openQueryBuilderFor,
   stableConnKey,
   useStudioStore,
   type StudioStore,
@@ -1110,6 +1111,15 @@ export function TablesBrowser({
               ? (name) => open_aggregation(conn_id, pg_current_db, name)
               : undefined
           }
+          on_query_builder={
+            is_mongo || !conn_info
+              ? undefined
+              : (name) =>
+                  openQueryBuilderFor(conn_info, {
+                    schema: is_pg ? pg_active_schema : undefined,
+                    table: name,
+                  })
+          }
           on_compare={(name) =>
             is_mongo
               ? compare_with(name, pg_current_db)
@@ -1448,6 +1458,18 @@ export function TablesBrowser({
                                                   : db,
                                                 schema,
                                               )
+                                            }
+                                            on_query_builder={
+                                              conn_info &&
+                                              ((name) =>
+                                                openQueryBuilderFor(conn_info, {
+                                                  database:
+                                                    db === pg_current_db
+                                                      ? undefined
+                                                      : db,
+                                                  schema,
+                                                  table: name,
+                                                }))
                                             }
                                             on_view_grants={(name) =>
                                               open_table_dialog({

@@ -452,6 +452,7 @@ function SqlEditorBody({
   tables,
   on_modified,
   on_schema_modified,
+  on_open_in_builder,
 }: {
   conn_id: string;
   tab_key: string;
@@ -461,6 +462,13 @@ function SqlEditorBody({
    *  statement was schema-changing DDL — refreshes open table tabs' data
    *  AND schema, not just the sidebar's table list. */
   on_schema_modified?: () => void;
+  /** Opens the SELECT at the cursor in the query builder, on this tab's
+   *  database and schema (undefined = the connection's own). */
+  on_open_in_builder?: (
+    text: string,
+    database: string | undefined,
+    schema: string | undefined,
+  ) => void;
 }) {
   // Seed text handed over by other features (e.g. "open edits in SQL editor"):
   // openSql(connId, text) stashes it under this tab's key; read it once here.
@@ -571,6 +579,9 @@ function SqlEditorBody({
   const supports_multi_db = conn?.kind !== "sqlite";
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
   const own_database = recent_params?.database ?? conn?.name ?? "";
+  // Set when the tab was opened for a database and schema (the query
+  // builder's Open in SQL editor).
+  const opened_for = useStudioStore((s) => s.sqlTargets[tab_key]);
   const [database, setDatabase] = useState("");
   const [databases, setDatabases] = useState<string[]>([]);
   useEffect(() => {
@@ -580,7 +591,7 @@ function SqlEditorBody({
       .then((list) => {
         if (cancelled) return;
         setDatabases(list);
-        setDatabase(own_database);
+        setDatabase(opened_for?.database ?? own_database);
       })
       .catch(() => {
         /* picker stays empty — every run just targets the own database */
@@ -592,6 +603,8 @@ function SqlEditorBody({
   }, [conn_id, supports_multi_db]);
   const target_database =
     database && database !== own_database ? database : undefined;
+  // Bare names resolve in the schema the tab was opened for (Postgres).
+  const run_schema = is_pg ? opened_for?.schema : undefined;
 
   // ---- Known schemas + their table lists (Postgres only) — there's no
   // separate schema PICKER: the user names a non-default schema straight in
@@ -1061,7 +1074,7 @@ function SqlEditorBody({
           query,
           acc.push,
           target_database,
-          undefined,
+          run_schema,
           run_id ?? undefined,
         );
       } catch (e) {
@@ -1145,6 +1158,7 @@ function SqlEditorBody({
       conn_id,
       conn?.kind,
       target_database,
+      run_schema,
       on_modified,
       on_schema_modified,
       sync_errors,
@@ -1372,6 +1386,18 @@ function SqlEditorBody({
             ? () => void explain_target(true)
             : undefined
         }
+        on_open_in_builder={
+          on_open_in_builder &&
+          (conn?.kind === "postgres" || conn?.kind === "sqlite")
+            ? () => {
+                // The statement Run would run: the selection, or the one at
+                // the cursor.
+                const text = editorRef.current?.getTargets()[0]?.text.trim();
+                if (text) on_open_in_builder(text, target_database, run_schema);
+              }
+            : undefined
+        }
+        open_in_builder_label="Open in query builder"
         db_kind={conn?.kind}
         database={supports_multi_db ? database : undefined}
         databases={supports_multi_db ? databases : undefined}
@@ -2679,6 +2705,13 @@ export type EditorTabProps =
        *  wire to a broader refresh than `on_modified` (open table tabs'
        *  data AND schema, not just the sidebar's table list). */
       on_schema_modified?: () => void;
+      /** Opens the SELECT at the cursor in the query builder. Omitted = no
+       *  Open in builder button. */
+      on_open_in_builder?: (
+        text: string,
+        database: string | undefined,
+        schema: string | undefined,
+      ) => void;
     }
   | {
       kind: "mongo-console";
@@ -2708,6 +2741,7 @@ export function EditorTab(props: EditorTabProps) {
         tables={props.tables}
         on_modified={props.on_modified}
         on_schema_modified={props.on_schema_modified}
+        on_open_in_builder={props.on_open_in_builder}
       />
     );
   }

@@ -14,9 +14,3 @@ export function docLine(doc: unknown): string {
 export function docsText(docs: unknown[]): string {
   return docs.map(docText).join("\n");
 }
-
-/** "37 of first 1,000", or "37" when the cap did not cut the input. */
-export function countLabel(count: number, cap: number, sampled: boolean) {
-  const n = count.toLocaleString();
-  return sampled ? `${n} of first ${cap.toLocaleString()}` : n;
-}

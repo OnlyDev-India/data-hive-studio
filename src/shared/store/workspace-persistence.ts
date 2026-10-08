@@ -5,6 +5,7 @@ import { DEFAULT_WORKSPACE } from "./workspace";
 import type { PaneNode } from "./pane-layout";
 import type {
   AggregationSetup,
+  QueryBuilderSetup,
   CompareSetup,
   SavedConnParams,
   SavedWorkspace,
@@ -184,6 +185,7 @@ export function savedWorkspaceOf(
   const sqlSeeds: Record<string, string> = {};
   const compareSetups: Record<string, CompareSetup> = {};
   const aggregationSetups: Record<string, AggregationSetup> = {};
+  const queryBuilderSetups: Record<string, QueryBuilderSetup> = {};
   for (const tab of ws.tabs) {
     const tk = tabKey(tab);
     const seed = state.sqlSeeds[tk];
@@ -192,12 +194,17 @@ export function savedWorkspaceOf(
     if (setup) compareSetups[tk] = setup;
     const pipeline = state.aggregationTabs[tk];
     if (pipeline) aggregationSetups[tk] = pipeline;
+    const query = state.queryBuilderTabs[tk];
+    if (query) queryBuilderSetups[tk] = query;
   }
   return {
     workspace: ws,
     sqlSeeds,
     ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
     ...(Object.keys(aggregationSetups).length > 0 ? { aggregationSetups } : {}),
+    ...(Object.keys(queryBuilderSetups).length > 0
+      ? { queryBuilderSetups }
+      : {}),
     ...(relationLayouts ? { relationLayouts } : {}),
   };
 }

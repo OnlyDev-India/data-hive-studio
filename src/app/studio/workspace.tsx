@@ -49,6 +49,10 @@ import {
   AggregationTab,
   openPipelineText,
 } from "@/features/aggregation-builder";
+import {
+  openQueryBuilderText,
+  QueryBuilderTab,
+} from "@/features/query-builder";
 import { ActivityBar } from "./activity-bar";
 import { reopenByKey } from "./reopen-connection";
 import { EdgePanelSlot } from "@/shared/components/edge-panel-slot";
@@ -806,6 +810,12 @@ function WorkspaceContent({
                   tables={tables?.map((t) => t.name)}
                   on_modified={bumpTables}
                   on_schema_modified={bump}
+                  on_open_in_builder={(text, database, schema) =>
+                    void openQueryBuilderText(conn_id, text, {
+                      database,
+                      schema,
+                    })
+                  }
                 />
               </Suspense>
             ) : tab.kind === "mongo" ? (
@@ -848,6 +858,12 @@ function WorkspaceContent({
                 conn_id={conn_id}
                 tab_key={key}
                 tab={tab}
+                active={is_active}
+              />
+            ) : tab.kind === "query-builder" ? (
+              <QueryBuilderTab
+                conn_id={conn_id}
+                tab_key={key}
                 active={is_active}
               />
             ) : tab.kind !== "new-table" ? null : conn.kind === "mongodb" ? (

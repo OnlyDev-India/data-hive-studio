@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { PreviewChunk } from "@/shared/api";
 import type { AggregationStage } from "@/shared/store";
-import { cardFaults, hasFault } from "../card-state";
+import { hasFault } from "@/shared/components/builder-canvas";
+import { cardFaults } from "../card-state";
 import { newStage } from "../model";
 import type { CardPreview } from "../use-previews";
 

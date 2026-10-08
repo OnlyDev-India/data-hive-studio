@@ -402,6 +402,45 @@ export interface PreviewChunk {
   timed_out?: boolean;
 }
 
+/** One query builder card's preview query. */
+export interface SqlPreviewTarget {
+  clause_id: string;
+  sql: string;
+}
+
+export interface SqlBuilderPreviewRequest {
+  database: string | null;
+  schema: string | null;
+  targets: SqlPreviewTarget[];
+  /** Counts the FROM table's rows up to `cap + 1`, for the sampled badge. */
+  probe_sql: string | null;
+  /** The FROM table and the cap, for the activity entry. */
+  table: string;
+  cap: number;
+  time_ms: number;
+  concurrency: number;
+  run_id: string | null;
+}
+
+/** One card's preview, sent as soon as its query finishes. `count` is every
+ *  row the clause put out; `rows` holds at most the shown few. */
+export interface SqlPreviewChunk {
+  clause_id: string;
+  count: number;
+  columns: string[];
+  rows: (string | null)[][];
+  elapsed_ms: number;
+  error?: string;
+  /** The error is the preview's time limit, not the clause itself. */
+  timed_out?: boolean;
+}
+
+export interface SqlPreviewSummary {
+  cancelled: boolean;
+  /** The probe's count, at most `cap + 1`. */
+  source_rows: number | null;
+}
+
 export interface PreviewSummary {
   cancelled: boolean;
   source_estimate: number | null;

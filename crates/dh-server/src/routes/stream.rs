@@ -64,8 +64,9 @@ pub(super) async fn sql_stream(
     params: RawPathParams,
     Json(b): Json<SqlBody>,
 ) -> Response {
-    // A script is refused as a whole before any statement runs.
-    if sql_class(Dialect::Postgres, &b.sql) != StmtClass::Read {
+    // A script is refused as a whole before any statement runs. A read only
+    // run can never write, so it needs no write permission.
+    if !b.read_only && sql_class(Dialect::Postgres, &b.sql) != StmtClass::Read {
         if let Err(r) = st.refuse_writes() {
             return r;
         }
@@ -82,6 +83,7 @@ pub(super) async fn sql_stream(
                 b.schema.as_deref(),
                 &b.sql,
                 run_id.as_deref(),
+                b.read_only,
                 &mut *sink,
             )
             .await?;

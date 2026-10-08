@@ -5,8 +5,12 @@ import { useRelationGraphs } from "./relation-graphs";
 import type { TableRef } from "../api/types";
 import {
   DEFAULT_AGGREGATION_SETUP,
+  DEFAULT_QUERY_BUILDER_SETUP,
+  fromClause,
   EMPTY_COMPARE_SETUP,
   type AggregationSetup,
+  type QueryBuilderSetup,
+  type SqlTarget,
   type PaneMode,
   type StudioStore,
   type WorkspaceTabs,
@@ -363,6 +367,28 @@ export function workspaceActions(set: SetState) {
         };
       });
     },
+    openQueryBuilder(connId: string, init?: Partial<QueryBuilderSetup>) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const id = cur.nextQueryBuilderId ?? 0;
+        const tab: StudioTab = { kind: "query-builder", conn_id: connId, id };
+        const next = addTabToFocusedPane(
+          { ...cur, tabs: [...cur.tabs, tab], nextQueryBuilderId: id + 1 },
+          tab,
+        );
+        return {
+          workspaces: putWs(state.workspaces, connId, next),
+          queryBuilderTabs: {
+            ...state.queryBuilderTabs,
+            [tabKey(tab)]: {
+              ...DEFAULT_QUERY_BUILDER_SETUP,
+              clauses: [fromClause()],
+              ...init,
+            },
+          },
+        };
+      });
+    },
     openRelationDiagram(
       connId: string,
       opts: Parameters<StudioStore["openRelationDiagram"]>[1] = {},
@@ -492,6 +518,15 @@ export function workspaceActions(set: SetState) {
         aggregationTabs: { ...state.aggregationTabs, [key]: setup },
       }));
     },
+    queryBuilderTabs: {},
+    setQueryBuilderSetup(
+      key: string,
+      setup: StudioStore["queryBuilderTabs"][string],
+    ) {
+      set((state) => ({
+        queryBuilderTabs: { ...state.queryBuilderTabs, [key]: setup },
+      }));
+    },
     setAggregationCollection(
       connId: string,
       id: number,
@@ -538,6 +573,7 @@ export function workspaceActions(set: SetState) {
       seedText?: string,
       seedFilePath?: string,
       paneId?: string,
+      target?: SqlTarget,
     ) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);
@@ -572,6 +608,9 @@ export function workspaceActions(set: SetState) {
                   [tabKey(tab)]: seedFilePath,
                 },
               }
+            : {}),
+          ...(target
+            ? { sqlTargets: { ...state.sqlTargets, [tabKey(tab)]: target } }
             : {}),
         };
       });
@@ -714,10 +753,14 @@ export function workspaceActions(set: SetState) {
         delete sqlSeeds[key];
         const seedFilePaths = { ...state.seedFilePaths };
         delete seedFilePaths[key];
+        const sqlTargets = { ...state.sqlTargets };
+        delete sqlTargets[key];
         const compareTabs = { ...state.compareTabs };
         delete compareTabs[key];
         const aggregationTabs = { ...state.aggregationTabs };
         delete aggregationTabs[key];
+        const queryBuilderTabs = { ...state.queryBuilderTabs };
+        delete queryBuilderTabs[key];
         return {
           workspaces: putWs(state.workspaces, connId, {
             ...cur,
@@ -729,8 +772,10 @@ export function workspaceActions(set: SetState) {
           }),
           sqlSeeds,
           seedFilePaths,
+          sqlTargets,
           compareTabs,
           aggregationTabs,
+          queryBuilderTabs,
         };
       });
     },

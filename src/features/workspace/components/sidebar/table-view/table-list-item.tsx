@@ -41,6 +41,7 @@ export function TableListItem({
   on_view_grants,
   on_compare,
   on_aggregate,
+  on_query_builder,
 }: {
   name: string;
   kind: string;
@@ -63,6 +64,8 @@ export function TableListItem({
   on_compare?: () => void;
   /** Mongo only: a new aggregation builder tab on this collection. */
   on_aggregate?: () => void;
+  /** Postgres and SQLite: a new query builder tab from this table. */
+  on_query_builder?: () => void;
 }) {
   const iconType: IconType =
     is_mongo || kind === "table"
@@ -76,6 +79,7 @@ export function TableListItem({
     structure: on_view_structure,
     compare: on_compare,
     aggregate: on_aggregate,
+    query_builder: on_query_builder,
     grants: on_view_grants,
     copy: on_copy,
     duplicate: on_duplicate,
