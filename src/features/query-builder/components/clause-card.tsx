@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
 import {
   Code,
@@ -25,8 +25,9 @@ import {
 } from "@/shared/components/ui/dropdown-menu";
 import { cn } from "@/shared/lib/utils";
 import { useCardColumns, useClauseActions } from "../lib/card-actions";
+import { OWN_CHAIN, viewText } from "../lib/chains";
 import { CLAUSE_LABEL } from "../lib/model";
-import type { Dialect } from "../lib/sql-text";
+import { readSetOp, type Dialect } from "../lib/sql-text";
 import type { ClausePreview } from "../lib/use-sql-previews";
 import { ClauseForm, formFits } from "./clause-form";
 import { SqlFragmentEditor } from "./sql-fragment-editor";
@@ -38,9 +39,21 @@ export interface ClauseCardData extends Record<string, unknown> {
   preview: ClausePreview | undefined;
   fault: CardFault | undefined;
   skipped: boolean;
+  /** Holds a bind variable, so it waits for Run to ask for the value. */
+  bind: boolean;
+  /** Its query is not the current one, so its preview is from before. */
+  stale: boolean;
   cap: number;
   sampled: boolean;
   dialect: Dialect;
+  /** A write query's card: never previews. */
+  noPreview: boolean;
+  /** Not one of the query's fixed cards. */
+  removable: boolean;
+  /** In a subquery that reads the outer row, so it runs no preview. */
+  outerRow: boolean;
+  /** Can be dragged among the cards of its kind. */
+  movable: boolean;
 }
 
 export type ClauseCardNode = Node<ClauseCardData, "clause">;
@@ -54,7 +67,21 @@ const PLACEHOLDER: Record<Clause["kind"], string> = {
   select: "c.country, COUNT(*) AS orders",
   order: "orders DESC",
   limit: "100 OFFSET 0",
+  update: "orders o",
+  set: "status = 'paid', total = total * 1.1",
+  delete: "orders o",
+  using: "customers c",
+  insert: "orders (id, total)",
+  values: "(1, 10), (2, 20)",
+  conflict: "(id) DO UPDATE SET total = excluded.total",
+  returning: "id, total",
+  statement: "CREATE INDEX orders_status ON orders (status)",
+  cte: "recent AS (SELECT * FROM orders WHERE …)",
+  compound: "UNION ALL SELECT id FROM archived_orders",
 };
+
+/** Text that holds a subquery, so the SQL view commits it on blur. */
+const SUBQUERY = /\(\s*(select|with)\b/i;
 
 /** A row as `column: value` pairs, for a card's collapsed first row. */
 function firstRow(chunk: SqlPreviewChunk) {
@@ -69,15 +96,52 @@ export const ClauseCard = memo(function ClauseCard({
   selected,
   dragging,
 }: NodeProps<ClauseCardNode>) {
-  const { clause, ordinal, preview, fault, skipped, cap, sampled, dialect } =
-    data;
+  const {
+    clause,
+    ordinal,
+    preview: last,
+    fault,
+    skipped,
+    bind,
+    stale,
+    cap,
+    sampled,
+    dialect,
+    noPreview,
+    removable,
+    outerRow,
+    movable,
+  } = data;
+  // A stale card shows its last result, never a spinner it no longer has.
+  const preview =
+    stale && last ? { status: "ready" as const, chunk: last.chunk } : last;
   const actions = useClauseActions();
   const columns = useCardColumns(clause.id);
   const names = columns.map((c) => c.name);
-  const label = CLAUSE_LABEL[clause.kind];
-  const join = clause.kind === "join";
+  const label =
+    clause.kind === "compound"
+      ? (readSetOp(clause.body) ?? CLAUSE_LABEL.compound)
+      : CLAUSE_LABEL[clause.kind];
+  const join = movable;
   const fits = formFits(clause, dialect);
   const form = clause.view === "form" && fits;
+  // Text with a subquery is kept here while typed and committed on blur,
+  // when its subqueries become chains again.
+  const [draft, setDraft] = useState<string | null>(null);
+  const holds = OWN_CHAIN.has(clause.kind) || (clause.chains?.length ?? 0) > 0;
+  const sql_text = draft ?? viewText(clause);
+  const onSql = (v: string) => {
+    if (draft === null && !holds && !SUBQUERY.test(v)) {
+      actions.patch(clause.id, { body: v }, `body:${clause.id}`);
+      return;
+    }
+    setDraft(v);
+  };
+  const commitSql = () => {
+    if (draft !== null) actions.commitSql(clause.id, draft);
+    setDraft(null);
+    actions.commitText();
+  };
   return (
     <CardFrame
       label={`Card ${ordinal}, ${label}`}
@@ -85,6 +149,7 @@ export const ClauseCard = memo(function ClauseCard({
       dragging={!!dragging}
       error={!!fault?.error}
       dashed={skipped}
+      sideHandle={(clause.chains?.length ?? 0) > 0}
     >
       <div className="flex items-center gap-1 border-b py-1 pr-1 pl-1">
         <span
@@ -92,7 +157,11 @@ export const ClauseCard = memo(function ClauseCard({
             "text-muted-foreground flex items-center",
             join ? "clause-drag cursor-grab" : "opacity-30",
           )}
-          title={join ? "Drag to reorder the joins" : "Cards keep SQL's order"}
+          title={
+            join
+              ? `Drag to reorder the ${clause.kind === "join" ? "joins" : clause.kind === "cte" ? "CTEs" : "set operations"}`
+              : "Cards keep SQL's written order"
+          }
         >
           <GripVertical className="size-3.5" />
         </span>
@@ -103,22 +172,57 @@ export const ClauseCard = memo(function ClauseCard({
           {label}
         </span>
         <div className="ml-auto flex min-w-0 items-center gap-1">
-          {skipped ? (
+          {outerRow && !noPreview ? (
+            <Badge
+              variant="muted"
+              title="This subquery reads a column of the query around it, so it previews only inside it"
+            >
+              Outer row
+            </Badge>
+          ) : noPreview ? (
+            skipped && (
+              <Badge
+                variant="muted"
+                title="Left out of the query until filled in"
+              >
+                Empty, skipped
+              </Badge>
+            )
+          ) : skipped ? (
             <Badge
               variant="muted"
               title="Left out of the query until filled in"
             >
               Empty, skipped
             </Badge>
+          ) : bind && !fault?.error ? (
+            <Badge
+              variant="muted"
+              title="Previews skip a card with a bind variable"
+            >
+              Needs a value
+            </Badge>
           ) : (
-            <PreviewStatus
-              preview={preview}
-              fault={fault}
-              cap={cap}
-              sampled={sampled}
-              noun="rows"
-              source="rows of the table"
-            />
+            <>
+              {stale && preview?.chunk && (
+                <Badge
+                  variant="muted"
+                  title="From an earlier preview. Pick this query to refresh it."
+                >
+                  Stale
+                </Badge>
+              )}
+              <span className={cn("min-w-0", stale && "opacity-50")}>
+                <PreviewStatus
+                  preview={preview}
+                  fault={fault}
+                  cap={cap}
+                  sampled={sampled}
+                  noun="rows"
+                  source="rows of the table"
+                />
+              </span>
+            </>
           )}
           <Button
             variant="ghost"
@@ -141,7 +245,7 @@ export const ClauseCard = memo(function ClauseCard({
               <ListChecks className="size-3.5" />
             )}
           </Button>
-          {clause.kind !== "from" && (
+          {removable && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -162,7 +266,11 @@ export const ClauseCard = memo(function ClauseCard({
                   onClick={() => actions.remove(clause.id)}
                 >
                   <Trash2 />
-                  {clause.kind === "group" ? "Delete with HAVING" : "Delete"}
+                  {clause.kind === "group"
+                    ? "Delete with HAVING"
+                    : clause.kind === "from"
+                      ? "Delete with its JOINs"
+                      : "Delete"}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -186,11 +294,9 @@ export const ClauseCard = memo(function ClauseCard({
           <>
             <SqlFragmentEditor
               label={`${label} text`}
-              value={clause.body}
-              onChange={(v) =>
-                actions.patch(clause.id, { body: v }, `body:${clause.id}`)
-              }
-              onBlur={actions.commitText}
+              value={sql_text}
+              onChange={onSql}
+              onBlur={commitSql}
               dialect={dialect}
               columns={names}
               placeholder={
@@ -219,15 +325,40 @@ export const ClauseCard = memo(function ClauseCard({
           </>
         )}
       </div>
-      {!skipped && (
-        <CardFooter
-          preview={preview}
-          fault={fault}
-          firstRow={firstRow}
-          empty="No rows come out of this card."
-          earlier="Waiting on an earlier card"
-          timeoutHint=". Raise the limit in the builder settings, or narrow an earlier card."
-        />
+      {noPreview ? (
+        fault?.error ? (
+          <p
+            role="alert"
+            className="text-destructive text-small border-t px-3 py-1.5 font-mono"
+          >
+            {fault.error}
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-small border-t px-3 py-1.5">
+            Write query, no preview
+          </p>
+        )
+      ) : outerRow && !fault?.error ? (
+        <p className="text-muted-foreground text-small border-t px-3 py-1.5">
+          Depends on the outer row, previewed inside its query
+        </p>
+      ) : bind && !fault?.error ? (
+        <p className="text-muted-foreground text-small border-t px-3 py-1.5">
+          Needs a value, asked on Run
+        </p>
+      ) : (
+        !skipped && (
+          <div className={cn(stale && "opacity-50")}>
+            <CardFooter
+              preview={preview}
+              fault={fault}
+              firstRow={firstRow}
+              empty="No rows come out of this card."
+              earlier="Waiting on an earlier card"
+              timeoutHint=". Raise the limit in the builder settings, or narrow an earlier card."
+            />
+          </div>
+        )
       )}
     </CardFrame>
   );

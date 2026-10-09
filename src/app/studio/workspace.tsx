@@ -865,6 +865,8 @@ function WorkspaceContent({
                 conn_id={conn_id}
                 tab_key={key}
                 active={is_active}
+                on_modified={bumpTables}
+                on_schema_modified={bump}
               />
             ) : tab.kind !== "new-table" ? null : conn.kind === "mongodb" ? (
               <MongoNewCollectionTab

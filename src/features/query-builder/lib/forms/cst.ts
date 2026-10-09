@@ -1,4 +1,5 @@
 import { parse as parseSql } from "sql-parser-cst";
+import { findBindVariables } from "@/shared/lib/bind-variables";
 import type { Dialect } from "../sql-text";
 
 /** A loose view of a `sql-parser-cst` node: its type, range, and children. */
@@ -15,19 +16,36 @@ export interface Fragment {
   text: (n: Node) => string;
 }
 
-/** Parse `SELECT ... <prefix><body>` and hand back its clauses, or null when
- *  it does not parse as one statement. */
-export function parseFragment(sql: string, dialect: Dialect): Fragment | null {
+/** The parser's input: bind variables read as `:name` parameters, each
+ *  `${name}` as one token of its own length, so offsets and ranges still
+ *  match the text. */
+export function parseable(
+  text: string,
+  dialect: Dialect,
+): Parameters<typeof parseSql> {
+  if (findBindVariables([text]).length === 0)
+    return [text, { dialect, includeRange: true }];
+  const masked = text.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
+    (_, name: string) => `:${name}__`,
+  );
+  return [masked, { dialect, includeRange: true, paramTypes: [":name"] }];
+}
+
+/** Parse `SELECT ... <prefix><body>` (or another statement `type`) and hand
+ *  back its clauses, or null when it does not parse as one statement. */
+export function parseFragment(
+  sql: string,
+  dialect: Dialect,
+  type = "select_stmt",
+): Fragment | null {
   try {
-    const program = parseSql(sql, {
-      dialect,
-      includeRange: true,
-    }) as unknown as {
+    const program = parseSql(...parseable(sql, dialect)) as unknown as {
       statements: Node[];
     };
     if (program.statements.length !== 1) return null;
     const stmt = program.statements[0];
-    if (stmt.type !== "select_stmt") return null;
+    if (stmt.type !== type) return null;
     return {
       clauses: stmt.clauses as Node[],
       text: (n) => (n.range ? sql.slice(n.range[0], n.range[1]) : ""),

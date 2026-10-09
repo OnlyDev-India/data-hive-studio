@@ -1,3 +1,4 @@
+import { maskedMarker } from "../markers";
 import type { Dialect } from "../sql-text";
 import {
   clauseOf,
@@ -142,7 +143,8 @@ export function parseSelect(body: string, dialect: Dialect): Picked[] | null {
   const out: Picked[] = [];
   for (const n of l.nodes) {
     const { expr, alias } = aliased(n, l.text);
-    if (!isColumn(expr) && !readAggregate(expr, l.text)) return null;
+    const sub = expr.type === "paren_expr" && maskedMarker(l.text(expr));
+    if (!isColumn(expr) && !readAggregate(expr, l.text) && !sub) return null;
     out.push({ expr: l.text(expr), alias });
   }
   return out;

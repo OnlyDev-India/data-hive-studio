@@ -20,7 +20,7 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="bg-muted rounded-control flex items-center p-0.5"
+      className="bg-muted rounded-control flex w-max items-center p-0.5"
     >
       {options.map((o) => (
         <button
@@ -30,7 +30,7 @@ export function Segmented<T extends string>({
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            "rounded-inset text-small focus-visible:ring-ring/50 h-6 px-2 outline-none focus-visible:ring-2",
+            "rounded-inset text-small focus-visible:ring-ring/50 h-6 px-2 whitespace-nowrap outline-none focus-visible:ring-2",
             value === o.value
               ? "bg-background text-foreground font-medium shadow-xs"
               : "text-muted-foreground hover:text-foreground",
@@ -68,7 +68,14 @@ export function BottomPanel<T extends string>({
       className="bg-background flex h-full min-h-0 w-full min-w-0 flex-col"
     >
       <div className="bg-editor-toolbar flex shrink-0 items-center gap-2 border-b px-3 py-1">
-        <Segmented label="Output" value={tab} onChange={onTab} options={tabs} />
+        <div className="max-w-[70%] min-w-0 shrink-0 overflow-x-auto">
+          <Segmented
+            label="Output"
+            value={tab}
+            onChange={onTab}
+            options={tabs}
+          />
+        </div>
         <span className="text-muted-foreground text-small min-w-0 truncate">
           {summary}
         </span>

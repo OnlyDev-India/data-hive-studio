@@ -1,76 +1,133 @@
-import { useId, useState, type ComponentProps } from "react";
-import { ChevronDown, Code, Plus, X } from "lucide-react";
-import {
-  FormLabel,
-  INPUT,
-  Pick,
-  Rows,
-  Text,
-} from "@/shared/components/builder-canvas";
+import { useState } from "react";
 import type { Clause } from "@/shared/store";
-import { Button } from "@/shared/components/ui/button";
-import { Input } from "@/shared/components/ui/input";
-import { cn } from "@/shared/lib/utils";
 import {
   useCardColumns,
   useClauseActions,
+  useOpenPicker,
   useTables,
 } from "../lib/card-actions";
-import type { Column } from "../lib/columns";
+import { excludedKey, type Column } from "../lib/columns";
+import { markersIn, maskMarkers, unmaskMarkers } from "../lib/markers";
 import {
-  emptyCond,
-  NO_VALUE,
-  OPS,
   parseConditions,
   printConditions,
-  type Cond,
   type Conditions,
-  type Group,
-  type Op,
 } from "../lib/forms/conditions";
 import {
-  AGGREGATES,
   parseGroup,
   parseOrder,
   parseSelect,
   printGroup,
   printOrder,
   printSelect,
-  type Aggregate,
   type GroupForm,
   type Picked,
   type Sort,
 } from "../lib/forms/lists";
 import {
-  JOIN_TYPES,
   parseFrom,
   parseJoinForm,
   printFrom,
   printJoin,
   type JoinForm,
-  type OnPair,
 } from "../lib/forms/tables";
-import { tableIdent } from "../lib/joins";
-import { parseLimit, type Dialect, type TableRef } from "../lib/sql-text";
-import { TablePicker } from "./table-picker";
+import {
+  parseConflict,
+  parseInsert,
+  parseReturning,
+  parseSet,
+  parseTarget,
+  parseValues,
+  printConflict,
+  printInsert,
+  printReturning,
+  printSet,
+  printTarget,
+  printValues,
+  type ConflictForm,
+  type InsertForm,
+  type ReturningForm,
+  type SetRow,
+  type ValuesForm,
+} from "../lib/forms/writes";
+import {
+  parseLimit,
+  parseTableRef,
+  readCte,
+  readSetOp,
+  type Dialect,
+  type TableRef,
+} from "../lib/sql-text";
+import { CompoundBody, CteBody } from "./forms/chain-forms";
+import { ConditionsBody } from "./forms/conditions-form";
+import { ConflictBody } from "./forms/conflict-form";
+import { GroupBody } from "./forms/group-form";
+import { InsertBody } from "./forms/insert-form";
+import { TableRow } from "./forms/inputs";
+import { JoinBody } from "./forms/join-form";
+import { LimitBody } from "./forms/limit-form";
+import { OrderBody } from "./forms/order-form";
+import { ReturningBody } from "./forms/returning-form";
+import { SelectBody } from "./forms/select-form";
+import { SetRows } from "./forms/set-form";
+import { ValuesBody } from "./forms/values-form";
 
 /** A card's form model, by kind. */
 type Model =
-  | { kind: "from"; table: TableRef | null }
+  | { kind: "from" | "update" | "delete" | "using"; table: TableRef | null }
   | { kind: "join"; join: JoinForm }
   | { kind: "where" | "having"; c: Conditions }
   | { kind: "group"; g: GroupForm }
   | { kind: "select"; items: Picked[] }
   | { kind: "order"; items: Sort[] }
-  | { kind: "limit"; limit: string; offset: string };
+  | { kind: "limit"; limit: string; offset: string }
+  | { kind: "set"; rows: SetRow[] }
+  | { kind: "insert"; f: InsertForm }
+  | { kind: "values"; f: ValuesForm }
+  | { kind: "conflict"; f: ConflictForm }
+  | { kind: "returning"; f: ReturningForm }
+  | { kind: "cte"; name: string; recursive: boolean; columns: string }
+  | { kind: "compound"; op: string };
+
+/** Kinds whose forms read a subquery's marker as `(SELECT __dh_sub_1)`, so
+ *  it parses in any position. */
+const MASKED: ReadonlySet<Clause["kind"]> = new Set([
+  "where",
+  "having",
+  "select",
+  "group",
+  "order",
+  "set",
+  "conflict",
+  "returning",
+]);
 
 /** The form for the card's text, or null when it can't show it. */
 function read(c: Clause, dialect: Dialect): Model | null {
+  return readText(
+    MASKED.has(c.kind) ? { ...c, body: maskMarkers(c.body) } : c,
+    dialect,
+  );
+}
+
+function readText(c: Clause, dialect: Dialect): Model | null {
+  const blank = !c.body.trim();
   switch (c.kind) {
     case "from": {
-      if (!c.body.trim()) return { kind: "from", table: null };
+      if (blank) return { kind: "from", table: null };
       const table = parseFrom(c.body);
       return table && { kind: "from", table };
+    }
+    case "update":
+    case "delete": {
+      if (blank) return { kind: c.kind, table: null };
+      const table = parseTarget(c.body);
+      return table && { kind: c.kind, table };
+    }
+    case "using": {
+      if (blank) return { kind: "using", table: null };
+      const table = parseTableRef(c.body);
+      return table && { kind: "using", table };
     }
     case "join": {
       const join = parseJoinForm(c.body, dialect);
@@ -94,7 +151,7 @@ function read(c: Clause, dialect: Dialect): Model | null {
       return items && { kind: "order", items };
     }
     case "limit": {
-      if (!c.body.trim()) return { kind: "limit", limit: "", offset: "" };
+      if (blank) return { kind: "limit", limit: "", offset: "" };
       const l = parseLimit(c.body);
       return (
         l && {
@@ -104,16 +161,54 @@ function read(c: Clause, dialect: Dialect): Model | null {
         }
       );
     }
+    case "set": {
+      const rows = parseSet(c.body, dialect);
+      return rows && { kind: "set", rows };
+    }
+    case "insert": {
+      const f = parseInsert(c.body, dialect);
+      return f && { kind: "insert", f };
+    }
+    case "values": {
+      const f = parseValues(c.body, dialect);
+      return f && { kind: "values", f };
+    }
+    case "conflict": {
+      const f = parseConflict(c.body, dialect);
+      return f && { kind: "conflict", f };
+    }
+    case "returning": {
+      const f = parseReturning(c.body, dialect);
+      return f && { kind: "returning", f };
+    }
+    case "cte": {
+      if (blank)
+        return { kind: "cte", name: "", recursive: false, columns: "" };
+      const cte = readCte(c.body);
+      return cte && { kind: "cte", ...cte };
+    }
+    case "compound": {
+      const op = blank ? "UNION ALL" : readSetOp(c.body);
+      return op && { kind: "compound", op };
+    }
+    case "statement":
+      return null;
   }
 }
 
 function write(
   m: Model,
-  typeOf: (column: string) => string | null,
+  columns: Column[],
 ): { body: string; aggregates?: string } {
+  const typeOf = (name: string) =>
+    columns.find((c) => c.name === name)?.type ?? null;
   switch (m.kind) {
     case "from":
+    case "using":
       return { body: m.table ? printFrom(m.table) : "" };
+    case "update":
+    case "delete":
+      return { body: m.table ? printTarget(m.table) : "" };
     case "join":
       return { body: printJoin(m.join) };
     case "where":
@@ -134,6 +229,24 @@ function write(
         body: m.offset.trim() ? `${limit} OFFSET ${m.offset.trim()}` : limit,
       };
     }
+    case "set":
+      return { body: printSet(m.rows, typeOf) };
+    case "insert":
+      return { body: printInsert(m.f) };
+    case "values":
+      return { body: printValues(m.f, (i) => columns[i]?.type ?? null) };
+    case "conflict":
+      return { body: printConflict(m.f, typeOf) };
+    case "returning":
+      return { body: printReturning(m.f) };
+    case "cte": {
+      const name = m.name.trim();
+      if (!name) return { body: "" };
+      const cols = m.columns.trim() ? ` ${m.columns.trim()}` : "";
+      return { body: `${m.recursive ? "RECURSIVE " : ""}${name}${cols}` };
+    }
+    case "compound":
+      return { body: m.op };
   }
 }
 
@@ -155,12 +268,17 @@ export function ClauseForm({
   const columns = useCardColumns(clause.id);
   const text = `${clause.body}\n${clause.aggregates ?? ""}`;
   const [draft, setDraft] = useState<Model | null>(() => read(clause, dialect));
-  const [synced, setSynced] = useState(text);
+  const [seen, setSeen] = useState(text);
+  const [wrote, setWrote] = useState(text);
   // Take the text in whenever it changed from outside the form (SQL view,
-  // undo), never for the text the form itself just wrote.
-  if (synced !== text) {
-    setSynced(text);
-    setDraft(read(clause, dialect));
+  // undo), never for the text the form itself just wrote. The card's text
+  // arrives a render after a write, so that stale render is not a change.
+  if (seen !== text) {
+    setSeen(text);
+    if (text !== wrote) {
+      setWrote(text);
+      setDraft(read(clause, dialect));
+    }
   }
   if (!draft)
     return (
@@ -169,15 +287,20 @@ export function ClauseForm({
       </p>
     );
 
-  const typeOf = (name: string) =>
-    columns.find((c) => c.name === name)?.type ?? null;
-  // A run of edits in one form is one undo step, closed on blur.
+  // A run of edits in one form is one undo step, closed on blur. A marker
+  // the form just wrote gets its new, empty subquery.
   const change = (m: Model) => {
     setDraft(m);
-    const out = write(m, typeOf);
-    setSynced(`${out.body}\n${out.aggregates ?? clause.aggregates ?? ""}`);
-    actions.patch(clause.id, out, `form:${clause.id}`);
+    const out = write(m, columns);
+    out.body = unmaskMarkers(out.body);
+    const had = new Set((clause.chains ?? []).map((ch) => ch.marker));
+    const fresh = markersIn(out.body)
+      .map((x) => x.n)
+      .filter((n) => !had.has(n));
+    setWrote(`${out.body}\n${out.aggregates ?? clause.aggregates ?? ""}`);
+    actions.patch(clause.id, out, `form:${clause.id}`, fresh);
   };
+  const newMarker = () => actions.newMarker(clause.id);
 
   return (
     <div className="flex flex-col gap-1.5" onBlur={actions.commitText}>
@@ -187,6 +310,7 @@ export function ClauseForm({
         columns={columns}
         dialect={dialect}
         onChange={change}
+        newMarker={newMarker}
       />
     </div>
   );
@@ -198,15 +322,32 @@ function FormBody({
   columns,
   dialect,
   onChange,
+  newMarker,
 }: {
   id: string;
   model: Model;
   columns: Column[];
   dialect: Dialect;
   onChange: (m: Model) => void;
+  /** A marker for a new subquery in this card. */
+  newMarker: () => number;
 }) {
+  const picker = useOpenPicker();
   switch (m.kind) {
     case "from":
+    case "using":
+      return (
+        <TableRow
+          table={m.table}
+          dialect={dialect}
+          onTable={(table) => onChange({ ...m, table })}
+          newMarker={newMarker}
+          autoOpen={picker.id === id && !m.table}
+          onOpened={picker.clear}
+        />
+      );
+    case "update":
+    case "delete":
       return (
         <TableRow
           table={m.table}
@@ -214,6 +355,17 @@ function FormBody({
           onTable={(table) => onChange({ ...m, table })}
         />
       );
+    case "cte":
+      return (
+        <CteBody
+          name={m.name}
+          recursive={m.recursive}
+          columns={m.columns}
+          onCte={(c) => onChange({ ...m, ...c })}
+        />
+      );
+    case "compound":
+      return <CompoundBody op={m.op} onOp={(op) => onChange({ ...m, op })} />;
     case "join":
       return (
         <JoinBody
@@ -222,6 +374,7 @@ function FormBody({
           columns={columns}
           dialect={dialect}
           onJoin={(join) => onChange({ ...m, join })}
+          newMarker={newMarker}
         />
       );
     case "where":
@@ -231,6 +384,7 @@ function FormBody({
           c={m.c}
           columns={columns}
           onC={(c) => onChange({ ...m, c })}
+          newMarker={newMarker}
         />
       );
     case "group":
@@ -243,605 +397,86 @@ function FormBody({
       );
     case "select":
       return (
-        <Rows<Picked>
-          rows={m.items}
-          add="Add column"
-          blank={{ expr: "", alias: "" }}
-          onRows={(items) => onChange({ ...m, items })}
-          cols="grid-cols-[1fr_1fr_1.5rem]"
-          render={(r, set) => (
-            <>
-              <ColumnInput
-                columns={columns}
-                value={r.expr}
-                onValue={(expr) => set({ ...r, expr })}
-              />
-              <Text
-                label="Alias"
-                value={r.alias}
-                placeholder="as (optional)"
-                onValue={(alias) => set({ ...r, alias })}
-                mono
-              />
-            </>
-          )}
+        <SelectBody
+          items={m.items}
+          columns={columns}
+          onItems={(items) => onChange({ ...m, items })}
+          newMarker={newMarker}
         />
       );
     case "order":
       return (
-        <Rows<Sort>
-          rows={m.items}
-          add="Add sort column"
-          blank={{ expr: "", dir: "ASC" }}
-          onRows={(items) => onChange({ ...m, items })}
-          cols="grid-cols-[1fr_7rem_1.5rem]"
-          render={(r, set) => (
-            <>
-              <ColumnInput
-                columns={columns}
-                value={r.expr}
-                onValue={(expr) => set({ ...r, expr })}
-              />
-              <Pick
-                label="Direction"
-                value={r.dir}
-                options={[
-                  ["ASC", "ascending"],
-                  ["DESC", "descending"],
-                ]}
-                onValue={(dir) => set({ ...r, dir: dir as Sort["dir"] })}
-              />
-            </>
-          )}
+        <OrderBody
+          items={m.items}
+          columns={columns}
+          onItems={(items) => onChange({ ...m, items })}
         />
       );
     case "limit":
       return (
-        <div className="grid grid-cols-[auto_1fr_auto_1fr] items-center gap-1.5">
-          <FormLabel>Rows</FormLabel>
-          <Text
-            label="Row count"
-            value={m.limit}
-            placeholder="100"
-            inputMode="numeric"
-            onValue={(limit) => onChange({ ...m, limit })}
-          />
-          <FormLabel>skip</FormLabel>
-          <Text
-            label="Offset"
-            value={m.offset}
-            placeholder="0"
-            inputMode="numeric"
-            onValue={(offset) => onChange({ ...m, offset })}
-          />
-        </div>
+        <LimitBody
+          limit={m.limit}
+          offset={m.offset}
+          onChange={(l) => onChange({ ...m, ...l })}
+        />
+      );
+    case "set":
+      return (
+        <SetRows
+          rows={m.rows}
+          columns={columns}
+          onRows={(rows) => onChange({ ...m, rows })}
+          newMarker={newMarker}
+        />
+      );
+    case "insert":
+      return (
+        <InsertBody
+          f={m.f}
+          columns={columns}
+          dialect={dialect}
+          onF={(f) => onChange({ ...m, f })}
+        />
+      );
+    case "values":
+      return (
+        <ValuesBody
+          f={m.f}
+          columns={columns}
+          onF={(f) => onChange({ ...m, f })}
+          newMarker={newMarker}
+        />
+      );
+    case "conflict":
+      return (
+        <Conflict
+          id={id}
+          f={m.f}
+          columns={columns}
+          dialect={dialect}
+          onF={(f) => onChange({ ...m, f })}
+          newMarker={newMarker}
+        />
+      );
+    case "returning":
+      return (
+        <ReturningBody
+          f={m.f}
+          columns={columns}
+          onF={(f) => onChange({ ...m, f })}
+        />
       );
   }
 }
 
-/** A column box offering the card's columns. */
-function ColumnInput({
-  columns,
-  value,
-  onValue,
-  placeholder = "column",
-}: {
-  columns: Column[];
-  value: string;
-  onValue: (v: string) => void;
-  placeholder?: string;
-}) {
-  const list = useId();
-  return (
-    <>
-      <Input
-        aria-label={placeholder}
-        value={value}
-        placeholder={placeholder}
-        list={list}
-        onChange={(e) => onValue(e.target.value)}
-        className={cn(INPUT, "font-mono")}
-      />
-      <datalist id={list}>
-        {columns.map((c) => (
-          <option key={c.name} value={c.name}>
-            {c.type ?? ""}
-          </option>
-        ))}
-      </datalist>
-    </>
-  );
-}
-
-function TableButton({ children, ...props }: ComponentProps<typeof Button>) {
-  return (
-    <Button
-      {...props}
-      variant="outline"
-      size="sm"
-      className="nodrag h-6 min-w-0 flex-1 justify-between px-2 font-mono"
-    >
-      <span className="truncate">{children}</span>
-      <ChevronDown className="text-muted-foreground size-3 shrink-0" />
-    </Button>
-  );
-}
-
-const tableName = (t: TableRef) =>
-  t.schema ? `${t.schema}.${t.name}` : t.name;
-
-function TableRow({
-  table,
-  dialect,
-  onTable,
-}: {
-  table: TableRef | null;
-  dialect: Dialect;
-  onTable: (t: TableRef) => void;
-}) {
-  const { home } = useTables();
-  return (
-    <div className="flex items-center gap-1.5">
-      <TablePicker
-        trigger={
-          <TableButton>{table ? tableName(table) : "Pick a table"}</TableButton>
-        }
-        onPick={(t) =>
-          onTable({
-            schema: null,
-            name: tableIdent(t, home, dialect),
-            alias: table?.alias ?? null,
-          })
-        }
-      />
-      <div className="w-28">
-        <Text
-          label="Alias"
-          value={table?.alias ?? ""}
-          placeholder="alias"
-          onValue={(alias) =>
-            table && onTable({ ...table, alias: alias.trim() || null })
-          }
-          mono
-        />
-      </div>
-    </div>
-  );
-}
-
-function JoinBody({
+/** The ON CONFLICT body with its key choices and `excluded.` columns. */
+function Conflict({
   id,
-  join,
-  columns,
-  dialect,
-  onJoin,
-}: {
+  ...props
+}: Omit<Parameters<typeof ConflictBody>[0], "keys" | "excluded"> & {
   id: string;
-  join: JoinForm;
-  columns: Column[];
-  dialect: Dialect;
-  onJoin: (j: JoinForm) => void;
 }) {
-  const { home, suggestions, aliasFor } = useTables();
-  const on = join.on;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <div className="w-28 shrink-0">
-          <Pick
-            label="Join type"
-            value={join.type}
-            options={JOIN_TYPES.map((t) => [t, t.replace(" JOIN", "")])}
-            onValue={(type) =>
-              onJoin({ ...join, type: type as JoinForm["type"] })
-            }
-          />
-        </div>
-        <TablePicker
-          suggestions={suggestions(id)}
-          trigger={
-            <TableButton>
-              {join.table ? tableName(join.table) : "Pick a table"}
-            </TableButton>
-          }
-          onPick={(t, s) => {
-            const alias = aliasFor(id, t.name);
-            onJoin({
-              ...join,
-              table: {
-                schema: null,
-                name: tableIdent(t, home, dialect),
-                alias,
-              },
-              on: s ? { mode: "pairs", pairs: s.on } : join.on,
-            });
-          }}
-        />
-        <div className="w-24 shrink-0">
-          <Text
-            label="Alias"
-            value={join.table?.alias ?? ""}
-            placeholder="alias"
-            onValue={(alias) =>
-              join.table &&
-              onJoin({
-                ...join,
-                table: { ...join.table, alias: alias.trim() || null },
-              })
-            }
-            mono
-          />
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <FormLabel>ON</FormLabel>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground ml-auto h-6 px-2"
-          onClick={() =>
-            onJoin({
-              ...join,
-              on:
-                on.mode === "pairs"
-                  ? {
-                      mode: "text",
-                      text: on.pairs
-                        .filter((p) => p.left && p.right)
-                        .map((p) => `${p.left} = ${p.right}`)
-                        .join(" AND "),
-                    }
-                  : { mode: "pairs", pairs: [] },
-            })
-          }
-        >
-          <Code className="size-3" />
-          {on.mode === "pairs" ? "Write it as text" : "Use column pairs"}
-        </Button>
-      </div>
-      {on.mode === "pairs" ? (
-        <Rows<OnPair>
-          rows={on.pairs}
-          add="Add column pair"
-          blank={{ left: "", right: "" }}
-          onRows={(pairs) => onJoin({ ...join, on: { mode: "pairs", pairs } })}
-          cols="grid-cols-[1fr_auto_1fr_1.5rem]"
-          render={(r, set) => (
-            <>
-              <ColumnInput
-                columns={columns}
-                value={r.left}
-                onValue={(left) => set({ ...r, left })}
-              />
-              <span className="text-muted-foreground text-small">=</span>
-              <ColumnInput
-                columns={columns}
-                value={r.right}
-                onValue={(right) => set({ ...r, right })}
-              />
-            </>
-          )}
-        />
-      ) : (
-        <Text
-          label="ON condition"
-          value={on.text}
-          placeholder="a.x = b.y AND b.active"
-          onValue={(text) => onJoin({ ...join, on: { mode: "text", text } })}
-          mono
-        />
-      )}
-    </div>
-  );
-}
-
-const OP_LABEL: Partial<Record<Op, string>> = {
-  "=": "=",
-  "<>": "≠",
-  "<=": "≤",
-  ">=": "≥",
-  IN: "in",
-  "NOT IN": "not in",
-  LIKE: "like",
-  "NOT LIKE": "not like",
-  ILIKE: "ilike",
-  BETWEEN: "between",
-  "IS NULL": "is null",
-  "IS NOT NULL": "is not null",
-};
-
-function CondRow({
-  c,
-  columns,
-  onC,
-  onRemove,
-}: {
-  c: Cond;
-  columns: Column[];
-  onC: (c: Cond) => void;
-  onRemove: () => void;
-}) {
-  const setValues = (values: string[]) =>
-    onC({ ...c, values, kinds: values.map(() => null) });
-  return (
-    <div className="grid grid-cols-[1fr_6.5rem_1fr_1.5rem] items-center gap-1">
-      <ColumnInput
-        columns={columns}
-        value={c.column}
-        onValue={(column) => onC({ ...c, column })}
-      />
-      <Pick
-        label="Operator"
-        value={c.op}
-        options={OPS.map((o) => [o, OP_LABEL[o] ?? o])}
-        onValue={(op) => {
-          const next = op as Op;
-          const n = NO_VALUE.has(next)
-            ? 0
-            : next === "BETWEEN"
-              ? 2
-              : Math.max(c.values.length, 1);
-          onC({
-            ...c,
-            op: next,
-            values: Array.from({ length: n }, (_, i) => c.values[i] ?? ""),
-            kinds: Array.from({ length: n }, (_, i) => c.kinds[i] ?? null),
-          });
-        }}
-      />
-      {NO_VALUE.has(c.op) ? (
-        <span />
-      ) : c.op === "BETWEEN" ? (
-        <div className="grid grid-cols-2 gap-1">
-          {[0, 1].map((i) => (
-            <Text
-              key={i}
-              label={i === 0 ? "From" : "To"}
-              value={c.values[i] ?? ""}
-              onValue={(v) =>
-                setValues(c.values.map((x, j) => (j === i ? v : x)))
-              }
-              mono
-            />
-          ))}
-        </div>
-      ) : (
-        <Text
-          label="Value"
-          value={
-            c.op === "IN" || c.op === "NOT IN"
-              ? c.values.join(", ")
-              : (c.values[0] ?? "")
-          }
-          placeholder={c.op === "IN" || c.op === "NOT IN" ? "a, b, c" : "value"}
-          onValue={(v) =>
-            setValues(
-              c.op === "IN" || c.op === "NOT IN"
-                ? v.split(",").map((x) => x.trim())
-                : [v],
-            )
-          }
-          mono
-        />
-      )}
-      <Button
-        variant="ghost"
-        size="iconXs"
-        className="text-muted-foreground"
-        aria-label="Remove condition"
-        onClick={onRemove}
-      >
-        <X className="size-3" />
-      </Button>
-    </div>
-  );
-}
-
-function JoinWord({
-  value,
-  onValue,
-}: {
-  value: "AND" | "OR";
-  onValue: (v: "AND" | "OR") => void;
-}) {
-  return (
-    <div className="w-20">
-      <Pick
-        label="Join conditions with"
-        value={value}
-        options={[
-          ["AND", "all of"],
-          ["OR", "any of"],
-        ]}
-        onValue={(v) => onValue(v as "AND" | "OR")}
-      />
-    </div>
-  );
-}
-
-function ConditionsBody({
-  c,
-  columns,
-  onC,
-}: {
-  c: Conditions;
-  columns: Column[];
-  onC: (c: Conditions) => void;
-}) {
-  const set = (i: number, item: Cond | Group) =>
-    onC({ ...c, items: c.items.map((x, j) => (j === i ? item : x)) });
-  const remove = (i: number) =>
-    onC({ ...c, items: c.items.filter((_, j) => j !== i) });
-  return (
-    <div className="flex flex-col gap-1">
-      {c.items.length > 1 && (
-        <div className="flex items-center gap-1.5">
-          <FormLabel>Match</FormLabel>
-          <JoinWord value={c.join} onValue={(join) => onC({ ...c, join })} />
-        </div>
-      )}
-      {c.items.map((item, i) =>
-        item.kind === "cond" ? (
-          <CondRow
-            key={i}
-            c={item}
-            columns={columns}
-            onC={(x) => set(i, x)}
-            onRemove={() => remove(i)}
-          />
-        ) : (
-          <div
-            key={i}
-            className="rounded-control flex flex-col gap-1 border border-dashed p-1"
-          >
-            <div className="flex items-center gap-1.5">
-              <FormLabel>Group, match</FormLabel>
-              <JoinWord
-                value={item.join}
-                onValue={(join) => set(i, { ...item, join })}
-              />
-              <Button
-                variant="ghost"
-                size="iconXs"
-                className="text-muted-foreground ml-auto"
-                aria-label="Remove group"
-                onClick={() => remove(i)}
-              >
-                <X className="size-3" />
-              </Button>
-            </div>
-            {item.items.map((x, k) => (
-              <CondRow
-                key={k}
-                c={x}
-                columns={columns}
-                onC={(y) =>
-                  set(i, {
-                    ...item,
-                    items: item.items.map((z, j) => (j === k ? y : z)),
-                  })
-                }
-                onRemove={() =>
-                  set(i, {
-                    ...item,
-                    items: item.items.filter((_, j) => j !== k),
-                  })
-                }
-              />
-            ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground self-start"
-              onClick={() =>
-                set(i, { ...item, items: [...item.items, emptyCond()] })
-              }
-            >
-              <Plus className="size-3" />
-              Add condition
-            </Button>
-          </div>
-        ),
-      )}
-      <div className="flex gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground"
-          onClick={() => onC({ ...c, items: [...c.items, emptyCond()] })}
-        >
-          <Plus className="size-3" />
-          Add condition
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground"
-          onClick={() =>
-            onC({
-              ...c,
-              items: [
-                ...c.items,
-                {
-                  kind: "group",
-                  join: c.join === "AND" ? "OR" : "AND",
-                  items: [emptyCond(), emptyCond()],
-                },
-              ],
-            })
-          }
-        >
-          <Plus className="size-3" />
-          Add group
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function GroupBody({
-  g,
-  columns,
-  onG,
-}: {
-  g: GroupForm;
-  columns: Column[];
-  onG: (g: GroupForm) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <FormLabel>Group by</FormLabel>
-      <Rows<string>
-        rows={g.keys}
-        add="Add key column"
-        blank=""
-        onRows={(keys) => onG({ ...g, keys })}
-        cols="grid-cols-[1fr_1.5rem]"
-        render={(k, set) => (
-          <ColumnInput columns={columns} value={k} onValue={set} />
-        )}
-      />
-      <FormLabel>Aggregates</FormLabel>
-      <Rows<Aggregate>
-        rows={g.aggregates}
-        add="Add aggregate"
-        blank={{ fn: "COUNT", arg: "*", alias: "" }}
-        onRows={(aggregates) => onG({ ...g, aggregates })}
-        cols="grid-cols-[7rem_1fr_1fr_1.5rem]"
-        render={(a, set) => (
-          <>
-            <Pick
-              label="Aggregate"
-              value={a.fn}
-              options={AGGREGATES.map((f) => [f, f])}
-              mono
-              onValue={(fn) =>
-                set({
-                  ...a,
-                  fn: fn as Aggregate["fn"],
-                  arg: fn === "COUNT" ? a.arg : a.arg === "*" ? "" : a.arg,
-                })
-              }
-            />
-            <ColumnInput
-              columns={
-                a.fn === "COUNT"
-                  ? [{ name: "*", type: null }, ...columns]
-                  : columns
-              }
-              value={a.arg}
-              onValue={(arg) => set({ ...a, arg })}
-            />
-            <Text
-              label="Alias"
-              value={a.alias}
-              placeholder="as"
-              onValue={(alias) => set({ ...a, alias })}
-              mono
-            />
-          </>
-        )}
-      />
-    </div>
-  );
+  const { keysOf } = useTables();
+  const excluded = useCardColumns(excludedKey(id));
+  return <ConflictBody {...props} keys={keysOf(id)} excluded={excluded} />;
 }

@@ -13,7 +13,12 @@ export {
   runSummary,
   Segmented,
 } from "./bottom-panel";
-export { BuilderFlow, useFitOnce, useNodeSizes } from "./builder-flow";
+export {
+  BuilderFlow,
+  useFitOnce,
+  useNodeSizes,
+  usePanTo,
+} from "./builder-flow";
 export { CardFooter, CardFrame, PreviewStatus } from "./card-frame";
 export { chainFaults, hasFault, type CardFault } from "./card-state";
 export {

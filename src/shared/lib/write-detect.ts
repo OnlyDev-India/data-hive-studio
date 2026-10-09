@@ -4,7 +4,6 @@
  *  read only, so these never have to be perfect, only cheap. Same masked
  *  text approach as `dangerous-sql.ts`, not a real parser. */
 import { maskStringsAndComments } from "@/shared/lib/utils";
-import { looksLikeMongoWrite } from "./stopped-status";
 
 /** First words of statements that only read. Anything else asks. */
 const READ_KEYWORDS = new Set([
@@ -46,4 +45,35 @@ export function isWriteMongo(command: string): boolean {
   if (looksLikeMongoWrite(command)) return true;
   if (/\$(out|merge)\b/.test(command)) return true;
   return /\.\s*(runCommand|adminCommand)\s*\(/i.test(command);
+}
+
+/** Whether a console command may write (insert, update, delete, replace,
+ *  findOneAnd..., bulkWrite, index or collection changes). A stopped one can
+ *  have changed data, so open grids on the collection should refresh. */
+export function looksLikeMongoWrite(command: string): boolean {
+  return /\.\s*(insert|update|delete|replace|remove|save|findOneAnd|bulkWrite|drop|create|rename)[A-Za-z]*\s*\(/i.test(
+    command,
+  );
+}
+
+/** Whether `sql` is schema-changing DDL (adds/drops/alters a table, index,
+ *  view, or trigger) rather than a plain data statement (SELECT/INSERT/
+ *  UPDATE/DELETE). Used to decide whether running it from the console
+ *  should also refresh any already-open grid tab for the affected table —
+ *  `on_modified` alone only refreshes the sidebar's table list, by design,
+ *  so an unrelated data statement doesn't disturb other open tabs' scroll/
+ *  paging position. A statement this best-effort check misses just falls
+ *  back to the existing "reload manually" behavior — nothing breaks. */
+export function isSchemaDdl(sql: string): boolean {
+  const stripped = sql
+    .replace(/--[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trimStart();
+  return (
+    /^(alter|drop)\s+table\b/i.test(stripped) ||
+    /^create\s+(or\s+replace\s+)?(table|view|trigger)\b/i.test(stripped) ||
+    /^drop\s+(view|trigger)\b/i.test(stripped) ||
+    /^create\s+(unique\s+)?index\b/i.test(stripped) ||
+    /^drop\s+index\b/i.test(stripped)
+  );
 }

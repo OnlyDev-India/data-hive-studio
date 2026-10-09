@@ -7,6 +7,7 @@ import {
   tableSchema,
   type GraphLink,
   type SchemaGraph,
+  type TableSchema,
 } from "@/shared/api";
 import type { Clause } from "@/shared/store";
 import { queryTables } from "./compose";
@@ -30,6 +31,11 @@ export interface Catalog {
   columnsOf: ColumnsOf;
   /** Foreign keys of every schema the query reads. */
   links: GraphLink[];
+  /** An INSERT target's key column sets, its primary key first, for ON
+   *  CONFLICT; undefined while unknown. */
+  keysOf: (t: TableRef) => string[][] | undefined;
+  /** Fetch it all again, after a run changed the schema. */
+  reload: () => void;
 }
 
 interface Loaded {
@@ -37,9 +43,28 @@ interface Loaded {
   tables: Record<string, PickTable[]>;
   schemas: string[];
   extra: Record<string, { name: string; type: string }[]>;
+  keys: Record<string, string[][]>;
 }
 
-const NOTHING: Loaded = { graphs: {}, tables: {}, schemas: [], extra: {} };
+const NOTHING: Loaded = {
+  graphs: {},
+  tables: {},
+  schemas: [],
+  extra: {},
+  keys: {},
+};
+
+/** A table's primary key, then each unique index over plain columns. */
+export function keySets(t: TableSchema): string[][] {
+  const out: string[][] = [];
+  const add = (cols: string[]) => {
+    if (cols.length === 0 || cols.some((c) => /[()]/.test(c))) return;
+    if (!out.some((x) => x.join("\n") === cols.join("\n"))) out.push(cols);
+  };
+  add(t.columns.filter((c) => c.primary_key).map((c) => c.name));
+  for (const i of t.indexes) if (i.unique) add(i.columns);
+  return out;
+}
 
 /** Whether identifier `ident` (as written) names catalog name `name`. Bare
  *  names fold to lower case on Postgres; SQLite ignores case. */
@@ -77,6 +102,7 @@ export function useCatalog({
     ...NOTHING,
   });
   const key = `${db ?? ""}\n${home}`;
+  const [revision, setRevision] = useState(0);
   // A new database or schema starts from nothing.
   const cur: Loaded = state.key === key ? state : NOTHING;
 
@@ -122,10 +148,10 @@ export function useCatalog({
     return () => {
       live = false;
     };
-  }, [connected, conn_id, dialect, db, home, loadTables, put]);
+  }, [connected, conn_id, dialect, db, home, loadTables, put, revision]);
 
   // A graph per schema the query reads, the tab's own always.
-  const refs = queryTables(clauses);
+  const refs = queryTables(clauses, dialect);
   const schemaOf = useCallback(
     (t: TableRef) =>
       dialect === "sqlite" ? "" : t.schema ? unquote(t.schema) : home,
@@ -193,6 +219,40 @@ export function useCatalog({
     };
   }, [connected, conn_id, db, missing_key, put]);
 
+  // Each INSERT target's keys, for its ON CONFLICT choices.
+  const keys = cur.keys;
+  const key_tables = clauses
+    .filter((c) => c.kind === "insert")
+    .flatMap((c) => queryTables([c], dialect))
+    .map((t) => `${schemaOf(t)}.${unquote(t.name)}`)
+    .filter((k) => !keys[k]);
+  const key_wanted = [...new Set(key_tables)].sort().join("\n");
+  useEffect(() => {
+    if (!connected || !key_wanted) return;
+    let live = true;
+    for (const k of key_wanted.split("\n")) {
+      const dot = k.indexOf(".");
+      void tableSchema(
+        conn_id,
+        k.slice(dot + 1),
+        db,
+        k.slice(0, dot) || undefined,
+      )
+        .then((t) => {
+          if (live) put((x) => ({ keys: { ...x.keys, [k]: keySets(t) } }));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      live = false;
+    };
+  }, [connected, conn_id, db, key_wanted, put]);
+
+  const keysOf = useCallback(
+    (t: TableRef) => keys[`${schemaOf(t)}.${unquote(t.name)}`],
+    [keys, schemaOf],
+  );
+
   const columnsOf: ColumnsOf = useCallback(
     (t) => fromGraph(t) ?? extra[`${schemaOf(t)}.${unquote(t.name)}`],
     [fromGraph, extra, schemaOf],
@@ -222,11 +282,18 @@ export function useCatalog({
     [graphs],
   );
 
+  const reload = useCallback(() => {
+    put(() => ({ graphs: {}, extra: {}, keys: {} }));
+    setRevision((r) => r + 1);
+  }, [put]);
+
   return {
     tables,
     schemas: cur.schemas,
     loadOtherSchemas,
     columnsOf,
     links,
+    keysOf,
+    reload,
   };
 }

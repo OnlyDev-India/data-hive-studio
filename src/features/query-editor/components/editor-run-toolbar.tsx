@@ -58,6 +58,7 @@ export function EditorRunToolbar({
   on_explain_analyze,
   on_open_in_builder,
   open_in_builder_label = "Open in aggregation builder",
+  can_open_in_builder,
   db_kind,
   database,
   databases,
@@ -98,6 +99,8 @@ export function EditorRunToolbar({
    *  aggregation builder tab. */
   on_open_in_builder?: () => void;
   open_in_builder_label?: string;
+  /** Whether there is anything to open; defaults to `has_text`. */
+  can_open_in_builder?: boolean;
   /** Drives the colored connection-type icon next to the database picker. */
   db_kind?: DbIconKind;
   /** Omitted entirely (both `databases` and `on_database_change` absent) =
@@ -201,7 +204,7 @@ export function EditorRunToolbar({
               icon={db_kind === "mongodb" ? Workflow : Blocks}
               label={open_in_builder_label}
               color="info"
-              disabled={!has_text}
+              disabled={!(can_open_in_builder ?? has_text)}
               onClick={on_open_in_builder}
             />
           )}

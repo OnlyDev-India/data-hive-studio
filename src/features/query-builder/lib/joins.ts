@@ -37,7 +37,7 @@ export function aliasFor(
   name: string,
   dialect: Dialect,
 ): string | null {
-  const refs = queryTables(clauses);
+  const refs = queryTables(clauses, dialect);
   const taken = new Set(refs.map((t) => unquote(refName(t)).toLowerCase()));
   if (!refs.some((t) => sameName(t.name, name, dialect))) return null;
   for (let n = 2; ; n++) {
@@ -54,7 +54,11 @@ export function joinSuggestions(
   home: string | null,
   dialect: Dialect,
 ): JoinSuggestion[] {
-  const refs = queryTables(clauses);
+  // An UPDATE's JOIN can't name its target, only the FROM side.
+  const refs = queryTables(
+    clauses.filter((c) => c.kind === "from" || c.kind === "join"),
+    dialect,
+  );
   const schemaOf = (t: TableRef) =>
     dialect === "sqlite" ? null : t.schema ? unquote(t.schema) : home;
   const inQuery = (schema: string | null, name: string) =>

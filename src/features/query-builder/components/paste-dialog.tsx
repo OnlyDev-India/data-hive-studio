@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Clause } from "@/shared/store";
+import type { BuilderQuery } from "@/shared/store";
 import { Button } from "@/shared/components/ui/button";
 import {
   Dialog,
@@ -10,11 +10,11 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
-import { parseBack } from "../lib/parse-back";
+import { parseStatements } from "../lib/parse-back";
 import type { Dialect } from "../lib/sql-text";
 
-/** Paste a SELECT to replace the cards. A query the cards can't hold says
- *  why and changes nothing. */
+/** Paste SQL to add each statement as a new query after the last one,
+ *  as cards where they fit and as SQL statements where not. */
 export function PasteDialog({
   open,
   onOpenChange,
@@ -24,18 +24,18 @@ export function PasteDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   dialect: Dialect;
-  onApply: (clauses: Clause[]) => void;
+  onApply: (queries: BuilderQuery[]) => void;
 }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const apply = () => {
-    const r = parseBack(text, dialect);
-    if (!r.ok) {
-      setError(r.error);
+    const queries = parseStatements(text, dialect);
+    if (queries.length === 0) {
+      setError("There is no statement to add, only comments.");
       return;
     }
-    onApply(r.clauses);
+    onApply(queries);
     setText("");
     setError(null);
     onOpenChange(false);
@@ -53,11 +53,13 @@ export function PasteDialog({
         <DialogHeader>
           <DialogTitle>Paste SQL</DialogTitle>
           <DialogDescription>
-            One SELECT. Its clauses replace the cards on the canvas.
+            Each statement becomes a new query after the last one. A{" "}
+            <code className="font-mono">-- name: …</code> line above a statement
+            names it.
           </DialogDescription>
         </DialogHeader>
         <Textarea
-          aria-label="SELECT to open as cards"
+          aria-label="SQL to add as queries"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="SELECT c.country, COUNT(*) AS n FROM orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.country"
@@ -74,7 +76,7 @@ export function PasteDialog({
             Cancel
           </Button>
           <Button onClick={apply} disabled={!text.trim()}>
-            Replace cards
+            Add queries
           </Button>
         </DialogFooter>
       </DialogContent>

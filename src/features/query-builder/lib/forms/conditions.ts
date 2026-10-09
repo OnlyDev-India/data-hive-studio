@@ -1,4 +1,5 @@
 import { literal, valueKind, type ValueKind } from "../literals";
+import { markerName, maskedMarker } from "../markers";
 import type { Dialect } from "../sql-text";
 import { clauseOf, isColumn, keyword, parseFragment, type Node } from "./cst";
 
@@ -16,7 +17,9 @@ export type Op =
   | "NOT IN"
   | "BETWEEN"
   | "IS NULL"
-  | "IS NOT NULL";
+  | "IS NOT NULL"
+  | "EXISTS"
+  | "NOT EXISTS";
 
 export const OPS: Op[] = [
   "=",
@@ -33,10 +36,29 @@ export const OPS: Op[] = [
   "BETWEEN",
   "IS NULL",
   "IS NOT NULL",
+  "EXISTS",
+  "NOT EXISTS",
 ];
 
 /** Operators with no value. */
 export const NO_VALUE: ReadonlySet<Op> = new Set(["IS NULL", "IS NOT NULL"]);
+
+/** Operators whose only value is a subquery, with no column. */
+export const SUB_ONLY: ReadonlySet<Op> = new Set(["EXISTS", "NOT EXISTS"]);
+
+/** Operators that take a subquery as their value. */
+export const SUB_OK: ReadonlySet<Op> = new Set([
+  "=",
+  "<>",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "IN",
+  "NOT IN",
+  "EXISTS",
+  "NOT EXISTS",
+]);
 
 export interface Cond {
   kind: "cond";
@@ -48,6 +70,8 @@ export interface Cond {
   /** How each value was written when read from text; null once typed in,
    *  so the column's type decides. */
   kinds: (ValueKind | null)[];
+  /** The value is the subquery with this marker, instead of `values`. */
+  sub?: number;
 }
 
 export interface Group {
@@ -71,7 +95,8 @@ export const emptyCond = (column = ""): Cond => ({
 
 type Read = { value: string; kind: ValueKind } | null;
 
-function readValue(n: Node, text: (n: Node) => string): Read {
+/** A literal as its typed value and kind, else null. */
+export function readValue(n: Node, text: (n: Node) => string): Read {
   switch (n.type) {
     case "string_literal":
       return { value: String(n.value), kind: "text" };
@@ -103,7 +128,34 @@ function topJoin(n: Node): "AND" | "OR" {
     : "AND";
 }
 
+/** The marker a masked subquery stands for, if `n` is one. */
+const subOf = (n: Node, text: (n: Node) => string) =>
+  n.type === "paren_expr" ? maskedMarker(text(n)) : null;
+
 function readCond(n: Node, text: (n: Node) => string): Cond | null {
+  if (n.type === "prefix_op_expr") {
+    let not = false;
+    let e = n;
+    if (keyword(e.operator).toUpperCase() === "NOT") {
+      not = true;
+      e = e.expr as Node;
+    }
+    if (
+      e.type !== "prefix_op_expr" ||
+      keyword(e.operator).toUpperCase() !== "EXISTS"
+    )
+      return null;
+    const sub = subOf(e.expr as Node, text);
+    if (sub === null) return null;
+    return {
+      kind: "cond",
+      column: "",
+      op: not ? "NOT EXISTS" : "EXISTS",
+      values: [],
+      kinds: [],
+      sub,
+    };
+  }
   const column = (left: unknown) =>
     left && (isColumn(left as Node) || (left as Node).type === "func_call")
       ? text(left as Node)
@@ -137,6 +189,19 @@ function readCond(n: Node, text: (n: Node) => string): Cond | null {
       kinds: [],
     };
   }
+  const known = op === "!=" ? "<>" : op;
+  const sub = subOf(right, text);
+  if (sub !== null) {
+    if (!SUB_OK.has(known as Op)) return null;
+    return {
+      kind: "cond",
+      column: col,
+      op: known as Op,
+      values: [],
+      kinds: [],
+      sub,
+    };
+  }
   if (op === "IN" || op === "NOT IN") {
     if (right.type !== "paren_expr") return null;
     const list = right.expr as Node;
@@ -151,8 +216,7 @@ function readCond(n: Node, text: (n: Node) => string): Cond | null {
       kinds: read.map((r) => r!.kind),
     };
   }
-  const known = op === "!=" ? "<>" : op;
-  if (!OPS.includes(known as Op)) return null;
+  if (!OPS.includes(known as Op) || SUB_ONLY.has(known as Op)) return null;
   const v = readValue(right, text);
   if (!v) return null;
   return {
@@ -200,6 +264,10 @@ export function parseConditions(
 }
 
 function printCond(c: Cond, typeOf: (column: string) => string | null) {
+  if (c.sub !== undefined) {
+    const sub = markerName(c.sub);
+    return SUB_ONLY.has(c.op) ? `${c.op} ${sub}` : `${c.column} ${c.op} ${sub}`;
+  }
   const type = typeOf(c.column);
   const lit = (i: number) =>
     literal(
@@ -220,6 +288,11 @@ function printCond(c: Cond, typeOf: (column: string) => string | null) {
   }
 }
 
+/** Whether a row is filled in enough to print: a column, or an EXISTS
+ *  with its subquery. */
+const filled = (c: Cond) =>
+  SUB_ONLY.has(c.op) ? c.sub !== undefined : !!c.column.trim();
+
 /** Condition rows as WHERE or HAVING text. Rows with no column are left
  *  out. `typeOf` gives a column's catalog type for its literals. */
 export function printConditions(
@@ -229,12 +302,10 @@ export function printConditions(
   const parts: string[] = [];
   for (const item of c.items) {
     if (item.kind === "cond") {
-      if (item.column.trim()) parts.push(printCond(item, typeOf));
+      if (filled(item)) parts.push(printCond(item, typeOf));
       continue;
     }
-    const inner = item.items
-      .filter((x) => x.column.trim())
-      .map((x) => printCond(x, typeOf));
+    const inner = item.items.filter(filled).map((x) => printCond(x, typeOf));
     if (inner.length === 1) parts.push(inner[0]);
     else if (inner.length > 1) parts.push(`(${inner.join(` ${item.join} `)})`);
   }

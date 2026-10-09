@@ -6,8 +6,8 @@ import type { TableRef } from "../api/types";
 import {
   DEFAULT_AGGREGATION_SETUP,
   DEFAULT_QUERY_BUILDER_SETUP,
-  fromClause,
   EMPTY_COMPARE_SETUP,
+  selectQuery,
   type AggregationSetup,
   type QueryBuilderSetup,
   type SqlTarget,
@@ -372,6 +372,7 @@ export function workspaceActions(set: SetState) {
         const cur = getWs(state.workspaces, connId);
         const id = cur.nextQueryBuilderId ?? 0;
         const tab: StudioTab = { kind: "query-builder", conn_id: connId, id };
+        const query = selectQuery();
         const next = addTabToFocusedPane(
           { ...cur, tabs: [...cur.tabs, tab], nextQueryBuilderId: id + 1 },
           tab,
@@ -382,7 +383,8 @@ export function workspaceActions(set: SetState) {
             ...state.queryBuilderTabs,
             [tabKey(tab)]: {
               ...DEFAULT_QUERY_BUILDER_SETUP,
-              clauses: [fromClause()],
+              queries: [query],
+              picked_query_ids: [query.id],
               ...init,
             },
           },

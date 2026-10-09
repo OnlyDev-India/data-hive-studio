@@ -114,7 +114,9 @@ export function Pick({
           {(v: string) => options.find(([k]) => k === v)?.[1] ?? v}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      {/* Aligning the item with the trigger misreads the canvas zoom and
+          lands the popup off the card, so it opens below the trigger. */}
+      <SelectContent alignItemWithTrigger={false}>
         {options.map(([k, text]) => (
           <SelectItem key={k} value={k} className={cn(mono && "font-mono")}>
             {text}

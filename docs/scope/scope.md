@@ -238,7 +238,7 @@ spec [0020](../specs/0020-activity-app-query-setting.md) · code in `src/feature
 The SQL version of the Mongo aggregation builder, for PostgreSQL and SQLite: each clause (FROM, JOIN, WHERE, GROUP BY with aggregates like COUNT, SUM and AVG, HAVING, ORDER BY, LIMIT) is a card on the same canvas, with the rows after that clause previewed beside it, and the SQL goes to the editor or runs into the grid. The design pass settles how much of the aggregation builder's canvas, cards, undo and preview pipeline it shares, how joins are picked (foreign key suggestions vs free form), how clause previews stay cheap on large tables, and whether an existing SELECT can be parsed back into cards.
 **Done when:** on a canvas for a Postgres or SQLite table you can build a joined, filtered, grouped query card by card, see the rows after each clause, and run it or send the SQL to the editor.
 
-spec [0021](../specs/0021-sql-query-builder/index.md) · code in `src/features/query-builder`, `src/shared/components/builder-canvas`, `src/features/aggregation-builder`, `src/shared/api/sql-builder.ts`, `crates/dh-core/src/db/sql_builder`, `crates/dh-server/src/routes`
+spec [0021](../specs/0021-sql-query-builder/index.md) · amended by [0023](../specs/0023-query-builder-many-queries/index.md) · code in `src/features/query-builder`, `src/shared/components/builder-canvas`, `src/features/aggregation-builder`, `src/shared/api/sql-builder.ts`, `crates/dh-core/src/db/sql_builder`, `crates/dh-server/src/routes`
 
 - [x] Design it (spec): `/architect sql query builder`
 - [x] Build it: `/develop sql query builder`
@@ -247,6 +247,13 @@ spec [0021](../specs/0021-sql-query-builder/index.md) · code in `src/features/q
   - [x] Forms and joins: clause forms with the SQL flip, column suggestions, JOIN reorder, foreign key join suggestions and aliases · AC-3, AC-4
   - [x] Database, schema and editor handoff: header dropdowns with Keep, Clear or Cancel, schema qualified output, Open in SQL editor, parse back with Paste SQL and Open in builder, palette and tools menu · AC-1, AC-2, AC-10, AC-11
   - [x] Undo, restore and offline through the shared parts · AC-12, AC-13, AC-14
+- [x] Design the extension (spec): `/architect sql query builder: select first, subqueries, writes, many queries`
+- [x] Build it: `/develop query builder many queries` (spec 0023)
+  - [x] Thin thread: many queries per tab with the saved shape upgrade, written order with SELECT previewing the final rows, query columns and picking, previews for the current query only · AC-1, AC-2, AC-8, AC-9, AC-17, AC-18
+  - [x] Editor round trip and runs: many statement parse back, SQL statement cards, `-- name:` lines, open and send picked or all, Paste SQL adds, the shared run gate, Run and Run all with a result tab per query · AC-7, AC-10, AC-11, AC-12, AC-13, AC-15, AC-19, AC-21
+  - [x] Write queries: UPDATE, DELETE, INSERT and upsert cards and forms, no previews · AC-5, AC-6
+  - [x] Subqueries, CTEs and set operations: side chains with markers, form entry points, chain previews and the correlation check · AC-1, AC-2, AC-3, AC-4
+  - [x] Search, tab wide undo, web and regressions · AC-14, AC-16, AC-20, AC-21
 - [ ] Verify it: `/check verify sql query builder`
 - [ ] Test it: `/test sql query builder`
 
@@ -299,7 +306,9 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Grid column layout by stable key**: the grid's column widths and order are keyed by `conn_id`, so they reset on every connect. Move them onto `stableConnKey` · from spec 0018 · code in `src/shared/components/data-grid`
 - **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`
 - **Aggregation builder extras**: nested side chains (a branch inside a branch, now JSON inside the card), and a per tab `$sample` preview mode if the first N documents prove unrepresentative · from spec 0019 · code in `src/features/aggregation-builder`, `crates/dh-core/src/db/mongodb/pipeline`
-- **Query builder extras**: computed expressions and a DISTINCT toggle in the SELECT form (SQL view only for now), Explain, card titles, notes and disable, image export, an own save and open file format, a Query builder button in the table pane header, and "Then" steps that wrap the query so far as a CTE · from spec 0021 · code in `src/features/query-builder`
+- **Query builder extras**: computed expressions and a DISTINCT toggle in the SELECT form (SQL view only for now), Explain, card titles, notes and disable, image export, an own save and open file format, and a Query builder button in the table pane header ("Then" steps are now covered by CTE cards, spec 0023) · from spec 0021 · code in `src/features/query-builder`
+- **Aggregation builder many pipelines and search**: the SQL builder holds many queries per tab with search (spec 0023); give the Mongo aggregation builder the same, moving `lanes.ts` and `search.ts` into `shared/components/builder-canvas` · from spec 0023 · code in `src/features/aggregation-builder`, `src/shared/components/builder-canvas`
+- **Dry run count for builder writes**: builder writes run like the editor with no preview. If wrong WHERE clauses bite, add a rolled back dry run that shows "N rows will change" before the confirm · from spec 0023 · code in `src/features/query-builder`, `src/shared/hooks`
 - **Sidebar tree extras**: arrow key navigation across the Postgres and Mongo tree (Up/Down between rows, Left/Right to collapse and expand), refresh the matching sidebar list after a SQL tab runs a CREATE or DROP (through `catalogChanges`), team server routes for creating databases and schemas so the web build can offer New schema, and remembering SQLite group expand state per connection · from spec 0022 · code in `src/features/workspace/components/sidebar/table-view`, `crates/dh-server/src/routes`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 

@@ -101,6 +101,8 @@ export interface QueryEditorHandle {
    *  statement the cursor is inside when nothing is selected. Empty array
    *  when there's nothing to run. */
   getTargets: () => QueryTarget[];
+  /** The selected text as is, empty when nothing is selected. */
+  getSelectionText: () => string;
   /** Flag (or clear, with an empty array) specific ranges as failed —
    *  underlines them and shows the message on hover, independent of
    *  whatever a separate results panel shows. */
@@ -569,6 +571,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     );
 
     useImperativeHandle(ref, () => ({
+      getSelectionText: () => {
+        const view = cmsRef.current?.view;
+        if (!view) return "";
+        const { from, to } = view.state.selection.main;
+        return view.state.sliceDoc(from, to);
+      },
       getTargets: () => {
         const view = cmsRef.current?.view;
         if (!view) return [];

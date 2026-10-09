@@ -22,6 +22,7 @@ import {
 import "@xyflow/react/dist/base.css";
 import { ZoomControls } from "@/shared/components/relation-canvas";
 import { useTheme } from "@/shared/theme/theme";
+import { CARD_WIDTH, ESTIMATED_HEIGHT } from "./layout";
 
 const PRO_OPTIONS = { hideAttribution: true };
 
@@ -71,6 +72,28 @@ export function useFitOnce(ready: boolean) {
     fitted.current = true;
     void rf.fitView({ padding: 0.15, maxZoom: 1 });
   }, [ready, rf]);
+}
+
+/** Center node `id` each time `nonce` changes, once React Flow has it.
+ *  `nodes` retries after a render that adds it. */
+export function usePanTo(id: string | null, nonce: number, nodes: unknown) {
+  const rf = useReactFlow();
+  const panned = useRef(0);
+  useEffect(() => {
+    if (!id || nonce === panned.current) return;
+    const frame = requestAnimationFrame(() => {
+      const n = rf.getNode(id);
+      if (!n) return;
+      panned.current = nonce;
+      const w = n.measured?.width ?? CARD_WIDTH;
+      const h = n.measured?.height ?? ESTIMATED_HEIGHT;
+      void rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
+        zoom: Math.max(rf.getZoom(), 0.8),
+        duration: reducedMotion() ? 0 : 300,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [id, nonce, nodes, rf]);
 }
 
 /** The builder canvas: React Flow with dots, the tab's controls floating top
@@ -137,7 +160,7 @@ export function BuilderFlow<N extends Node, E extends Edge>({
         // `m-2!` beats React Flow's own 15px panel margin.
         <Panel
           position="top-right"
-          className="bg-popover rounded-control m-2! flex max-w-[calc(100%-16rem)] flex-wrap items-center justify-end gap-1.5 border p-0.5 shadow-xs"
+          className="bg-popover rounded-control m-2! flex max-w-[calc(100%-14rem)] flex-wrap items-center justify-end gap-1.5 border p-0.5 shadow-xs"
         >
           {toolbar}
         </Panel>

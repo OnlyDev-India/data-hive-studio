@@ -76,14 +76,60 @@ describe("compose", () => {
 
   it("wraps a DISTINCT select so the count is of distinct rows", () => {
     const c = pg([
-      card("from", "orders"),
       card("select", "DISTINCT region"),
+      card("from", "orders"),
       card("limit", "3"),
     ]);
-    expect(c.targets[2].sql).toBe(
+    expect(c.targets.map((t) => t.clause_id)).toEqual([
+      "from",
+      "limit",
+      "select",
+    ]);
+    expect(c.targets[1].sql).toBe(
       "SELECT q.*, COUNT(*) OVER () AS __dh_count FROM (SELECT DISTINCT region FROM (SELECT * FROM orders LIMIT 1000) AS orders LIMIT 3) AS q LIMIT 20",
     );
-    expect(c.targets[2].limit).toBeUndefined();
+    expect(c.targets[1].limit).toBeUndefined();
+  });
+
+  it("walks the cards in run order and previews the whole query on SELECT", () => {
+    const c = pg([
+      card("select", "region, total"),
+      card("from", "orders"),
+      card("where", "total > 1"),
+      card("order", "total DESC"),
+      card("limit", "5"),
+    ]);
+    expect(c.sql).toBe(
+      "SELECT region, total FROM orders WHERE total > 1 ORDER BY total DESC LIMIT 5",
+    );
+    expect(c.targets.map((t) => t.clause_id)).toEqual([
+      "from",
+      "where",
+      "order",
+      "limit",
+      "select",
+    ]);
+    // The SELECT card's target is the whole query's, LIMIT count included.
+    expect(c.targets[4]).toEqual({ ...c.targets[3], clause_id: "select" });
+    // WHERE runs before SELECT, so its preview has every column.
+    expect(c.targets[1].sql).toMatch(/^SELECT \*, COUNT/);
+  });
+
+  it("reads an empty SELECT as every column, never skipped", () => {
+    const c = pg([card("select", ""), card("from", "orders")]);
+    expect(c.skipped.has("select")).toBe(false);
+    expect(c.sql).toBe("SELECT * FROM orders");
+    expect(c.targets.map((t) => t.clause_id)).toEqual(["from", "select"]);
+  });
+
+  it("gives SELECT no preview while a later card fails", () => {
+    const c = pg([
+      card("select", ""),
+      card("from", "orders"),
+      card("order", "total >>"),
+    ]);
+    expect(c.errors.has("order")).toBe(true);
+    expect(c.targets.map((t) => t.clause_id)).toEqual(["from"]);
   });
 
   it("skips empty optional cards and blocks on an empty FROM", () => {
@@ -131,5 +177,59 @@ describe("shownCount", () => {
     expect(shownCount(4, t)).toBe(2);
     expect(shownCount(1, t)).toBe(0);
     expect(shownCount(37)).toBe(37);
+  });
+});
+
+describe("compose, statements and bind variables", () => {
+  it("sends a statement card as written, with no previews", () => {
+    const c = pg([card("statement", "CREATE INDEX i ON t (a);")]);
+    expect(c.errors.size).toBe(0);
+    expect(c.sql).toBe("CREATE INDEX i ON t (a)");
+    expect(c.output).toBe(c.sql);
+    expect(c.targets).toEqual([]);
+    expect(pg([card("statement", "  ")]).errors.get("statement")).toBe(
+      "Write a statement",
+    );
+  });
+
+  it("previews nothing from a bind variable card on, but still composes", () => {
+    const c = pg([
+      card("select", ""),
+      card("from", "orders o"),
+      card("where", "o.id = :id"),
+      card("order", "o.total"),
+    ]);
+    expect(c.errors.size).toBe(0);
+    expect([...c.binds]).toEqual(["where"]);
+    expect(c.targets.map((t) => t.clause_id)).toEqual(["from"]);
+    expect(c.sql).toBe(
+      "SELECT * FROM orders o WHERE o.id = :id ORDER BY o.total",
+    );
+  });
+
+  it("reads ${name} as a bind variable and keeps :: casts", () => {
+    const c = pg([
+      card("select", "o.total::text AS t"),
+      card("from", "orders o"),
+      card("where", "o.status = ${status}"),
+    ]);
+    expect(c.errors.size).toBe(0);
+    expect([...c.binds]).toEqual(["where"]);
+    const plain = pg([
+      card("select", "o.total::text AS t"),
+      card("from", "orders o"),
+    ]);
+    expect(plain.binds.size).toBe(0);
+    expect(plain.targets.map((t) => t.clause_id)).toEqual(["from", "select"]);
+  });
+
+  it("still finds a parse error after a bind variable card", () => {
+    const c = pg([
+      card("select", ""),
+      card("from", "orders o"),
+      card("where", "o.id = :id"),
+      card("order", "o.total DESC DESC"),
+    ]);
+    expect(c.errors.has("order")).toBe(true);
   });
 });

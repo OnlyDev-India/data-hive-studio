@@ -116,3 +116,26 @@ export function parseLimit(
 export function isDistinct(select: string): boolean {
   return /^\s*distinct\b/i.test(select);
 }
+
+/** A CTE card's name, its RECURSIVE word, and any column list, from its
+ *  body (`RECURSIVE recent (a, b)`). */
+export function readCte(
+  body: string,
+): { recursive: boolean; name: string; columns: string } | null {
+  const m =
+    /^\s*(recursive\s+)?("(?:[^"]|"")+"|`[^`]+`|[A-Za-z_][\w$]*)\s*(\([^()]*\))?\s*$/i.exec(
+      body,
+    );
+  if (!m) return null;
+  return { recursive: !!m[1], name: m[2], columns: m[3]?.trim() ?? "" };
+}
+
+export const SET_OPS = ["UNION", "UNION ALL", "INTERSECT", "EXCEPT"] as const;
+
+/** A set operation card's operator, normalized, or null. */
+export function readSetOp(body: string): (typeof SET_OPS)[number] | null {
+  const op = body.trim().replace(/\s+/g, " ").toUpperCase();
+  return (SET_OPS as readonly string[]).includes(op)
+    ? (op as (typeof SET_OPS)[number])
+    : null;
+}

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { syntaxHighlighting } from "@codemirror/language";
 import { PostgreSQL, SQLite, sql } from "@codemirror/lang-sql";
-import { EditorView } from "@codemirror/view";
+import { EditorView, tooltips } from "@codemirror/view";
 import { completeFromList } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import {
@@ -10,6 +10,7 @@ import {
   oneDarkTheme,
 } from "@codemirror/theme-one-dark";
 import { appEditorTheme } from "@/shared/theme/codemirror-theme";
+import { getTooltipRoot } from "@/shared/components/query-editor/tooltip-root";
 import { cn } from "@/shared/lib/utils";
 import type { Dialect } from "../lib/sql-text";
 
@@ -26,6 +27,13 @@ const BASIC_SETUP = {
   searchKeymap: false,
   tabSize: 2,
 };
+
+// The card clips its overflow and the canvas transforms it, so suggestions
+// render outside both, above the canvas panels.
+const fragmentTooltips = tooltips({ parent: getTooltipRoot() });
+const tooltipStackingTheme = EditorView.baseTheme({
+  ".cm-tooltip": { zIndex: "1000" },
+});
 
 /** A small SQL editor for one card's fragment, with the card's columns as
  *  suggestions. */
@@ -57,6 +65,8 @@ export function SqlFragmentEditor({
       oneDarkTheme,
       appEditorTheme,
       syntaxHighlighting(oneDarkHighlightStyle),
+      fragmentTooltips,
+      tooltipStackingTheme,
       sql({ dialect: dialect === "postgresql" ? PostgreSQL : SQLite }),
       EditorState.languageData.of(() => [
         {

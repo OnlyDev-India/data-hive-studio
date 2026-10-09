@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { Link2 } from "lucide-react";
+import { Braces, Link2 } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -26,19 +26,28 @@ export function TablePicker({
   trigger,
   onPick,
   suggestions = [],
+  onSubquery,
+  defaultOpen = false,
+  onClosed,
 }: {
   trigger: ReactElement;
   onPick: (t: PickTable, suggestion?: JoinSuggestion) => void;
   suggestions?: JoinSuggestion[];
+  /** Offers "Subquery", reading another query's rows instead. */
+  onSubquery?: () => void;
+  /** Opens as it appears. */
+  defaultOpen?: boolean;
+  onClosed?: () => void;
 }) {
   const { tables, home, loadOtherSchemas } = useTables();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <Popover
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
         if (o) loadOtherSchemas();
+        else onClosed?.();
       }}
     >
       <PopoverTrigger render={trigger} />
@@ -47,6 +56,23 @@ export function TablePicker({
           <CommandInput placeholder="Find a table…" autoFocus />
           <CommandList>
             <CommandEmpty>No table matches.</CommandEmpty>
+            {onSubquery && (
+              <CommandGroup>
+                <CommandItem
+                  value="subquery"
+                  onSelect={() => {
+                    setOpen(false);
+                    onSubquery();
+                  }}
+                >
+                  <Braces className="text-muted-foreground size-3" />
+                  Subquery
+                  <span className="text-muted-foreground text-caption ml-auto">
+                    rows from a query
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+            )}
             {suggestions.length > 0 && (
               <CommandGroup heading="Linked by a foreign key">
                 {suggestions.map((s, i) => (

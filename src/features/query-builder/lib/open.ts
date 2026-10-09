@@ -1,6 +1,6 @@
 import { getActiveSchema } from "@/shared/api";
 import { openQueryBuilderFor, useStudioStore } from "@/shared/store";
-import { parseBack } from "./parse-back";
+import { MAX_STATEMENTS, parseStatements, splitStatements } from "./parse-back";
 
 /** Open a new query builder tab on a Postgres or SQLite connection,
  *  starting with a FROM card for `table` when given. With no schema named,
@@ -18,9 +18,9 @@ export async function openQueryBuilderOn(
   openQueryBuilderFor(conn, { ...target, schema: schema || undefined });
 }
 
-/** Open the SELECT `text` as cards in a new query builder tab, on the
- *  editor's database and schema. A query the cards can't hold opens
- *  nothing and says why. */
+/** Open every statement in `text` as queries in one new query builder
+ *  tab, on the editor's database and schema: cards where they fit, SQL
+ *  statements where not. More than `MAX_STATEMENTS` opens nothing. */
 export async function openQueryBuilderText(
   conn_id: string,
   text: string,
@@ -29,15 +29,20 @@ export async function openQueryBuilderText(
   const s = useStudioStore.getState();
   const conn = s.open.find((c) => c.id === conn_id);
   if (!conn) return false;
-  const r = parseBack(text, conn.kind === "postgres" ? "postgresql" : "sqlite");
-  if (!r.ok) {
+  const statements = splitStatements(text);
+  if (statements.length > MAX_STATEMENTS) {
     s.pushNotification({
       kind: "error",
-      title: "Can't open this query in the builder",
-      detail: r.error,
+      title: "Too many statements for one builder tab",
+      detail: `This holds ${statements.length} statements, and a builder tab opens at most ${MAX_STATEMENTS}. Select a part of it, then open that.`,
     });
     return false;
   }
+  const queries = parseStatements(
+    text,
+    conn.kind === "postgres" ? "postgresql" : "sqlite",
+  );
+  if (queries.length === 0) return false;
   const schema =
     conn.kind === "postgres" && target.schema === undefined
       ? await getActiveSchema(conn_id).catch(() => undefined)
@@ -45,7 +50,7 @@ export async function openQueryBuilderText(
   openQueryBuilderFor(conn, {
     database: target.database,
     schema: schema || undefined,
-    clauses: r.clauses,
+    queries,
   });
   return true;
 }
