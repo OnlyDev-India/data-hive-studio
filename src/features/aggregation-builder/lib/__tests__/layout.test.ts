@@ -2,19 +2,21 @@ import { describe, expect, it } from "vitest";
 import type { AggregationStage } from "@/shared/store";
 import {
   ADD_NODE_WIDTH,
-  addId,
-  BRANCH_GAP,
   CARD_WIDTH,
   CHAIN_GAP,
   chainLayout,
-  COLUMN_GAP,
   dragSlot,
   ESTIMATED_HEIGHT,
+  linkAt,
+  MAIN_ADD,
+} from "@/shared/components/builder-canvas";
+import {
+  addId,
+  BRANCH_GAP,
+  COLUMN_GAP,
   HEAD_HEIGHT,
   headId,
   joinId,
-  linkAt,
-  MAIN_ADD,
   pipelineLayout,
 } from "../layout";
 import { newStage } from "../model";

@@ -3,7 +3,12 @@ import type {
   GraphTable,
   SchemaGraph,
 } from "@/shared/api/types";
-import { stableConnKey, tabKey, useStudioStore } from "@/shared/store";
+import {
+  openQueryBuilderFor,
+  stableConnKey,
+  tabKey,
+  useStudioStore,
+} from "@/shared/store";
 import type { TableAction } from "@/shared/components/table-menu";
 
 /** Open a diagram box's table in its own tab, in the right database and
@@ -56,6 +61,9 @@ export function actFromDiagram(
       return;
     case "aggregate":
       if (db !== undefined) s.openAggregation(conn.id, db, t.name);
+      return;
+    case "query_builder":
+      openQueryBuilderFor(conn, { database: db, schema, table: t.name });
       return;
     case "import":
       s.openImport({ connId: conn.id, table: t.name, database: db, schema });

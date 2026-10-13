@@ -11,6 +11,7 @@ mod filters;
 mod rows;
 mod cancel;
 mod exec;
+mod read_only;
 mod stream;
 mod compare;
 #[cfg(test)]

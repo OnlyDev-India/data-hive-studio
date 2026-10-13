@@ -162,12 +162,17 @@ pub async fn execute_op_stream(
 /// (rows already streamed stay with the caller) and is logged as a failed
 /// "Stopped by user" entry; if the database has not confirmed within the
 /// cap, the query is dropped here so the tab still frees up.
+///
+/// `read_only`: run it read only whatever the connection's flag (the query
+/// builder's Run), so a statement that writes fails with the database's
+/// own error.
 pub async fn run_sql_stream(
     conn_id: &str,
     database: Option<&str>,
     schema: Option<&str>,
     sql: &str,
     run_id: Option<&str>,
+    read_only: bool,
     on_batch: impl FnMut(QueryChunk) -> DbResult<()> + Send,
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
@@ -187,7 +192,17 @@ pub async fn run_sql_stream(
     let id = conn_id.to_string();
     let run_id = run_id.map(str::to_string);
     let res = with_connection(conn_id, move |a| async move {
-        run_sql_stream_on(&*a, &id, database.as_deref(), schema.as_deref(), &sql, run_id.as_deref(), &mut sink).await
+        run_sql_stream_on(
+            &*a,
+            &id,
+            database.as_deref(),
+            schema.as_deref(),
+            &sql,
+            run_id.as_deref(),
+            read_only,
+            &mut sink,
+        )
+        .await
     })
     .await;
     match res {
@@ -224,12 +239,20 @@ pub async fn run_sql_stream_on(
     schema: Option<&str>,
     sql: &str,
     run_id: Option<&str>,
+    read_only: bool,
     sink: BatchSink<'_>,
 ) -> DbResult<QueryResult> {
     let t = std::time::Instant::now();
     let run = run_id.map(|id| runs::register(conn_id, id));
     let run_ref = run.as_ref();
-    let res = runs::until_abandoned(run_ref, a.run_sql_stream(database, schema, sql, run_ref, sink)).await;
+    let call = async {
+        if read_only {
+            a.run_read_only(database, schema, sql, None, run_ref, sink).await
+        } else {
+            a.run_sql_stream(database, schema, sql, run_ref, sink).await
+        }
+    };
+    let res = runs::until_abandoned(run_ref, call).await;
     // After the adapter has let go of its connection (it finishes the run
     // itself before releasing one); this also covers adapters that ignore
     // `run` and the abandon path above.

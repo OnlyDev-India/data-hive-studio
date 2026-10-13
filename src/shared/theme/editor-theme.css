@@ -1,0 +1,20 @@
+/* Code editor colors. Light follows One Light, dark today's One Dark. */
+:root {
+  --editor-background: var(--background);
+  --syntax-keyword: oklch(0.54 0.19 263);
+  --syntax-property: oklch(0.55 0.12 77);
+  --syntax-type: oklch(0.52 0.14 143);
+  --syntax-library: oklch(0.52 0.21 329);
+  --syntax-muted: oklch(0.53 0.02 274);
+  --syntax-invalid: oklch(0.56 0.18 28);
+}
+
+.dark {
+  --editor-background: oklch(0.2925 0.0157 264.3); /* One Dark #282c34 */
+  --syntax-keyword: oklch(0.73 0.12 245);
+  --syntax-property: oklch(0.73 0.09 64);
+  --syntax-type: oklch(0.77 0.11 133);
+  --syntax-library: oklch(0.69 0.16 318);
+  --syntax-muted: oklch(0.62 0.03 262);
+  --syntax-invalid: oklch(0.67 0.14 17);
+}

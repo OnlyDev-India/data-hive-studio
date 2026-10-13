@@ -47,7 +47,7 @@ async fn stopped_editor_run_resolves_cancelled_and_frees_the_connection() {
             dh_core::db::cancel_run(&conn_id, run_id).await
         })
     };
-    let res = dh_core::db::run_sql_stream(&conn_id, None, None, heavy, Some(run_id), |_chunk| Ok(()))
+    let res = dh_core::db::run_sql_stream(&conn_id, None, None, heavy, Some(run_id), false, |_chunk| Ok(()))
         .await
         .expect("a stopped run resolves Ok, not Err");
     assert!(res.cancelled);
@@ -62,7 +62,7 @@ async fn stopped_editor_run_resolves_cancelled_and_frees_the_connection() {
     assert_eq!(logged.error.as_deref(), Some("Stopped by user"));
 
     // Right away: the same connection answers the next query.
-    let next = dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT 1", None, |_chunk| Ok(()))
+    let next = dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT 1", None, false, |_chunk| Ok(()))
         .await
         .unwrap();
     assert!(!next.cancelled);
@@ -74,7 +74,7 @@ async fn stopped_editor_run_resolves_cancelled_and_frees_the_connection() {
 async fn stop_after_the_run_finished_is_harmless() {
     let conn_id = temp_sqlite_conn().await;
     let run_id = "run-registry-late-1";
-    let res = dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT 1", Some(run_id), |_chunk| Ok(()))
+    let res = dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT 1", Some(run_id), false, |_chunk| Ok(()))
         .await
         .unwrap();
     assert!(!res.cancelled);
@@ -96,14 +96,14 @@ async fn stopping_one_run_leaves_another_run_on_the_same_connection_alone() {
     let doomed = {
         let conn_id = conn_id.clone();
         tokio::spawn(async move {
-            dh_core::db::run_sql_stream(&conn_id, None, None, HEAVY_SELECT, Some("run-pair-a"), |_c| Ok(())).await
+            dh_core::db::run_sql_stream(&conn_id, None, None, HEAVY_SELECT, Some("run-pair-a"), false, |_c| Ok(())).await
         })
     };
     let bystander = {
         let conn_id = conn_id.clone();
         tokio::spawn(async move {
             let mut rows = Vec::new();
-            let res = dh_core::db::run_sql_stream(&conn_id, None, None, MEDIUM_SELECT, Some("run-pair-b"), |chunk| {
+            let res = dh_core::db::run_sql_stream(&conn_id, None, None, MEDIUM_SELECT, Some("run-pair-b"), false, |chunk| {
                 rows.extend(chunk.rows);
                 Ok(())
             })
@@ -130,14 +130,14 @@ async fn stopping_one_run_leaves_another_run_on_the_same_connection_alone() {
 #[tokio::test]
 async fn a_late_stop_for_a_finished_run_does_not_touch_the_next_query() {
     let conn_id = temp_sqlite_conn().await;
-    dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT 1", Some("run-late-old"), |_c| Ok(()))
+    dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT 1", Some("run-late-old"), false, |_c| Ok(()))
         .await
         .unwrap();
 
     let next = {
         let conn_id = conn_id.clone();
         tokio::spawn(async move {
-            dh_core::db::run_sql_stream(&conn_id, None, None, MEDIUM_SELECT, Some("run-late-next"), |_c| Ok(())).await
+            dh_core::db::run_sql_stream(&conn_id, None, None, MEDIUM_SELECT, Some("run-late-next"), false, |_c| Ok(())).await
         })
     };
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -157,14 +157,14 @@ async fn a_run_stopped_before_it_starts_resolves_cancelled_and_runs_nothing() {
     dh_core::db::run_sql(&conn_id, None, None, "CREATE TABLE audit (n INTEGER)", "app").await.unwrap();
 
     let early = dh_core::db::cancel_run(&conn_id, "run-early-1").await;
-    let res = dh_core::db::run_sql_stream(&conn_id, None, None, HEAVY_SELECT, Some("run-early-1"), |_c| Ok(()))
+    let res = dh_core::db::run_sql_stream(&conn_id, None, None, HEAVY_SELECT, Some("run-early-1"), false, |_c| Ok(()))
         .await
         .expect("a stopped run resolves Ok, not Err");
 
     assert_eq!(early.state, dh_core::db::CancelState::NotRunning);
     assert!(res.cancelled);
     assert!(res.rows.is_empty());
-    let next = dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT count(*) FROM audit", None, |_c| Ok(()))
+    let next = dh_core::db::run_sql_stream(&conn_id, None, None, "SELECT count(*) FROM audit", None, false, |_c| Ok(()))
         .await
         .unwrap();
     assert!(!next.cancelled);

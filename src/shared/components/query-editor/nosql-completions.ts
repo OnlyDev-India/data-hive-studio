@@ -38,15 +38,6 @@ export const NOSQL_SHELL_COMPLETIONS: Completion[] = [
   { label: "pretty", type: "method" },
 ];
 
-/** Database-level methods — valid right after bare `db.`, alongside (not
- *  instead of) collection names. Distinct from `NOSQL_SHELL_COMPLETIONS`,
- *  which are collection methods (`db.<collection>.find(...)`); `aggregate`
- *  also has a database-level form for pipelines that don't start from a
- *  collection (`$currentOp`, `$listSessions`, a literal `$documents` stage). */
-const DB_LEVEL_METHODS: Completion[] = [
-  { label: "aggregate", type: "method", detail: "database-level" },
-];
-
 /** Shell keywords offered anywhere (`use analytics`, `show collections`, …). */
 const SHELL_KEYWORDS: Completion[] = [
   { label: "use", type: "keyword" },
@@ -390,10 +381,9 @@ function queryBodyCompletions(connId: string): CompletionSource {
 }
 
 /** Completions for the Mongo console: right after `db.` this offers
- *  collection names PLUS database-level methods (currently just
- *  `aggregate` — collection methods like `find` only make sense once a
- *  collection's been chosen, so they're withheld here); right after
- *  `db.<collection>.` it offers ONLY (collection) shell methods; inside a
+ *  collection names only (methods only make sense once a collection's
+ *  been chosen); right after `db.<collection>.` it offers ONLY (collection)
+ *  shell methods; inside a
  *  call's arguments it delegates to `queryBodyCompletions` for
  *  field/operator suggestions; anything else falls back to prefix-matching
  *  the combined method/collection/keyword list (e.g. typing `use`,
@@ -403,7 +393,6 @@ export function nosqlConsoleCompletions(
   methods: Completion[],
   collections: Completion[],
 ): CompletionSource {
-  const dbLevelOptions = [...collections, ...DB_LEVEL_METHODS];
   const shellFallback = completeFromList([
     ...methods,
     ...collections,
@@ -415,14 +404,13 @@ export function nosqlConsoleCompletions(
     const before = ctx.state.doc.sliceString(0, ctx.pos);
 
     // Right after `db.`, optionally with a partial name already typed —
-    // collection names, plus database-level methods (`aggregate`). Built
-    // directly (not via `completeFromList`, which needs at least one typed
+    // collection names only. Built directly (not via `completeFromList`, which needs at least one typed
     // word char to match — it would show nothing right after a bare `db.`).
     const collMatch = /db\.([\w$]*)$/.exec(before);
     if (collMatch) {
       return {
         from: ctx.pos - collMatch[1].length,
-        options: dbLevelOptions,
+        options: collections,
         validFor: /^[\w$]*$/,
       };
     }

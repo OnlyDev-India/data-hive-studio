@@ -127,7 +127,7 @@ impl<'a> Parser<'a> {
                 self.expect_word("false")?;
                 Ok(Bson::Boolean(false))
             }
-            b'n' => {
+            b'n' if !self.s[self.i..].starts_with(b"new") => {
                 self.expect_word("null")?;
                 Ok(Bson::Null)
             }

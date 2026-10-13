@@ -220,7 +220,7 @@ async fn fetch_all_on(
 
 /// Prepare once up front to learn the column names (same trick as
 /// `run_sql_params`), then stream rows off `conn` in fixed size batches.
-async fn stream_select(
+pub(super) async fn stream_select(
     conn: &mut SqliteConnection,
     sql: &str,
     params: &[Option<String>],

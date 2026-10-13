@@ -1,6 +1,5 @@
 import { ChevronRight, FileCode } from "lucide-react";
 import { Fragment, useCallback, useState, type UIEvent } from "react";
-import { editorSurfaceColors } from "@/shared/theme/codemirror-theme";
 
 /** Whether the editor below is scrolled off its first line. Scroll events
  *  don't bubble, so the editor's wrapper listens in the capture phase. */
@@ -26,10 +25,8 @@ export function FileBreadcrumb({
   const last = segments.length - 1;
   return (
     <div
-      className="text-small relative z-10 flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-0.5"
+      className="text-small bg-editor text-muted-foreground relative z-10 flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-0.5"
       style={{
-        backgroundColor: editorSurfaceColors.background,
-        color: editorSurfaceColors.muted,
         boxShadow: scrolled
           ? "0 6px 6px -6px color-mix(in oklch, var(--foreground) 25%, transparent)"
           : undefined,
@@ -41,10 +38,7 @@ export function FileBreadcrumb({
         <Fragment key={i}>
           {i > 0 && <ChevronRight className="size-3 shrink-0 opacity-60" />}
           {i === last ? (
-            <span
-              className="flex shrink-0 items-center gap-1"
-              style={{ color: editorSurfaceColors.foreground }}
-            >
+            <span className="text-foreground flex shrink-0 items-center gap-1">
               <FileCode className="size-3.5" />
               {seg}
             </span>

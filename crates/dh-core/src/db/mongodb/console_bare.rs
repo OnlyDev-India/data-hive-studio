@@ -37,11 +37,9 @@ impl MongoAdapter {
                 ..Default::default()
             });
         }
-        let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
+        let v = super::console_parse::parse_value(s)
             .map_err(|e| DbError::InvalidOperation(format!("invalid JSON: {e}")))?;
-        if let serde_json::Value::Object(_) = v {
-            let filter = bson::to_document(&v)
-                .map_err(|e| DbError::InvalidOperation(format!("mongo: {e}")))?;
+        if let bson::Bson::Document(filter) = v {
             let mut opts = mongodb::options::FindOptions::builder().build();
             opts.comment = comment.clone();
             opts.limit = Some(50);

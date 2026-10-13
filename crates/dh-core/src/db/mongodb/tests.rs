@@ -2,7 +2,7 @@ use super::*;
 use crate::db::mongodb::field_tree::{FIELD_TREE_NODE_BUDGET, FieldTreeAccum, accumulate_field_tree, build_field_children};
 use crate::db::mongodb::filter::build_filter;
 use crate::db::mongodb::cancel::{current_op_filter, mongo_canceller, mongo_err, run_comment};
-use crate::db::mongodb::console_parse::{parse_chain, parse_db_call, parse_filter, split_top_level, validate_chain};
+use crate::db::mongodb::console_parse::{parse_chain, parse_db_call, parse_filter, parse_json_object, parse_json_object_array, split_top_level, validate_chain};
 use bson::{doc, Bson};
 use mongodb::error::ErrorKind;
 use crate::db::DbError;
@@ -170,6 +170,24 @@ fn parse_filter_variants() {
     // Unquoted (mongosh-style) keys are accepted, same as quoted ones.
     let d = parse_filter("{name:\"test\"}").unwrap().unwrap();
     assert_eq!(d.get_str("name"), Ok("test"));
+}
+
+#[test]
+fn console_accepts_bson_constructors() {
+    let c = parse_db_call(r#"db.managers.find({"_id":ObjectId("63d91962401f718979049b73")});"#).unwrap();
+    let d = parse_filter(&c.args).unwrap().unwrap();
+    assert_eq!(d.get_object_id("_id").unwrap().to_hex(), "63d91962401f718979049b73");
+
+    let d = parse_filter(r#"{ at: { $gte: ISODate("2026-01-01T00:00:00Z") }, n: NumberLong("5") }"#).unwrap().unwrap();
+    assert!(matches!(d.get_document("at").unwrap().get("$gte"), Some(Bson::DateTime(_))));
+    assert_eq!(d.get_i64("n"), Ok(5));
+
+    let d = parse_filter(r#"{ "_id": { "$oid": "63d91962401f718979049b73" } }"#).unwrap().unwrap();
+    assert!(d.get_object_id("_id").is_ok());
+
+    let docs = parse_json_object_array(r#"[{ _id: ObjectId("63d91962401f718979049b73") }]"#, "docs").unwrap();
+    assert!(docs[0].get_object_id("_id").is_ok());
+    assert!(parse_json_object(r#"{ $set: { at: ISODate("2026-01-01T00:00:00Z") } }"#, "update").is_ok());
 }
 
 #[test]

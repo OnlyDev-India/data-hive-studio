@@ -28,7 +28,10 @@ import {
   type Diagnostic,
 } from "@codemirror/lint";
 import type { Completion } from "@codemirror/autocomplete";
-import { appEditorExtensions } from "@/shared/theme/codemirror-theme";
+import {
+  appEditorTheme,
+  useEditorTheme,
+} from "@/shared/theme/codemirror-theme";
 import { useStudioStore } from "@/shared/store";
 import { cn, statementRanges } from "@/shared/lib/utils";
 import {
@@ -101,6 +104,8 @@ export interface QueryEditorHandle {
    *  statement the cursor is inside when nothing is selected. Empty array
    *  when there's nothing to run. */
   getTargets: () => QueryTarget[];
+  /** The selected text as is, empty when nothing is selected. */
+  getSelectionText: () => string;
   /** Flag (or clear, with an empty array) specific ranges as failed —
    *  underlines them and shows the message on hover, independent of
    *  whatever a separate results panel shows. */
@@ -310,6 +315,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     ref,
   ) {
     const cmsRef = useRef<ReactCodeMirrorRef>(null);
+    const editorTheme = useEditorTheme();
 
     // Word-breaking characters close a lingering completion popup instead of
     // filtering it. `.` gets its own handler below: it's the member-access
@@ -569,6 +575,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     );
 
     useImperativeHandle(ref, () => ({
+      getSelectionText: () => {
+        const view = cmsRef.current?.view;
+        if (!view) return "";
+        const { from, to } = view.state.selection.main;
+        return view.state.sliceDoc(from, to);
+      },
       getTargets: () => {
         const view = cmsRef.current?.view;
         if (!view) return [];
@@ -707,14 +719,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           collectionOptions,
         );
         return [
-          // `oneDarkTheme` (background/cursor/selection/gutter colors) +
-          // `appEditorTheme` (our completion-icon overrides) +
-          // `syntaxHighlighting(oneDarkHighlightStyle)` — the SQL branch
-          // below gets all three via this same spread; this branch used to
-          // only pull in `appEditorTheme` on its own, which has no
-          // background/color rules of its own, so the console rendered in
-          // whatever unstyled default CodeMirror falls back to.
-          ...appEditorExtensions,
+          appEditorTheme,
           fontSizeTheme,
           editorSearch,
           editorSearchMatchTheme,
@@ -773,7 +778,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       // why this can't be called inside the languageData callback.
       const schemaSource = schemaCompletions(schema ?? {}, schemaTables ?? {});
       return [
-        ...appEditorExtensions,
+        appEditorTheme,
         fontSizeTheme,
         editorSearch,
         editorSearchMatchTheme,
@@ -878,7 +883,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
               onChange={onChange}
               onUpdate={handleViewUpdate}
               extensions={extensions}
-              theme="none"
+              theme={editorTheme}
               style={{ height: "100%" }}
               readOnly={readOnly}
               basicSetup={basicSetup}

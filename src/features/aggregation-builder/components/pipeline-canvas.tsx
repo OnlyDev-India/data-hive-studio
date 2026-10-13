@@ -1,27 +1,26 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  Background,
-  BackgroundVariant,
-  Panel,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type NodeChange,
-} from "@xyflow/react";
-import "@xyflow/react/dist/base.css";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { Download, Loader2, Plus, Workflow } from "lucide-react";
+import {
+  AddCard,
+  AddMenuContext,
+  BuilderFlow,
+  InsertLink,
+  MAIN_ADD,
+  dragSlot,
+  linkAt,
+  useFitOnce,
+  useNodeSizes,
+  type AddCardNode,
+  type AddMenu,
+  type CardFault,
+  type InsertEdge,
+  type XY,
+} from "@/shared/components/builder-canvas";
 import { useStudioStore, type AggregationStage } from "@/shared/store";
 import {
   DiagramEmpty,
   exportDiagram,
-  ZoomControls,
   type ExportFormat,
 } from "@/shared/components/relation-canvas";
 import {
@@ -30,24 +29,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
-import { useTheme } from "@/shared/theme/theme";
 import {
   CardActionsContext,
   FieldsContext,
   type CardActions,
 } from "../lib/card-actions";
-import type { CardFault } from "../lib/card-state";
 import { joinedCollection } from "../lib/fields";
-import {
-  addId,
-  dragSlot,
-  headId,
-  joinId,
-  linkAt,
-  MAIN_ADD,
-  pipelineLayout,
-  type XY,
-} from "../lib/layout";
+import { addId, headId, joinId, pipelineLayout } from "../lib/layout";
 import {
   allStages,
   chainOf,
@@ -67,33 +55,21 @@ import {
   type JoinCardNode,
   type SideEdge,
 } from "./branch-parts";
-import {
-  AddStage,
-  InsertLink,
-  type AddStageNode,
-  type InsertEdge,
-} from "./chain-parts";
 import { StageCard, type StageCardNode } from "./stage-card";
 import { OperatorMenu } from "./operator-menu";
 import { StagePalette, STAGE_MIME } from "./stage-palette";
 import { Button } from "@/shared/components/ui/button";
 
-type FlowNode = StageCardNode | AddStageNode | BranchHeadNode | JoinCardNode;
+type FlowNode = StageCardNode | AddCardNode | BranchHeadNode | JoinCardNode;
 type FlowEdge = InsertEdge | SideEdge;
 
 const nodeTypes = {
   stage: StageCard,
-  add: AddStage,
+  add: AddCard,
   head: BranchHead,
   join: JoinCard,
 };
 const edgeTypes = { insert: InsertLink, side: SideLink };
-const PRO_OPTIONS = { hideAttribution: true };
-
-const reducedMotion = () =>
-  typeof window !== "undefined" &&
-  !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
 const sameChain = (a: ChainRef, b: ChainRef) =>
   a === b || (!!a && !!b && a.parent === b.parent && a.key === b.key);
 
@@ -153,20 +129,10 @@ function CanvasInner({
   const rf = useReactFlow<FlowNode>();
   const wrapper = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
-  const { dark } = useTheme();
-  const [sizes, setSizes] = useState<
-    Record<string, { width: number; height: number }>
-  >({});
+  const { sizes, heights, onNodesChange } = useNodeSizes<FlowNode>();
   const [drag, setDrag] = useState<Drag | null>(null);
   /** Where a palette stage held over the canvas would land. */
   const [drop, setDrop] = useState<Drop | null>(null);
-  const duration = () => (reducedMotion() ? 0 : 300);
-
-  const heights = useMemo(
-    () =>
-      Object.fromEntries(Object.entries(sizes).map(([k, v]) => [k, v.height])),
-    [sizes],
-  );
   const settled = useMemo(
     () => pipelineLayout(stages, heights),
     [stages, heights],
@@ -365,25 +331,6 @@ function CanvasInner({
     return out;
   }, [stages, drag, drop]);
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => {
-    setSizes((cur) => {
-      let next = cur;
-      for (const c of changes) {
-        if (c.type !== "dimensions" || !c.dimensions) continue;
-        const old = cur[c.id];
-        if (
-          old &&
-          old.width === c.dimensions.width &&
-          old.height === c.dimensions.height
-        )
-          continue;
-        if (next === cur) next = { ...cur };
-        next[c.id] = c.dimensions;
-      }
-      return next;
-    });
-  }, []);
-
   /** The slot card `id` dragged to `at` takes in its own chain. */
   const slotFor = (id: string, at: XY) => {
     const ref = chainOf(stages, id);
@@ -421,14 +368,23 @@ function CanvasInner({
   };
 
   // Fit once the first cards have their real heights.
-  const fitted = useRef(false);
-  const measured =
-    stages.length > 0 && allStages(stages).every((s) => sizes[s.id]);
-  useEffect(() => {
-    if (fitted.current || !measured) return;
-    fitted.current = true;
-    void rf.fitView({ padding: 0.15, maxZoom: 1 });
-  }, [measured, rf]);
+  useFitOnce(stages.length > 0 && allStages(stages).every((s) => sizes[s.id]));
+
+  const addMenu = useMemo<AddMenu>(
+    () => ({
+      noun: "stage",
+      render: (place, trigger, end) => (
+        <OperatorMenu
+          allowWrite={end && !place.chain}
+          onPick={(op) =>
+            actions.insert(place.index, op, (place.chain ?? null) as ChainRef)
+          }
+          trigger={trigger}
+        />
+      ),
+    }),
+    [actions],
+  );
 
   const canAdd = (op: string) => !isWriteOp(op) || end === stages.length;
 
@@ -460,145 +416,122 @@ function CanvasInner({
 
   return (
     <CardActionsContext.Provider value={actions}>
-      <FieldsContext.Provider value={fields}>
-        <div
-          ref={wrapper}
-          className="relative h-full w-full"
-          onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes(STAGE_MIME)) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "copy";
-            // The op is unreadable until the drop, so place it as a read stage.
-            const at = dropAt("$match", e.clientX, e.clientY);
-            if (
-              at?.index !== drop?.index ||
-              !sameChain(at?.chain ?? null, drop?.chain ?? null)
-            )
-              setDrop(at);
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+      <AddMenuContext.Provider value={addMenu}>
+        <FieldsContext.Provider value={fields}>
+          <div
+            ref={wrapper}
+            className="relative h-full w-full"
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes(STAGE_MIME)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              // The op is unreadable until the drop, so place it as a read stage.
+              const at = dropAt("$match", e.clientX, e.clientY);
+              if (
+                at?.index !== drop?.index ||
+                !sameChain(at?.chain ?? null, drop?.chain ?? null)
+              )
+                setDrop(at);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+                setDrop(null);
+            }}
+            onDrop={(e) => {
+              const op = e.dataTransfer.getData(STAGE_MIME);
               setDrop(null);
-          }}
-          onDrop={(e) => {
-            const op = e.dataTransfer.getData(STAGE_MIME);
-            setDrop(null);
-            if (!op) return;
-            e.preventDefault();
-            const at = dropAt(op, e.clientX, e.clientY);
-            if (at) actions.insert(at.index, op, at.chain);
-          }}
-        >
-          <ReactFlow<FlowNode, FlowEdge>
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            proOptions={PRO_OPTIONS}
-            onNodesChange={onNodesChange}
-            onNodeClick={(_, n) => {
-              if (n.type === "stage") actions.select(n.id);
+              if (!op) return;
+              e.preventDefault();
+              const at = dropAt(op, e.clientX, e.clientY);
+              if (at) actions.insert(at.index, op, at.chain);
             }}
-            onNodeDrag={(_, n) => {
-              if (n.type !== "stage") return;
-              setDrag({
-                id: n.id,
-                at: n.position,
-                slot: slotFor(n.id, n.position),
-              });
-            }}
-            onNodeDragStop={(_, n) => {
-              if (n.type !== "stage") return;
-              const slot = slotFor(n.id, n.position);
-              setDrag(null);
-              actions.move(n.id, slot);
-            }}
-            nodesConnectable={false}
-            edgesFocusable={false}
-            deleteKeyCode={null}
-            selectionKeyCode={null}
-            multiSelectionKeyCode={null}
-            zoomOnDoubleClick={false}
-            minZoom={0.2}
-            maxZoom={1.5}
-            aria-label="Aggregation pipeline"
-            colorMode={dark ? "dark" : "light"}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-            {toolbar && (
-              // `m-2!` beats React Flow's own 15px panel margin.
-              <Panel
-                position="top-right"
-                className="bg-popover rounded-control m-2! flex max-w-[calc(100%-16rem)] flex-wrap items-center justify-end gap-1.5 border p-0.5 shadow-xs"
-              >
-                {toolbar}
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="iconXs"
-                        aria-label="Export image"
-                        title="Export the canvas as an image"
-                        disabled={stages.length === 0 || exporting}
-                      >
-                        {exporting ? (
-                          <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
-                        ) : (
-                          <Download className="size-3.5" />
-                        )}
-                      </Button>
-                    }
-                  />
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem onClick={() => void runExport("png")}>
-                      PNG image
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void runExport("svg")}>
-                      SVG image
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </Panel>
-            )}
-            <ZoomControls
-              onZoomIn={() => void rf.zoomIn({ duration: duration() })}
-              onZoomOut={() => void rf.zoomOut({ duration: duration() })}
-              onFit={() =>
-                void rf.fitView({
-                  padding: 0.15,
-                  maxZoom: 1,
-                  duration: duration(),
-                })
+            <BuilderFlow<FlowNode, FlowEdge>
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={onNodesChange}
+              onNodeClick={(n) => {
+                if (n.type === "stage") actions.select(n.id);
+              }}
+              onNodeDrag={(_, n) => {
+                if (n.type !== "stage") return;
+                setDrag({
+                  id: n.id,
+                  at: n.position,
+                  slot: slotFor(n.id, n.position),
+                });
+              }}
+              onNodeDragStop={(_, n) => {
+                if (n.type !== "stage") return;
+                const slot = slotFor(n.id, n.position);
+                setDrag(null);
+                actions.move(n.id, slot);
+              }}
+              label="Aggregation pipeline"
+              empty={stages.length === 0}
+              history={history}
+              toolbar={
+                toolbar && (
+                  <>
+                    {toolbar}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="iconXs"
+                            aria-label="Export image"
+                            title="Export the canvas as an image"
+                            disabled={stages.length === 0 || exporting}
+                          >
+                            {exporting ? (
+                              <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                            ) : (
+                              <Download className="size-3.5" />
+                            )}
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem onClick={() => void runExport("png")}>
+                          PNG image
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void runExport("svg")}>
+                          SVG image
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )
               }
-              disabled={stages.length === 0}
-              top={history}
             />
-          </ReactFlow>
-          <StagePalette
-            canAdd={canAdd}
-            onAdd={(op) => actions.insert(end, op)}
-          />
-          {stages.length === 0 && (
-            <DiagramEmpty
-              title="Build a pipeline"
-              icon={<Workflow className="text-muted-foreground size-6" />}
-              description="Add a first stage, or drag one from the palette. Every stage shows what it puts out, run on the first documents of the collection."
-            >
-              <OperatorMenu
-                allowWrite
-                onPick={(op) => actions.insert(0, op)}
-                trigger={
-                  <Button size="sm">
-                    <Plus className="size-3.5" />
-                    Add first stage
-                  </Button>
-                }
-              />
-            </DiagramEmpty>
-          )}
-        </div>
-      </FieldsContext.Provider>
+            <StagePalette
+              canAdd={canAdd}
+              onAdd={(op) => actions.insert(end, op)}
+            />
+            {stages.length === 0 && (
+              <DiagramEmpty
+                title="Build a pipeline"
+                icon={<Workflow className="text-muted-foreground size-6" />}
+                description="Add a first stage, or drag one from the palette. Every stage shows what it puts out, run on the first documents of the collection."
+              >
+                <OperatorMenu
+                  allowWrite
+                  onPick={(op) => actions.insert(0, op)}
+                  trigger={
+                    <Button size="sm">
+                      <Plus className="size-3.5" />
+                      Add first stage
+                    </Button>
+                  }
+                />
+              </DiagramEmpty>
+            )}
+          </div>
+        </FieldsContext.Provider>
+      </AddMenuContext.Provider>
     </CardActionsContext.Provider>
   );
 }

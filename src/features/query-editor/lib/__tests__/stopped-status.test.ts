@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   formatStoppedDuration,
-  looksLikeMongoWrite,
   MONGO_WRITE_NOTE,
   stoppedStatusLine,
   WINDING_DOWN_NOTE,
 } from "../stopped-status";
+import { looksLikeMongoWrite } from "@/shared/lib/write-detect";
 
 describe("formatStoppedDuration", () => {
   it("shows milliseconds under a second", () => {

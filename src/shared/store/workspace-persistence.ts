@@ -3,12 +3,14 @@ import { loadWorkspaceState, saveWorkspaceState } from "../api/workspace-state";
 import { tabKey, type StudioTab } from "./tab-utils";
 import { DEFAULT_WORKSPACE } from "./workspace";
 import type { PaneNode } from "./pane-layout";
-import type {
-  AggregationSetup,
-  CompareSetup,
-  SavedConnParams,
-  SavedWorkspace,
-  StudioStore,
+import {
+  upgradeQueryBuilderSetup,
+  type AggregationSetup,
+  type QueryBuilderSetup,
+  type CompareSetup,
+  type SavedConnParams,
+  type SavedWorkspace,
+  type StudioStore,
 } from "./types";
 
 /** Identity a connection's saved workspace is filed under — NEVER the
@@ -119,6 +121,20 @@ export function migrateDiagramTabs(saved: SavedWorkspace): SavedWorkspace {
   return rekeySaved(moved, tabs, renamed, keyOf);
 }
 
+/** Query builder tabs saved with one clause list come back as one query. */
+export function upgradeBuilderSetups(saved: SavedWorkspace): SavedWorkspace {
+  if (!saved.queryBuilderSetups) return saved;
+  return {
+    ...saved,
+    queryBuilderSetups: Object.fromEntries(
+      Object.entries(saved.queryBuilderSetups).map(([k, v]) => [
+        k,
+        upgradeQueryBuilderSetup(v),
+      ]),
+    ),
+  };
+}
+
 /** `saved` with `tabs` in place and every old key in `renamed` rewritten
  *  where a tab key is stored: the active tab, the pane layout and the
  *  saved editor text. */
@@ -184,6 +200,7 @@ export function savedWorkspaceOf(
   const sqlSeeds: Record<string, string> = {};
   const compareSetups: Record<string, CompareSetup> = {};
   const aggregationSetups: Record<string, AggregationSetup> = {};
+  const queryBuilderSetups: Record<string, QueryBuilderSetup> = {};
   for (const tab of ws.tabs) {
     const tk = tabKey(tab);
     const seed = state.sqlSeeds[tk];
@@ -192,12 +209,17 @@ export function savedWorkspaceOf(
     if (setup) compareSetups[tk] = setup;
     const pipeline = state.aggregationTabs[tk];
     if (pipeline) aggregationSetups[tk] = pipeline;
+    const query = state.queryBuilderTabs[tk];
+    if (query) queryBuilderSetups[tk] = query;
   }
   return {
     workspace: ws,
     sqlSeeds,
     ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
     ...(Object.keys(aggregationSetups).length > 0 ? { aggregationSetups } : {}),
+    ...(Object.keys(queryBuilderSetups).length > 0
+      ? { queryBuilderSetups }
+      : {}),
     ...(relationLayouts ? { relationLayouts } : {}),
   };
 }
@@ -241,6 +263,9 @@ export async function loadPendingWorkspaceRestores(): Promise<
   const snap = raw as Partial<WorkspaceSnapshotV1>;
   if (snap.version !== 1 || !snap.byConn) return {};
   return Object.fromEntries(
-    Object.entries(snap.byConn).map(([k, v]) => [k, migrateDiagramTabs(v)]),
+    Object.entries(snap.byConn).map(([k, v]) => [
+      k,
+      upgradeBuilderSetups(migrateDiagramTabs(v)),
+    ]),
   );
 }

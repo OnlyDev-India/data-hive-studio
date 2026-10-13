@@ -1,5 +1,5 @@
 import { Fragment, type ComponentType, type ReactNode } from "react";
-import type { TableAction, TableMenuItem } from "./table-menu-items";
+import type { MenuEntry } from "./table-menu-items";
 
 export interface TableMenuItemProps {
   onClick: () => void;
@@ -10,14 +10,14 @@ export interface TableMenuItemProps {
 }
 
 /** Draws `items` with the surface's own menu item and separator. */
-export function TableMenuItems({
+export function MenuItems<A extends string>({
   items,
   onPick,
   Item,
   Separator,
 }: {
-  items: TableMenuItem[];
-  onPick: (action: TableAction) => void;
+  items: MenuEntry<A>[];
+  onPick: (action: A) => void;
   Item: ComponentType<TableMenuItemProps>;
   Separator: ComponentType;
 }) {
@@ -43,3 +43,5 @@ export function TableMenuItems({
     );
   });
 }
+
+export const TableMenuItems = MenuItems;

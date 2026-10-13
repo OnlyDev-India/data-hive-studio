@@ -90,11 +90,10 @@ pub fn mongo_script_class(script: &str) -> StmtClass {
 /// cannot be read is refused too, because it cannot be checked. Parsed the
 /// same way the console parses it, so both see the same stages.
 pub(super) fn pipeline_refusal(args: &str) -> Option<String> {
-    let parsed: serde_json::Value =
-        match serde_json::from_str(&super::mongo_json::quote_bare_keys(args)) {
-            Ok(v) => v,
-            Err(_) => return Some("this pipeline could not be read to check it for $out or $merge".into()),
-        };
+    let parsed: serde_json::Value = match super::pipeline::stage_array(args) {
+        Ok(stages) => bson::Bson::from(stages).into_relaxed_extjson(),
+        Err(_) => return Some("this pipeline could not be read to check it for $out or $merge".into()),
+    };
     write_stage(&parsed).map(|stage| format!("a {stage} stage is not allowed"))
 }
 

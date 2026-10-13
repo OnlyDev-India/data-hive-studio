@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
-import { GitCompareArrows, Network, Workflow } from "lucide-react";
+import { Blocks, GitCompareArrows, Network, Workflow } from "lucide-react";
 import { openAggregationPicked } from "@/features/aggregation-builder";
+import { openQueryBuilderPicked } from "@/features/query-builder";
 import { getActiveSchema, type DbKind } from "@/shared/api";
 import { useStudioStore, type ToolId } from "@/shared/store";
 
@@ -63,5 +64,12 @@ export const TOOLS: Tool[] = [
     icon: Workflow,
     run: (conn_id) => void openAggregationPicked(conn_id),
     kinds: ["mongodb"],
+  },
+  {
+    id: "query-builder",
+    label: "Query builder",
+    icon: Blocks,
+    run: (conn_id) => openQueryBuilderPicked(conn_id),
+    kinds: ["postgres", "sqlite"],
   },
 ];

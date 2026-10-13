@@ -16,6 +16,7 @@ import {
   Table2,
   Terminal,
   Unplug,
+  Blocks,
 } from "lucide-react";
 import {
   findOwnerLeaf,
@@ -44,6 +45,7 @@ import {
   openAggregationPicked,
   openPipelineFile,
 } from "@/features/aggregation-builder";
+import { openQueryBuilderPicked } from "@/features/query-builder";
 
 export interface PaletteItem {
   id: string;
@@ -366,6 +368,15 @@ export function buildCommandItems(theme: {
         icon: <SquarePlus className="size-4" />,
         run: () => s.openNewTable(active_conn.id),
       });
+      if (active_conn.kind === "postgres" || active_conn.kind === "sqlite")
+        list.push({
+          id: "tab.query-builder",
+          label: "New query builder",
+          hint: "Build a SELECT card by card, with the rows after each clause",
+          scope: conn_scope,
+          icon: <Blocks className="size-4" />,
+          run: () => openQueryBuilderPicked(active_conn.id),
+        });
     } else {
       list.push({
         id: "tab.mongo-console",

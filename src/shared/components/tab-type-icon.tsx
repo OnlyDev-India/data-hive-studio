@@ -7,6 +7,7 @@ import {
   Table as TableIcon,
   Terminal,
   Workflow,
+  Blocks,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import type { StudioTab } from "@/shared/store";
@@ -63,10 +64,20 @@ export function TabTypeIcon({
           className={cn("size-3.5", TAB_ICON_CLASS.aggregation, className)}
         />
       );
+    case "query-builder":
+      return (
+        <Blocks
+          className={cn("size-3.5", TAB_ICON_CLASS["query-builder"], className)}
+        />
+      );
     case "relation-diagram":
       return (
         <Network
-          className={cn("size-3.5", TAB_ICON_CLASS["relation-diagram"], className)}
+          className={cn(
+            "size-3.5",
+            TAB_ICON_CLASS["relation-diagram"],
+            className,
+          )}
         />
       );
   }

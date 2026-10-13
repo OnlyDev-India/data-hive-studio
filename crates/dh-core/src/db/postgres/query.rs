@@ -229,7 +229,7 @@ pub(super) mod read_only_live_tests {
         assert!(is_refusal(ro.execute_op(None, None, &QueryOp::DropTable { table: table.clone() }).await));
         assert!(is_refusal(ro.execute_params(None, &format!("DELETE FROM {table}"), &[]).await));
         assert!(is_refusal(ro.duplicate_table(None, None, &table, "dh_ro_copy", true).await));
-        assert!(is_refusal(ro.create_schema("dh_ro_schema").await));
+        assert!(is_refusal(ro.create_schema(None, "dh_ro_schema").await));
         assert!(is_refusal(ro.drop_schema("dh_ro_schema", false).await));
         assert!(is_refusal(ro.create_database("dh_ro_db").await));
         assert!(is_refusal(ro.drop_database("dh_ro_db").await));

@@ -105,12 +105,11 @@ describe("FileBreadcrumb", () => {
     expect(crumb.getAttribute("title")).toBe("/Users/me/queries/report.sql");
   });
 
-  it("sits on the editor's own background, not the app's", () => {
+  it("sits on the editor's background token", () => {
     render(<FileBreadcrumb path="/q/report.sql" />);
-    // One Dark's editor background, #282c34.
-    expect(screen.getByTestId("file-breadcrumb").style.backgroundColor).toBe(
-      "rgb(40, 44, 52)",
-    );
+    const crumb = screen.getByTestId("file-breadcrumb");
+    expect(crumb.classList).toContain("bg-editor");
+    expect(crumb.style.backgroundColor).toBe("");
   });
 
   it("casts a shadow only once the editor scrolls off the top", () => {

@@ -55,6 +55,7 @@ describe("tableMenuItems", () => {
       "Open table",
       "View structure",
       "Compare with…",
+      "New query builder",
       "View grants",
       "Copy table name",
       "Duplicate table",
@@ -75,6 +76,7 @@ describe("tableMenuItems", () => {
       offer: DIAGRAM_TABLE_ACTIONS,
     });
     expect(items.some((i) => i.action === "grants")).toBe(false);
+    expect(items.some((i) => i.action === "query_builder")).toBe(false);
     expect(items.map((i) => i.label)).toContain("Drop collection…");
     expect(items.every((i) => !i.label.includes("table"))).toBe(true);
   });

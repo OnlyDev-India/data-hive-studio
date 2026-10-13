@@ -231,6 +231,11 @@ fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
+/// How many statements `sql` holds, by the same splitter the check uses.
+pub(crate) fn statement_count(dialect: Dialect, sql: &str) -> Result<usize, &'static str> {
+    split_statements(dialect, sql).map(|s| s.len())
+}
+
 /// Split `sql` into statements on top level `;`, skipping quotes and
 /// comments, and build each one's masked text. Empty statements (a stray `;`,
 /// a comment) are dropped. `Err` when a quote or comment never closes.

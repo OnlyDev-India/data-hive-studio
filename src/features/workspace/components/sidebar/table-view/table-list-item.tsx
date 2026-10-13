@@ -3,7 +3,6 @@ import { Button } from "@/shared/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/shared/components/ui/context-menu";
@@ -11,13 +10,12 @@ import {
   TableMenuItems,
   tableMenuItems,
   type TableAction,
-  type TableMenuItemProps,
 } from "@/shared/components/table-menu";
+import {
+  ContextMenuEntry,
+  openMenuFromKey,
+} from "@/shared/components/tree-menu";
 import { IconTypeMap, type IconType } from "@/shared/components/icons/types";
-
-function MenuItem({ onClick, ...rest }: TableMenuItemProps) {
-  return <ContextMenuItem onSelect={onClick} {...rest} />;
-}
 
 /** One table/view/matview/collection row — used for both the connection's
  *  own active database AND any sibling database/schema, with whichever
@@ -41,6 +39,7 @@ export function TableListItem({
   on_view_grants,
   on_compare,
   on_aggregate,
+  on_query_builder,
 }: {
   name: string;
   kind: string;
@@ -63,6 +62,8 @@ export function TableListItem({
   on_compare?: () => void;
   /** Mongo only: a new aggregation builder tab on this collection. */
   on_aggregate?: () => void;
+  /** Postgres and SQLite: a new query builder tab from this table. */
+  on_query_builder?: () => void;
 }) {
   const iconType: IconType =
     is_mongo || kind === "table"
@@ -76,6 +77,7 @@ export function TableListItem({
     structure: on_view_structure,
     compare: on_compare,
     aggregate: on_aggregate,
+    query_builder: on_query_builder,
     grants: on_view_grants,
     copy: on_copy,
     duplicate: on_duplicate,
@@ -103,6 +105,7 @@ export function TableListItem({
             data-table={name}
             onClick={on_select}
             onDoubleClick={on_open}
+            onKeyDown={openMenuFromKey}
             className={cn(
               "text-small w-full justify-start px-2 py-1 text-left font-normal",
               is_selected ? "bg-muted font-medium" : "hover:bg-muted/50",
@@ -118,7 +121,7 @@ export function TableListItem({
         <TableMenuItems
           items={items}
           onPick={(a) => handlers[a]?.()}
-          Item={MenuItem}
+          Item={ContextMenuEntry}
           Separator={ContextMenuSeparator}
         />
       </ContextMenuContent>

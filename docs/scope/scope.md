@@ -35,6 +35,8 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 16  | Relation diagram               | Slice 16 | in-progress |
 | 33  | Activity log app query setting | Slice 33 | in-progress |
 | 34  | SQL query builder              | Slice 34 | in-progress |
+| 35  | Sidebar tree context menus     | Slice 35 | in-progress |
+| 36  | Editor follows the app theme   | Slice 36 | in-progress |
 
 
 
@@ -237,17 +239,69 @@ spec [0020](../specs/0020-activity-app-query-setting.md) · code in `src/feature
 The SQL version of the Mongo aggregation builder, for PostgreSQL and SQLite: each clause (FROM, JOIN, WHERE, GROUP BY with aggregates like COUNT, SUM and AVG, HAVING, ORDER BY, LIMIT) is a card on the same canvas, with the rows after that clause previewed beside it, and the SQL goes to the editor or runs into the grid. The design pass settles how much of the aggregation builder's canvas, cards, undo and preview pipeline it shares, how joins are picked (foreign key suggestions vs free form), how clause previews stay cheap on large tables, and whether an existing SELECT can be parsed back into cards.
 **Done when:** on a canvas for a Postgres or SQLite table you can build a joined, filtered, grouped query card by card, see the rows after each clause, and run it or send the SQL to the editor.
 
-spec [0021](../specs/0021-sql-query-builder/index.md) · code in `src/features/query-builder`, `src/shared/components/builder-canvas`, `src/features/aggregation-builder`, `src/shared/api/sql-builder.ts`, `crates/dh-core/src/db/sql_builder`, `crates/dh-server/src/routes`
+spec [0021](../specs/0021-sql-query-builder/index.md) · amended by [0023](../specs/0023-query-builder-many-queries/index.md) · code in `src/features/query-builder`, `src/shared/components/builder-canvas`, `src/features/aggregation-builder`, `src/shared/api/sql-builder.ts`, `crates/dh-core/src/db/sql_builder`, `crates/dh-server/src/routes`
 
 - [x] Design it (spec): `/architect sql query builder`
-- [ ] Build it: `/develop sql query builder`
-  - [ ] Shared builder parts: move the engine neutral aggregation builder parts into `shared/components/builder-canvas`, Mongo builder unchanged · AC-18
-  - [ ] Thin thread: tab kind and sidebar entry, composer, read only Rust preview command and route, canvas with SQL view cards, Run with the read only flag, Copy SQL, then errors, settings and activity entries · AC-1, AC-3, AC-5, AC-6, AC-7, AC-8, AC-9, AC-13, AC-15, AC-16, AC-17
-  - [ ] Forms and joins: clause forms with the SQL flip, column suggestions, JOIN reorder, foreign key join suggestions and aliases · AC-3, AC-4
-  - [ ] Database, schema and editor handoff: header dropdowns with Keep, Clear or Cancel, schema qualified output, Open in SQL editor, parse back with Paste SQL and Open in builder, palette and tools menu · AC-1, AC-2, AC-10, AC-11
-  - [ ] Undo, restore and offline through the shared parts · AC-12, AC-13, AC-14
+- [x] Build it: `/develop sql query builder`
+  - [x] Shared builder parts: move the engine neutral aggregation builder parts into `shared/components/builder-canvas`, Mongo builder unchanged · AC-18
+  - [x] Thin thread: tab kind and sidebar entry, composer, read only Rust preview command and route, canvas with SQL view cards, Run with the read only flag, Copy SQL, then errors, settings and activity entries · AC-1, AC-3, AC-5, AC-6, AC-7, AC-8, AC-9, AC-13, AC-15, AC-16, AC-17
+  - [x] Forms and joins: clause forms with the SQL flip, column suggestions, JOIN reorder, foreign key join suggestions and aliases · AC-3, AC-4
+  - [x] Database, schema and editor handoff: header dropdowns with Keep, Clear or Cancel, schema qualified output, Open in SQL editor, parse back with Paste SQL and Open in builder, palette and tools menu · AC-1, AC-2, AC-10, AC-11
+  - [x] Undo, restore and offline through the shared parts · AC-12, AC-13, AC-14
+- [x] Design the extension (spec): `/architect sql query builder: select first, subqueries, writes, many queries`
+- [x] Build it: `/develop query builder many queries` (spec 0023)
+  - [x] Thin thread: many queries per tab with the saved shape upgrade, written order with SELECT previewing the final rows, query columns and picking, previews for the current query only · AC-1, AC-2, AC-8, AC-9, AC-17, AC-18
+  - [x] Editor round trip and runs: many statement parse back, SQL statement cards, `-- name:` lines, open and send picked or all, Paste SQL adds, the shared run gate, Run and Run all with a result tab per query · AC-7, AC-10, AC-11, AC-12, AC-13, AC-15, AC-19, AC-21
+  - [x] Write queries: UPDATE, DELETE, INSERT and upsert cards and forms, no previews · AC-5, AC-6
+  - [x] Subqueries, CTEs and set operations: side chains with markers, form entry points, chain previews and the correlation check · AC-1, AC-2, AC-3, AC-4
+  - [x] Search, tab wide undo, web and regressions · AC-14, AC-16, AC-20, AC-21
 - [ ] Verify it: `/check verify sql query builder`
 - [ ] Test it: `/test sql query builder`
+
+
+
+## Slice 35: Sidebar tree context menus
+
+
+
+### 35. Sidebar tree context menus · in-progress
+
+Once you connect, every collapsible row in the sidebar tree gets a right click menu, not just the database, schema and table rows that have one today. That covers the category headers (Tables, Views, Functions, Sequences, Types and the rest), Extensions, Users & Privileges, and the matching rows on SQLite and MongoDB. The design pass settles which actions each row offers (refresh, create new, expand or collapse all, copy name, open in a tab), how the menus share one item list with the existing database and table menus, and keyboard access to the menu.
+**Done when:** on a connected Postgres, SQLite or MongoDB connection, right clicking any collapsible row in the sidebar opens a menu with actions that fit that row, and each action works.
+
+spec [0022](../specs/0022-sidebar-tree-context-menus.md) · code in `src/features/workspace/components/sidebar/table-view`, `src/shared/components/tree-menu`, `src/shared/components/table-menu`, `src/shared/store`, `src/features/query-editor`, `src/features/schema-designer`, `crates/dh-core/src/db/postgres`
+
+- [x] Design it (spec): `/architect sidebar tree context menus`
+- [x] Build it: `/develop sidebar tree context menus`
+  - [x] Split `tables-view.tsx` into Postgres, Mongo and SQLite files plus a shared tree hook, no behavior change · AC-16
+  - [x] Thin thread: `treeMenuItems` builder and shared renderer, Postgres category headers with Refresh and New table (preset target), then SQL templates with a preset database for the other kinds, Extensions and Users & Privileges · AC-1, AC-2, AC-3, AC-4, AC-5, AC-14
+  - [x] Database and schema rows: Postgres common set with Collapse all and Expand all categories, New schema in any database through Rust, Mongo database menu · AC-6, AC-7, AC-8, AC-9, AC-10
+  - [x] SQLite Tables and Views headers with their menus and the keyboard walk · AC-11, AC-12
+  - [x] Leaf Copy name, Shift+F10 and Menu key on every row, failure and read only pass · AC-13, AC-14, AC-15, AC-17
+- [ ] Verify it: `/check verify sidebar tree context menus`
+- [ ] Test it: `/test sidebar tree context menus`
+
+
+
+## Slice 36: Editor follows the app theme
+
+
+
+### 36. Editor follows the app theme · in-progress
+
+Every code editor in the app (the SQL and Mongo query editor, the BSON JSON editor, the query builder's SQL fragments, doc hover examples and the file breadcrumb) is fixed to One Dark today, so in the light theme it stays dark. Make it follow the app's light or dark mode and switch live when you change it. The design pass settles which light theme and highlight colors to use, whether they come from the app's theme tokens or a ready made editor theme, how the completion icon colors work in both modes, and whether Settings also gets an editor theme override.
+**Done when:** with the app in light mode every editor shows a light theme, with dark mode a dark one, and switching the app theme changes open editors right away without a reload.
+
+spec [0024](../specs/0024-editor-follows-app-theme.md) · code in `src/shared/theme/codemirror-theme.ts`, `src/shared/theme/theme.tsx`, `src/shared/components/query-editor`, `src/features/query-builder/components/sql-fragment-editor.tsx`, `src/features/query-editor/components/file-breadcrumb.tsx`
+
+- [x] Design it (spec): `/architect editor follows the app theme`
+- [x] Build it: `/develop editor follows the app theme`
+  - [x] Thin thread: One Light package, `editor-theme.css` tokens, `useEditorTheme()` and the token override layer, wired into the query editor and result query view · AC-1, AC-2, AC-3, AC-4, AC-5
+  - [x] Token parity test for `editor-theme.css` · AC-7
+  - [x] Fragment editor, BSON editor (marks on `--bson-ctor` and `--info-dark`), doc hover examples and file breadcrumb · AC-1, AC-2, AC-3, AC-6
+  - [x] Remove the One Dark leftovers and the unused editor theme list · AC-8
+- [ ] Verify it: `/check verify editor follows the app theme`
+- [ ] Test it: `/test editor follows the app theme`
 
 
 
@@ -275,7 +329,10 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Grid column layout by stable key**: the grid's column widths and order are keyed by `conn_id`, so they reset on every connect. Move them onto `stableConnKey` · from spec 0018 · code in `src/shared/components/data-grid`
 - **Workspace restore on the web build**: the web build saves no workspace snapshot, so tabs and ER layouts are lost on reload · from spec 0018 · code in `src/shared/api/workspace-state.ts`
 - **Aggregation builder extras**: nested side chains (a branch inside a branch, now JSON inside the card), and a per tab `$sample` preview mode if the first N documents prove unrepresentative · from spec 0019 · code in `src/features/aggregation-builder`, `crates/dh-core/src/db/mongodb/pipeline`
-- **Query builder extras**: computed expressions and a DISTINCT toggle in the SELECT form (SQL view only for now), Explain, card titles, notes and disable, image export, an own save and open file format, a Query builder button in the table pane header, and "Then" steps that wrap the query so far as a CTE · from spec 0021 · code in `src/features/query-builder`
+- **Query builder extras**: computed expressions and a DISTINCT toggle in the SELECT form (SQL view only for now), Explain, card titles, notes and disable, image export, an own save and open file format, and a Query builder button in the table pane header ("Then" steps are now covered by CTE cards, spec 0023) · from spec 0021 · code in `src/features/query-builder`
+- **Aggregation builder many pipelines and search**: the SQL builder holds many queries per tab with search (spec 0023); give the Mongo aggregation builder the same, moving `lanes.ts` and `search.ts` into `shared/components/builder-canvas` · from spec 0023 · code in `src/features/aggregation-builder`, `src/shared/components/builder-canvas`
+- **Dry run count for builder writes**: builder writes run like the editor with no preview. If wrong WHERE clauses bite, add a rolled back dry run that shows "N rows will change" before the confirm · from spec 0023 · code in `src/features/query-builder`, `src/shared/hooks`
+- **Sidebar tree extras**: arrow key navigation across the Postgres and Mongo tree (Up/Down between rows, Left/Right to collapse and expand), refresh the matching sidebar list after a SQL tab runs a CREATE or DROP (through `catalogChanges`), team server routes for creating databases and schemas so the web build can offer New schema, and remembering SQLite group expand state per connection · from spec 0022 · code in `src/features/workspace/components/sidebar/table-view`, `crates/dh-server/src/routes`
 - **Remove the Keychain carry over**: two minor releases after spec 0013 ships, drop `secret_store/import.rs` and the `keyring` dependency along with the `legacy_servers` cleanup · from spec 0013 · code in `src-tauri/src/secret_store`, `src-tauri/src/legacy_servers.rs`
 
 

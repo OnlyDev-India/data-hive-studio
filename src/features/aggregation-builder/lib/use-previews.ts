@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  canCancelRun,
-  cancelRun,
   composePipeline,
   previewPipeline,
   type ComposedPipeline,
   type PreviewChunk,
 } from "@/shared/api";
+import {
+  PREVIEW_SHOW,
+  usePreviewScheduler,
+  type CardPreview as SharedCardPreview,
+  type RefreshCall,
+} from "@/shared/components/builder-canvas";
 import {
   useStudioStore,
   type AggregationSetup,
@@ -19,21 +23,8 @@ import {
   toSpec,
   type StageRef,
 } from "./model";
-import { isConnectionLost } from "./offline";
 
-/** How long typing must pause before a refresh starts. */
-export const PREVIEW_DEBOUNCE_MS = 600;
-/** How many documents a card's preview brings back for the bottom panel. */
-export const PREVIEW_SHOW = 20;
-
-export type PreviewStatus =
-  "running" | "ready" | "error" | "waiting" | "offline";
-
-export interface CardPreview {
-  status: PreviewStatus;
-  /** The last result, kept while a newer one runs or waits. */
-  chunk: PreviewChunk | null;
-}
+export type CardPreview = SharedCardPreview<PreviewChunk>;
 
 export interface Previews {
   cards: Record<string, CardPreview>;
@@ -48,13 +39,11 @@ export interface Previews {
   refresh: () => void;
 }
 
-/** While offline, how often a refresh tries the server again. */
-const RETRY_MS = 10_000;
+const liveIds = (stages: AggregationStage[]) =>
+  allStages(stages).map((s) => s.id);
 
-/** Keeps every card's preview in step with the pipeline: an edit refreshes
- *  that card and every card after it, `PREVIEW_DEBOUNCE_MS` after typing
- *  stops when auto preview is on. A new refresh stops the one still running,
- *  and only the latest refresh's results are shown. */
+/** Keeps every card's preview in step with the pipeline, through the shared
+ *  preview scheduler. */
 export function usePreviews({
   conn_id,
   database,
@@ -66,123 +55,30 @@ export function usePreviews({
   collection: string;
   setup: AggregationSetup;
 }): Previews {
-  const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const concurrency = useStudioStore((s) => s.previewConcurrency);
-  const [cards, setCards] = useState<Record<string, CardPreview>>({});
   const [composed, setComposed] = useState<ComposedPipeline | null>(null);
   const [estimate, setEstimate] = useState<number | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lost, setLost] = useState(false);
-
-  const run_id = useRef<string | null>(null);
-  const previewed = useRef<AggregationStage[] | null>(null);
   const stages = setup.stages;
-  const can_cancel = canCancelRun(conn?.kind);
 
-  const start = useCallback(
-    (from: StageRef | null, target: AggregationStage[]) => {
-      const previous = run_id.current;
-      if (previous && can_cancel) void cancelRun(conn_id, previous);
-      const id = crypto.randomUUID();
-      run_id.current = id;
-      previewed.current = target;
-
-      const targets = previewTargets(target, from);
-      const live = new Set(allStages(target).map((s) => s.id));
-      setCards((cur) => {
-        const next: Record<string, CardPreview> = {};
-        for (const [k, v] of Object.entries(cur)) if (live.has(k)) next[k] = v;
-        for (const k of targets)
-          next[k] = { status: "running", chunk: cur[k]?.chunk ?? null };
-        return next;
-      });
-      if (targets.size === 0) {
-        setRefreshing(false);
-        return;
-      }
-      setRefreshing(true);
-      const go_offline = () => {
-        setLost(true);
-        // Refresh everything once the server answers again.
-        previewed.current = null;
-        setCards((cur) => {
-          const next = { ...cur };
-          for (const k of targets)
-            next[k] = { status: "offline", chunk: cur[k]?.chunk ?? null };
-          return next;
-        });
-      };
-      // A database that drops under an open session fails each card, not
-      // the call, so a lost chunk counts as offline too.
-      let unreachable = false;
-      void previewPipeline(
+  const execute = useCallback(
+    async (call: RefreshCall<AggregationStage[], StageRef, PreviewChunk>) => {
+      const summary = await previewPipeline(
         conn_id,
         {
           database,
           collection,
-          spec: toSpec(target),
-          from,
+          spec: toSpec(call.items),
+          from: call.from,
           cap: setup.preview_cap,
           time_ms: setup.preview_time_ms,
           show: PREVIEW_SHOW,
           concurrency,
-          run_id: can_cancel ? id : null,
+          run_id: call.run_id,
         },
-        (chunk) => {
-          if (run_id.current !== id) return;
-          if (isConnectionLost(chunk.error)) {
-            unreachable = true;
-            return;
-          }
-          setCards((cur) => ({
-            ...cur,
-            [chunk.stage_id]: {
-              status: chunk.error ? "error" : "ready",
-              chunk,
-            },
-          }));
-        },
-      )
-        .then((summary) => {
-          if (run_id.current !== id) return;
-          if (unreachable) {
-            go_offline();
-            return;
-          }
-          setLost(false);
-          if (summary.source_estimate !== null)
-            setEstimate(summary.source_estimate);
-        })
-        .catch((e: unknown) => {
-          if (run_id.current !== id) return;
-          const message = e instanceof Error ? e.message : String(e);
-          if (isConnectionLost(message)) {
-            go_offline();
-            return;
-          }
-          setCards((cur) => {
-            const next = { ...cur };
-            for (const k of targets)
-              next[k] = {
-                status: "error",
-                chunk: { ...emptyChunk(k), error: message },
-              };
-            return next;
-          });
-        })
-        .finally(() => {
-          if (run_id.current !== id) return;
-          run_id.current = null;
-          setRefreshing(false);
-          // A target with no answer sits behind a card that failed.
-          setCards((cur) => {
-            const next = { ...cur };
-            for (const k of targets)
-              if (next[k]?.status === "running")
-                next[k] = { ...next[k], status: "waiting" };
-            return next;
-          });
-        });
+        (chunk) => call.onChunk(chunk.stage_id, chunk),
+      );
+      if (call.current() && summary.source_estimate !== null)
+        setEstimate(summary.source_estimate);
     },
     [
       conn_id,
@@ -191,9 +87,19 @@ export function usePreviews({
       setup.preview_cap,
       setup.preview_time_ms,
       concurrency,
-      can_cancel,
     ],
   );
+
+  const scheduler = usePreviewScheduler({
+    conn_id,
+    items: stages,
+    auto: setup.auto_preview,
+    firstChanged,
+    targetsOf: previewTargets,
+    liveIds,
+    emptyChunk,
+    execute,
+  });
 
   // Compose on every change, so card errors and Copy follow the text.
   useEffect(() => {
@@ -213,41 +119,10 @@ export function usePreviews({
     };
   }, [collection, stages]);
 
-  useEffect(() => {
-    if (!setup.auto_preview || !conn) return;
-    const prev = previewed.current;
-    const from = prev === null ? null : firstChanged(prev, stages);
-    if (from === undefined) return;
-    const timer = setTimeout(
-      () => start(from, stages),
-      prev === null ? 0 : PREVIEW_DEBOUNCE_MS,
-    );
-    return () => clearTimeout(timer);
-  }, [stages, setup.auto_preview, conn, start]);
-
-  // Stop whatever is still running when the tab goes away.
-  useEffect(
-    () => () => {
-      const id = run_id.current;
-      run_id.current = null;
-      if (id && can_cancel) void cancelRun(conn_id, id);
-    },
-    [conn_id, can_cancel],
-  );
-
-  const refresh = useCallback(() => start(null, stages), [start, stages]);
-
-  const offline = lost || !conn;
-  useEffect(() => {
-    if (!lost || !conn || refreshing) return;
-    const timer = setTimeout(refresh, RETRY_MS);
-    return () => clearTimeout(timer);
-  }, [lost, conn, refreshing, refresh]);
-
-  return { cards, composed, estimate, refreshing, offline, refresh };
+  return { ...scheduler, composed, estimate };
 }
 
-function emptyChunk(stage_id: string): PreviewChunk {
+function emptyChunk(stage_id: string, error: string): PreviewChunk {
   return {
     stage_id,
     count: 0,
@@ -255,5 +130,6 @@ function emptyChunk(stage_id: string): PreviewChunk {
     rows: [],
     documents: [],
     elapsed_ms: 0,
+    error,
   };
 }

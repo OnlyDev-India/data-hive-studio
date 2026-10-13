@@ -2,7 +2,7 @@
 name = "dh-core"
 version = "0.1.0"
 edition = "2021"
-description = "Shared core for dh-studio: database adapters (SQLite, PostgreSQL, MongoDB), wire API types, activity log, and the SSH tunnel"
+description = "Shared core for dh-studio: multi database adapters, wire API types, activity log, and the SSH tunnel"
 
 [dependencies]
 serde.workspace = true

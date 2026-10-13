@@ -3,13 +3,9 @@ import Markdown from "markdown-to-jsx";
 import CodeMirrorComponent from "@uiw/react-codemirror";
 import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
 import { javascriptLanguage } from "@codemirror/lang-javascript";
-import { syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { Check, Copy } from "lucide-react";
-import {
-  sqlHighlightStyle,
-  jsHighlightStyle,
-} from "@/shared/theme/codemirror-theme";
+import { useEditorHighlight } from "@/shared/theme/codemirror-theme";
 import type { DocEntry } from "./doc-hover";
 
 /** Chrome for the read-only example snippets below — deliberately NOT the
@@ -31,20 +27,18 @@ const exampleTheme = EditorView.theme({
 });
 
 /** One example: a real (read-only) CodeMirror instance — same parser +
- *  colors the live console uses (`sqlHighlightStyle`/`jsHighlightStyle`),
+ *  colors the live console uses (`useEditorHighlight`),
  *  so an example actually looks like the code it's demonstrating instead of
  *  flat monospace text — plus a copy button, shown on hover. */
 function CodeExample({ code, lang }: { code: string; lang: "sql" | "js" }) {
   const [copied, setCopied] = useState(false);
+  const highlight = useEditorHighlight();
   const extensions = useMemo(
-    () =>
-      lang === "js"
-        ? [javascriptLanguage, syntaxHighlighting(jsHighlightStyle)]
-        : [
-            sqlLang({ dialect: SQLiteDialect }),
-            syntaxHighlighting(sqlHighlightStyle),
-          ],
-    [lang],
+    () => [
+      lang === "js" ? javascriptLanguage : sqlLang({ dialect: SQLiteDialect }),
+      highlight,
+    ],
+    [lang, highlight],
   );
 
   const copy = () => {

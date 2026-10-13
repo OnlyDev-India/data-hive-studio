@@ -4,7 +4,10 @@ import { sql as sqlLang } from "@codemirror/lang-sql";
 import { javascriptLanguage } from "@codemirror/lang-javascript";
 import { EditorView } from "@codemirror/view";
 import { Check, Copy } from "lucide-react";
-import { appEditorExtensions } from "@/shared/theme/codemirror-theme";
+import {
+  appEditorTheme,
+  useEditorTheme,
+} from "@/shared/theme/codemirror-theme";
 
 /** The statement behind a result, shown read only with the same colors and
  *  line numbers as the editor it came from. */
@@ -16,9 +19,10 @@ export function ResultQueryView({
   language?: "sql" | "js";
 }) {
   const [copied, setCopied] = useState(false);
+  const theme = useEditorTheme();
   const extensions = useMemo(
     () => [
-      ...appEditorExtensions,
+      appEditorTheme,
       EditorView.lineWrapping,
       language === "js" ? javascriptLanguage : sqlLang(),
     ],
@@ -35,7 +39,7 @@ export function ResultQueryView({
       <CodeMirrorComponent
         value={text}
         editable={false}
-        theme="none"
+        theme={theme}
         height="100%"
         className="h-full"
         basicSetup={{

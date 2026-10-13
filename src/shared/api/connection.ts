@@ -476,13 +476,16 @@ export async function dropPgDatabase(
   return hinted(invoke("drop_pg_database", { connId, name }));
 }
 
-/** Create a schema in the active catalog (Postgres). */
+/** Create a schema (Postgres). `database`: omitted = this connection's own. */
 export async function createPgSchema(
   connId: string,
   name: string,
+  database?: string,
 ): Promise<void> {
   serverUnsupported();
-  return hinted(invoke("create_pg_schema", { connId, name }));
+  return hinted(
+    invoke("create_pg_schema", { connId, name, database: database ?? null }),
+  );
 }
 
 /** Create a collection in the active database (MongoDB). */
