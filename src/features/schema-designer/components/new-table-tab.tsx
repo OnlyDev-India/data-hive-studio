@@ -96,13 +96,28 @@ export function NewTableTab({
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
   const openSql = useStudioStore((s) => s.openSql);
   const own_database = recent_params?.database ?? conn?.name ?? "";
-  // Seeded with the connection's own database so the Database dropdown shows
-  // it the moment the tab opens; the catalog fetch below (a remote round
-  // trip) then fills in the sibling databases and the schema list.
-  const [database, setDatabase] = useState(own_database);
+  // A sidebar row's New table presets the database and schema it was
+  // opened from; read once, the pickers are free after that.
+  const [preset] = useState(
+    () => useStudioStore.getState().newTableTargets[tab_key],
+  );
+  const start_database = preset?.database ?? own_database;
+  const pending_schema = useRef(preset?.schema);
+  /** The schema to select once `db`'s list arrives: the preset the first
+   *  time its database loads, else that database's default. */
+  const pick_schema = (db: string, default_schema: string) => {
+    const wanted = pending_schema.current;
+    if (wanted === undefined || db !== start_database) return default_schema;
+    pending_schema.current = undefined;
+    return wanted;
+  };
+  // Seeded with the starting database so the Database dropdown shows it the
+  // moment the tab opens; the catalog fetch below (a remote round trip) then
+  // fills in the sibling databases and the schema list.
+  const [database, setDatabase] = useState(start_database);
   const [schema, setSchema] = useState("");
   const [databases, setDatabases] = useState<string[]>(
-    own_database ? [own_database] : [],
+    start_database ? [start_database] : [],
   );
   const [schemas, setSchemas] = useState<string[]>([]);
   // True while the schema list for the CURRENTLY selected database is being
@@ -145,9 +160,12 @@ export function NewTableTab({
           default_schema,
         };
         setDatabases(overview.databases);
-        setSchemas(overview.schemas);
-        setDatabase(own_database);
-        setSchema(default_schema);
+        setDatabase(start_database);
+        // A sibling start database gets its schemas from the effect below.
+        if (start_database === own_database) {
+          setSchemas(overview.schemas);
+          setSchema(pick_schema(own_database, default_schema));
+        }
       } catch {
         /* selectors stay empty — table still creates in the own db/schema */
       } finally {
@@ -169,7 +187,7 @@ export function NewTableTab({
     const cached = schemas_cache.current[database];
     if (cached) {
       setSchemas(cached.list);
-      setSchema(cached.default_schema);
+      setSchema(pick_schema(database, cached.default_schema));
       return;
     }
     // Own database not cached yet = the initial `catalogOverview` above is
@@ -184,7 +202,7 @@ export function NewTableTab({
         const default_schema = list[0] ?? "public";
         schemas_cache.current[database] = { list, default_schema };
         setSchemas(list);
-        setSchema(default_schema);
+        setSchema(pick_schema(database, default_schema));
       } catch {
         /* keep the previous schema list */
       } finally {
@@ -194,6 +212,7 @@ export function NewTableTab({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pick_schema reads only a ref and the mount time start database
   }, [conn_id, is_pg, database, own_database]);
 
   // Table list for the FK "references" picker — scoped to the currently

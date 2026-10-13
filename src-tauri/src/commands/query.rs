@@ -139,7 +139,8 @@ pub async fn execute_op_stream(
 /// batches through the channel as they come back. The resolved result
 /// carries every field except rows. `run_id` (minted by the editor) makes the
 /// run stoppable through [`cancel_run`]; a stopped run resolves with
-/// `cancelled: true` rather than an error.
+/// `cancelled: true` rather than an error. `read_only` (the query builder's
+/// Run) runs it read only whatever the connection's flag.
 #[tauri::command]
 pub async fn run_sql_stream(
     conn_id: String,
@@ -147,6 +148,7 @@ pub async fn run_sql_stream(
     schema: Option<String>,
     sql: String,
     run_id: Option<String>,
+    read_only: Option<bool>,
     channel: tauri::ipc::Channel<QueryChunk>,
 ) -> Result<QueryResult, String> {
     crate::db::run_sql_stream(
@@ -155,6 +157,7 @@ pub async fn run_sql_stream(
         schema.as_deref(),
         &sql,
         run_id.as_deref(),
+        read_only.unwrap_or(false),
         move |chunk| {
             channel
                 .send(chunk)

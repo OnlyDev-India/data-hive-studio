@@ -59,19 +59,18 @@ import { EditorRunToolbar } from "./editor-run-toolbar";
 import { FileBreadcrumb, useEditorScrolled } from "./file-breadcrumb";
 import type { ConfirmItem } from "@/shared/components/write-confirm-dialog";
 import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
-import { BindVariablesDialog } from "./bind-variables-dialog";
 import { useBottomPanelSize } from "@/shared/hooks/use-bottom-panel-size";
-import { dangerousSqlReason } from "../lib/dangerous-sql";
-import { isWriteMongo, isWriteSql } from "../lib/write-detect";
+import { useSqlRunGate } from "@/shared/hooks/use-sql-run-gate";
 import {
-  findBindVariables,
-  substituteBindVariables,
-} from "../lib/bind-variables";
+  isSchemaDdl,
+  isWriteMongo,
+  isWriteSql,
+  looksLikeMongoWrite,
+} from "@/shared/lib/write-detect";
 import { compressSql } from "../lib/compress-sql";
 import { usePlanTabs } from "../lib/use-plan-tabs";
 import { isPlanStale, PlanView } from "@/shared/components/plan-view";
 import {
-  looksLikeMongoWrite,
   MONGO_WRITE_NOTE,
   stoppedStatusLine,
   WINDING_DOWN_NOTE,
@@ -424,34 +423,13 @@ interface SqlResultTab {
  *  table_schema round trips. */
 const sharedCompletionCache = new Map<string, Completion[]>();
 
-/** Whether `sql` is schema-changing DDL (adds/drops/alters a table, index,
- *  view, or trigger) rather than a plain data statement (SELECT/INSERT/
- *  UPDATE/DELETE). Used to decide whether running it from the console
- *  should also refresh any already-open grid tab for the affected table —
- *  `on_modified` alone only refreshes the sidebar's table list, by design,
- *  so an unrelated data statement doesn't disturb other open tabs' scroll/
- *  paging position. A statement this best-effort check misses just falls
- *  back to the existing "reload manually" behavior — nothing breaks. */
-function is_schema_ddl(sql: string): boolean {
-  const stripped = sql
-    .replace(/--[^\n]*/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trimStart();
-  return (
-    /^(alter|drop)\s+table\b/i.test(stripped) ||
-    /^create\s+(or\s+replace\s+)?(table|view|trigger)\b/i.test(stripped) ||
-    /^drop\s+(view|trigger)\b/i.test(stripped) ||
-    /^create\s+(unique\s+)?index\b/i.test(stripped) ||
-    /^drop\s+index\b/i.test(stripped)
-  );
-}
-
 function SqlEditorBody({
   conn_id,
   tab_key,
   tables,
   on_modified,
   on_schema_modified,
+  on_open_in_builder,
 }: {
   conn_id: string;
   tab_key: string;
@@ -461,6 +439,13 @@ function SqlEditorBody({
    *  statement was schema-changing DDL — refreshes open table tabs' data
    *  AND schema, not just the sidebar's table list. */
   on_schema_modified?: () => void;
+  /** Opens the selection, or the whole text, in the query builder, on
+   *  this tab's database and schema (undefined = the connection's own). */
+  on_open_in_builder?: (
+    text: string,
+    database: string | undefined,
+    schema: string | undefined,
+  ) => void;
 }) {
   // Seed text handed over by other features (e.g. "open edits in SQL editor"):
   // openSql(connId, text) stashes it under this tab's key; read it once here.
@@ -484,78 +469,15 @@ function SqlEditorBody({
   // when the tab is reopened, same as `lint_enabled`.
   const [insert_labels_enabled, setInsertLabelsEnabled] = useState(true);
 
-  // Gates a run behind an explicit confirm when one of its statements is
-  // unconditionally destructive (UPDATE/DELETE with no WHERE, TRUNCATE,
-  // DROP — see `dangerous-sql.ts`) or, on a Production connection or one
-  // with Confirm before writes on, when it writes at all (spec 0007). Both
-  // reasons for one statement share one row in one dialog, never two. The
-  // Promise this resolves lets `run_all`/`run_target` simply `await` the gate
-  // instead of threading a callback through the whole statement-collection
-  // logic below.
+  // Bind values, then the write confirm, shared with the query builder
+  // (`useSqlRunGate`). `run_all` and `run_target` simply `await` it.
   const {
+    binds: resolve_bind_variables,
+    confirm: confirm_if_dangerous,
     ask: ask_write_confirm,
-    env_reason,
-    dialog: write_confirm_dialog,
-  } = useWriteConfirm(conn_id);
-  const is_read_only = useStudioStore(
-    (s) => !!s.open.find((c) => c.id === conn_id)?.read_only,
-  );
-  const confirm_if_dangerous = useCallback(
-    (texts: string[]): Promise<boolean> => {
-      // A read only connection refuses the write in the backend with a clear
-      // message. Asking first would only suggest that confirming could let
-      // it through.
-      if (is_read_only) return Promise.resolve(true);
-      const items: ConfirmItem[] = [];
-      for (const text of texts) {
-        const reasons: string[] = [];
-        const danger = dangerousSqlReason(text);
-        if (danger) reasons.push(danger);
-        if (env_reason && isWriteSql(text)) reasons.push(env_reason);
-        if (reasons.length > 0) items.push({ text, reasons });
-      }
-      if (items.length === 0) return Promise.resolve(true);
-      return ask_write_confirm({
-        items,
-        description:
-          items.length === 1
-            ? "This statement needs confirmation before it runs:"
-            : `${items.length} statements in this run need confirmation before they run:`,
-      });
-    },
-    [is_read_only, env_reason, ask_write_confirm],
-  );
-
-  // Same Promise-gate shape as `confirm_if_dangerous`, one step earlier in
-  // the pipeline: prompts for a value per `:name`/`${name}` bind variable
-  // (`bind-variables.ts`) and substitutes them into the statement texts
-  // before anything else (the danger-confirm gate included) ever sees them —
-  // a "DELETE FROM t WHERE id = :id" with no WHERE-less DELETE should still
-  // be flagged if the user leaves `:id` empty (substitutes to NULL, which
-  // `WHERE id = NULL` never matches — that's a query-correctness surprise
-  // for the user, not a reason to skip the danger check).
-  const [bind_pending, setBindPending] = useState<{
-    names: string[];
-    resolve: (values: Record<string, string> | null) => void;
-  } | null>(null);
-  const resolve_bind_variables = useCallback(
-    (texts: string[]): Promise<string[] | null> => {
-      const names = findBindVariables(texts);
-      if (names.length === 0) return Promise.resolve(texts);
-      return new Promise((resolve) => {
-        setBindPending({
-          names,
-          resolve: (values) =>
-            resolve(
-              values
-                ? texts.map((t) => substituteBindVariables(t, values))
-                : null,
-            ),
-        });
-      });
-    },
-    [],
-  );
+    read_only: is_read_only,
+    dialogs: run_gate_dialogs,
+  } = useSqlRunGate(conn_id);
 
   // ---- Target database. Every kind but SQLite (single-file, no such
   // concept within one connection) supports switching it — including a
@@ -571,6 +493,9 @@ function SqlEditorBody({
   const supports_multi_db = conn?.kind !== "sqlite";
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
   const own_database = recent_params?.database ?? conn?.name ?? "";
+  // Set when the tab was opened for a database and schema (the query
+  // builder's Open in SQL editor).
+  const opened_for = useStudioStore((s) => s.sqlTargets[tab_key]);
   const [database, setDatabase] = useState("");
   const [databases, setDatabases] = useState<string[]>([]);
   useEffect(() => {
@@ -580,7 +505,7 @@ function SqlEditorBody({
       .then((list) => {
         if (cancelled) return;
         setDatabases(list);
-        setDatabase(own_database);
+        setDatabase(opened_for?.database ?? own_database);
       })
       .catch(() => {
         /* picker stays empty — every run just targets the own database */
@@ -592,6 +517,8 @@ function SqlEditorBody({
   }, [conn_id, supports_multi_db]);
   const target_database =
     database && database !== own_database ? database : undefined;
+  // Bare names resolve in the schema the tab was opened for (Postgres).
+  const run_schema = is_pg ? opened_for?.schema : undefined;
 
   // ---- Known schemas + their table lists (Postgres only) — there's no
   // separate schema PICKER: the user names a non-default schema straight in
@@ -1061,7 +988,7 @@ function SqlEditorBody({
           query,
           acc.push,
           target_database,
-          undefined,
+          run_schema,
           run_id ?? undefined,
         );
       } catch (e) {
@@ -1113,7 +1040,7 @@ function SqlEditorBody({
       }
       if (!res.is_select && !res.error) {
         on_modified?.();
-        if (is_schema_ddl(query)) on_schema_modified?.();
+        if (isSchemaDdl(query)) on_schema_modified?.();
       }
       // The resolved metadata is authoritative; pair it with accumulated rows.
       patch_tab(id, {
@@ -1145,12 +1072,20 @@ function SqlEditorBody({
       conn_id,
       conn?.kind,
       target_database,
+      run_schema,
       on_modified,
       on_schema_modified,
       sync_errors,
       error_ranges.current,
     ],
   );
+
+  // Comments alone hold no statement to open in the builder.
+  const has_statement =
+    sql_text
+      .replace(/--[^\n]*/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .trim().length > 0;
 
   const run_all = useCallback(async () => {
     const stmts = statementRanges(sql_text)
@@ -1343,18 +1278,7 @@ function SqlEditorBody({
 
   const editor_pane = (
     <div className="flex h-full min-h-0 flex-col">
-      <BindVariablesDialog
-        names={bind_pending?.names ?? null}
-        onConfirm={(values) => {
-          bind_pending?.resolve(values);
-          setBindPending(null);
-        }}
-        onCancel={() => {
-          bind_pending?.resolve(null);
-          setBindPending(null);
-        }}
-      />
-      {write_confirm_dialog}
+      {run_gate_dialogs}
       <EditorRunToolbar
         has_selection={has_selection}
         can_run_target={sql_text.trim().length > 0}
@@ -1372,6 +1296,20 @@ function SqlEditorBody({
             ? () => void explain_target(true)
             : undefined
         }
+        on_open_in_builder={
+          on_open_in_builder &&
+          (conn?.kind === "postgres" || conn?.kind === "sqlite")
+            ? () => {
+                // Every statement in the selection, or in the whole editor
+                // when nothing is selected.
+                const selected = editorRef.current?.getSelectionText() ?? "";
+                const text = selected.trim() ? selected : sql_text;
+                on_open_in_builder(text, target_database, run_schema);
+              }
+            : undefined
+        }
+        open_in_builder_label="Open in query builder"
+        can_open_in_builder={has_statement}
         db_kind={conn?.kind}
         database={supports_multi_db ? database : undefined}
         databases={supports_multi_db ? databases : undefined}
@@ -2679,6 +2617,13 @@ export type EditorTabProps =
        *  wire to a broader refresh than `on_modified` (open table tabs'
        *  data AND schema, not just the sidebar's table list). */
       on_schema_modified?: () => void;
+      /** Opens the selection, or the whole text, in the query builder.
+       *  Omitted = no Open in builder button. */
+      on_open_in_builder?: (
+        text: string,
+        database: string | undefined,
+        schema: string | undefined,
+      ) => void;
     }
   | {
       kind: "mongo-console";
@@ -2708,6 +2653,7 @@ export function EditorTab(props: EditorTabProps) {
         tables={props.tables}
         on_modified={props.on_modified}
         on_schema_modified={props.on_schema_modified}
+        on_open_in_builder={props.on_open_in_builder}
       />
     );
   }

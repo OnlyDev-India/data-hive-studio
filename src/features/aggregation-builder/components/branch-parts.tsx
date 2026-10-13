@@ -14,7 +14,7 @@ import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useCardActions } from "../lib/card-actions";
 import { bodyString } from "../lib/fields";
-import { CARD_WIDTH } from "../lib/layout";
+import { CARD_WIDTH } from "@/shared/components/builder-canvas";
 import { facetKeyError } from "../lib/model";
 
 const HIDDEN_HANDLE = "pointer-events-none opacity-0!";

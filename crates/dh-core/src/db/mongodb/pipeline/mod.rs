@@ -14,6 +14,7 @@ mod live_tests;
 
 pub use compose::{compose_pipeline, render_stage};
 pub use parse::{parse_pipeline, stage_array};
+pub(crate) use parse::lift;
 pub use preview::preview_activity_text;
 
 use bson::{Bson, Document};

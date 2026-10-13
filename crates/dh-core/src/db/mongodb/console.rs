@@ -7,7 +7,7 @@ use super::console_guard::console_refusal;
 use super::stream::read_console_cursor;
 use super::filter::json_cell_string;
 use super::cancel::{mongo_err, run_comment};
-use super::console_parse::{parse_chain, parse_db_call, parse_filter, parse_json_object, parse_json_object_array, split_top_level, validate_chain};
+use super::console_parse::{parse_chain, parse_db_call, parse_filter, parse_json_object, parse_json_object_array, parse_value, split_top_level, validate_chain};
 
 impl MongoAdapter {
     /// Execute one MongoDB console command. `db` is the console's current
@@ -139,12 +139,8 @@ impl MongoAdapter {
                 let mut opts = mongodb::options::FindOptions::builder().build();
                 opts.comment = comment.clone();
                 if let Some(sort) = &chain.sort {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(
-                        &super::mongo_json::quote_bare_keys(sort),
-                    ) {
-                        if let Ok(d) = bson::to_document(&v) {
-                            opts.sort = Some(d);
-                        }
+                    if let Ok(bson::Bson::Document(d)) = parse_value(sort) {
+                        opts.sort = Some(d);
                     }
                 }
                 if is_one {

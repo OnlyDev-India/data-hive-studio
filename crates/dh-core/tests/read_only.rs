@@ -59,7 +59,7 @@ async fn an_editor_write_is_refused_and_logged() {
     assert!(entry.error.as_deref().is_some_and(|m| m.starts_with(READ_ONLY_PREFIX)));
 
     // The streaming path the editor's Run uses.
-    let streamed = dh_core::db::run_sql_stream(&conn, None, None, "DELETE FROM widgets", None, |_| Ok(())).await;
+    let streamed = dh_core::db::run_sql_stream(&conn, None, None, "DELETE FROM widgets", None, false, |_| Ok(())).await;
     refusal_text(streamed);
     failed_entry(&conn, |e| e.sql.as_deref() == Some("DELETE FROM widgets"));
 
@@ -118,7 +118,7 @@ async fn reads_still_work() {
     dh_core::db::execute_op(&conn, None, None, &count).await.unwrap();
 
     dh_core::db::run_sql(&conn, None, None, "EXPLAIN QUERY PLAN SELECT * FROM widgets", "user").await.unwrap();
-    dh_core::db::run_sql_stream(&conn, None, None, "SELECT * FROM widgets", None, |_| Ok(())).await.unwrap();
+    dh_core::db::run_sql_stream(&conn, None, None, "SELECT * FROM widgets", None, false, |_| Ok(())).await.unwrap();
     dh_core::db::run_sql_params(&conn, None, "SELECT * FROM widgets WHERE id = ?", &[Some("1".into())])
         .await
         .unwrap();

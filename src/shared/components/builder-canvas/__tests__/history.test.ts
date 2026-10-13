@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { AggregationStage } from "@/shared/store";
 import {
   EMPTY_HISTORY,
   HISTORY_MAX,
@@ -8,12 +7,12 @@ import {
   redo,
   setHistory,
   undo,
+  type History,
 } from "../history";
-import { newStage } from "../model";
 
-const pipeline = (n: number): AggregationStage[] => [
-  { ...newStage("$limit"), id: `s${n}`, body: String(n) },
-];
+type Card = { id: string; body: string };
+
+const pipeline = (n: number): Card[] => [{ id: `s${n}`, body: String(n) }];
 
 describe("undo history", () => {
   it("does nothing when there is nothing to undo or redo", () => {
@@ -26,7 +25,7 @@ describe("undo history", () => {
     let h = record(EMPTY_HISTORY, pipeline(0));
     h = record(h, pipeline(1));
     let current = pipeline(2);
-    let back: AggregationStage[] | null;
+    let back: Card[] | null;
 
     [h, back] = undo(h, current);
     expect(back).toEqual(pipeline(1));
@@ -43,7 +42,7 @@ describe("undo history", () => {
   });
 
   it(`keeps only the newest ${HISTORY_MAX} steps`, () => {
-    let h = EMPTY_HISTORY;
+    let h: History<Card[]> = EMPTY_HISTORY;
     for (let i = 0; i < HISTORY_MAX + 5; i++) h = record(h, pipeline(i));
     expect(h.past).toHaveLength(HISTORY_MAX);
     expect(h.past[0]).toEqual(pipeline(5));

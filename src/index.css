@@ -398,6 +398,7 @@
   --radius-pill: 9999px;
 
   --color-background: var(--background);
+  --color-editor: var(--editor-background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);

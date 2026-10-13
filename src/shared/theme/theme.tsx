@@ -240,3 +240,8 @@ export function useTheme(): ThemeState {
   if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
   return ctx;
 }
+
+/** The resolved `dark` flag, light outside a `ThemeProvider`. */
+export function useIsDark(): boolean {
+  return useContext(ThemeCtx)?.dark ?? false;
+}

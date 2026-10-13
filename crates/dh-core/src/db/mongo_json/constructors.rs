@@ -6,7 +6,10 @@ use super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_constructor(&mut self) -> Result<Bson, ParseError> {
-        let name = self.parse_ident()?;
+        let mut name = self.parse_ident()?;
+        if name == "new" {
+            name = self.parse_ident()?;
+        }
         self.expect(b'(', "(")?;
         match name.as_str() {
             "ObjectId" => {
@@ -18,8 +21,8 @@ impl<'a> Parser<'a> {
             }
             "ISODate" | "Date" => {
                 let s = self.parse_string()?;
-                let dt = DateTime::parse_rfc3339_str(&s)
-                    .map_err(|_| self.err("ISODate(): expected an RFC3339 date-time"))?;
+                let dt = parse_shell_date(&s)
+                    .ok_or_else(|| self.err("ISODate(): expected a date like \"2026-01-01\" or \"2026-01-01T10:00:00Z\""))?;
                 self.expect(b')', ")")?;
                 Ok(Bson::DateTime(dt))
             }
@@ -137,4 +140,14 @@ impl<'a> Parser<'a> {
         let text = std::str::from_utf8(&self.s[start..self.i]).map_err(|_| self.err("bad number"))?;
         text.parse::<f64>().map_err(|_| self.err("expected a number"))
     }
+}
+
+/// A date the way mongosh reads it: full RFC 3339, a bare date, or a date
+/// and time with no zone (taken as UTC).
+fn parse_shell_date(s: &str) -> Option<DateTime> {
+    let s = s.trim();
+    DateTime::parse_rfc3339_str(s)
+        .or_else(|_| DateTime::parse_rfc3339_str(format!("{s}T00:00:00Z")))
+        .or_else(|_| DateTime::parse_rfc3339_str(format!("{s}Z")))
+        .ok()
 }

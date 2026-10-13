@@ -22,6 +22,7 @@ import {
   Puzzle,
   GitCompareArrows,
   Workflow,
+  Blocks,
   Network,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
@@ -65,7 +66,8 @@ export const TAB_ICON_CLASS: Record<
   | "mongo-console"
   | "compare"
   | "relation-diagram"
-  | "aggregation",
+  | "aggregation"
+  | "query-builder",
   string
 > = {
   table: "text-obj-relation",
@@ -75,6 +77,7 @@ export const TAB_ICON_CLASS: Record<
   compare: "text-primary",
   "relation-diagram": "text-obj-relation",
   aggregation: "text-primary",
+  "query-builder": "text-primary",
 };
 
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
@@ -108,5 +111,8 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   ),
   aggregation: (
     <Workflow className={cn("size-3.5", TAB_ICON_CLASS.aggregation)} />
+  ),
+  "query-builder": (
+    <Blocks className={cn("size-3.5", TAB_ICON_CLASS["query-builder"])} />
   ),
 };

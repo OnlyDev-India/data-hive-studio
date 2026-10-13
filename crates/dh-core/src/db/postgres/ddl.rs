@@ -44,7 +44,7 @@ impl PgAdapter {
         Ok(())
     }
 
-    pub(super) async fn create_schema(&self, name: &str) -> DbResult<()> {
+    pub(super) async fn create_schema(&self, database: Option<&str>, name: &str) -> DbResult<()> {
         self.guard.check_write("create schema")?;
         let name = name.trim();
         if name.is_empty() {
@@ -52,9 +52,10 @@ impl PgAdapter {
                 "schema name must not be empty".into(),
             ));
         }
+        let pool = self.pool_for(database).await?;
         let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", q(name));
         sqlx::query(&sql)
-            .execute(&self.pool)
+            .execute(&pool)
             .await
             .map_err(DbError::SqlEngine)?;
         Ok(())
@@ -353,5 +354,31 @@ impl PgAdapter {
             .await
             .map_err(DbError::SqlEngine)?;
         Ok(())
+    }
+}
+
+/// `cargo test -p dh-core -- --ignored pg_create_schema_in_sibling`
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    use crate::db::postgres::query::read_only_live_tests::params;
+
+    #[tokio::test]
+    #[ignore = "requires a live Postgres test database, see server::store::test_pg_url"]
+    async fn pg_create_schema_in_sibling_database() {
+        let pg = PgAdapter::connect(&params(false)).await.unwrap();
+        let db = "dh_sibling_schema_test";
+        pg.drop_database(db).await.unwrap();
+        pg.create_database(db).await.unwrap();
+
+        pg.create_schema(Some(db), "dh_sibling_only").await.unwrap();
+
+        let sibling = pg.list_schemas_in(Some(db)).await.unwrap();
+        assert!(sibling.iter().any(|s| s == "dh_sibling_only"));
+        let own = pg.list_schemas_in(None).await.unwrap();
+        assert!(!own.iter().any(|s| s == "dh_sibling_only"));
+
+        let _ = pg.disconnect_database(db).await;
+        pg.drop_database(db).await.unwrap();
     }
 }

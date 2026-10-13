@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -27,6 +27,14 @@ import {
   type AggregationStage,
   type StudioTab,
 } from "@/shared/store";
+import {
+  BuilderSettings,
+  hasFault,
+  isConnectionLost,
+  ToggleSetting,
+  useBuilderHistory,
+  useUndoKeys,
+} from "@/shared/components/builder-canvas";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -42,7 +50,7 @@ import {
 } from "@/shared/components/ui/resizable";
 import { useWriteConfirm } from "@/shared/hooks/use-write-confirm";
 import type { CardActions } from "../lib/card-actions";
-import { cardFaults, hasFault } from "../lib/card-state";
+import { cardFaults } from "../lib/card-state";
 import {
   codeInput,
   DRIVER_LANGS,
@@ -50,15 +58,6 @@ import {
   type DriverLang,
 } from "../lib/codegen";
 import { fieldSuggestions, joinedCollection, treePaths } from "../lib/fields";
-import {
-  EMPTY_HISTORY,
-  historyOf,
-  record,
-  redo,
-  setHistory,
-  undo,
-  type History,
-} from "../lib/history";
 import {
   addBranch,
   chainOf,
@@ -80,7 +79,6 @@ import {
   withChain,
   type ChainRef,
 } from "../lib/model";
-import { isConnectionLost } from "../lib/offline";
 import { openPipelineFile } from "../lib/open";
 import { isWriteOp } from "../lib/operators";
 import { useExplain } from "../lib/use-explain";
@@ -95,13 +93,9 @@ import {
 import { CollectionPicker } from "./collection-picker";
 import { PasteDialog } from "./paste-dialog";
 import { PipelineCanvas } from "./pipeline-canvas";
-import { SettingsPopover } from "./settings-popover";
 import { SwitchCollectionDialog } from "./switch-collection-dialog";
 
 type AggregationTabKind = Extract<StudioTab, { kind: "aggregation" }>;
-
-/** How long typing must pause before it counts as one undo step. */
-const TEXT_COMMIT_MS = 1000;
 
 /** Where a final `$out` or `$merge` writes, read from the composed stage. */
 function writeTarget(
@@ -127,6 +121,18 @@ function writeTarget(
       : named(value);
   return { op, target };
 }
+
+const stagesOf = (s: AggregationSetup) => s.stages;
+const restoreStages = (
+  cur: AggregationSetup,
+  stages: AggregationStage[],
+): AggregationSetup => ({
+  ...cur,
+  stages,
+  selected_stage_id: findStage(stages, cur.selected_stage_id)
+    ? cur.selected_stage_id
+    : null,
+});
 
 /** An aggregation builder: the pipeline as cards on a canvas, each with its
  *  output previewed, and the full result or the pipeline text on demand. */
@@ -172,74 +178,26 @@ export function AggregationTab({
   const [copied, setCopied] = useState(false);
   const [pasting, setPasting] = useState(false);
 
-  // Undo history: every structural change is one step; a run of typing in
-  // one card (or its title or note) is one step, closed on blur or after
-  // TEXT_COMMIT_MS without typing.
-  const [hist, setHist] = useState(() => historyOf(tab_key));
-  const burst = useRef<string | null>(null);
-  const burst_timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const history = useMemo(() => {
-    const save = (h: History) => {
-      setHistory(tab_key, h);
-      setHist(h);
-    };
-    const close = () => {
-      burst.current = null;
-      if (burst_timer.current) clearTimeout(burst_timer.current);
-      burst_timer.current = null;
-    };
-    const change = (
-      fn: (cur: AggregationSetup) => AggregationSetup,
-      text?: string,
-    ) => {
-      const cur =
-        useStudioStore.getState().aggregationTabs[tab_key] ??
-        DEFAULT_AGGREGATION_SETUP;
-      const next = fn(cur);
-      if (next.stages !== cur.stages) {
-        if (!text || burst.current !== text) {
-          close();
-          save(record(historyOf(tab_key), cur.stages));
-        }
-        if (text) {
-          burst.current = text;
-          if (burst_timer.current) clearTimeout(burst_timer.current);
-          burst_timer.current = setTimeout(close, TEXT_COMMIT_MS);
-        }
-      }
-      setSetup(tab_key, next);
-    };
-    const step = (dir: "undo" | "redo") => {
-      close();
-      const cur =
-        useStudioStore.getState().aggregationTabs[tab_key] ??
-        DEFAULT_AGGREGATION_SETUP;
-      const [h, stages] = (dir === "undo" ? undo : redo)(
-        historyOf(tab_key),
-        cur.stages,
-      );
-      if (!stages) return;
-      save(h);
-      const sel = cur.selected_stage_id;
-      setSetup(tab_key, {
-        ...cur,
-        stages,
-        selected_stage_id: findStage(stages, sel) ? sel : null,
-      });
-    };
-    return {
-      change,
-      close,
-      undo: () => step("undo"),
-      redo: () => step("redo"),
-    };
-  }, [setSetup, tab_key]);
-
-  useEffect(() => history.close, [history]);
+  const readSetup = useCallback(
+    () =>
+      useStudioStore.getState().aggregationTabs[tab_key] ??
+      DEFAULT_AGGREGATION_SETUP,
+    [tab_key],
+  );
+  const writeSetup = useCallback(
+    (next: AggregationSetup) => setSetup(tab_key, next),
+    [setSetup, tab_key],
+  );
+  const history = useBuilderHistory({
+    tab_key,
+    read: readSetup,
+    write: writeSetup,
+    cardsOf: stagesOf,
+    restore: restoreStages,
+  });
 
   const actions: CardActions = useMemo(() => {
-    const { change } = history;
+    const change = history.change;
     return {
       setBody: (id, body) =>
         change(
@@ -338,29 +296,9 @@ export function AggregationTab({
           };
         }),
     };
-  }, [history, update]);
+  }, [history.change, history.close, update]);
 
-  // Cmd+Z and Cmd+Shift+Z on the canvas. A focused editor or box keeps its
-  // own undo.
-  useEffect(() => {
-    if (!active) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z")
-        return;
-      const t = e.target as HTMLElement | null;
-      if (
-        t?.closest(
-          ".cm-editor, input, textarea, select, [contenteditable='true'], [role='dialog']",
-        )
-      )
-        return;
-      e.preventDefault();
-      if (e.shiftKey) history.redo();
-      else history.undo();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [active, history]);
+  useUndoKeys(active, history.undo, history.redo);
 
   const [tree, setTree] = useState<string[]>([]);
   useEffect(() => {
@@ -520,9 +458,7 @@ export function AggregationTab({
   } | null>(null);
   const setCollection = useStudioStore((s) => s.setAggregationCollection);
   const switchCollection = (to: { database: string; collection: string }) => {
-    history.close();
-    setHistory(tab_key, EMPTY_HISTORY);
-    setHist(EMPTY_HISTORY);
+    history.reset();
     setCollection(conn_id, tab.id, to.database, to.collection);
   };
   const pickCollection = (database: string, collection: string) => {
@@ -542,7 +478,7 @@ export function AggregationTab({
         variant="ghost"
         size="iconXs"
         onClick={history.undo}
-        disabled={hist.past.length === 0}
+        disabled={!history.canUndo}
         aria-label="Undo"
         title="Undo (⌘Z)"
       >
@@ -552,7 +488,7 @@ export function AggregationTab({
         variant="ghost"
         size="iconXs"
         onClick={history.redo}
-        disabled={hist.future.length === 0}
+        disabled={!history.canRedo}
         aria-label="Redo"
         title="Redo (⇧⌘Z)"
       >
@@ -645,11 +581,21 @@ export function AggregationTab({
         </span>
       )}
       <div className="flex items-center gap-1.5">
-        <SettingsPopover
+        <BuilderSettings
           id={tab_key}
-          setup={setup}
+          settings={setup}
           onChange={(patch) => update((s) => ({ ...s, ...patch }))}
-        />
+          unit="docs"
+          source="collection"
+        >
+          <ToggleSetting
+            id={`${tab_key}-disk`}
+            label="Allow disk use"
+            hint="Lets Run spill large sorts and groups to disk."
+            checked={setup.allow_disk_use}
+            onChange={(v) => update((s) => ({ ...s, allow_disk_use: v }))}
+          />
+        </BuilderSettings>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={

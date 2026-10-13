@@ -16,6 +16,7 @@ import { NotificationToast } from "@/features/notifications";
 import { Sidebar } from "@/features/workspace";
 import { CommandPalette } from "./command-palette";
 import { CollectionPickerHost } from "@/shared/components/collection-picker";
+import { PickTableHost } from "@/features/query-builder";
 import { LeaveConfirm } from "@/web/LeaveConfirm";
 import { DisconnectDialog } from "@/shared/components/disconnect-dialog";
 import { UpdateDialog } from "@/features/updater";
@@ -298,6 +299,7 @@ export function Studio() {
       <ImportDialog />
       <TableDialogsHost />
       <CollectionPickerHost />
+      <PickTableHost />
       <NotificationToast />
       {WEB && <LeaveConfirm open={leave_open} onOpenChange={set_leave_open} />}
     </div>

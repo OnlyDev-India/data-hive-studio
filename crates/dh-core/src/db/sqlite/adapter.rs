@@ -124,6 +124,20 @@ impl DbAdapter for SqliteAdapter {
             .await
             .map_err(|e| self.guard.refine(e))
     }
+    async fn run_read_only(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        sql: &str,
+        time_ms: Option<u64>,
+        run: Option<&RunHandle>,
+        mut on_batch: BatchSink<'_>,
+    ) -> DbResult<QueryResult> {
+        SqliteAdapter::run_read_only(self, sql, time_ms, run, &mut on_batch).await
+    }
+    fn pool_size(&self) -> u32 {
+        self.pool.options().get_max_connections()
+    }
     async fn explain_sql(
         &self,
         _database: Option<&str>,

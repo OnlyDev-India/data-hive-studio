@@ -11,9 +11,17 @@ forward_cmd! {
     drop_pg_database(conn_id: String, name: String) -> () => drop_database
 }
 
-forward_cmd! {
-    /// Create a schema in the active catalog (Postgres).
-    create_pg_schema(conn_id: String, name: String) -> () => create_schema
+/// Create a schema (Postgres). `database`: `None` = this connection's own
+/// database.
+#[tauri::command]
+pub async fn create_pg_schema(
+    conn_id: String,
+    database: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    crate::db::create_schema(&conn_id, database.as_deref(), &name)
+        .await
+        .map_err(to_err)
 }
 
 /// Create a collection (MongoDB). `database`: `None` = this connection's

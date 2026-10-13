@@ -117,6 +117,10 @@ export function connectionActions(set: SetState) {
             ...state.aggregationTabs,
             ...pending.aggregationSetups,
           },
+          queryBuilderTabs: {
+            ...state.queryBuilderTabs,
+            ...pending.queryBuilderSetups,
+          },
           relationLayouts,
           pendingWorkspaceRestore,
           pausedTabs,

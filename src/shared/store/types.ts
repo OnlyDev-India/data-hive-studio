@@ -34,6 +34,8 @@ export interface SavedWorkspace {
   compareSetups?: Record<string, CompareSetup>;
   /** Aggregation builder setups, keyed by tab key. Absent on older snapshots. */
   aggregationSetups?: Record<string, AggregationSetup>;
+  /** Query builder setups, keyed by tab key. Absent on older snapshots. */
+  queryBuilderSetups?: Record<string, QueryBuilderSetup>;
   /** Dragged diagram box positions: `"<database>|<schema>"` → table key →
    *  position. Absent on older snapshots. */
   relationLayouts?: RelationLayouts;
@@ -117,11 +119,168 @@ export const DEFAULT_AGGREGATION_SETUP: AggregationSetup = {
   saved_text: null,
 };
 
+/** The SQL clauses a query builder card can hold. */
+export type ClauseKind =
+  | "from"
+  | "join"
+  | "where"
+  | "group"
+  | "having"
+  | "select"
+  | "order"
+  | "limit"
+  | "update"
+  | "set"
+  | "delete"
+  | "using"
+  | "insert"
+  | "values"
+  | "conflict"
+  | "returning"
+  | "statement"
+  | "cte"
+  | "compound";
+
+/** A subquery: a SELECT card list hanging off a card. The card's body
+ *  holds `__dh_sub_<marker>` where the whole parenthesized subquery goes;
+ *  a CTE or set operation card holds exactly one chain and no marker. */
+export interface SubChain {
+  id: string;
+  /** Unique among the chains of the query or chain holding the card. */
+  marker: number;
+  name: string | null;
+  /** SELECT cards in written order. */
+  clauses: Clause[];
+  collapsed: boolean;
+}
+
+/** One query builder card. `body` is the clause's SQL fragment without its
+ *  keyword (`orders o`, `LEFT JOIN customers c ON ...`, `total > 10`), the
+ *  source of truth for every view of the card. */
+export interface Clause {
+  /** Unique across the whole tab. */
+  id: string;
+  kind: ClauseKind;
+  body: string;
+  /** GROUP BY only: the aggregate list, such as `COUNT(*) AS n`. */
+  aggregates: string | null;
+  view: "form" | "sql";
+  /** Its subqueries; absent means none. */
+  chains?: SubChain[];
+}
+
+/** A statement query holds one card with any statement the cards can't
+ *  show, kept as written. An upsert is an INSERT with an ON CONFLICT card. */
+export type BuilderQueryKind =
+  "select" | "update" | "delete" | "insert" | "statement";
+
+/** One query on a builder tab: its cards in written order. */
+export interface BuilderQuery {
+  id: string;
+  kind: BuilderQueryKind;
+  /** Null shows the auto label. */
+  name: string | null;
+  clauses: Clause[];
+}
+
+/** A query builder tab's queries and settings. Persisted with its
+ *  workspace; previews and run results never are. */
+export interface QueryBuilderSetup {
+  /** Postgres only; null on SQLite. */
+  database: string | null;
+  /** The Postgres default schema bare table names resolve to; null on
+   *  SQLite. */
+  schema: string | null;
+  /** In canvas order. */
+  queries: BuilderQuery[];
+  /** The last is the current query; never empty while `queries` is not. */
+  picked_query_ids: string[];
+  selected_clause_id: string | null;
+  /** How many FROM rows a preview reads (100 to 100,000). */
+  preview_cap: number;
+  auto_preview: boolean;
+  /** A preview query's time limit (1,000 to 120,000 ms). */
+  preview_time_ms: number;
+}
+
+function newCard(kind: ClauseKind, body = ""): Clause {
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    body,
+    aggregates: null,
+    view: "form",
+  };
+}
+
+/** A SELECT query with an empty SELECT card and a FROM card holding
+ *  `from`, or `clauses` when given. */
+export function selectQuery(from = "", clauses?: Clause[]): BuilderQuery {
+  return {
+    id: crypto.randomUUID(),
+    kind: "select",
+    name: null,
+    clauses: clauses ?? [newCard("select"), newCard("from", from)],
+  };
+}
+
+/** A tab saved before it held many queries: one clause list, SELECT
+ *  wherever it ran. */
+interface LegacySetup {
+  clauses?: Clause[];
+  queries?: BuilderQuery[];
+  picked_query_ids?: string[];
+}
+
+/** A saved setup in the current shape: an old one becomes one SELECT query
+ *  with the same card ids, its SELECT card moved first (or an empty one
+ *  added). */
+export function upgradeQueryBuilderSetup(
+  saved: QueryBuilderSetup,
+): QueryBuilderSetup {
+  const s = saved as QueryBuilderSetup & LegacySetup;
+  if (!Array.isArray(s.clauses) && Array.isArray(s.queries)) {
+    const picked = (s.picked_query_ids ?? []).filter((id) =>
+      s.queries.some((q) => q.id === id),
+    );
+    if (picked.length === 0 && s.queries.length > 0)
+      picked.push(s.queries[0].id);
+    return { ...s, picked_query_ids: picked };
+  }
+  const { clauses = [], ...rest } = s as LegacySetup &
+    Omit<QueryBuilderSetup, "queries">;
+  const select = clauses.find((c) => c.kind === "select") ?? newCard("select");
+  const rest_cards = clauses.filter((c) => c.kind !== "select");
+  if (!rest_cards.some((c) => c.kind === "from"))
+    rest_cards.unshift(newCard("from"));
+  const query = selectQuery("", [select, ...rest_cards]);
+  return { ...rest, queries: [query], picked_query_ids: [query.id] };
+}
+
+export const DEFAULT_QUERY_BUILDER_SETUP: QueryBuilderSetup = {
+  database: null,
+  schema: null,
+  queries: [],
+  picked_query_ids: [],
+  selected_clause_id: null,
+  preview_cap: 1000,
+  auto_preview: true,
+  preview_time_ms: 10_000,
+};
+
+/** A SQL tab's starting database and schema; undefined is the
+ *  connection's own. */
+export interface SqlTarget {
+  database?: string;
+  schema?: string;
+}
+
 /** What a table or collection tab shows. */
 export type PaneMode = "data" | "schema" | "diagram";
 
 /** A tool the activity bar's tools menu offers. */
-export type ToolId = "compare" | "relation-diagram" | "aggregation";
+export type ToolId =
+  "compare" | "relation-diagram" | "aggregation" | "query-builder";
 
 /** User-customizable trigger prefixes for the command palette's quick-open
  *  sub-modes (schema-open / tables-only / connections-only / tabs-only).
@@ -274,6 +433,8 @@ export interface WorkspaceTabs {
   nextCompareId?: number;
   /** Absent on workspaces saved before aggregation tabs existed. */
   nextAggregationId?: number;
+  /** Absent on workspaces saved before query builder tabs existed. */
+  nextQueryBuilderId?: number;
   /** Absent on workspaces saved before relation diagram tabs existed. */
   nextRelationDiagramId?: number;
   /** Data/schema mode per table-tab instance, keyed by the tab's unique key. */
@@ -596,6 +757,12 @@ export interface StudioStore {
    *  already-saved (clean baseline, saves write back to this path) instead of unsaved new
    *  work — same lifecycle as sqlSeeds (set once, deleted by closeTab). */
   seedFilePaths: Record<string, string>;
+  /** The database and schema a SQL tab opened with (the query builder's
+   *  Open in SQL editor), by tab key. Set once, deleted by closeTab. */
+  sqlTargets: Record<string, SqlTarget>;
+  /** The database and schema a New table or New collection tab starts on,
+   *  by tab key. Set once, deleted by closeTab. */
+  newTableTargets: Record<string, SqlTarget>;
 
   /** Generic notification center (action-bar bell). Any feature can push a
    *  notification — e.g. applied schema changes, export results, failed
@@ -865,8 +1032,10 @@ export interface StudioStore {
     seedText?: string,
     seedFilePath?: string,
     paneId?: string,
+    target?: SqlTarget,
   ) => void;
-  openNewTable: (connId: string, paneId?: string) => void;
+  /** `target` presets the tab's database and schema pickers. */
+  openNewTable: (connId: string, paneId?: string, target?: SqlTarget) => void;
   /** Open (or focus — it is a singleton per connection) the Activity tab. */
   openActivityTab: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Users & Privileges tab. */
@@ -919,6 +1088,12 @@ export interface StudioStore {
     database: string,
     collection: string,
   ) => void;
+  /** Open a new query builder tab; `init` sets its database, schema and
+   *  cards, an empty FROM card when it names none. */
+  openQueryBuilder: (connId: string, init?: Partial<QueryBuilderSetup>) => void;
+  /** Query builder setups keyed by tab key. */
+  queryBuilderTabs: Record<string, QueryBuilderSetup>;
+  setQueryBuilderSetup: (key: string, setup: QueryBuilderSetup) => void;
   /** Open a MongoDB collection tab (data view). */
   openMongo: (
     connId: string,

@@ -30,12 +30,3 @@ export const WINDING_DOWN_NOTE =
  *  every stopped console run (spec 0006, AC-8). */
 export const MONGO_WRITE_NOTE =
   "Documents already changed by a write stay changed";
-
-/** Whether a console command may write (insert, update, delete, replace,
- *  findOneAnd..., bulkWrite, index or collection changes). A stopped one can
- *  have changed data, so open grids on the collection should refresh. */
-export function looksLikeMongoWrite(command: string): boolean {
-  return /\.\s*(insert|update|delete|replace|remove|save|findOneAnd|bulkWrite|drop|create|rename)[A-Za-z]*\s*\(/i.test(
-    command,
-  );
-}

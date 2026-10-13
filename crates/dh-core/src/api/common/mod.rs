@@ -6,7 +6,14 @@ mod import;
 mod plan;
 mod compare;
 mod graph;
+mod sql_builder;
 
+pub use sql_builder::{
+    SqlBuilderPreviewRequest,
+    SqlPreviewChunk,
+    SqlPreviewSummary,
+    SqlPreviewTarget,
+};
 pub use graph::{
     GraphColumn,
     GraphLink,

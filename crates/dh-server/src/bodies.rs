@@ -13,6 +13,10 @@ pub struct SqlBody {
     /// Names the run for `/cancel`; only the streaming route reads it.
     #[serde(default)]
     pub run_id: Option<String>,
+    /// Run it read only whatever the connection's flag (the query builder's
+    /// Run); only the streaming route reads it.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// Explain (spec 0011). `run_id` is accepted and ignored: the web build has no

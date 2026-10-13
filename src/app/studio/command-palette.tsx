@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dialog, DialogContent } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
@@ -481,7 +481,6 @@ export function CommandPalette() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="gap-0 p-0 sm:max-w-xl">
         <div className="flex items-center gap-2 border-b px-3">
-          <Search className="text-muted-foreground size-4 shrink-0" />
           {chip && (
             <Badge variant="secondary" className="shrink-0 font-mono">
               {chip.label}

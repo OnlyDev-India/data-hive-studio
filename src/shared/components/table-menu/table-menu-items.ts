@@ -9,6 +9,7 @@ import {
   Trash2,
   Upload,
   Workflow,
+  Blocks,
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,6 +18,7 @@ export type TableAction =
   | "structure"
   | "compare"
   | "aggregate"
+  | "query_builder"
   | "grants"
   | "copy"
   | "duplicate"
@@ -24,8 +26,9 @@ export type TableAction =
   | "refresh_matview"
   | "drop";
 
-export interface TableMenuItem {
-  action: TableAction;
+/** One menu row; `A` is the surface's own action union. */
+export interface MenuEntry<A extends string = string> {
+  action: A;
   label: string;
   icon: LucideIcon;
   disabled: boolean;
@@ -33,6 +36,8 @@ export interface TableMenuItem {
   destructive?: boolean;
   separatorBefore?: boolean;
 }
+
+export type TableMenuItem = MenuEntry<TableAction>;
 
 export const READ_ONLY_TITLE = "Read only connection: this change is refused";
 
@@ -42,6 +47,7 @@ export const ALL_TABLE_ACTIONS: ReadonlySet<TableAction> = new Set([
   "structure",
   "compare",
   "aggregate",
+  "query_builder",
   "grants",
   "copy",
   "duplicate",
@@ -107,6 +113,15 @@ export function tableMenuItems({
       disabled: false,
     },
     mongo,
+  );
+  add(
+    {
+      action: "query_builder",
+      label: "New query builder",
+      icon: Blocks,
+      disabled: false,
+    },
+    !mongo,
   );
   add(
     {

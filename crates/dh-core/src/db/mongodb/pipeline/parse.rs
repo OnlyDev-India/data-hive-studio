@@ -218,7 +218,7 @@ fn at_line(text: &str, at: usize, what: &str) -> String {
 
 /// A stage value with extended JSON wrappers (`{"$oid": …}`) turned into
 /// the values they stand for, the way the console reads them.
-fn lift(v: Bson) -> Bson {
+pub(crate) fn lift(v: Bson) -> Bson {
     match v {
         Bson::Document(d) => {
             if d.keys().next().is_some_and(|k| EXT_KEYS.contains(&k.as_str())) {

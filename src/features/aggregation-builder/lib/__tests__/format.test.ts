@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { countLabel, docLine, docsText, docText } from "../format";
+import { countLabel } from "@/shared/components/builder-canvas";
+import { docLine, docsText, docText } from "../format";
 
 describe("countLabel", () => {
   it("names the cap only when the cap cut the input", () => {

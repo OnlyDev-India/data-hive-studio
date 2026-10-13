@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AggregationStage } from "@/shared/store";
 import { docPaths, fieldSuggestions } from "../fields";
-import { EMPTY_HISTORY, record, redo, undo } from "../history";
+import {
+  EMPTY_HISTORY,
+  record,
+  redo,
+  undo,
+} from "@/shared/components/builder-canvas";
 import {
   addBranch,
   changeOp,

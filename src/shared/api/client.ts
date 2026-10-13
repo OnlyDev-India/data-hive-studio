@@ -14,5 +14,6 @@ export * from "./streaming";
 export * from "./compare";
 export * from "./relation-graph";
 export * from "./pipeline";
+export * from "./sql-builder";
 export * from "./local-connections";
 export * from "./workspace-state";

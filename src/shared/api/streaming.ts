@@ -210,7 +210,8 @@ export async function executeOpStream(
  *  see {@link runSql}'s own doc comment. `runId`: makes the run stoppable
  *  through `cancelRun`; a stopped run resolves with `cancelled: true` (rows
  *  already emitted stay with the caller). Only desktop local connections
- *  honor it so far — see `canCancelRun`. */
+ *  honor it so far — see `canCancelRun`. `readOnly`: run it read only
+ *  whatever the connection's flag (the query builder's Run). */
 export async function runSqlStream(
   connId: string,
   sql: string,
@@ -218,6 +219,7 @@ export async function runSqlStream(
   database?: string,
   schema?: string,
   runId?: string,
+  readOnly = false,
 ): Promise<QueryResult> {
   if (WEB) {
     try {
@@ -229,12 +231,14 @@ export async function runSqlStream(
             database: database ?? null,
             schema: schema ?? null,
             run_id: runId ?? null,
+            read_only: readOnly,
           },
           (chunk) => onChunk?.(chunk),
         ),
       );
     } catch (e) {
-      if (!isMissingRoute(e)) throw e;
+      // The fallback below could write, so a read only run never takes it.
+      if (!isMissingRoute(e) || readOnly) throw e;
       // Still the editor's own "Run", on an older server: one whole result.
       const res = await runSql(connId, sql, "user", database, schema);
       emitAsChunk(res, onChunk);
@@ -248,6 +252,7 @@ export async function runSqlStream(
       schema,
       sql,
       runId,
+      readOnly,
       channel: makeChannel(onChunk),
     }),
   );
