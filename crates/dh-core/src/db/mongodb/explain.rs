@@ -234,8 +234,10 @@ fn aggregate_command(coll: &str, args: &str) -> Result<Document, String> {
 }
 
 fn sort_document(sort: &str) -> Option<Document> {
-    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(sort)).ok()?;
-    bson::to_document(&v).ok()
+    match super::console_parse::parse_value(sort).ok()? {
+        bson::Bson::Document(d) => Some(d),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
