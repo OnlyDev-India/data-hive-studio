@@ -36,6 +36,7 @@ A Tauri desktop app for managing SQLite, PostgreSQL, and MongoDB databases, with
 | 33  | Activity log app query setting | Slice 33 | in-progress |
 | 34  | SQL query builder              | Slice 34 | in-progress |
 | 35  | Sidebar tree context menus     | Slice 35 | in-progress |
+| 36  | Editor follows the app theme   | Slice 36 | in-progress |
 
 
 
@@ -279,6 +280,28 @@ spec [0022](../specs/0022-sidebar-tree-context-menus.md) · code in `src/feature
   - [x] Leaf Copy name, Shift+F10 and Menu key on every row, failure and read only pass · AC-13, AC-14, AC-15, AC-17
 - [ ] Verify it: `/check verify sidebar tree context menus`
 - [ ] Test it: `/test sidebar tree context menus`
+
+
+
+## Slice 36: Editor follows the app theme
+
+
+
+### 36. Editor follows the app theme · in-progress
+
+Every code editor in the app (the SQL and Mongo query editor, the BSON JSON editor, the query builder's SQL fragments, doc hover examples and the file breadcrumb) is fixed to One Dark today, so in the light theme it stays dark. Make it follow the app's light or dark mode and switch live when you change it. The design pass settles which light theme and highlight colors to use, whether they come from the app's theme tokens or a ready made editor theme, how the completion icon colors work in both modes, and whether Settings also gets an editor theme override.
+**Done when:** with the app in light mode every editor shows a light theme, with dark mode a dark one, and switching the app theme changes open editors right away without a reload.
+
+spec [0024](../specs/0024-editor-follows-app-theme.md) · code in `src/shared/theme/codemirror-theme.ts`, `src/shared/theme/theme.tsx`, `src/shared/components/query-editor`, `src/features/query-builder/components/sql-fragment-editor.tsx`, `src/features/query-editor/components/file-breadcrumb.tsx`
+
+- [x] Design it (spec): `/architect editor follows the app theme`
+- [x] Build it: `/develop editor follows the app theme`
+  - [x] Thin thread: One Light package, `editor-theme.css` tokens, `useEditorTheme()` and the token override layer, wired into the query editor and result query view · AC-1, AC-2, AC-3, AC-4, AC-5
+  - [x] Token parity test for `editor-theme.css` · AC-7
+  - [x] Fragment editor, BSON editor (marks on `--bson-ctor` and `--info-dark`), doc hover examples and file breadcrumb · AC-1, AC-2, AC-3, AC-6
+  - [x] Remove the One Dark leftovers and the unused editor theme list · AC-8
+- [ ] Verify it: `/check verify editor follows the app theme`
+- [ ] Test it: `/test editor follows the app theme`
 
 
 
