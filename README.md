@@ -4,7 +4,7 @@
 
 <h1 align="center">DH Studio</h1>
 
-<p align="center"><strong>A fast, native desktop client for SQLite, PostgreSQL, and MongoDB.</strong></p>
+<p align="center"><strong>A fast, native multi database desktop client.</strong></p>
 
 <p align="center">
 Browse schemas, edit data in a spreadsheet-style grid, run SQL (or SQL<br/>

@@ -613,7 +613,7 @@ main() {
           echo "[Desktop Entry]"
           echo "Type=Application"
           echo "Name=DH Studio"
-          echo "Comment=Desktop client for SQLite, PostgreSQL and MongoDB"
+          echo "Comment=Multi database desktop client"
           echo "Exec=\"$APPIMAGE_PATH\" %F"
           [ -z "$ICON_LINE" ] || echo "$ICON_LINE"
           echo "Terminal=false"
