@@ -192,6 +192,14 @@ pub(super) fn validate_chain(chain: &str) -> DbResult<()> {
     }
 }
 
+/// Read one shell argument as MQL extended JSON, so constructor calls like
+/// `ObjectId("...")` and `ISODate("...")` work the way they do in mongosh.
+pub(super) fn parse_value(s: &str) -> Result<bson::Bson, String> {
+    let wrapped = format!("{{\"v\": {}}}", super::mongo_json::quote_bare_keys(s));
+    let mut d = super::mongo_json::parse(&wrapped).map_err(|e| e.0)?;
+    Ok(super::pipeline::lift(d.remove("v").unwrap_or(bson::Bson::Null)))
+}
+
 /// Parse a `<query>` argument (optionally `query, options`) into a filter
 /// document. Empty input → `None` (match everything).
 pub(super) fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
@@ -200,16 +208,13 @@ pub(super) fn parse_filter(args: &str) -> DbResult<Option<bson::Document>> {
     if first.is_empty() {
         return Ok(None);
     }
-    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(first))
-        .map_err(|e| DbError::InvalidOperation(format!("invalid query JSON: {e}")))?;
-    if !v.is_object() {
-        return Err(DbError::InvalidOperation(
+    match parse_value(first) {
+        Ok(bson::Bson::Document(d)) => Ok(Some(d)),
+        Ok(_) => Err(DbError::InvalidOperation(
             "a query must be a JSON object, e.g. {\"status\": \"active\"}".into(),
-        ));
+        )),
+        Err(e) => Err(DbError::InvalidOperation(format!("invalid query: {e}"))),
     }
-    bson::to_document(&v)
-        .map(Some)
-        .map_err(|e| DbError::InvalidOperation(format!("invalid query: {e}")))
 }
 
 /// Parse a single REQUIRED JSON-object argument — an insert document, or an
@@ -221,30 +226,28 @@ pub(super) fn parse_json_object(s: &str, what: &str) -> DbResult<bson::Document>
     if s.is_empty() {
         return Err(DbError::InvalidOperation(format!("{what} is required")));
     }
-    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s))
-        .map_err(|e| DbError::InvalidOperation(format!("invalid {what} JSON: {e}")))?;
-    if !v.is_object() {
-        return Err(DbError::InvalidOperation(format!("{what} must be a JSON object")));
+    match parse_value(s) {
+        Ok(bson::Bson::Document(d)) => Ok(d),
+        Ok(_) => Err(DbError::InvalidOperation(format!("{what} must be a JSON object"))),
+        Err(e) => Err(DbError::InvalidOperation(format!("invalid {what}: {e}"))),
     }
-    bson::to_document(&v).map_err(|e| DbError::InvalidOperation(format!("invalid {what}: {e}")))
 }
 
 /// Parse a JSON array of documents — `insertMany`'s argument.
 pub(super) fn parse_json_object_array(s: &str, what: &str) -> DbResult<Vec<bson::Document>> {
-    let v: serde_json::Value = serde_json::from_str(&super::mongo_json::quote_bare_keys(s.trim()))
-        .map_err(|e| DbError::InvalidOperation(format!("invalid {what} JSON: {e}")))?;
-    let arr = v.as_array().ok_or_else(|| {
-        DbError::InvalidOperation(format!("{what} must be a JSON array of documents"))
-    })?;
-    arr.iter()
-        .map(|d| {
-            if !d.is_object() {
-                return Err(DbError::InvalidOperation(format!(
-                    "every item in {what} must be a JSON object"
-                )));
-            }
-            bson::to_document(d)
-                .map_err(|e| DbError::InvalidOperation(format!("invalid document in {what}: {e}")))
+    let v = parse_value(s.trim())
+        .map_err(|e| DbError::InvalidOperation(format!("invalid {what}: {e}")))?;
+    let bson::Bson::Array(arr) = v else {
+        return Err(DbError::InvalidOperation(format!(
+            "{what} must be a JSON array of documents"
+        )));
+    };
+    arr.into_iter()
+        .map(|d| match d {
+            bson::Bson::Document(d) => Ok(d),
+            _ => Err(DbError::InvalidOperation(format!(
+                "every item in {what} must be a JSON object"
+            ))),
         })
         .collect()
 }

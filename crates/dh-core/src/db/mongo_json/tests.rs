@@ -42,6 +42,16 @@ fn parses_constructors() {
 }
 
 #[test]
+fn parses_shell_date_forms() {
+    let d = parse(r#"{"a": ISODate("2026-01-01"), "b": ISODate("2026-01-01T10:00:00"), "c": new Date("2026-01-01T00:00:00Z"), "d": new ObjectId("63d91962401f718979049b73")}"#).unwrap();
+    assert_eq!(d.get_datetime("a").unwrap().try_to_rfc3339_string().unwrap(), "2026-01-01T00:00:00Z");
+    assert_eq!(d.get_datetime("b").unwrap().try_to_rfc3339_string().unwrap(), "2026-01-01T10:00:00Z");
+    assert!(d.get_datetime("c").is_ok());
+    assert!(d.get_object_id("d").is_ok());
+    assert!(parse(r#"{"a": ISODate("not a date")}"#).is_err());
+}
+
+#[test]
 fn round_trip_preserves_types() {
     let input = r#"{ "x": ObjectId("507f1f77bcf86cd799439011"), "y": NumberLong(42) }"#;
     let rendered = render_ok(input);

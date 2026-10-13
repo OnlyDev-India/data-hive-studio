@@ -47,7 +47,7 @@ function ctxFor(doc: string, pos = doc.length) {
 describe("nosqlConsoleCompletions", () => {
   const collections = [{ label: "teams", type: "property" as const }];
 
-  it("suggests collections + db-level aggregate right after db. — never collection methods", async () => {
+  it("suggests only collections right after db. — never methods", async () => {
     const source = nosqlConsoleCompletions(
       "c1",
       NOSQL_SHELL_COMPLETIONS,
@@ -56,10 +56,8 @@ describe("nosqlConsoleCompletions", () => {
     const result = await source(ctxFor("db."));
     const labels = result?.options.map((o) => o.label) ?? [];
     expect(labels).toContain("teams");
-    // `aggregate` has a real database-level form (db.aggregate(...), for
-    // pipelines that don't start from a collection) — offered here — but
-    // collection-only methods like `find` never make sense without one.
-    expect(labels).toContain("aggregate");
+    // The console only runs db.<collection>.<method>(...), so db.aggregate is not offered.
+    expect(labels).not.toContain("aggregate");
     expect(labels).not.toContain("find");
   });
 
