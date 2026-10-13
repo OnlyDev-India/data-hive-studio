@@ -1,15 +1,13 @@
 import { useMemo } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { syntaxHighlighting } from "@codemirror/language";
 import { PostgreSQL, SQLite, sql } from "@codemirror/lang-sql";
 import { EditorView, tooltips } from "@codemirror/view";
 import { completeFromList } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import {
-  oneDarkHighlightStyle,
-  oneDarkTheme,
-} from "@codemirror/theme-one-dark";
-import { appEditorTheme } from "@/shared/theme/codemirror-theme";
+  appEditorTheme,
+  useEditorTheme,
+} from "@/shared/theme/codemirror-theme";
 import { getTooltipRoot } from "@/shared/components/query-editor/tooltip-root";
 import { cn } from "@/shared/lib/utils";
 import type { Dialect } from "../lib/sql-text";
@@ -59,12 +57,11 @@ export function SqlFragmentEditor({
 }) {
   // Keyed on the names, so a refresh with the same columns keeps the editor.
   const column_key = columns.join("\n");
+  const theme = useEditorTheme();
   const extensions = useMemo(() => {
     const names = column_key ? column_key.split("\n") : [];
     return [
-      oneDarkTheme,
       appEditorTheme,
-      syntaxHighlighting(oneDarkHighlightStyle),
       fragmentTooltips,
       tooltipStackingTheme,
       sql({ dialect: dialect === "postgresql" ? PostgreSQL : SQLite }),
@@ -92,7 +89,7 @@ export function SqlFragmentEditor({
         value={value}
         onChange={onChange}
         extensions={extensions}
-        theme="none"
+        theme={theme}
         placeholder={placeholder}
         basicSetup={BASIC_SETUP}
       />
