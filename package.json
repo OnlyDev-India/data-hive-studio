@@ -1,6 +1,6 @@
 {
   "name": "dh-studio",
-  "description": "DH Studio — a native desktop client for SQLite, PostgreSQL, and MongoDB",
+  "description": "DH Studio — a native multi database desktop client",
   "private": true,
   "version": "0.5.6",
   "type": "module",
