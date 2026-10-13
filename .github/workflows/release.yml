@@ -117,28 +117,18 @@ jobs:
           releaseName: "DH Studio ${{ needs.check-version.outputs.version }}"
           releaseBody: |
             **New**
-            - Connections: a new two step connection form, and tabs pause after a disconnect and pick up where you left off when you reconnect
-            - Connections: mark a connection read only and give it an environment label, shown as a badge in the sidebar
-            - Query editor: Stop a running query on SQLite, PostgreSQL and MongoDB
-            - Query editor: Explain plan view for Postgres, SQLite and MongoDB
-            - Query editor: results stream in batches, and each result shows a summary, the query that produced it, and a file breadcrumb
-            - Import: bring data into tables and collections with a five step wizard and flexible column mapping, also available from the new table tab
-            - New table: tabs for indexes, foreign keys and constraints, and suggested default values
-            - Data grid: a shortcut to reload the table, and a loading state while data loads
-            - Data grid: the column header shows name and type, and the date picker has scrolling hour and minute lists
-            - Table schema view now uses tabs
-            - Updater: updates download inside the app and install when you restart or quit
-            - Windows and Linux: the title bar has the same menus as macOS
-            - Team server: now a simple proxy with no sign in
+            - Query builder: build SQL queries visually for PostgreSQL and SQLite, with clause cards, joins, and schema and database pickers, then hand the query off to the SQL editor
+            - Query builder: many queries in one tab, with SELECT, UPDATE, DELETE, INSERT and upsert cards
+            - Query builder: subqueries, CTEs and set operations (UNION and friends), and SQL you paste in is read back into cards
+            - Query builder: Run or Run all, with a result tab for each query, plus search and undo across the whole tab
+            - Sidebar: right click menus on databases, schemas, tables and collections, with New schema and Copy name
+            - Sidebar: SQLite trees group Tables and Views under their own headers, and Shift+F10 or the Menu key opens the menu on any row
+            - Code editors now follow the app theme: light in light mode, dark in dark mode, and they switch right away when you change it
 
             **Fixes**
-            - Checkboxes in table cells now work correctly
-            - The import dialog no longer scrolls sideways
-            - Auto Increment can only be turned on for columns that support it
-            - MongoDB date columns use the date and time editor and are saved back as real dates
-            - The grid header and rows keep their height when no columns are visible
-            - The Columns menu selects a column when you click its name, and shows where it will land while you drag it
-            - Smaller fixes in the SQL editor, schema designer, JSON viewer and settings dialog
+            - The MongoDB console accepts shell constructors like `ObjectId("...")`, `ISODate("...")`, `NumberLong("...")` and `new Date(...)` in queries, inserts and updates
+            - `ISODate("2026-01-01")` and dates without a time zone are read as UTC, the way mongosh reads them
+            - The dangerous SQL warning and bind variable prompt now work the same in the SQL editor and the query builder
 
             Full commit history: ${{ github.sha }}
 
@@ -191,3 +181,17 @@ jobs:
       tag: ${{ needs.check-version.outputs.tag }}
     permissions:
       contents: write
+
+  # Rebuilds the website (dh-studio-frontend) so it shows this release. Runs
+  # only for a stable release whose platform builds and install scripts all
+  # succeeded; the site reads release data at build time.
+  deploy-website:
+    name: Deploy website
+    needs: [check-version, build, install-scripts]
+    if: needs.build.result == 'success' && needs.check-version.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the Vercel production deploy hook
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL"
