@@ -2,7 +2,7 @@
 
 ## Overview
 
-A compare tab puts two tables or collections side by side: the structure diff runs as soon as both sides are picked, the row diff only on "Compare data". Governed by [spec 0018](../../../docs/specs/0018-table-comparison-view/index.md).
+A compare tab puts two tables or collections side by side: the structure diff runs as soon as both sides are picked, the row diff only on "Compare data". Governed by [spec 0018](../../../../app-docs/specs/0018-table-comparison-view/index.md).
 
 ## Key files
 
