@@ -25,7 +25,7 @@ bun run test             # backend tests (cargo test -p dh-core)
 
 ## Specs
 
-Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
+Stored outside the repo in the workspace `app-docs/` folder (`../app-docs/specs/`). Format: `app-docs/specs/NNNN-title.md`. The scope lives in `app-docs/scope/scope.md`. Skills that say `docs/` mean `app-docs/` (see [../AGENTS.md](../AGENTS.md)).
 
 ## Rules
 
