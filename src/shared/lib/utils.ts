@@ -189,7 +189,16 @@ export function maskStringsAndComments(sql: string): string {
   return out;
 }
 
-export function statementRanges(sql: string): { start: number; end: number }[] {
+/** How a script splits into statements. `mysql` (MySQL and MariaDB, spec
+ *  0025 AC-10) adds `#` comments, `-- ` comments only with the space MySQL
+ *  requires, backslash escapes in strings, and `DELIMITER xx` lines. */
+export type SplitDialect = "default" | "mysql";
+
+export function statementRanges(
+  sql: string,
+  dialect: SplitDialect = "default",
+): { start: number; end: number }[] {
+  if (dialect === "mysql") return mysqlStatementRanges(sql);
   const ranges: { start: number; end: number }[] = [];
   let i = 0;
   let start = 0;
@@ -246,6 +255,76 @@ export function statementRanges(sql: string): { start: number; end: number }[] {
     if (ch === ";") {
       ranges.push({ start, end: i });
       start = i + 1;
+    }
+    i++;
+  }
+  ranges.push({ start, end: n });
+  return ranges;
+}
+
+/** MySQL's statement splitter. A `DELIMITER xx` line changes the terminator
+ *  and is never part of a statement, so a mysqldump file that creates a
+ *  procedure with `DELIMITER ;;` runs as written. `/*! ... *\/` versioned
+ *  comments stay inside their statement (the server runs them as code). */
+function mysqlStatementRanges(sql: string): { start: number; end: number }[] {
+  const ranges: { start: number; end: number }[] = [];
+  const n = sql.length;
+  let terminator = ";";
+  let start = 0;
+  let i = 0;
+  let lineStart = true;
+  const push = (end: number) => {
+    if (sql.slice(start, end).trim()) ranges.push({ start, end });
+  };
+  while (i < n) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (lineStart) {
+      const m = /^[ \t]*delimiter[ \t]+(\S+)[^\n]*(\n|$)/i.exec(sql.slice(i));
+      if (m) {
+        push(i);
+        terminator = m[1];
+        i += m[0].length;
+        start = i;
+        continue;
+      }
+    }
+    lineStart = ch === "\n";
+    if (ch === "'" || ch === '"' || ch === "`") {
+      i++;
+      while (i < n) {
+        if (sql[i] === "\\" && ch !== "`") {
+          i += 2;
+          continue;
+        }
+        if (sql[i] === ch) {
+          if (sql[i + 1] === ch) {
+            i += 2;
+            continue;
+          }
+          break;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+    const dashComment =
+      ch === "-" && next === "-" && (i + 2 >= n || /\s/.test(sql[i + 2]));
+    if (ch === "#" || dashComment) {
+      while (i < n && sql[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const close = sql.indexOf("*/", i + 2);
+      i = close === -1 ? n : close + 2;
+      continue;
+    }
+    if (sql.startsWith(terminator, i)) {
+      push(i);
+      i += terminator.length;
+      start = i;
+      continue;
     }
     i++;
   }

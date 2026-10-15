@@ -2,10 +2,11 @@ use crate::db::MongoAdapter;
 use crate::db::MongoParams;
 use crate::db::PgAdapter;
 use crate::db::PgParams;
+use crate::db::{Flavor, MySqlAdapter, MySqlParams};
 use crate::db::SqliteAdapter;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use crate::api::{ConnGuard, ConnectionInfo, DbKind};
+use crate::api::{ConnGuard, ConnectionInfo, DbKind, ServerDescriptor};
 use serde_json;
 use super::adapter::DbAdapter;
 use super::types::{DbError, DbResult};
@@ -67,7 +68,7 @@ pub async fn open_database(
     let adapter: Arc<dyn DbAdapter> = match kind {
         DbKind::Sqlite => Arc::new(SqliteAdapter::open(name, bytes, &guard).await?),
         DbKind::Postgres => return Err(DbError::Unsupported(*kind)),
-        DbKind::Mysql => return Err(DbError::Unsupported(*kind)),
+        DbKind::Mysql | DbKind::Mariadb => return Err(DbError::Unsupported(*kind)),
         DbKind::Mongodb => return Err(DbError::Unsupported(*kind)),
         DbKind::DocumentDb => return Err(DbError::Unsupported(*kind)),
     };
@@ -76,6 +77,7 @@ pub async fn open_database(
         name: name.to_string(),
         kind: *kind,
         source_path: None,
+        server: None,
         guard,
     };
     // Register BEFORE logging, so the resolver can already find it and this
@@ -101,6 +103,7 @@ pub async fn open_database_path(path: &str, guard: ConnGuard) -> DbResult<Connec
         name,
         kind: DbKind::Sqlite,
         source_path: Some(path.to_string()),
+        server: None,
         guard,
     };
     insert_connection(info.clone(), adapter);
@@ -204,10 +207,57 @@ pub async fn connect_postgres(params: PgParams) -> DbResult<ConnectionInfo> {
                 name: params.database.clone(),
                 kind: DbKind::Postgres,
                 source_path: None,
+                server: None,
                 guard: params.guard.clone(),
             };
             // Register BEFORE logging, so the resolver can already find it
             // and this very first entry gets a `conn_key` too.
+            insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);
+            crate::activity::log_ok_origin(&info.id, "connect", &label, t, 0, "app");
+            Ok(info)
+        }
+        Err(e) => {
+            crate::activity::log_err_origin(&conn_id, "connect", &label, t, &e, "app");
+            Err(e)
+        }
+    }
+}
+
+/// Connect to a MySQL or MariaDB server and register the connection (spec
+/// 0025). `kind` is the picker entry (`Mysql` or `Mariadb`), kept for the
+/// label and icon; the adapter follows the server it detects.
+pub async fn connect_mysql(params: MySqlParams, kind: DbKind) -> DbResult<ConnectionInfo> {
+    if !matches!(kind, DbKind::Mysql | DbKind::Mariadb) {
+        return Err(DbError::InvalidOperation(format!("{} is not a MySQL connection kind", kind.pretty())));
+    }
+    let t = std::time::Instant::now();
+    let conn_id = uuid::Uuid::new_v4().to_string();
+    // The tab and sidebar name, and the base of `stableConnKey`: the
+    // database when set, else `user@host`, so a server level connection
+    // never keys on an empty name.
+    let name = params
+        .database
+        .clone()
+        .unwrap_or_else(|| format!("{}@{}", params.user, params.host));
+    let label = format!("{}@{}:{}/{}", params.user, params.host, params.port, params.database.as_deref().unwrap_or(""));
+    match MySqlAdapter::connect(&params).await {
+        Ok(adapter) => {
+            let server = adapter.server();
+            let (a, b, c) = server.version;
+            let info = ConnectionInfo {
+                id: conn_id,
+                name,
+                kind,
+                source_path: None,
+                server: Some(ServerDescriptor {
+                    flavor: match server.flavor {
+                        Flavor::Mysql => "mysql".into(),
+                        Flavor::Mariadb => "mariadb".into(),
+                    },
+                    version: format!("{a}.{b}.{c}"),
+                }),
+                guard: params.guard.clone(),
+            };
             insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);
             crate::activity::log_ok_origin(&info.id, "connect", &label, t, 0, "app");
             Ok(info)
@@ -231,6 +281,7 @@ pub async fn connect_mongodb(params: MongoParams) -> DbResult<ConnectionInfo> {
                 name: params.database.clone(),
                 kind: DbKind::Mongodb,
                 source_path: None,
+                server: None,
                 guard: params.guard.clone(),
             };
             // Register BEFORE logging, so the resolver can already find it

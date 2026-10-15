@@ -22,6 +22,13 @@ pub struct ColumnInfo {
     /// labels and `data_type` is the element type followed by `[]`.
     #[serde(default)]
     pub is_array: bool,
+    /// MySQL only (spec 0025 AC-8): the column's `EXTRA` text, e.g.
+    /// `auto_increment` or `on update CURRENT_TIMESTAMP`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<String>,
+    /// MySQL only: the column comment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
 
 /// A key's distinct-count truncation marker on a wide `FieldShape` object

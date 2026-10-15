@@ -18,13 +18,15 @@ describe("KIND_ITEMS", () => {
     expect(KIND_ITEMS.map((i) => i.label)).toEqual([
       "SQLite",
       "PostgreSQL",
+      "MySQL",
+      "MariaDB",
       "MongoDB",
       "Amazon DocumentDB",
     ]);
   });
 
-  // covers: AC-27
-  it("drops SQLite on the web", async () => {
+  // covers: AC-27. MySQL reaches the web with spec 0025 build plan slice 5.
+  it("drops SQLite and MySQL on the web", async () => {
     const { KIND_ITEMS } = await loadKinds(true);
     expect(KIND_ITEMS.map((i) => i.id)).toEqual([
       "postgres",

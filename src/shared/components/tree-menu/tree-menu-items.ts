@@ -55,6 +55,9 @@ export type TreeNode =
   | { kind: "pg_extensions"; readOnly: boolean }
   | { kind: "pg_roles"; readOnly: boolean }
   | { kind: "mongo_database"; readOnly: boolean; canSetDefault: boolean }
+  /** MySQL and MariaDB (spec 0025). New table, Drop and the system
+   *  database toggle arrive with the full sidebar (build plan slice 6). */
+  | { kind: "mysql_database" }
   | { kind: "sqlite_group"; readOnly: boolean; group: "table" | "view" }
   | { kind: "leaf" };
 
@@ -71,7 +74,8 @@ const CREATE_LABEL: Record<SchemaObjectKind, string> = {
 /** The menu for one sidebar tree row. Create items are disabled on a read
  *  only connection; everything else stays enabled. */
 export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
-  const readOnly = node.kind !== "leaf" && node.readOnly;
+  const readOnly =
+    node.kind !== "leaf" && node.kind !== "mysql_database" && node.readOnly;
   const ro = readOnly ? READ_ONLY_TITLE : undefined;
   const item = (
     action: TreeAction,
@@ -147,6 +151,13 @@ export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
               } satisfies TreeMenuItem,
             ]
           : []),
+      ];
+    case "mysql_database":
+      return [
+        refresh("Refresh tables"),
+        sqlTab,
+        copy("Copy database name"),
+        collapse,
       ];
     case "mongo_database":
       return [

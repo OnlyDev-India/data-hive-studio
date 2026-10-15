@@ -35,6 +35,7 @@ import {
   canCancelRun,
   canExplain,
   canExplainAnalyze,
+  isMysqlKind,
   cancelRun,
   createRowAccumulator,
   catalogOverview,
@@ -500,6 +501,11 @@ function SqlEditorBody({
   // targets whichever database is currently selected.
   const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const is_pg = conn?.kind === "postgres";
+  // MySQL and MariaDB follow the server the connection detected, not the
+  // picker entry (spec 0025 AC-2, AC-9).
+  const mysql_flavor = isMysqlKind(conn?.kind)
+    ? (conn?.server?.flavor ?? conn?.kind)
+    : undefined;
   const supports_multi_db = conn?.kind !== "sqlite";
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
   const own_database = recent_params?.database ?? conn?.name ?? "";
@@ -699,7 +705,7 @@ function SqlEditorBody({
             ? "postgresql"
             : conn?.kind === "sqlite"
               ? "sqlite"
-              : "sql",
+              : (mysql_flavor ?? "sql"),
           keywordCase: format_keyword_case,
           tabWidth: format_indent_width,
         }),
@@ -709,7 +715,15 @@ function SqlEditorBody({
       // parse (mid-edit, a dialect quirk it doesn't know); silently doing
       // nothing beats replacing a query the user was actively writing.
     }
-  }, [sql_text, is_pg, conn, setSql, format_keyword_case, format_indent_width]);
+  }, [
+    sql_text,
+    is_pg,
+    conn,
+    mysql_flavor,
+    setSql,
+    format_keyword_case,
+    format_indent_width,
+  ]);
   const compress_sql = useCallback(() => {
     setSql(compressSql(sql_text));
   }, [sql_text, setSql]);
@@ -1356,6 +1370,7 @@ function SqlEditorBody({
           tables={effective_tables}
           schema={schema}
           schemaTables={is_pg ? schema_tables : undefined}
+          sqlDialect={mysql_flavor ?? "sqlite"}
           lintEnabled={lint_enabled}
           lintReady={lint_ready}
           showInsertLabels={insert_labels_enabled}

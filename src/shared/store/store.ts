@@ -580,6 +580,10 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         setPgConnecting(v) {
           set({ pgConnecting: v });
         },
+        mysqlConnecting: false,
+        setMysqlConnecting(v) {
+          set({ mysqlConnecting: v });
+        },
         /** True while a MongoDB connect is in flight — GLOBAL so navigating
          *  between home/studio can't lose the spinner or double-connect. */
         mongoConnecting: false,

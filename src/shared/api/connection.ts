@@ -105,6 +105,27 @@ export async function connectPostgres(
   return invoke("connect_postgres", { params });
 }
 
+/** Parameters for connecting to a MySQL or MariaDB server (spec 0025). The
+ *  same shape as Postgres, with MySQL's own SSL mode names and an optional
+ *  database (empty lands on the server). */
+export interface MySqlConnectParams extends Omit<PgConnectParams, "database"> {
+  database?: string;
+  /** DISABLED | PREFERRED | REQUIRED | VERIFY_CA | VERIFY_IDENTITY */
+  ssl_mode?: string;
+}
+
+/** Connect to a MySQL or MariaDB server. `kind` is the picker entry; the
+ *  adapter follows the server it detects (`ConnectionInfo.server`). */
+export async function connectMysql(
+  params: MySqlConnectParams,
+  kind: "mysql" | "mariadb",
+): Promise<ConnectionInfo> {
+  // The team server route is build plan slice 5 (spec 0025 AC-26).
+  if (WEB)
+    throw new Error("MySQL connections aren't available on the web build yet.");
+  return invoke("connect_mysql", { params, kind });
+}
+
 /** Parameters for connecting to a MongoDB server. */
 export interface MongoConnectParams extends ConnGuard {
   host: string;

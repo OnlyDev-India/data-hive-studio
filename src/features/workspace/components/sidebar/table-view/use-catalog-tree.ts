@@ -13,6 +13,7 @@ import {
   dropPgDatabase,
   dropPgSchema,
   catalogOverview,
+  isMysqlKind,
   listSchemasIn,
   listSchemaObjects,
   listExtensions,
@@ -105,6 +106,9 @@ export function useCatalogTree({
   );
   const is_pg = conn_kind === "postgres";
   const is_mongo = conn_kind === "mongodb";
+  /** MySQL and MariaDB (spec 0025): databases, then their tables. No
+   *  schema level, so `schema` is always "" (Mongo's convention). */
+  const is_mysql = isMysqlKind(conn_kind);
   const [pg_active_schema, setPgActiveSchema] = useState("public");
   // `null` = the initial database list hasn't loaded yet. Every database's
   // OWN schema list, including the primary's, is fetched lazily via
@@ -452,7 +456,7 @@ export function useCatalogTree({
     // Mongo has no schemas — this same fetch gives it the database list and
     // the active DATABASE instead (via `overview.databases`/`active_schema`,
     // which the Mongo adapter reuses for its database switch).
-    if (!is_pg && !is_mongo) return;
+    if (!is_pg && !is_mongo && !is_mysql) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -471,7 +475,7 @@ export function useCatalogTree({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, is_pg, is_mongo, ddl_rev]);
+  }, [conn_id, is_pg, is_mongo, is_mysql, ddl_rev]);
 
   // ---- Create/drop database & schema (Postgres DDL dialogs) ----
   const [ddl_dialog, setDdlDialog] = useState<DdlDialogState | null>(null);
@@ -701,9 +705,11 @@ export function useCatalogTree({
     seen_change.current = catalog_change.seq;
     const database = catalog_change.database ?? pg_current_db;
     const schema = catalog_change.schema ?? "";
-    const own = is_mongo
-      ? database === pg_current_db || database === pg_active_schema
-      : database === pg_current_db && (!schema || schema === pg_active_schema);
+    const own =
+      is_mongo || is_mysql
+        ? database === pg_current_db || database === pg_active_schema
+        : database === pg_current_db &&
+          (!schema || schema === pg_active_schema);
     if (own) on_refresh();
     const kind = catalog_change.objectKind;
     if (object_lists[objectKey(database, schema, kind)] !== undefined)
@@ -750,6 +756,17 @@ export function useCatalogTree({
         store_open_mongo(conn_id, database, name);
         return;
       }
+      if (is_mysql) {
+        // One pool reaches every database: the table opens with its own
+        // database, or none for the connection's default one.
+        store_open_table(
+          conn_id,
+          name,
+          undefined,
+          database === pg_current_db ? undefined : database,
+        );
+        return;
+      }
       if (database === pg_current_db && schema === pg_active_schema) {
         on_open_table(name);
         return;
@@ -768,6 +785,7 @@ export function useCatalogTree({
     },
     [
       is_mongo,
+      is_mysql,
       pg_current_db,
       pg_active_schema,
       conn_id,
@@ -961,6 +979,7 @@ export function useCatalogTree({
     conn_info,
     is_pg,
     is_mongo,
+    is_mysql,
     pg_databases,
     pg_current_db,
     pg_active_schema,

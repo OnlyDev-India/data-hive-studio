@@ -1,3 +1,4 @@
+import type { DbKind } from "@/shared/api/types";
 export type LibraryKind = "query" | "snippet";
 export type LibraryLanguage = "sql" | "mongo";
 
@@ -44,9 +45,7 @@ export interface ImportSummary {
 }
 
 /** The library language a connection's editor uses. */
-export function connectionLanguage(
-  kind: "sqlite" | "postgres" | "mysql" | "mongodb" | "documentdb",
-): LibraryLanguage {
+export function connectionLanguage(kind: DbKind): LibraryLanguage {
   return kind === "mongodb" || kind === "documentdb" ? "mongo" : "sql";
 }
 

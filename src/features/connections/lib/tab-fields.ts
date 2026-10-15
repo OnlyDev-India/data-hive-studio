@@ -1,12 +1,14 @@
 import {
   DOCUMENTDB_DEFAULTS,
   MONGO_DEFAULTS,
+  MYSQL_DEFAULTS,
   PG_DEFAULTS,
   SSH_DEFAULTS,
 } from "./defaults";
 import { EMPTY_GUARD_FORM, type GuardFormValues } from "./guard-form";
 import type {
   MongoFormValues,
+  MySqlFormValues,
   PgFormValues,
   SqliteFormValues,
   SshFormValue,
@@ -16,6 +18,8 @@ export type FormTabKey = "connection" | "safety" | "ssl" | "ssh" | "advanced";
 
 export type FormDraft =
   | { kind: "postgres"; values: PgFormValues }
+  | { kind: "mysql"; values: MySqlFormValues }
+  | { kind: "mariadb"; values: MySqlFormValues }
   | { kind: "mongodb" | "documentdb"; values: MongoFormValues }
   | { kind: "sqlite"; values: SqliteFormValues };
 
@@ -87,6 +91,11 @@ export function tabChanged(draft: FormDraft, tab: FormTabKey): boolean {
     case "postgres": {
       const keys = PG_TAB_FIELDS[tab];
       return !!keys && differs(draft.values, PG_DEFAULTS, keys);
+    }
+    case "mysql":
+    case "mariadb": {
+      const keys = PG_TAB_FIELDS[tab];
+      return !!keys && differs(draft.values, MYSQL_DEFAULTS, keys);
     }
     case "mongodb": {
       const keys = MONGO_TAB_FIELDS[tab];

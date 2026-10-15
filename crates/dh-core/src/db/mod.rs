@@ -30,6 +30,7 @@ macro_rules! named_ddl_op {
 mod mongo_json;
 mod mongo_sql;
 mod mongodb;
+mod mysql;
 mod explain;
 mod postgres;
 mod read_only;
@@ -77,6 +78,7 @@ use crate::api::QueryChunk;
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};
 pub use mongodb::{mongo_script_class, MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
+pub use mysql::{Flavor, MySqlAdapter, MySqlParams, ServerInfo};
 pub use read_only::{Dialect, ReadOnlyGuard, READ_ONLY_PREFIX};
 pub use stmt_class::{sql_class, StmtClass};
 pub use runs::{cancel as cancel_run, CancelOutcome, CancelState, RunHandle};

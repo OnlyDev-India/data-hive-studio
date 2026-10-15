@@ -26,12 +26,14 @@ describe("canCancelRun", () => {
     expect(canCancelRun("sqlite")).toBe(true);
     expect(canCancelRun("postgres")).toBe(true);
     expect(canCancelRun("mongodb")).toBe(true);
+    // Spec 0025 AC-12: KILL QUERY on a separate connection.
+    expect(canCancelRun("mysql")).toBe(true);
+    expect(canCancelRun("mariadb")).toBe(true);
   });
 
   it("does not offer Stop for engines the backend cannot cancel yet", async () => {
     const { canCancelRun } = await loadQuery(false);
     expect(canCancelRun("documentdb")).toBe(false);
-    expect(canCancelRun("mysql")).toBe(false);
     expect(canCancelRun(undefined)).toBe(false);
   });
 

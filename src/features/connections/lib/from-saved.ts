@@ -1,9 +1,10 @@
 import { WEB } from "@/shared/api/web";
 import type { SavedConnParams } from "@/shared/store";
 import { guardToForm } from "./guard-form";
-import { MONGO_DEFAULTS, PG_DEFAULTS } from "./defaults";
+import { MONGO_DEFAULTS, MYSQL_DEFAULTS, PG_DEFAULTS } from "./defaults";
 import type {
   MongoFormValues,
+  MySqlFormValues,
   PgFormValues,
   SqliteFormValues,
   SshFormValue,
@@ -45,6 +46,15 @@ export function pgFormFromSaved(p: SavedConnParams): PgFormValues {
     max_lifetime_secs: str(p.max_lifetime_secs),
     ...guardToForm(p),
     ...sshFromSaved(p),
+  };
+}
+
+export function mysqlFormFromSaved(p: SavedConnParams): MySqlFormValues {
+  const pg = pgFormFromSaved(p);
+  return {
+    ...pg,
+    database: p.database ?? "",
+    ssl_mode: p.ssl_mode ?? MYSQL_DEFAULTS.ssl_mode,
   };
 }
 

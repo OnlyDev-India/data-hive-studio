@@ -9,6 +9,7 @@ const ALLOW = {
     "src/shared/components/icons/documentDb.tsx",
     "src/shared/components/icons/mongo.tsx",
     "src/shared/components/icons/mysql.tsx",
+    "src/shared/components/icons/mariadb.tsx",
     "src/shared/components/icons/pg.tsx",
     "src/shared/components/icons/sqlite.tsx",
   ],

@@ -867,6 +867,8 @@ export interface StudioStore {
   /** Global Postgres connect-in-flight flag (survives page switches). */
   pgConnecting: boolean;
   setPgConnecting: (v: boolean) => void;
+  mysqlConnecting: boolean;
+  setMysqlConnecting: (v: boolean) => void;
   /** Global MongoDB connect-in-flight flag (survives page switches). */
   mongoConnecting: boolean;
   setMongoConnecting: (v: boolean) => void;

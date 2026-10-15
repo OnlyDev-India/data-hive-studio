@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   closeConnection,
   connectMongo,
+  connectMysql,
   connectPostgres,
   type ConnGuard,
   type ConnectionInfo,
@@ -12,6 +13,9 @@ import {
   mongoConnectParams,
   mongoDisplayName,
   mongoSavedParams,
+  mysqlConnectParams,
+  mysqlKindOf,
+  mysqlSavedParams,
   pgConnectParams,
   pgDisplayName,
   pgSavedParams,
@@ -20,6 +24,7 @@ import {
 } from "../../lib/build-params";
 import {
   connectMongoForm,
+  connectMysqlForm,
   connectPg,
   openSqliteFile,
 } from "../../lib/connect-saved";
@@ -54,6 +59,13 @@ function toSave(): { name: string; params: SavedConnParams; guard: ConnGuard } {
       guard: guardFromForm(s.pg),
     };
   }
+  if (s.kind === "mysql" || s.kind === "mariadb") {
+    return {
+      name: pgDisplayName(s.mysql),
+      params: mysqlSavedParams(s.mysql, s.kind),
+      guard: guardFromForm(s.mysql),
+    };
+  }
   return {
     name: mongoDisplayName(s.mongo),
     params: mongoSavedParams(s.mongo, s.kind),
@@ -70,6 +82,7 @@ export function useFormActions(onInvalid: (tab: FormTabKey) => void) {
   const [reconnecting, setReconnecting] = useState(false);
   const pgConnecting = useStudioStore((s) => s.pgConnecting);
   const mongoConnecting = useStudioStore((s) => s.mongoConnecting);
+  const mysqlConnecting = useStudioStore((s) => s.mysqlConnecting);
 
   const valid = () => {
     const s = useConnectionDrafts.getState();
@@ -90,7 +103,12 @@ export function useFormActions(onInvalid: (tab: FormTabKey) => void) {
       const conn =
         s.kind === "postgres"
           ? await connectPostgres(pgConnectParams(s.pg))
-          : await connectMongo(mongoConnectParams(s.mongo));
+          : s.kind === "mysql" || s.kind === "mariadb"
+            ? await connectMysql(
+                mysqlConnectParams(s.mysql),
+                mysqlKindOf(s.kind),
+              )
+            : await connectMongo(mongoConnectParams(s.mongo));
       await closeConnection(conn.id);
       setTest({ ok: true });
     } catch (e) {
@@ -114,6 +132,9 @@ export function useFormActions(onInvalid: (tab: FormTabKey) => void) {
       } else if (s.kind === "postgres") {
         if (useStudioStore.getState().pgConnecting) return;
         await connectPg(s.pg);
+      } else if (s.kind === "mysql" || s.kind === "mariadb") {
+        if (useStudioStore.getState().mysqlConnecting) return;
+        await connectMysqlForm(s.mysql, s.kind);
       } else {
         if (useStudioStore.getState().mongoConnecting) return;
         await connectMongoForm(s.mongo, s.kind);
@@ -198,7 +219,9 @@ export function useFormActions(onInvalid: (tab: FormTabKey) => void) {
       ? opening
       : kind === "postgres"
         ? pgConnecting
-        : mongoConnecting;
+        : kind === "mysql" || kind === "mariadb"
+          ? mysqlConnecting
+          : mongoConnecting;
 
   return {
     checked,

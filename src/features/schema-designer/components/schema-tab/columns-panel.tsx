@@ -94,19 +94,29 @@ function ColumnRow({
 }) {
   return (
     <div className={cn(col_row, c.dropped && "opacity-50")}>
-      <div className="flex min-w-0 items-center gap-1.5">
-        {c.primary_key && (
-          <KeyRound className="text-primary size-3.5 shrink-0" />
-        )}
-        {c.dropped ? (
-          <span className="truncate line-through">{c.name}</span>
-        ) : (
-          <EditableText
-            value={c.name}
-            ariaLabel="Column name"
-            disabled={disabled}
-            on_commit={(v) => on_update(c.id, { name: v })}
-          />
+      <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {c.primary_key && (
+            <KeyRound className="text-primary size-3.5 shrink-0" />
+          )}
+          {c.dropped ? (
+            <span className="truncate line-through">{c.name}</span>
+          ) : (
+            <EditableText
+              value={c.name}
+              ariaLabel="Column name"
+              disabled={disabled}
+              on_commit={(v) => on_update(c.id, { name: v })}
+            />
+          )}
+        </div>
+        {(c.extra || c.comment) && (
+          <span
+            className="text-muted-foreground text-caption truncate"
+            title={[c.extra, c.comment].filter(Boolean).join(" · ")}
+          >
+            {[c.extra, c.comment].filter(Boolean).join(" · ")}
+          </span>
         )}
       </div>
       {c.dropped ? (

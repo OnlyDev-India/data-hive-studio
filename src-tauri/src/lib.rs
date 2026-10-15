@@ -161,6 +161,7 @@ pub fn run() {
       commands::open_database,
       commands::connect_postgres,
       commands::connect_mongodb,
+      commands::connect_mysql,
       commands::open_database_path,
       commands::set_database_path,
       commands::create_database,

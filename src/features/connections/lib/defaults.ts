@@ -2,6 +2,7 @@ import { WEB } from "@/shared/api/web";
 import { EMPTY_GUARD_FORM } from "./guard-form";
 import type {
   MongoFormValues,
+  MySqlFormValues,
   PgFormValues,
   SqliteFormValues,
   SshFormValue,
@@ -37,6 +38,13 @@ export const PG_DEFAULTS: PgFormValues = {
   max_lifetime_secs: "",
   ...EMPTY_GUARD_FORM,
   ...SSH_DEFAULTS,
+};
+
+export const MYSQL_DEFAULTS: MySqlFormValues = {
+  ...PG_DEFAULTS,
+  port: "3306",
+  user: "root",
+  ssl_mode: "PREFERRED",
 };
 
 export const MONGO_DEFAULTS: MongoFormValues = {

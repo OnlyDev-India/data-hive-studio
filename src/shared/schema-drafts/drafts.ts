@@ -41,6 +41,10 @@ export interface ColDraft {
   default_text: string;
   primary_key: boolean;
   dropped: boolean;
+  /** Read only details shown beside the column (MySQL, spec 0025 AC-8):
+   *  `auto_increment`, `on update CURRENT_TIMESTAMP`, and the comment. */
+  extra?: string;
+  comment?: string;
 }
 
 /** Editable mirror of one table index (same snapshot pattern). `system`
@@ -116,6 +120,8 @@ export function cols_from_schema(schema: TableSchema): ColDraft[] {
     default_text: c.default ?? "",
     primary_key: c.primary_key,
     dropped: false,
+    ...(c.extra ? { extra: c.extra } : {}),
+    ...(c.comment ? { comment: c.comment } : {}),
   }));
 }
 

@@ -31,16 +31,23 @@ export function stableConnKey(
 }
 
 /** The `stableConnKey` of the connection a saved entry opens. A blank
- *  Postgres database connects to `postgres` (see `pgConnectParams`), and
- *  DocumentDB connects as `mongodb`. */
+ *  Postgres database connects to `postgres` (see `pgConnectParams`),
+ *  DocumentDB connects as `mongodb`, and a MySQL connection with no database
+ *  is named `user@host` (spec 0025). */
 export function stableKeyOfSaved(
-  params: Pick<SavedConnParams, "kind" | "database" | "source_path">,
+  params: Pick<
+    SavedConnParams,
+    "kind" | "database" | "source_path" | "user" | "host"
+  >,
 ): string {
   switch (params.kind) {
     case "sqlite":
       return `sqlite:${params.source_path ?? ""}`;
     case "postgres":
       return `postgres:${params.database.trim() || "postgres"}`;
+    case "mysql":
+    case "mariadb":
+      return `${params.kind}:${params.database.trim() || `${params.user}@${params.host}`}`;
     default:
       return `mongodb:${params.database.trim()}`;
   }

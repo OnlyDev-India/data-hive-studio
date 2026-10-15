@@ -59,7 +59,14 @@ describe("step one", () => {
     render(<Landing />);
     expect(screen.getByText("New Connection")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "PostgreSQL" })).toBeChecked();
-    const names = ["SQLite", "PostgreSQL", "MongoDB", "Amazon DocumentDB"];
+    const names = [
+      "SQLite",
+      "PostgreSQL",
+      "MySQL",
+      "MariaDB",
+      "MongoDB",
+      "Amazon DocumentDB",
+    ];
     screen
       .getAllByRole("radio")
       .forEach((r, i) => expect(r).toHaveAccessibleName(names[i]));
