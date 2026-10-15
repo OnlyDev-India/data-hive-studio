@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use crate::db::{BatchSink, DbAdapter, DbResult, GraphSink, OpOutcome, RunHandle, ScanOut, ScanSpec, ScriptSyntax};
-use crate::api::{FieldShape, ImportCapabilities, ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
+use crate::api::{FieldShape, ImportCapabilities, KillOutcome, KillRequest, MonitorSnapshot, ImportReport, ImportRequest, QueryOp, QueryResult, SchemaOp, TableInfo, TableSchema};
 use super::MongoAdapter;
 
 #[async_trait]
@@ -253,5 +253,13 @@ impl DbAdapter for MongoAdapter {
 
     async fn close(self: Arc<Self>) {
         MongoAdapter::close(self).await
+    }
+
+    async fn monitor_snapshot(&self) -> DbResult<MonitorSnapshot> {
+        MongoAdapter::monitor_snapshot(self).await
+    }
+
+    async fn monitor_kill(&self, req: KillRequest, ctx: &crate::db::KillCtx) -> DbResult<KillOutcome> {
+        MongoAdapter::monitor_kill(self, req, ctx).await
     }
 }

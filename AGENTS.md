@@ -45,5 +45,6 @@ Stored outside the repo in the workspace `app-docs/` folder (`../app-docs/specs/
 - [src/shared/components/data-grid/AGENTS.md](src/shared/components/data-grid/AGENTS.md): the virtualized grid — selection, fill-handle, staged edits
 - [crates/dh-core/src/db/AGENTS.md](crates/dh-core/src/db/AGENTS.md): per-backend DB adapters and the Mongo BSON parser/renderer
 - [src/features/compare/AGENTS.md](src/features/compare/AGENTS.md): the table comparison tab, its structure and row diffs, and the Rust merge behind them
+- [src/features/server-monitor/AGENTS.md](src/features/server-monitor/AGENTS.md): the live server monitor tab, its poller and kill confirms, and the per engine Rust reads behind it
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

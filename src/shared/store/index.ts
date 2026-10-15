@@ -63,3 +63,13 @@ export {
   type GraphStatus,
 } from "./relation-graphs";
 export { openQueryBuilderFor } from "./query-builder";
+export {
+  clampSlowMs,
+  DEFAULT_MONITOR_SETTINGS,
+  MONITOR_REFRESH_CHOICES,
+  normalizeMonitorSettings,
+  SLOW_MS_MAX,
+  SLOW_MS_MIN,
+  type MonitorRefreshMs,
+  type MonitorSettings,
+} from "./monitor-settings";

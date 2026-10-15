@@ -167,6 +167,13 @@ function rekeySaved(
     sqlSeeds: Object.fromEntries(
       Object.entries(saved.sqlSeeds).map(([k, v]) => [rekey(k), v]),
     ),
+    ...(saved.seedFilePaths
+      ? {
+          seedFilePaths: Object.fromEntries(
+            Object.entries(saved.seedFilePaths).map(([k, v]) => [rekey(k), v]),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -188,16 +195,19 @@ export function savedWorkspaceOf(
       : state.relationLayouts[conn.id];
   const relationLayouts =
     layouts && Object.keys(layouts).length > 0 ? layouts : undefined;
+  const monitorSettings = state.monitorSettings[conn.id];
   const found = state.workspaces[conn.id];
   const ws = found && found.tabs.length > 0 ? found : null;
-  if (!ws && !relationLayouts) return null;
+  if (!ws && !relationLayouts && !monitorSettings) return null;
   if (!ws)
     return {
       workspace: found ?? DEFAULT_WORKSPACE,
       sqlSeeds: {},
-      relationLayouts,
+      ...(relationLayouts ? { relationLayouts } : {}),
+      ...(monitorSettings ? { monitorSettings } : {}),
     };
   const sqlSeeds: Record<string, string> = {};
+  const seedFilePaths: Record<string, string> = {};
   const compareSetups: Record<string, CompareSetup> = {};
   const aggregationSetups: Record<string, AggregationSetup> = {};
   const queryBuilderSetups: Record<string, QueryBuilderSetup> = {};
@@ -205,6 +215,8 @@ export function savedWorkspaceOf(
     const tk = tabKey(tab);
     const seed = state.sqlSeeds[tk];
     if (seed !== undefined) sqlSeeds[tk] = seed;
+    const file = state.seedFilePaths[tk];
+    if (file !== undefined) seedFilePaths[tk] = file;
     const setup = state.compareTabs[tk];
     if (setup) compareSetups[tk] = setup;
     const pipeline = state.aggregationTabs[tk];
@@ -215,12 +227,14 @@ export function savedWorkspaceOf(
   return {
     workspace: ws,
     sqlSeeds,
+    ...(Object.keys(seedFilePaths).length > 0 ? { seedFilePaths } : {}),
     ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
     ...(Object.keys(aggregationSetups).length > 0 ? { aggregationSetups } : {}),
     ...(Object.keys(queryBuilderSetups).length > 0
       ? { queryBuilderSetups }
       : {}),
     ...(relationLayouts ? { relationLayouts } : {}),
+    ...(monitorSettings ? { monitorSettings } : {}),
   };
 }
 

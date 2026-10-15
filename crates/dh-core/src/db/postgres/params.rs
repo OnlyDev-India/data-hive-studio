@@ -96,7 +96,11 @@ pub(super) fn pg_connect_options(
         .username(&params.user)
         .password(&params.password)
         .database(database)
-        .ssl_mode(ssl_mode(params.ssl_mode.as_deref()));
+        .ssl_mode(ssl_mode(params.ssl_mode.as_deref()))
+        // Every pool names itself `DH Studio (<tag>)` (spec 0025 AC-11), so the
+        // server monitor can tag this launch's own sessions and DBAs can see
+        // DH Studio in their own tools.
+        .application_name(&crate::db::app_name());
     if let Some(ca) = &params.ssl_ca_file {
         options = options.ssl_root_cert(ca);
     }

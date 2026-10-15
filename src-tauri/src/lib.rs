@@ -211,6 +211,8 @@ pub fn run() {
       commands::sql_builder_preview,
       commands::explain_sql,
       commands::explain_mongo,
+      commands::monitor_snapshot,
+      commands::monitor_kill,
       commands::save_database,
       commands::duplicate_table,
       commands::import_rows,

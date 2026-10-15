@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use crate::api::{
-    ImportReport, ImportRequest, PlanResult, QueryOp, QueryResult, SchemaGraph, SchemaOp, TableInfo, TableSchema,
+    ImportReport, ImportRequest, KillOutcome, KillRequest, MonitorSnapshot, PlanResult, QueryOp, QueryResult, SchemaGraph, SchemaOp, TableInfo, TableSchema,
 };
 use crate::db::{
     BatchSink,
@@ -225,6 +225,14 @@ impl DbAdapter for PgAdapter {
         name: &str,
     ) -> DbResult<()> {
         PgAdapter::refresh_matview(self, database, schema, name).await
+    }
+
+    async fn monitor_snapshot(&self) -> DbResult<MonitorSnapshot> {
+        PgAdapter::monitor_snapshot(self).await
+    }
+
+    async fn monitor_kill(&self, req: KillRequest, ctx: &crate::db::KillCtx) -> DbResult<KillOutcome> {
+        PgAdapter::monitor_kill(self, req, ctx).await
     }
 
     async fn close(self: Arc<Self>) {

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  Activity,
   Code,
   GitCompareArrows,
   Workflow,
@@ -31,6 +32,7 @@ import { WEB } from "@/shared/api/web";
 import type { ConnectionInfo } from "@/shared/api";
 import type { SavedConnParams } from "@/shared/store";
 import {
+  canMonitor,
   getActiveSchema,
   listDatabases,
   listSchemaObjects,
@@ -407,6 +409,15 @@ export function buildCommandItems(theme: {
       icon: <Network className="size-4" />,
       run: () => void openActiveRelationDiagram(active_conn.id),
     });
+    if (canMonitor(active_conn.kind))
+      list.push({
+        id: "tab.server-monitor",
+        label: "Open server monitor",
+        hint: "Live sessions, running queries and locks on this server",
+        scope: conn_scope,
+        icon: <Activity className="size-4" />,
+        run: () => s.openMonitor(active_conn.id),
+      });
     if (is_mongo) {
       list.push({
         id: "tab.aggregation",

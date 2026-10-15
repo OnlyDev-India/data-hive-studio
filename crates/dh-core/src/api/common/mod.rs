@@ -7,6 +7,7 @@ mod plan;
 mod compare;
 mod graph;
 mod sql_builder;
+mod monitor;
 
 pub use sql_builder::{
     SqlBuilderPreviewRequest,
@@ -58,5 +59,20 @@ pub use import::{
     ImportRequest,
     RowFailure,
     MAX_KEPT_FAILURES,
+};
+pub use monitor::{
+    BlockEdge,
+    CancelSource,
+    KillAction,
+    KillOutcome,
+    KillRequest,
+    KillResult,
+    MonitorCounts,
+    MonitorEngine,
+    MonitorSnapshot,
+    SessionRow,
+    SessionState,
+    Visibility,
+    VisibilityLevel,
 };
 pub use plan::{PlanDialect, PlanMode, PlanNode, PlanResult};

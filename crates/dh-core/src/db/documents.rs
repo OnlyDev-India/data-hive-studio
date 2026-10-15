@@ -103,6 +103,7 @@ pub async fn run_mongo(
         return Ok(MongoRunResult {
             command: script.trim().to_string(),
             cancelled: true,
+            cancel_source: run.as_ref().and_then(|r| r.cancel_source()),
             elapsed_ms: t.elapsed().as_millis(),
             ..Default::default()
         });
@@ -188,6 +189,7 @@ pub async fn run_mongo_stream_on(
         Err(DbError::Cancelled) => Ok(MongoRunResult {
             command: script.trim().to_string(),
             cancelled: true,
+            cancel_source: run.as_ref().and_then(|r| r.cancel_source()),
             elapsed_ms: t.elapsed().as_millis(),
             ..Default::default()
         }),

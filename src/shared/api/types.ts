@@ -507,6 +507,8 @@ export interface QueryResult {
   /** The user stopped this run (spec 0006). Not an error: rows already
    *  streamed stay with the caller. Absent from an older server's reply. */
   cancelled?: boolean;
+  /** Who stopped it, when not the run's own Stop (spec 0025). */
+  cancel_source?: CancelSource;
   /** A streamed result: how many entries of `rows` are valid. `rows` is one
    *  append only array shared by every update of the run, so its length can
    *  run ahead of what was last handed to the UI. Absent means every entry
@@ -573,6 +575,100 @@ export type CancelState = "stopped" | "winding_down" | "not_running";
 
 export interface CancelOutcome {
   state: CancelState;
+}
+
+/** Who stopped a run, when it was not the run's own Stop button. */
+export type CancelSource = "monitor";
+
+// ---------------------------------------------------------------------------
+//  Server monitor (spec 0025). Mirrors `crates/dh-core/src/api/common/monitor.rs`.
+// ---------------------------------------------------------------------------
+
+export type MonitorEngine = "postgres" | "mongodb";
+
+/** `waiting` is an active session stuck on a lock. */
+export type SessionState = "active" | "idle" | "idle_in_tx" | "waiting";
+
+export interface SessionRow {
+  /** Postgres pid, or Mongo opid (`shard0:123` through mongos). */
+  id: string;
+  user: string | null;
+  database: string | null;
+  state: SessionState;
+  /** Time since the current query started. Null for idle sessions. */
+  query_ms: number | null;
+  /** Age of the open transaction. */
+  xact_ms: number | null;
+  /** Postgres only: the server's own text, sent back with a kill. */
+  backend_start: string | null;
+  wait: string | null;
+  /** Mongo `op`. */
+  op_type: string | null;
+  query: string | null;
+  query_hidden: boolean;
+  client: string | null;
+  app_name: string | null;
+  is_this_app: boolean;
+  shard: string | null;
+  run_id: string | null;
+  can_cancel: boolean;
+  /** Always false on Mongo. */
+  can_terminate: boolean;
+}
+
+/** `waiter_id` waits on a lock `blocker_id` holds. Postgres only. */
+export interface BlockEdge {
+  waiter_id: string;
+  blocker_id: string;
+  lock_mode: string | null;
+  relation: string | null;
+  wait_ms: number;
+}
+
+/** Counts over the whole server, even when `sessions` is capped. */
+export interface MonitorCounts {
+  total: number;
+  active: number;
+  idle: number;
+  idle_in_tx: number;
+  waiting: number;
+  blocked: number;
+  slow_at_5s: number;
+}
+
+export interface Visibility {
+  level: "full" | "partial";
+  /** `pg_read_all_stats`, `pg_signal_backend`, `inprog`, `killop`. */
+  missing: string[];
+}
+
+export interface MonitorSnapshot {
+  taken_at: string;
+  engine: MonitorEngine;
+  server_version: string;
+  node_note: string | null;
+  app_name_self: string;
+  visibility: Visibility;
+  counts: MonitorCounts;
+  total_sessions: number;
+  sessions: SessionRow[];
+  blocks: BlockEdge[];
+}
+
+export type KillAction = "cancel" | "terminate" | "kill_op";
+
+export interface KillRequest {
+  action: KillAction;
+  id: string;
+  backend_start?: string | null;
+  run_id?: string | null;
+}
+
+export type KillResult = "done" | "gone" | "refused" | "stopped_run";
+
+export interface KillOutcome {
+  result: KillResult;
+  message: string | null;
 }
 
 export function prettyKind(kind: DbKind): string {

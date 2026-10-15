@@ -1,3 +1,4 @@
+import type { MonitorSettings } from "./monitor-settings";
 import type {
   ActivityEntry,
   ConnGuard,
@@ -36,9 +37,15 @@ export interface SavedWorkspace {
   aggregationSetups?: Record<string, AggregationSetup>;
   /** Query builder setups, keyed by tab key. Absent on older snapshots. */
   queryBuilderSetups?: Record<string, QueryBuilderSetup>;
+  /** The file each SQL/console tab is tied to, keyed by tab key. Absent on
+   *  older snapshots. */
+  seedFilePaths?: Record<string, string>;
   /** Dragged diagram box positions: `"<database>|<schema>"` → table key →
    *  position. Absent on older snapshots. */
   relationLayouts?: RelationLayouts;
+  /** The server monitor's rate, slow limit and Show idle (spec 0025).
+   *  Absent on older snapshots. */
+  monitorSettings?: MonitorSettings;
 }
 
 export interface XY {
@@ -755,8 +762,11 @@ export interface StudioStore {
    *  disk (openFileTab), never from generated content (e.g. action-bar's
    *  "open pending edits as SQL"). When present, the tab treats the seed as
    *  already-saved (clean baseline, saves write back to this path) instead of unsaved new
-   *  work — same lifecycle as sqlSeeds (set once, deleted by closeTab). */
+   *  work — same lifecycle as sqlSeeds (deleted by closeTab). Kept live via
+   *  `setSeedFilePath` whenever a tab saves to or opens a file, so the tab
+   *  stays tied to its file across a disconnect and reconnect. */
   seedFilePaths: Record<string, string>;
+  setSeedFilePath: (key: string, path: string) => void;
   /** The database and schema a SQL tab opened with (the query builder's
    *  Open in SQL editor), by tab key. Set once, deleted by closeTab. */
   sqlTargets: Record<string, SqlTarget>;
@@ -1040,6 +1050,12 @@ export interface StudioStore {
   openActivityTab: (connId: string) => void;
   /** Open (or focus — it is a singleton per connection) the Users & Privileges tab. */
   openRolesTab: (connId: string) => void;
+  /** Open (or focus — it is a singleton per connection) the server monitor. */
+  openMonitor: (connId: string) => void;
+  /** The server monitor's settings per open connection, keyed by `conn_id`.
+   *  Filed into the snapshot under `stableConnKey`. Absent = defaults. */
+  monitorSettings: Record<string, MonitorSettings>;
+  setMonitorSettings: (connId: string, patch: Partial<MonitorSettings>) => void;
   /** Open a new compare tab, its left side prefilled when given. */
   openCompare: (connId: string, left?: TableRef) => void;
   /** Open (or focus) the relation diagram tab of one database and schema.
@@ -1114,6 +1130,9 @@ export interface StudioStore {
   ) => void;
   /** Select `tab` within pane `paneId`, and focus that pane. */
   selectTab: (connId: string, paneId: string, tab: StudioTab) => void;
+  /** Focus the tab of `connId` already tied to the file at `path`. Returns
+   *  false when no tab holds it, so the caller opens a new one. */
+  focusFileTab: (connId: string, path: string) => boolean;
   closeTab: (connId: string, tab: StudioTab) => void;
   /** Move `tab` so it ends up at index `toIndex` of pane `toPaneId`'s strip
    *  — same-pane reorder, or a cross-pane relocate (tab moves OUT of its

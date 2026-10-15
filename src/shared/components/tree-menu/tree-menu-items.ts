@@ -1,4 +1,5 @@
 import {
+  Activity,
   ChevronsDownUp,
   ChevronsUpDown,
   Copy,
@@ -28,6 +29,7 @@ export type TreeAction =
   | "collapse_all"
   | "relation_diagram"
   | "set_default"
+  | "server_monitor"
   | "close_tabs"
   | "drop_schema"
   | "disconnect";
@@ -89,6 +91,9 @@ export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
   const collapse = item("collapse_all", "Collapse all", ChevronsDownUp);
   const diagram = item("relation_diagram", "Open relation diagram", Network);
   const setDefault = item("set_default", "Set as default", Star);
+  // The server monitor is server wide: every database row opens the same
+  // one tab (spec 0025).
+  const monitor = item("server_monitor", "Server monitor", Activity);
   const disconnect: TreeMenuItem = {
     ...item("disconnect", "Disconnect", Unplug),
     destructive: true,
@@ -113,6 +118,7 @@ export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
         sqlTab,
         copy(),
         collapse,
+        monitor,
         ...(node.canSetDefault ? [setDefault] : []),
         ...(node.canDisconnect ? [disconnect] : []),
       ];
@@ -149,6 +155,7 @@ export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
         item("console", "New console here", SquareTerminal),
         copy("Copy database name"),
         diagram,
+        monitor,
         ...(node.canSetDefault ? [setDefault] : []),
         disconnect,
       ];

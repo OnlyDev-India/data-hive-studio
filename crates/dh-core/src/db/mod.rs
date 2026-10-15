@@ -50,6 +50,7 @@ mod import_rows;
 mod compare;
 mod pipeline;
 mod sql_builder;
+mod monitor;
 
 pub use types::*;
 pub use adapter::*;
@@ -61,6 +62,10 @@ pub use query::*;
 pub use ddl::*;
 pub use explain::{explain_mongo, explain_sql, MAX_PLAN_NODES};
 pub use import_rows::*;
+pub use monitor::{
+    app_name, instance_tag, monitor_kill, monitor_kill_on, monitor_snapshot, monitor_snapshot_on, set_app_label,
+    KillCtx, MAX_MONITOR_ROWS, MONITOR_UNAVAILABLE_PREFIX,
+};
 pub use pipeline::*;
 pub use sql_builder::{sql_builder_preview, sql_builder_preview_on, SqlPreviewSink};
 pub use compare::{

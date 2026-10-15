@@ -10,6 +10,7 @@ export * from "./connection";
 export * from "./import";
 export * from "./query";
 export * from "./explain";
+export * from "./monitor";
 export * from "./streaming";
 export * from "./compare";
 export * from "./relation-graph";

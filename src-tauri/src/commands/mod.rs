@@ -22,6 +22,7 @@ mod system;
 mod compare;
 mod pipeline;
 mod sql_builder;
+mod monitor;
 
 pub use connect::*;
 pub use browse::*;
@@ -31,6 +32,7 @@ pub use system::*;
 pub use compare::*;
 pub use pipeline::*;
 pub use sql_builder::*;
+pub use monitor::*;
 
 fn to_err(e: crate::db::DbError) -> String {
     e.to_string()

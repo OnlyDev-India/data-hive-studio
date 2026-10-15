@@ -4,6 +4,7 @@ import { dedupe, dispatchDbCall, hinted, serverUnsupported } from "./dispatch";
 import { connGuardOf } from "./read-only";
 import type {
   ActivityEntry,
+  CancelSource,
   CatalogOverview,
   ConnGuard,
   ConnectionInfo,
@@ -401,6 +402,8 @@ export interface MongoRunResult {
    *  stopped write already changed stay changed. Absent from an older
    *  server's reply. */
   cancelled?: boolean;
+  /** Who stopped it, when not the run's own Stop (spec 0025). */
+  cancel_source?: CancelSource;
   /** A streamed result: how many entries of `rows` are valid (see
    *  `QueryResult.row_count`). Absent means all of them. */
   row_count?: number;

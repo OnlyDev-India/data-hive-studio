@@ -16,6 +16,7 @@ rows round-trip through the same text-editing UI as SQL rows.
 | `registry.rs`, `activity_log.rs` | The connection registry, and the activity log helpers |
 | `catalog.rs`, `documents.rs`, `query.rs`, `ddl.rs` | Free functions that look up a connection and call its adapter, grouped by job |
 | `sqlite/`, `postgres/`, `mongodb/` | Per backend `DbAdapter` implementations, each a folder of topic files with the same names for the same job (`params`, `connect`, `catalog`, `query`, `edit`, `ddl`, `cancel`, `adapter`, `tests`) |
+| `monitor.rs` | The live server monitor's shared side (spec 0025); each backend's `monitor.rs` does its own snapshot and kill. See `src/features/server-monitor/AGENTS.md` |
 | `mongo_json/` | MQL extended JSON parser (`parse`) and renderer (`render`) for BSON documents |
 | `mongo_sql/` | Translates SQL shaped queries into Mongo `find`/`aggregate` calls |
 | `explain/` | Turns each engine's explain output into one `PlanNode` tree (`postgres`, `sqlite`, `mongo`), plus `support` (which statements Explain accepts) and `tree` (ids and the node cap). The per backend `explain.rs` files run the call; the types live in `api/common/plan.rs` |
@@ -49,5 +50,8 @@ rows round-trip through the same text-editing UI as SQL rows.
   non-object root value — a bare array or scalar at the top level is rejected, not coerced.
 - Schema DDL (`apply_schema_ops`) runs as one atomic backend transaction; grid row edits do
   **not** — they're independent statements, so a multi-cell edit can partially land.
+- MongoDB Atlas refuses a command with code 8000 (`AtlasError`) where a plain server sends 13
+  (`Unauthorized`), even when `connectionStatus` lists the privilege. Treat both as a refusal
+  (see `refused()` in `mongodb/monitor.rs`).
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

@@ -41,6 +41,8 @@ export type StudioTab =
   | { kind: "activity" }
   /** Singleton per connection — the Users & Privileges tab (Postgres roles). */
   | { kind: "roles" }
+  /** Singleton per connection — the live server monitor (spec 0025). */
+  | { kind: "monitor" }
   /** Two tables side by side. Its setup lives in the store's `compareTabs`
    *  under this tab's key. */
   | { kind: "compare"; conn_id: string; id: number }
@@ -96,6 +98,8 @@ export function tabLabel(
       return "Activity";
     case "roles":
       return "Users & Privileges";
+    case "monitor":
+      return "Monitor";
     case "compare":
       return "Compare";
     case "aggregation":
@@ -137,6 +141,8 @@ export function tabKey(tab: StudioTab): string {
       return "activity";
     case "roles":
       return "roles";
+    case "monitor":
+      return "monitor";
     case "compare":
       return `compare:${tab.conn_id}:${tab.id}`;
     case "aggregation":

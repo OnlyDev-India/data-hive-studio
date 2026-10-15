@@ -512,7 +512,7 @@ async fn the_public_host_is_allowed_when_configured() {
 #[tokio::test]
 async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_body() {
     let (st, _) = state_with_handle(cfg()).await;
-    let routes: [(&str, &str); 28] = [
+    let routes: [(&str, &str); 30] = [
         ("POST", "close"),
         ("GET", "tables"),
         ("GET", "schemas"),
@@ -541,6 +541,8 @@ async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_b
         ("POST", "mongo/run"),
         ("POST", "explain"),
         ("POST", "mongo/explain"),
+        ("GET", "monitor"),
+        ("POST", "monitor/kill"),
     ];
     for (method, route) in routes {
         // `{}` is not a valid body for any of these, so a 404 proves the
@@ -799,4 +801,37 @@ async fn a_read_only_server_refuses_a_pipeline_run_that_writes_but_not_a_preview
     let (code, body) = call(&st, "POST", &format!("/v1/c/{h}/mongo/pipeline/preview-stream"), &[], Some(preview)).await;
     assert_eq!(code, StatusCode::BAD_REQUEST);
     assert!(body.contains("only available on MongoDB"), "{body}");
+}
+
+/// Spec 0025 AC-14: on a `DH_READ_ONLY` server the kill route answers 403
+/// whatever the browser sends, a good body or none at all.
+#[tokio::test]
+async fn read_only_refuses_every_monitor_kill() {
+    let (st, h) = state_with_handle(Config { read_only: true, ..cfg() }).await;
+    for body in [Some(json!({"action": "cancel", "id": "1", "backend_start": "x"})), Some(json!("junk")), None] {
+        let (status, text) = call(&st, "POST", &format!("/v1/c/{h}/monitor/kill"), &[], body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), json!({"error": "server_read_only"}));
+    }
+}
+
+/// Spec 0025: SQLite has no monitor, so its snapshot is a 422, and a kill
+/// with a body that is not a kill request is a 422 too.
+#[tokio::test]
+async fn sqlite_has_no_monitor_and_a_bad_kill_body_is_422() {
+    let (st, h) = state_with_handle(cfg()).await;
+    let (status, text) = call(&st, "GET", &format!("/v1/c/{h}/monitor"), &[], None).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{text}");
+    assert!(text.contains("not available"), "{text}");
+    let (status, _) = call(&st, "POST", &format!("/v1/c/{h}/monitor/kill"), &[], Some(json!({"id": 1}))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, text) = call(
+        &st,
+        "POST",
+        &format!("/v1/c/{h}/monitor/kill"),
+        &[],
+        Some(json!({"action": "cancel", "id": "1", "backend_start": "x"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{text}");
 }

@@ -24,6 +24,7 @@ import {
   Workflow,
   Blocks,
   Network,
+  Activity,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -67,7 +68,8 @@ export const TAB_ICON_CLASS: Record<
   | "compare"
   | "relation-diagram"
   | "aggregation"
-  | "query-builder",
+  | "query-builder"
+  | "monitor",
   string
 > = {
   table: "text-obj-relation",
@@ -78,6 +80,7 @@ export const TAB_ICON_CLASS: Record<
   "relation-diagram": "text-obj-relation",
   aggregation: "text-primary",
   "query-builder": "text-primary",
+  monitor: "text-primary",
 };
 
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
@@ -103,6 +106,7 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   ),
   activity: <History className={cn("text-muted-foreground size-3.5")} />,
   roles: <UsersIcon className="text-obj-security size-3 shrink-0" />,
+  monitor: <Activity className={cn("size-3.5", TAB_ICON_CLASS.monitor)} />,
   "relation-diagram": (
     <Network className={cn("size-3.5", TAB_ICON_CLASS["relation-diagram"])} />
   ),

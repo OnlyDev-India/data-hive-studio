@@ -367,6 +367,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         // Set alongside sqlSeeds only when the seed came from a real file
         // (openFileTab) — see the doc comment on the type.
         seedFilePaths: {},
+        setSeedFilePath(key, path) {
+          set((s) => ({ seedFilePaths: { ...s.seedFilePaths, [key]: path } }));
+        },
         sqlTargets: {},
         newTableTargets: {},
 
@@ -591,7 +594,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...notificationsActions(set, get),
         ...schemaDesignerActions(set),
         ...connectionActions(set),
-        ...workspaceActions(set),
+        ...workspaceActions(set, get),
         ...tableDialogActions(set),
         ...libraryActions(set, get),
       }),
