@@ -31,6 +31,8 @@ export type ConnectionStep = "pick" | "form";
 interface DraftsState {
   step: ConnectionStep;
   kind: SavedDbKind;
+  /** False on a fresh card, so the picker starts with no type selected. */
+  picked: boolean;
   pg: PgFormValues;
   mysql: MySqlFormValues;
   mongo: MongoFormValues;
@@ -60,6 +62,7 @@ interface DraftsActions {
 const FRESH: DraftsState = {
   step: "pick",
   kind: "postgres",
+  picked: false,
   pg: PG_DEFAULTS,
   mysql: MYSQL_DEFAULTS,
   mongo: MONGO_DEFAULTS,
@@ -76,8 +79,13 @@ export const useConnectionDrafts = create<DraftsState & DraftsActions>()(
         const next = s.edit ? carryEntry(s, kind) : {};
         const mongo = next.mongo ?? s.mongo;
         return kind === "documentdb" && s.kind !== "documentdb"
-          ? { ...next, kind, mongo: withDocumentDbDefaults(mongo) }
-          : { ...next, kind };
+          ? {
+              ...next,
+              kind,
+              picked: true,
+              mongo: withDocumentDbDefaults(mongo),
+            }
+          : { ...next, kind, picked: true };
       }),
     openForm: () => set({ step: "form" }),
     backToPicker: () => set({ step: "pick" }),
@@ -88,7 +96,13 @@ export const useConnectionDrafts = create<DraftsState & DraftsActions>()(
     setEdit: (edit) => set({ edit }),
     loadSaved: (kind, params, edit) =>
       set((s) => {
-        const base = { kind, edit, step: "form" as const, visit: s.visit + 1 };
+        const base = {
+          kind,
+          picked: true,
+          edit,
+          step: "form" as const,
+          visit: s.visit + 1,
+        };
         if (kind === "sqlite")
           return { ...base, sqlite: sqliteFormFromSaved(params) };
         if (kind === "postgres")
