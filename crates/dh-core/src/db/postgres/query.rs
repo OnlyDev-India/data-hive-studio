@@ -81,6 +81,7 @@ impl PgAdapter {
             error: null_error(),
             elapsed_ms: start.elapsed().as_millis(),
             cancelled: false,
+            cancel_source: None,
         })
     }
 
@@ -132,6 +133,7 @@ impl PgAdapter {
                 error: null_error(),
                 elapsed_ms: start.elapsed().as_millis(),
                 cancelled: false,
+                cancel_source: None,
             },
             sql: Some(display),
         })

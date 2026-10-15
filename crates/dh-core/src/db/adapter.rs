@@ -12,6 +12,9 @@ use crate::api::{
     ImportCapabilities,
     ImportReport,
     ImportRequest,
+    KillOutcome,
+    KillRequest,
+    MonitorSnapshot,
     QueryOp,
     QueryResult,
     SchemaGraph,
@@ -493,6 +496,17 @@ pub trait DbAdapter: Send + Sync {
         Err(DbError::InvalidOperation(
             "dropping schemas is not supported by this adapter".into(),
         ))
+    }
+    /// One whole server snapshot for the server monitor (spec 0025), read in
+    /// one short bounded read. Never logged.
+    async fn monitor_snapshot(&self) -> DbResult<MonitorSnapshot> {
+        Err(DbError::InvalidOperation("the server monitor is not available for this connection".into()))
+    }
+    /// Cancel, terminate or kill the session `req` names, only while it is
+    /// still that session. Never passes through `ReadOnlyGuard`: a kill
+    /// changes no data. Logs its own outcome.
+    async fn monitor_kill(&self, _req: KillRequest, _ctx: &super::monitor::KillCtx) -> DbResult<KillOutcome> {
+        Err(DbError::InvalidOperation("the server monitor is not available for this connection".into()))
     }
     /// Storage-only concepts for file-backed adapters (WAL merge, byte export).
     /// Network adapters never override these.

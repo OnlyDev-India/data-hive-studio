@@ -12,7 +12,7 @@
 //! query that reused the same connection.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, Mutex as AsyncMutex};
 
 use super::{DbError, DbResult};
+use crate::api::CancelSource;
 
 /// How long a cancel waits for the database to confirm before the run is
 /// abandoned and the tab freed anyway (AC-9).
@@ -70,6 +71,12 @@ struct RunEntry {
     done: watch::Sender<bool>,
     /// Flips once, when the cap passes without confirmation.
     abandon: watch::Sender<bool>,
+    /// The Postgres backend the run's statement runs on, so the server
+    /// monitor can tell its row is this run (spec 0025). 0 = none.
+    pg_pid: AtomicI32,
+    /// Who asked to stop it, when not the run's own Stop: 0 = nobody else,
+    /// 1 = the server monitor.
+    cancel_source: AtomicU8,
 }
 
 #[derive(Default)]
@@ -101,6 +108,8 @@ pub fn register(conn_id: &str, run_id: &str) -> RunHandle {
         slot: AsyncMutex::new(Slot { cancellers: Vec::new(), next_id: 0, finished: false }),
         done: watch::channel(false).0,
         abandon: watch::channel(false).0,
+        pg_pid: AtomicI32::new(0),
+        cancel_source: AtomicU8::new(0),
     });
     reg.runs.insert(run_id.to_string(), entry.clone());
     RunHandle { entry }
@@ -117,6 +126,19 @@ impl RunHandle {
     /// becomes "stopped" when this is set; otherwise it stays a real error.
     pub fn is_cancel_requested(&self) -> bool {
         self.entry.cancel_requested.load(Ordering::SeqCst)
+    }
+
+    /// Record the Postgres backend this run's statement runs on.
+    pub fn set_pg_pid(&self, pid: i32) {
+        self.entry.pg_pid.store(pid, Ordering::SeqCst);
+    }
+
+    /// Who stopped this run, when it was not the run's own Stop.
+    pub fn cancel_source(&self) -> Option<CancelSource> {
+        match self.entry.cancel_source.load(Ordering::SeqCst) {
+            1 => Some(CancelSource::Monitor),
+            _ => None,
+        }
     }
 
     /// Arm the run's canceller once its connection is held. Returns `false`
@@ -212,10 +234,40 @@ pub(super) async fn until_abandoned<T>(
 /// cap. Cancelling a finished, unknown, or other connection's run is not an
 /// error, it just reports `NotRunning`.
 pub async fn cancel(conn_id: &str, run_id: &str) -> CancelOutcome {
-    cancel_within(conn_id, run_id, CONFIRM_CAP).await
+    cancel_within(conn_id, run_id, CONFIRM_CAP, None).await
 }
 
-async fn cancel_within(conn_id: &str, run_id: &str, cap: Duration) -> CancelOutcome {
+/// [`cancel`], remembering who asked, so the run's result can say so (the
+/// server monitor's Cancel on one of this launch's own runs, spec 0025).
+pub async fn cancel_with_source(conn_id: &str, run_id: &str, source: CancelSource) -> CancelOutcome {
+    cancel_within(conn_id, run_id, CONFIRM_CAP, Some(source)).await
+}
+
+/// The registered run on `conn_id` whose statement runs on Postgres backend
+/// `pid`, if any.
+pub fn find_by_pg_pid(conn_id: &str, pid: i32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    let reg = registry().lock().unwrap();
+    reg.runs
+        .values()
+        .find(|e| e.conn_id == conn_id && e.pg_pid.load(Ordering::SeqCst) == pid)
+        .map(|e| e.run_id.clone())
+}
+
+/// Whether `run_id` is a run registered on `conn_id` right now.
+pub fn is_registered(conn_id: &str, run_id: &str) -> bool {
+    let reg = registry().lock().unwrap();
+    reg.runs.get(run_id).is_some_and(|e| e.conn_id == conn_id)
+}
+
+async fn cancel_within(
+    conn_id: &str,
+    run_id: &str,
+    cap: Duration,
+    source: Option<CancelSource>,
+) -> CancelOutcome {
     let entry = {
         let mut reg = registry().lock().unwrap();
         match reg.runs.get(run_id) {
@@ -227,6 +279,9 @@ async fn cancel_within(conn_id: &str, run_id: &str, cap: Duration) -> CancelOutc
             }
         }
     };
+    if source == Some(CancelSource::Monitor) {
+        entry.cancel_source.store(1, Ordering::SeqCst);
+    }
     entry.cancel_requested.store(true, Ordering::SeqCst);
 
     let started = Instant::now();
@@ -290,7 +345,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
             run.finish().await;
         });
-        let out = cancel_within("conn-a", "run-fire-1", Duration::from_secs(2)).await;
+        let out = cancel_within("conn-a", "run-fire-1", Duration::from_secs(2), None).await;
         finisher.await.unwrap();
         assert_eq!(out.state, CancelState::Stopped);
         assert!(hits.load(Ordering::SeqCst) >= 1);
@@ -322,7 +377,7 @@ mod tests {
     async fn a_stuck_query_is_dropped_when_the_run_is_abandoned() {
         let run = register("conn-a", "run-stuck-1");
         let stuck = std::future::pending::<DbResult<()>>();
-        let stopper = cancel_within("conn-a", "run-stuck-1", Duration::from_millis(400));
+        let stopper = cancel_within("conn-a", "run-stuck-1", Duration::from_millis(400), None);
         let (res, out) = tokio::join!(until_abandoned(Some(&run), stuck), stopper);
         assert!(matches!(res, Err(DbError::Cancelled)));
         assert_eq!(out.state, CancelState::WindingDown);
@@ -342,7 +397,7 @@ mod tests {
         let waiter = async {
             run.abandoned().await;
         };
-        let out = cancel_within("conn-a", "run-cap-1", Duration::from_millis(400));
+        let out = cancel_within("conn-a", "run-cap-1", Duration::from_millis(400), None);
         let (out, ()) = tokio::join!(out, waiter);
         assert_eq!(out.state, CancelState::WindingDown);
         run.finish().await;
@@ -360,7 +415,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(700)).await;
             run.finish().await;
         });
-        let out = cancel_within("conn-a", "run-retry-1", Duration::from_secs(3)).await;
+        let out = cancel_within("conn-a", "run-retry-1", Duration::from_secs(3), None).await;
         finisher.await.unwrap();
 
         assert_eq!(out.state, CancelState::Stopped);
@@ -373,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn a_queued_run_that_was_stopped_is_told_not_to_start() {
         let run = register("conn-a", "run-queued-1");
-        let stopper = tokio::spawn(cancel_within("conn-a", "run-queued-1", Duration::from_secs(2)));
+        let stopper = tokio::spawn(cancel_within("conn-a", "run-queued-1", Duration::from_secs(2), None));
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         assert!(run.is_cancel_requested());
@@ -391,7 +446,7 @@ mod tests {
         let run = register("conn-a", "run-flag-1");
         assert!(!run.is_cancel_requested());
 
-        let out = cancel_within("conn-a", "run-flag-1", Duration::from_millis(100)).await;
+        let out = cancel_within("conn-a", "run-flag-1", Duration::from_millis(100), None).await;
 
         assert_eq!(out.state, CancelState::WindingDown);
         assert!(run.is_cancel_requested());
@@ -421,7 +476,7 @@ mod tests {
         run.add_canceller(counting_canceller(b.clone())).await.unwrap();
         run.remove_canceller(first).await;
 
-        let out = cancel_within("conn-a", "run-many-1", Duration::from_millis(250)).await;
+        let out = cancel_within("conn-a", "run-many-1", Duration::from_millis(250), None).await;
 
         assert_eq!(out.state, CancelState::WindingDown);
         assert_eq!(a.load(Ordering::SeqCst), 0);
@@ -461,7 +516,7 @@ mod tests {
         assert!(newer.set_canceller(counting_canceller(hits.clone())).await);
 
         older.finish().await;
-        let out = cancel_within("conn-a", "run-same-id-1", Duration::from_millis(250)).await;
+        let out = cancel_within("conn-a", "run-same-id-1", Duration::from_millis(250), None).await;
 
         assert_eq!(out.state, CancelState::WindingDown);
         assert!(hits.load(Ordering::SeqCst) >= 1);
@@ -478,8 +533,8 @@ mod tests {
             run.finish().await;
         });
         let (a, b) = tokio::join!(
-            cancel_within("conn-a", "run-double-1", Duration::from_secs(2)),
-            cancel_within("conn-a", "run-double-1", Duration::from_secs(2)),
+            cancel_within("conn-a", "run-double-1", Duration::from_secs(2), None),
+            cancel_within("conn-a", "run-double-1", Duration::from_secs(2), None),
         );
         finisher.await.unwrap();
 
@@ -508,6 +563,46 @@ mod tests {
 
         assert!(matches!(res, Err(DbError::InvalidOperation(m)) if m == "boom"));
         run.finish().await;
+    }
+
+    /// Spec 0025 AC-18: the monitor finds a run by its backend pid, only on
+    /// its own connection, and only while the run is registered.
+    #[tokio::test]
+    async fn a_run_is_found_by_its_pg_pid_on_its_own_connection_only() {
+        let run = register("conn-pid", "run-pid-1");
+        assert_eq!(find_by_pg_pid("conn-pid", 4821), None);
+        run.set_pg_pid(4821);
+        assert_eq!(find_by_pg_pid("conn-pid", 4821).as_deref(), Some("run-pid-1"));
+        assert_eq!(find_by_pg_pid("conn-other", 4821), None);
+        assert!(is_registered("conn-pid", "run-pid-1"));
+        assert!(!is_registered("conn-other", "run-pid-1"));
+        run.finish().await;
+        assert_eq!(find_by_pg_pid("conn-pid", 4821), None);
+        assert!(!is_registered("conn-pid", "run-pid-1"));
+    }
+
+    /// Spec 0025 AC-18: a stop from the monitor is remembered on the run, so
+    /// its result can say who stopped it. A plain Stop leaves it empty.
+    #[tokio::test]
+    async fn a_monitor_stop_is_remembered_on_the_run() {
+        let run = register("conn-src", "run-src-1");
+        assert!(run.set_canceller(counting_canceller(Default::default())).await);
+        let finisher = {
+            let entry = run.entry.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                finish_entry(&entry).await;
+            })
+        };
+        let out = cancel_with_source("conn-src", "run-src-1", CancelSource::Monitor).await;
+        finisher.await.unwrap();
+        assert_eq!(out.state, CancelState::Stopped);
+        assert_eq!(run.cancel_source(), Some(CancelSource::Monitor));
+
+        let plain = register("conn-src", "run-src-2");
+        let _ = cancel_within("conn-src", "run-src-2", Duration::from_millis(50), None).await;
+        assert_eq!(plain.cancel_source(), None);
+        plain.finish().await;
     }
 
     /// The desktop frontend reads this shape (`CancelOutcome` in

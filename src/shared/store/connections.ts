@@ -3,6 +3,7 @@ import { closeConnection } from "../api/connection";
 import type { ConnectionInfo } from "../api/types";
 import type { SavedConnParams, StudioStore } from "./types";
 import { tabKey } from "./tab-utils";
+import { normalizeMonitorSettings } from "./monitor-settings";
 import {
   savedWorkspaceOf,
   stableConnKey,
@@ -105,6 +106,11 @@ export function connectionActions(set: SetState) {
         const relationLayouts = { ...state.relationLayouts };
         if (pending.relationLayouts)
           relationLayouts[conn.id] = pending.relationLayouts;
+        const monitorSettings = { ...state.monitorSettings };
+        if (pending.monitorSettings)
+          monitorSettings[conn.id] = normalizeMonitorSettings(
+            pending.monitorSettings,
+          );
         return {
           open,
           recent,
@@ -112,6 +118,7 @@ export function connectionActions(set: SetState) {
           view: "workspace",
           workspaces: { ...state.workspaces, [conn.id]: pending.workspace },
           sqlSeeds: { ...state.sqlSeeds, ...pending.sqlSeeds },
+          seedFilePaths: { ...state.seedFilePaths, ...pending.seedFilePaths },
           compareTabs: { ...state.compareTabs, ...pending.compareSetups },
           aggregationTabs: {
             ...state.aggregationTabs,
@@ -122,6 +129,7 @@ export function connectionActions(set: SetState) {
             ...pending.queryBuilderSetups,
           },
           relationLayouts,
+          monitorSettings,
           pendingWorkspaceRestore,
           pausedTabs,
         };
@@ -144,6 +152,8 @@ export function connectionActions(set: SetState) {
           : state.pendingWorkspaceRestore;
         const relationLayouts = { ...state.relationLayouts };
         delete relationLayouts[id];
+        const monitorSettings = { ...state.monitorSettings };
+        delete monitorSettings[id];
         if (open.length === 0) {
           const workspaces = { ...state.workspaces };
           delete workspaces[id];
@@ -153,6 +163,7 @@ export function connectionActions(set: SetState) {
             view: "home",
             workspaces,
             relationLayouts,
+            monitorSettings,
             pendingWorkspaceRestore,
             // The landing page shares the SAME left-panel state as a
             // connection's workspace — without this, disconnecting while
@@ -166,6 +177,7 @@ export function connectionActions(set: SetState) {
           open,
           activeId: state.activeId === id ? open[0].id : state.activeId,
           relationLayouts,
+          monitorSettings,
           pendingWorkspaceRestore,
         };
       });

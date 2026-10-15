@@ -44,6 +44,7 @@ export function MongoTree({
   );
   const open_new_table = useStudioStore((s) => s.openNewTable);
   const open_console = useStudioStore((s) => s.openMongoConsole);
+  const open_monitor = useStudioStore((s) => s.openMonitor);
 
   const on_database_action = (db: string, a: TreeAction) => {
     switch (a) {
@@ -63,6 +64,8 @@ export function MongoTree({
         return open_relation_diagram(conn_id, { database: db });
       case "set_default":
         return set_default_database(db);
+      case "server_monitor":
+        return open_monitor(conn_id);
       case "disconnect":
         // One client serves every Mongo database, so there is no per
         // database disconnect: any row ends the whole connection.

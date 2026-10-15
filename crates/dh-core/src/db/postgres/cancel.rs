@@ -66,6 +66,7 @@ impl PgAdapter {
             .fetch_one(&mut *conn)
             .await
             .map_err(DbError::SqlEngine)?;
+        run.set_pg_pid(pid);
         let cancel_options = self.connect_options_for(self.resolve_database(database));
         Ok(run.set_canceller(pg_canceller(cancel_options, pid)).await)
     }
@@ -309,8 +310,13 @@ mod run_error_tests {
     }
 
     #[test]
-    fn select_and_with_read_rows_and_everything_else_does_not() {
+    fn row_returning_keywords_read_rows_and_everything_else_does_not() {
         assert!(is_select_statement("select 1"));
+        assert!(is_select_statement("EXPLAIN select pg_sleep(900)"));
+        assert!(is_select_statement("explain (format json) select 1"));
+        assert!(is_select_statement("show search_path"));
+        assert!(is_select_statement("values (1), (2)"));
+        assert!(is_select_statement("table t"));
         assert!(is_select_statement("SELECT\n1"));
         assert!(is_select_statement("with c as (select 1) select * from c"));
         assert!(is_select_statement("select\t1"));

@@ -5,6 +5,7 @@
 mod browse;
 mod compare;
 mod data;
+mod monitor;
 mod mongo;
 mod pipeline;
 mod sql_builder;
@@ -248,6 +249,8 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/compare/data", post(compare::data))
         .route("/v1/c/{handle}/compare/file", post(compare::file))
         .route("/v1/c/{handle}/explain", post(data::explain))
+        .route("/v1/c/{handle}/monitor", get(monitor::snapshot))
+        .route("/v1/c/{handle}/monitor/kill", post(monitor::kill))
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))
         .route("/v1/c/{handle}/duplicate", post(data::duplicate))

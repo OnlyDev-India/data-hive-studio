@@ -1,4 +1,4 @@
-use crate::api::{MongoRunResult, QueryOp, QueryResult};
+use crate::api::{KillAction, KillOutcome, KillResult, MongoRunResult, QueryOp, QueryResult};
 use super::types::{DbError, DbResult};
 
 /// Rows metric for the activity log: returned rows for reads, affected rows
@@ -140,6 +140,53 @@ pub(super) fn op_label(op: &QueryOp) -> (&'static str, String) {
         ),
         QueryOp::Delete { table, .. } => ("delete", format!("DELETE {table}")),
         QueryOp::DropTable { table } => ("drop_table", format!("DROP TABLE {table}")),
+    }
+}
+
+/// The statement a kill stands for, as the Activity log shows it.
+pub(crate) fn kill_statement(action: KillAction, id: &str) -> String {
+    match action {
+        KillAction::Cancel => format!("pg_cancel_backend({id})"),
+        KillAction::Terminate => format!("pg_terminate_backend({id})"),
+        KillAction::KillOp => format!("killOp {id}"),
+    }
+}
+
+/// The one Activity log entry a kill writes (AC-19): the action and target as
+/// the statement, the session's user and database (read by Rust from the row
+/// its guard matched), and how it ended.
+pub(crate) fn log_monitor_kill(
+    conn_id: &str,
+    action: KillAction,
+    target: &str,
+    user: Option<&str>,
+    database: Option<&str>,
+    outcome: &KillOutcome,
+    started: std::time::Instant,
+) {
+    let who = format!(
+        "{} · user {} · database {}",
+        kill_statement(action, target),
+        user.unwrap_or("unknown"),
+        database.unwrap_or("unknown"),
+    );
+    match outcome.result {
+        KillResult::Done => crate::activity::log_ok(conn_id, "monitor", &format!("{who} · done"), started, 0),
+        KillResult::StoppedRun => crate::activity::log_ok(
+            conn_id,
+            "monitor",
+            &format!("{who} · stopped the editor run"),
+            started,
+            0,
+        ),
+        KillResult::Gone => {
+            let e = DbError::InvalidOperation("That session already ended".into());
+            crate::activity::log_err(conn_id, "monitor", &who, started, &e);
+        }
+        KillResult::Refused => {
+            let e = DbError::InvalidOperation(outcome.message.clone().unwrap_or_else(|| "refused".into()));
+            crate::activity::log_err(conn_id, "monitor", &who, started, &e);
+        }
     }
 }
 
