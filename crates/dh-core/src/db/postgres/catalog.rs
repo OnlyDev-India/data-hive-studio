@@ -157,6 +157,8 @@ impl PgAdapter {
                 default: if default.is_empty() { None } else { Some(default) },
                 enum_values: Vec::new(),
                 is_array: false,
+                extra: None,
+                comment: None,
             })
             .map(|mut c| {
                 c.primary_key = pk_set.contains(&c.name);

@@ -1,5 +1,6 @@
 import {
   connectMongo,
+  connectMysql,
   connectPostgres,
   openDatabasePath,
   type ConnGuard,
@@ -10,10 +11,20 @@ import { useStudioStore, type SavedConnParams } from "@/shared/store";
 import {
   mongoConnectParams,
   mongoKindOf,
+  mysqlConnectParams,
+  mysqlKindOf,
   pgConnectParams,
 } from "./build-params";
-import type { MongoFormValues, PgFormValues } from "./form-values";
-import { mongoFormFromSaved, pgFormFromSaved } from "./from-saved";
+import type {
+  MongoFormValues,
+  MySqlFormValues,
+  PgFormValues,
+} from "./form-values";
+import {
+  mongoFormFromSaved,
+  mysqlFormFromSaved,
+  pgFormFromSaved,
+} from "./from-saved";
 import { guardFromForm, guardToForm, isPlainGuard } from "./guard-form";
 
 /** Runs after a successful connect, before the workspace opens. */
@@ -38,6 +49,31 @@ export async function connectPg(
     return conn;
   } finally {
     useStudioStore.getState().setPgConnecting(false);
+  }
+}
+
+export async function connectMysqlForm(
+  my: MySqlFormValues,
+  kind: SavedDbKind,
+  beforeOpen?: BeforeOpen,
+): Promise<ConnectionInfo> {
+  const st = useStudioStore.getState();
+  st.setMysqlConnecting(true);
+  try {
+    const params = mysqlConnectParams(my);
+    const conn = await connectMysql(params, mysqlKindOf(kind));
+    // Before openConn: its dedup reads recentParams.
+    st.pushRecentParams(conn.id, {
+      ...params,
+      database: params.database ?? "",
+      kind: mysqlKindOf(kind),
+      name: my.name.trim() || undefined,
+    });
+    await beforeOpen?.();
+    st.openConn(conn);
+    return conn;
+  } finally {
+    useStudioStore.getState().setMysqlConnecting(false);
   }
 }
 
@@ -92,6 +128,8 @@ export async function connectSaved(
     return openSqliteFile(p.source_path, guard, beforeOpen);
   }
   if (kind === "postgres") return connectPg(pgFormFromSaved(p), beforeOpen);
+  if (kind === "mysql" || kind === "mariadb")
+    return connectMysqlForm(mysqlFormFromSaved(p), kind, beforeOpen);
   return connectMongoForm(mongoFormFromSaved(p), kind, beforeOpen);
 }
 

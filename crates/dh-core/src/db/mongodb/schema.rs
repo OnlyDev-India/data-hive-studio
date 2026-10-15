@@ -48,6 +48,8 @@ impl MongoAdapter {
                 default: None,
                 enum_values: Default::default(),
                 is_array: false,
+                extra: None,
+                comment: None,
             }]);
         }
         Ok(types
@@ -69,6 +71,8 @@ impl MongoAdapter {
                     default: None,
                     enum_values: Default::default(),
                     is_array,
+                    extra: None,
+                    comment: None,
                 }
             })
             .collect())

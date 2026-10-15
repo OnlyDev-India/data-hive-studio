@@ -38,6 +38,8 @@ impl SqliteAdapter {
                     default,
                     enum_values: Vec::new(),
                     is_array: false,
+                    extra: None,
+                    comment: None,
                 });
             }
         }

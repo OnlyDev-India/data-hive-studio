@@ -1,5 +1,6 @@
 import type {
   MongoConnectParams,
+  MySqlConnectParams,
   PgConnectParams,
   SavedDbKind,
   SshConnectParams,
@@ -8,6 +9,7 @@ import type { SavedConnParams } from "@/shared/store";
 import { guardFromForm } from "./guard-form";
 import type {
   MongoFormValues,
+  MySqlFormValues,
   PgFormValues,
   SqliteFormValues,
   SshFormValue,
@@ -85,6 +87,32 @@ export function pgConnectParams(pg: PgFormValues): PgConnectParams {
   };
 }
 
+export function mysqlConnectParams(my: MySqlFormValues): MySqlConnectParams {
+  return {
+    host: my.host.trim() || "localhost",
+    port: Number(my.port) || 3306,
+    user: my.user.trim(),
+    password: my.password,
+    // Empty lands on the server: no default database (spec 0025 AC-5).
+    database: my.database.trim() || undefined,
+    ssl_mode: my.ssl_mode,
+    ssl_ca_file: my.ssl_ca_file.trim() || undefined,
+    ssl_client_cert_file: my.ssl_client_cert_file.trim() || undefined,
+    ssl_client_key_file: my.ssl_client_key_file.trim() || undefined,
+    pool_max: optionalNumber(my.pool_max),
+    pool_min: optionalNumber(my.pool_min),
+    connect_timeout_secs: optionalNumber(my.connect_timeout_secs),
+    idle_timeout_secs: optionalNumber(my.idle_timeout_secs),
+    max_lifetime_secs: optionalNumber(my.max_lifetime_secs),
+    ...guardFromForm(my),
+    ssh: sshConnectParams(my),
+  };
+}
+
+export function mysqlKindOf(kind: SavedDbKind): "mysql" | "mariadb" {
+  return kind === "mariadb" ? "mariadb" : "mysql";
+}
+
 export function mongoConnectParams(mongo: MongoFormValues): MongoConnectParams {
   return {
     host: mongo.host.trim() || "localhost",
@@ -124,6 +152,21 @@ export function pgSavedParams(pg: PgFormValues): SavedConnParams {
     ...flatSshFields(pg),
     remember_secret: pg.remember_secret,
     kind: "postgres",
+  };
+}
+
+export function mysqlSavedParams(
+  my: MySqlFormValues,
+  kind: SavedDbKind,
+): SavedConnParams {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dropping the nested connect payload `ssh` in favor of `flatSshFields` below
+  const { ssh: _ssh, ...params } = mysqlConnectParams(my);
+  return {
+    ...params,
+    database: params.database ?? "",
+    ...flatSshFields(my),
+    remember_secret: my.remember_secret,
+    kind: mysqlKindOf(kind),
   };
 }
 

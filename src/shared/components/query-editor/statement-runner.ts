@@ -18,13 +18,13 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Check, ChevronRight, PlayIcon, X } from "lucide-react";
-import { statementRanges } from "@/shared/lib/utils";
+import { statementRanges, type SplitDialect } from "@/shared/lib/utils";
 
 /** The non-blank statement the cursor currently sits inside, or null between
  *  statements / in trailing whitespace. Shared by the gutter (which
  *  statement is "active") and the frame layer (what to draw a box around). */
-function currentStatement(doc: string, cursor: number) {
-  const ranges = statementRanges(doc);
+function currentStatement(doc: string, cursor: number, split: SplitDialect) {
+  const ranges = statementRanges(doc, split);
   for (const r of ranges) {
     if (
       r.end > r.start &&
@@ -252,14 +252,17 @@ class RunButtonMarker extends GutterMarker {
  *  runs it via the same path Ctrl+Shift+Enter uses. The checkmark badge
  *  marks whichever statement last finished running successfully (see
  *  `markRunResult`) — independent of where the cursor currently is. */
-export function statementGutter(runAtCursor: () => void): Extension {
+export function statementGutter(
+  runAtCursor: () => void,
+  split: SplitDialect = "default",
+): Extension {
   return [
     lastRunSuccessField,
     gutter({
       class: "cm-statement-gutter",
       lineMarker(view, line) {
         const doc = view.state.doc.toString();
-        const stmt = statementRanges(doc).find((r) => {
+        const stmt = statementRanges(doc, split).find((r) => {
           if (r.end <= r.start) return false;
           const trimmed = trimmedRange(doc.slice(r.start, r.end), r.start);
           if (trimmed.end <= trimmed.start) return false;
@@ -349,7 +352,9 @@ export function statementRect(
 /** Rounded border box around the statement the cursor is currently inside —
  *  the CodeMirror `layer()` equivalent of a decoration, redrawn on scroll/
  *  resize/selection/doc changes. */
-export function statementFrameLayer(): Extension {
+export function statementFrameLayer(
+  split: SplitDialect = "default",
+): Extension {
   return layer({
     above: true,
     class: "cm-statement-frame-layer",
@@ -360,7 +365,7 @@ export function statementFrameLayer(): Extension {
       update.geometryChanged,
     markers(view): readonly LayerMarker[] {
       const doc = view.state.doc.toString();
-      const stmt = currentStatement(doc, view.state.selection.main.head);
+      const stmt = currentStatement(doc, view.state.selection.main.head, split);
       if (!stmt) return [];
       // `statementRanges` ends a statement's range AT the `;` (excluding
       // it, so it can start the next range right after) — visually that

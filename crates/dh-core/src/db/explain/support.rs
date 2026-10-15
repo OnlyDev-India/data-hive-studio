@@ -8,11 +8,14 @@ const POSTGRES_KINDS: &[&str] =
     &["select", "insert", "update", "delete", "merge", "values", "table", "with"];
 const SQLITE_KINDS: &[&str] =
     &["select", "insert", "update", "delete", "replace", "with", "values"];
+const MYSQL_KINDS: &[&str] =
+    &["select", "insert", "update", "delete", "replace", "with", "values", "table"];
 
 fn kinds(dialect: Dialect) -> &'static [&'static str] {
     match dialect {
         Dialect::Postgres => POSTGRES_KINDS,
         Dialect::Sqlite => SQLITE_KINDS,
+        Dialect::Mysql => MYSQL_KINDS,
     }
 }
 

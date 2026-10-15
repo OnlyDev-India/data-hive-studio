@@ -37,7 +37,7 @@ pub use compare::{
     RowsRead,
     TableRef,
 };
-pub use connection::{DbKind, ConnGuard, ENV_COLOR_KEYS, ENV_LABEL_MAX_CHARS, ConnectionInfo};
+pub use connection::{DbKind, ConnGuard, ENV_COLOR_KEYS, ENV_LABEL_MAX_CHARS, ConnectionInfo, ServerDescriptor};
 pub use schema::{
     TableInfo,
     ColumnInfo,

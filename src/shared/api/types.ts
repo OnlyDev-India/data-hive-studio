@@ -5,12 +5,20 @@
 // which entry was chosen. One shared `DbKind` covers both uses rather than
 // a second parallel type, mirroring the Rust `DbKind` enum this is typed
 // against.
-export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb" | "documentdb";
+export type DbKind =
+  "sqlite" | "postgres" | "mysql" | "mariadb" | "mongodb" | "documentdb";
 
-/** Kinds a saved/local connection can be — everything `DbKind` covers
- *  except "mysql" (no local/saved MySQL support yet). Derive from `DbKind`
- *  rather than re-listing kinds so adding one only means editing `DbKind`. */
-export type SavedDbKind = Exclude<DbKind, "mysql">;
+/** Kinds a saved/local connection can be: every `DbKind`. Kept as its own
+ *  name so call sites say which use they mean. */
+export type SavedDbKind = DbKind;
+
+/** The MySQL family (spec 0025): both picker entries run on one adapter,
+ *  which follows the server it detects, not the entry picked. */
+export function isMysqlKind(
+  kind: DbKind | undefined,
+): kind is "mysql" | "mariadb" {
+  return kind === "mysql" || kind === "mariadb";
+}
 
 /** How careful to be with a connection (spec 0007). Mirrors the Rust
  *  `ConnGuard`, which flattens these four fields into every struct that saves,
@@ -35,6 +43,15 @@ export interface ConnectionInfo extends ConnGuard {
   /** Real file path this connection was opened from (or saved to). Null for
    *  freshly created databases that only live in a temp file. */
   source_path?: string | null;
+  /** MySQL family only (spec 0025 AC-2): the server the adapter detected,
+   *  which may differ from the picker entry in `kind`. */
+  server?: ServerDescriptor;
+}
+
+export interface ServerDescriptor {
+  flavor: "mysql" | "mariadb";
+  /** `major.minor.patch`. */
+  version: string;
 }
 
 export interface TableInfo {
@@ -52,6 +69,10 @@ export interface ColumnInfo {
   enum_values?: string[];
   /** Postgres only: true when the column is an array type. */
   is_array?: boolean;
+  /** MySQL only: the column's EXTRA text (`auto_increment`, `on update CURRENT_TIMESTAMP`). */
+  extra?: string;
+  /** MySQL only: the column comment. */
+  comment?: string;
 }
 
 export interface ForeignKeyInfo {
@@ -679,6 +700,8 @@ export function prettyKind(kind: DbKind): string {
       return "PostgreSQL";
     case "mysql":
       return "MySQL";
+    case "mariadb":
+      return "MariaDB";
     case "mongodb":
       return "MongoDB";
     case "documentdb":

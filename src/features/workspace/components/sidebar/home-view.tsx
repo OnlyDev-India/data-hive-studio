@@ -35,7 +35,7 @@ import {
 } from "@/shared/components/ui/context-menu";
 import { useStudioStore } from "@/shared/store";
 import type { SavedConnParams } from "@/shared/store";
-import type { ConnGuard, DbKind } from "@/shared/api";
+import { isMysqlKind, type ConnGuard, type DbKind } from "@/shared/api";
 import { ConnFlags } from "@/shared/components/env-chip";
 import { DBIcons } from "@/shared/components/icons/types";
 
@@ -473,6 +473,11 @@ export function HomeView({
                         void connect_direct(conn.name, "postgres", {
                           ...params,
                           kind: "postgres",
+                        });
+                      } else if (isMysqlKind(conn.kind) && params) {
+                        void connect_direct(conn.name, conn.kind, {
+                          ...params,
+                          kind: conn.kind,
                         });
                       } else {
                         void reopenRecent(conn);

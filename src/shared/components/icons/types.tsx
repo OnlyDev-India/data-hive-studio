@@ -1,6 +1,7 @@
 import type { DbKind, SchemaObjectKind } from "@/shared/api";
 import DocumentDbIcon from "./documentDb";
 import MongoIcon from "./mongo";
+import MariaDbIcon from "./mariadb";
 import MySqlIcon from "./mysql";
 import PGIcon from "./pg";
 import SqliteIcon from "./sqlite";
@@ -46,6 +47,7 @@ export type DbIconKind = DbKind | "documentdb";
 export const DBIcons: Record<DbIconKind, React.ComponentType<IconProps>> = {
   mongodb: MongoIcon,
   mysql: MySqlIcon,
+  mariadb: MariaDbIcon,
   postgres: PGIcon,
   sqlite: SqliteIcon,
   documentdb: DocumentDbIcon,
