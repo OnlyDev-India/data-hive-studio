@@ -249,6 +249,7 @@ impl PgAdapter {
                 foreign_keys,
                 indexes,
                 triggers,
+                table_options: None,
             },
             statements,
         ))

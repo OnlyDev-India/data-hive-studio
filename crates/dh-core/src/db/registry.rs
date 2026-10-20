@@ -2,11 +2,11 @@ use crate::db::MongoAdapter;
 use crate::db::MongoParams;
 use crate::db::PgAdapter;
 use crate::db::PgParams;
-use crate::db::{Flavor, MySqlAdapter, MySqlParams};
+use crate::db::{MySqlAdapter, MySqlParams};
 use crate::db::SqliteAdapter;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use crate::api::{ConnGuard, ConnectionInfo, DbKind, ServerDescriptor};
+use crate::api::{ConnGuard, ConnectionInfo, DbKind};
 use serde_json;
 use super::adapter::DbAdapter;
 use super::types::{DbError, DbResult};
@@ -242,20 +242,12 @@ pub async fn connect_mysql(params: MySqlParams, kind: DbKind) -> DbResult<Connec
     let label = format!("{}@{}:{}/{}", params.user, params.host, params.port, params.database.as_deref().unwrap_or(""));
     match MySqlAdapter::connect(&params).await {
         Ok(adapter) => {
-            let server = adapter.server();
-            let (a, b, c) = server.version;
             let info = ConnectionInfo {
                 id: conn_id,
                 name,
                 kind,
                 source_path: None,
-                server: Some(ServerDescriptor {
-                    flavor: match server.flavor {
-                        Flavor::Mysql => "mysql".into(),
-                        Flavor::Mariadb => "mariadb".into(),
-                    },
-                    version: format!("{a}.{b}.{c}"),
-                }),
+                server: Some(adapter.server().descriptor()),
                 guard: params.guard.clone(),
             };
             insert_connection(info.clone(), Arc::new(adapter) as Arc<dyn DbAdapter>);

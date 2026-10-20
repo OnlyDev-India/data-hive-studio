@@ -512,7 +512,7 @@ async fn the_public_host_is_allowed_when_configured() {
 #[tokio::test]
 async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_body() {
     let (st, _) = state_with_handle(cfg()).await;
-    let routes: [(&str, &str); 30] = [
+    let routes: [(&str, &str); 32] = [
         ("POST", "close"),
         ("GET", "tables"),
         ("GET", "schemas"),
@@ -522,6 +522,7 @@ async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_b
         ("GET", "catalog"),
         ("POST", "schemas-in"),
         ("POST", "schema-objects"),
+        ("POST", "definition"),
         ("GET", "roles"),
         ("POST", "extensions"),
         ("GET", "role-details"),
@@ -531,6 +532,7 @@ async fn every_data_route_answers_404_for_an_unknown_handle_before_reading_the_b
         ("POST", "sql"),
         ("POST", "op"),
         ("POST", "schema-ops"),
+        ("POST", "schema-ops/plan"),
         ("POST", "duplicate"),
         ("POST", "import"),
         ("POST", "import/capabilities"),

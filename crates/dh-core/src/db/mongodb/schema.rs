@@ -179,6 +179,7 @@ impl MongoAdapter {
                 foreign_keys: Vec::new(),
                 indexes,
                 triggers: Vec::new(),
+                table_options: None,
             },
             vec![
                 format!("db.{table}.find().limit(200) / sample to infer fields"),

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LayoutGrid } from "lucide-react";
 import {
+  isMysqlKind,
   listSchemasIn,
   type ConnectionInfo,
   type DbKind,
@@ -138,6 +139,10 @@ function SqlDiagram({
   }, [load, conn_id, database, schema]);
   const setTarget = useStudioStore((s) => s.setRelationDiagramTarget);
   const push = useStudioStore((s) => s.pushNotification);
+  // A MySQL tab with no database draws the connection's own one.
+  const own_database = useStudioStore(
+    (s) => s.recentParams[conn_id]?.database ?? "",
+  );
 
   // Only the latest pick may switch the tab, however the lookups finish.
   const pickSeq = useRef(0);
@@ -174,13 +179,20 @@ function SqlDiagram({
       entry={pendingDb ? undefined : entry}
       database={database}
       schema={schema}
-      emptyTitle={`No tables in ${schema ?? conn.name}`}
+      emptyTitle={`No tables in ${schema ?? database ?? conn.name}`}
       onRefresh={() => load(conn_id, database, schema, true)}
       startPx={
         conn.kind === "postgres" && schema ? START_PX.pickers : START_PX.picker
       }
       start={
-        conn.kind === "postgres" && schema ? (
+        isMysqlKind(conn.kind) ? (
+          // MySQL has no schema level: the database is the whole target.
+          <DatabasePicker
+            conn_id={conn_id}
+            database={database ?? own_database}
+            onChange={(d) => setTarget(conn_id, tab.id, { database: d })}
+          />
+        ) : conn.kind === "postgres" && schema ? (
           <>
             <DatabasePicker
               conn_id={conn_id}

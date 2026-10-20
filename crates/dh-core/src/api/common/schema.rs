@@ -138,6 +138,19 @@ pub struct TableSchema {
     pub foreign_keys: Vec<ForeignKeyInfo>,
     pub indexes: Vec<IndexInfo>,
     pub triggers: Vec<TriggerInfo>,
+    /// MySQL: the table's engine, default charset and collation, and
+    /// comment (spec 0025 AC-18). `None` elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table_options: Option<TableOptions>,
+}
+
+/// A MySQL table's options, from `information_schema.TABLES`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TableOptions {
+    pub engine: String,
+    pub charset: String,
+    pub collation: String,
+    pub comment: String,
 }
 
 /// One trigger defined on a table. SQLite has no ALTER TRIGGER — a trigger's

@@ -45,11 +45,12 @@ pub use schema::{
     FieldShape,
     ForeignKeyInfo,
     IndexInfo,
+    TableOptions,
     TableSchema,
     TriggerInfo,
 };
 pub use query::{QueryResult, QueryChunk, FilterOp, GridFilterCond, OrderByCond, QueryOp};
-pub use schema_ops::{DefaultMode, SchemaOp};
+pub use schema_ops::{ColumnAttrs, DefaultMode, SchemaApplyReport, SchemaOp, StatementOutcome, StatementStatus};
 pub use import::{
     ImportCapabilities,
     ImportData,

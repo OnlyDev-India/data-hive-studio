@@ -64,7 +64,8 @@ fn ssl_mode(v: Option<&str>) -> MySqlSslMode {
 
 /// Connect options for `host:port` (the SSH tunnel's local end when there is
 /// one). The app never changes `sql_mode` or `time_zone` (spec 0025 key
-/// invariants), so the driver's own additions to both are switched off, and
+/// invariants), so the driver's own additions to both are switched off (the
+/// one it can't switch off is undone in [`session_setup`]), and
 /// `SET NAMES` is sent by [`session_setup`] instead of the driver, which
 /// would also pin a collation.
 pub(super) fn mysql_connect_options(host: &str, port: u16, params: &MySqlParams) -> MySqlConnectOptions {
@@ -94,15 +95,23 @@ pub(super) fn mysql_connect_options(host: &str, port: u16, params: &MySqlParams)
     options
 }
 
-/// What every new session runs before anything else: `NAMES utf8mb4`, plus
-/// `TRANSACTION READ ONLY` on a read only connection (the second guard
-/// under the statement check, AC-17). Two statements: `SET TRANSACTION`
-/// can't share a `SET` list.
+/// sqlx always asks for `CLIENT_IGNORE_SPACE` in the handshake, and the
+/// server answers by adding `IGNORE_SPACE` to the session's `sql_mode`
+/// (so `CREATE TABLE count (i INT)` fails with 1064). This takes it off
+/// again, unless the server's own default has it.
+const UNDO_IGNORE_SPACE: &str = "SET SESSION sql_mode = IF(FIND_IN_SET('IGNORE_SPACE', @@global.sql_mode), \
+     @@session.sql_mode, \
+     TRIM(BOTH ',' FROM REPLACE(CONCAT(',', @@session.sql_mode, ','), ',IGNORE_SPACE,', ',')))";
+
+/// What every new session runs before anything else: undo the driver's
+/// `IGNORE_SPACE`, `NAMES utf8mb4`, plus `TRANSACTION READ ONLY` on a read
+/// only connection (the second guard under the statement check, AC-17).
+/// Separate statements: `SET TRANSACTION` can't share a `SET` list.
 pub(super) fn session_setup(read_only: bool) -> &'static [&'static str] {
     if read_only {
-        &["SET NAMES utf8mb4", "SET SESSION TRANSACTION READ ONLY"]
+        &[UNDO_IGNORE_SPACE, "SET NAMES utf8mb4", "SET SESSION TRANSACTION READ ONLY"]
     } else {
-        &["SET NAMES utf8mb4"]
+        &[UNDO_IGNORE_SPACE, "SET NAMES utf8mb4"]
     }
 }
 
@@ -176,7 +185,10 @@ mod tests {
 
     #[test]
     fn a_read_only_session_starts_read_only() {
-        assert_eq!(session_setup(false), ["SET NAMES utf8mb4"]);
-        assert_eq!(session_setup(true), ["SET NAMES utf8mb4", "SET SESSION TRANSACTION READ ONLY"]);
+        assert_eq!(session_setup(false), [UNDO_IGNORE_SPACE, "SET NAMES utf8mb4"]);
+        assert_eq!(
+            session_setup(true),
+            [UNDO_IGNORE_SPACE, "SET NAMES utf8mb4", "SET SESSION TRANSACTION READ ONLY"]
+        );
     }
 }

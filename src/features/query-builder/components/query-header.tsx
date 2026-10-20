@@ -4,12 +4,13 @@ import { listDatabases, listSchemasIn } from "@/shared/api";
 import { Pick } from "@/shared/components/builder-canvas";
 import { Button } from "@/shared/components/ui/button";
 
-/** The bar above the canvas: the database and schema (Postgres), Paste SQL
- *  and Open in SQL editor. */
+/** The bar above the canvas: the database and schema (Postgres), or the
+ *  database alone (MySQL), Paste SQL and Open in SQL editor. */
 export function QueryHeader({
   conn_id,
   connected,
   postgres,
+  mysql = false,
   ownDatabase,
   database,
   schema,
@@ -23,7 +24,10 @@ export function QueryHeader({
   conn_id: string;
   connected: boolean;
   postgres: boolean;
-  /** The connection's own database, what a null `database` means. */
+  /** MySQL and MariaDB: databases, no schemas. */
+  mysql?: boolean;
+  /** The connection's own database, what a null `database` means. Empty on
+   *  a MySQL connection with no default database. */
   ownDatabase: string;
   database: string | null;
   schema: string | null;
@@ -41,8 +45,9 @@ export function QueryHeader({
     list: [],
   });
 
+  const pick_database = postgres || mysql;
   useEffect(() => {
-    if (!postgres || !connected) return;
+    if (!pick_database || !connected) return;
     let live = true;
     void listDatabases(conn_id)
       .then((list) => {
@@ -52,7 +57,7 @@ export function QueryHeader({
     return () => {
       live = false;
     };
-  }, [conn_id, postgres, connected]);
+  }, [conn_id, pick_database, connected]);
 
   useEffect(() => {
     if (!postgres || !connected) return;
@@ -76,17 +81,22 @@ export function QueryHeader({
       aria-label="Query target"
       className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1"
     >
+      {pick_database && (
+        <div className="w-44">
+          <Pick
+            label="Database"
+            value={db}
+            options={withCurrent(databases, db).map((d) => [
+              d,
+              d || "Pick a database",
+            ])}
+            onValue={onDatabase}
+            mono
+          />
+        </div>
+      )}
       {postgres && (
         <>
-          <div className="w-44">
-            <Pick
-              label="Database"
-              value={db}
-              options={withCurrent(databases, db).map((d) => [d, d])}
-              onValue={onDatabase}
-              mono
-            />
-          </div>
           <div className="w-40">
             <Pick
               label="Schema"

@@ -14,7 +14,7 @@ use crate::api::{QueryChunk, QueryOp};
 use crate::db::{runs, DbError, DbResult, READ_ONLY_PREFIX};
 use super::{Flavor, MySqlAdapter, MySqlParams};
 
-fn urls() -> Vec<(&'static str, String)> {
+pub(super) fn urls() -> Vec<(&'static str, String)> {
     ["DH_TEST_MYSQL_URL", "DH_TEST_MARIADB_URL"]
         .into_iter()
         .filter_map(|k| std::env::var(k).ok().map(|v| (k, v)))
@@ -35,7 +35,7 @@ fn params(url: &str, extra: serde_json::Value) -> MySqlParams {
     serde_json::from_value(v).unwrap()
 }
 
-async fn connect(url: &str, extra: serde_json::Value) -> MySqlAdapter {
+pub(super) async fn connect(url: &str, extra: serde_json::Value) -> MySqlAdapter {
     MySqlAdapter::connect(&params(url, extra)).await.unwrap()
 }
 
@@ -101,7 +101,7 @@ async fn mysql_live_ed25519_user_gets_a_named_error() {
     assert!(msg.contains("client_ed25519") && msg.contains("caching_sha2_password"), "{msg}");
 }
 
-/// AC-13 (all but the binary column rule, pending the spec amendment):
+/// AC-13 (the binary column rule has its own test below):
 /// values come back as the server's exact text, over both protocols.
 #[tokio::test]
 #[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
@@ -168,12 +168,13 @@ async fn mysql_live_values_are_exact_text() {
     }
 }
 
-/// AC-13's binary rule: a `_bin` collated text column (and MariaDB's JSON,
-/// a `utf8mb4_bin` LONGTEXT) shows its text, and only a real binary column
-/// shows `0x` hex. EXPECTED TO FAIL until spec 0025 names a source for the
-/// binary decision: sqlx exposes only the BINARY flag, which both carry.
+/// AC-13's binary column rule: a table read the app builds asks the catalog,
+/// so a `_bin` collated text column and JSON (MariaDB's `utf8mb4_bin`
+/// LONGTEXT included) show their text and only the real binary column shows
+/// `0x` hex. Editor results have no known table: a BINARY flagged cell shows
+/// as text when its bytes are valid UTF-8, and as hex when they are not.
 #[tokio::test]
-#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL; pending spec 0025 amendment"]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
 async fn mysql_live_binary_flagged_text_shows_as_text() {
     for (key, url) in urls() {
         let a = connect(&url, serde_json::json!({})).await;
@@ -182,12 +183,65 @@ async fn mysql_live_binary_flagged_text_shows_as_text() {
             .await
             .unwrap();
         a.run_sql(None, &format!("INSERT INTO {t} VALUES ('abc', '{{\"a\": 1}}', 'abc')")).await.unwrap();
-        let r = a.run_sql(None, &format!("SELECT t, j, b FROM {t}")).await;
+
+        // Grid page read: the catalog decides.
+        let select = QueryOp::Select {
+            table: t.clone(),
+            filters: vec![],
+            custom_where: None,
+            order_by: vec![],
+            limit: Some(10),
+            offset: None,
+        };
+        let grid = a.execute_op(None, &select).await;
+        // Filter values: the catalog decides too.
+        let distinct = QueryOp::SelectDistinct { table: t.clone(), column: "b".into(), limit: Some(10) };
+        let values = a.execute_op(None, &distinct).await;
+        // Editor run: the per cell fallback.
+        let editor = a.run_sql(None, &format!("SELECT t, j, b FROM {t}")).await;
+        let unhex = a.run_sql(None, "SELECT UNHEX('FF00') AS raw").await;
         a.run_sql(None, &format!("DROP TABLE {t}")).await.unwrap();
-        let row = r.unwrap().rows[0].clone();
-        assert_eq!(row[0].as_deref(), Some("abc"), "{key}: _bin text");
-        assert!(row[1].as_deref().is_some_and(|j| j.contains("\"a\"")), "{key}: json {:?}", row[1]);
-        assert_eq!(row[2].as_deref(), Some("0x616263"), "{key}: varbinary");
+
+        let row = grid.unwrap().result.rows[0].clone();
+        assert_eq!(row[0].as_deref(), Some("abc"), "{key}: grid _bin text");
+        assert!(row[1].as_deref().is_some_and(|j| j.contains("\"a\"")), "{key}: grid json {:?}", row[1]);
+        assert_eq!(row[2].as_deref(), Some("0x616263"), "{key}: grid varbinary");
+        assert_eq!(values.unwrap().result.rows, vec![vec![Some("0x616263".into())]], "{key}: filter values");
+
+        let row = editor.unwrap().rows[0].clone();
+        assert_eq!(row[0].as_deref(), Some("abc"), "{key}: editor _bin text");
+        assert!(row[1].as_deref().is_some_and(|j| j.contains("\"a\"")), "{key}: editor json {:?}", row[1]);
+        assert_eq!(row[2].as_deref(), Some("abc"), "{key}: editor varbinary, valid UTF-8");
+        assert_eq!(rows(&unhex.unwrap()), vec![vec![Some("0xFF00".into())]], "{key}: editor non UTF-8 bytes");
+    }
+}
+
+/// The binary column rule's catalog failure path: a grid read of a table the
+/// catalog can't find (here a temporary table, which `information_schema`
+/// does not list) still succeeds on the fallback.
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_grid_read_survives_a_missing_catalog_row() {
+    for (key, url) in urls() {
+        // One connection, so the temporary table is visible to the read.
+        let a = connect(&url, serde_json::json!({ "pool_max": 1 })).await;
+        let t = table();
+        a.run_sql(None, &format!("CREATE TEMPORARY TABLE {t} (b VARBINARY(10))")).await.unwrap();
+        a.run_sql(None, &format!("INSERT INTO {t} VALUES (UNHEX('FF')), ('ok')")).await.unwrap();
+        let select = QueryOp::Select {
+            table: t.clone(),
+            filters: vec![],
+            custom_where: None,
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        };
+        let page = a.execute_op(None, &select).await.unwrap();
+        assert_eq!(
+            page.result.rows,
+            vec![vec![Some("0xFF".into())], vec![Some("ok".into())]],
+            "{key}"
+        );
     }
 }
 
@@ -375,10 +429,308 @@ async fn mysql_live_grid_reads() {
         let tables = a.list_schema_objects(Some(&other), crate::db::SchemaObjectKind::Table).await.unwrap();
         assert_eq!(tables.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), vec!["items"], "{key}");
 
-        // Writes wait for build plan slice 4 and say so.
-        let insert = QueryOp::Insert { table: "items".into(), values: Default::default(), skip_empty: false };
-        assert!(a.execute_op(Some(&other), &insert).await.is_err(), "{key}");
-
         a.run_sql(None, &format!("DROP DATABASE {other}")).await.unwrap();
+    }
+}
+
+fn map(pairs: &[(&str, Option<&str>)]) -> std::collections::BTreeMap<String, Option<String>> {
+    pairs.iter().map(|(k, v)| (k.to_string(), v.map(str::to_string))).collect()
+}
+
+fn page(t: &str) -> QueryOp {
+    QueryOp::Select { table: t.into(), filters: vec![], custom_where: None, order_by: vec![], limit: None, offset: None }
+}
+
+/// AC-14: inserts show their generated id, updates and deletes match the
+/// full original row, and binary cells follow the binding rule.
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_grid_edits() {
+    for (key, url) in urls() {
+        let a = connect(&url, serde_json::json!({})).await;
+        let t = table();
+        a.run_sql(None, &format!("CREATE TABLE {t} (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(20), raw VARBINARY(10))"))
+            .await
+            .unwrap();
+
+        let insert = QueryOp::Insert { table: t.clone(), values: map(&[("id", None), ("name", Some("a")), ("raw", Some("hi"))]), skip_empty: true };
+        let ins = a.execute_op(None, &insert).await.unwrap();
+        assert_eq!(ins.result.rows_affected, 1, "{key}");
+        assert_eq!(ins.result.columns, vec!["id", "name", "raw"], "{key}");
+        assert_eq!(ins.result.rows, vec![vec![Some("1".into()), Some("a".into()), Some("0x6869".into())]], "{key}");
+
+        // Binary cell: hex pairs store those bytes, anything else its UTF-8.
+        let original = ins.result.rows[0].clone();
+        let row = |r: &[Option<String>]| map(&[("id", r[0].as_deref()), ("name", r[1].as_deref()), ("raw", r[2].as_deref())]);
+        let set_raw = |v: &str, from: &[Option<String>]| QueryOp::Update { table: t.clone(), set: map(&[("raw", Some(v))]), match_row: row(from) };
+        assert_eq!(a.execute_op(None, &set_raw("0xDEAD", &original)).await.unwrap().result.rows_affected, 1, "{key}");
+        let hex = a.run_sql(None, &format!("SELECT HEX(raw) FROM {t}")).await.unwrap();
+        assert_eq!(rows(&hex), vec![vec![Some("DEAD".into())]], "{key}");
+        let shown = a.execute_op(None, &page(&t)).await.unwrap().result.rows[0].clone();
+        assert_eq!(shown[2].as_deref(), Some("0xDEAD"), "{key}");
+        // The row shown with hex still matches.
+        assert_eq!(a.execute_op(None, &set_raw("hi", &shown)).await.unwrap().result.rows_affected, 1, "{key}");
+        let hex = a.run_sql(None, &format!("SELECT HEX(raw) FROM {t}")).await.unwrap();
+        assert_eq!(rows(&hex), vec![vec![Some("6869".into())]], "{key}");
+
+        // Typing `0x41` into a text column keeps the four characters.
+        let shown = a.execute_op(None, &page(&t)).await.unwrap().result.rows[0].clone();
+        let set_name = QueryOp::Update { table: t.clone(), set: map(&[("name", Some("0x41"))]), match_row: row(&shown) };
+        a.execute_op(None, &set_name).await.unwrap();
+        let name = a.run_sql(None, &format!("SELECT name FROM {t}")).await.unwrap();
+        assert_eq!(rows(&name), vec![vec![Some("0x41".into())]], "{key}");
+
+        let shown = a.execute_op(None, &page(&t)).await.unwrap().result.rows[0].clone();
+        let delete = QueryOp::Delete { table: t.clone(), match_row: row(&shown) };
+        assert_eq!(a.execute_op(None, &delete).await.unwrap().result.rows_affected, 1, "{key}");
+        a.run_sql(None, &format!("DROP TABLE {t}")).await.unwrap();
+    }
+}
+
+/// AC-14: a table with no primary key. A FLOAT match still finds its row,
+/// identical duplicates change together, and the column types the spec's
+/// `=` rule covers match by their displayed text (`BIT` and `JSON` have
+/// their own pending test below).
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_no_key_edits_match_by_displayed_text() {
+    for (key, url) in urls() {
+        let a = connect(&url, serde_json::json!({})).await;
+        let t = table();
+        a.run_sql(
+            None,
+            &format!(
+                "CREATE TABLE {t} (f FLOAT, d DOUBLE, u BIGINT UNSIGNED, dec65 DECIMAL(65,30), tm TIME, \
+                 e ENUM('x','y'), s SET('p','q'), y YEAR, dt DATETIME(3), note VARCHAR(10))"
+            ),
+        )
+        .await
+        .unwrap();
+        let values = "1.1, 0.1, 18446744073709551615, 1.5, '-838:59:59', 'y', 'p,q', 2024, '2024-01-02 03:04:05.120'";
+        a.run_sql(None, &format!("INSERT INTO {t} VALUES ({values}, 'one'), ({values}, 'one'), (2.5, {}, 'two')", &values[5..]))
+            .await
+            .unwrap();
+        let before = a.run_sql(None, &format!("CHECKSUM TABLE {t}")).await.unwrap().rows[0][1].clone();
+
+        let shown = a.execute_op(None, &page(&t)).await.unwrap().result;
+        let match_row = |r: &[Option<String>]| -> std::collections::BTreeMap<String, Option<String>> {
+            shown.columns.iter().cloned().zip(r.iter().cloned()).collect()
+        };
+        let first = shown.rows[0].clone();
+        let set = |v: &str, from: &[Option<String>]| QueryOp::Update { table: t.clone(), set: map(&[("note", Some(v))]), match_row: match_row(from) };
+
+        // Both identical rows change together, the third one doesn't.
+        let res = a.execute_op(None, &set("changed", &first)).await.unwrap();
+        assert_eq!(res.result.rows_affected, 2, "{key}: {:?}", res.sql);
+        let notes = a.run_sql(None, &format!("SELECT note FROM {t} ORDER BY f, note")).await.unwrap();
+        assert_eq!(rows(&notes), vec![vec![Some("changed".into())], vec![Some("changed".into())], vec![Some("two".into())]], "{key}");
+
+        // And back: the table is byte for byte what it was.
+        let after = a.execute_op(None, &page(&t)).await.unwrap().result.rows[0].clone();
+        a.execute_op(None, &set("one", &after)).await.unwrap();
+        let again = a.run_sql(None, &format!("CHECKSUM TABLE {t}")).await.unwrap().rows[0][1].clone();
+        assert_eq!(before, again, "{key}");
+        a.run_sql(None, &format!("DROP TABLE {t}")).await.unwrap();
+    }
+}
+
+/// AC-16: a connection killed by the server partway through a stream keeps
+/// the rows already received, reports the error, and the pool serves the
+/// next query on a fresh connection with no manual reconnect.
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_a_dropped_connection_keeps_rows_and_recovers() {
+    for (key, url) in urls() {
+        let a = connect(&url, serde_json::json!({ "pool_max": 2 })).await;
+        let admin = connect(&url, serde_json::json!({})).await;
+        let tag = uuid::Uuid::new_v4().simple().to_string();
+        let killer = {
+            let tag = tag.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(700)).await;
+                let ids = admin
+                    .run_sql(None, &format!("SELECT ID FROM information_schema.PROCESSLIST WHERE INFO LIKE '%{tag}%' AND INFO NOT LIKE '%PROCESSLIST%'"))
+                    .await
+                    .unwrap();
+                for id in rows(&ids).into_iter().filter_map(|r| r[0].clone()) {
+                    admin.run_sql(None, &format!("KILL {id}")).await.unwrap();
+                }
+            })
+        };
+        let mut received = 0usize;
+        let mut sink = |c: QueryChunk| {
+            received += c.rows.len();
+            Ok(())
+        };
+        // About 1 KB a row and 2 ms a row, so rows leave the server in
+        // packets well before the 700 ms kill.
+        let sql = format!(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1000) \
+             SELECT n.i, REPEAT('x', 1000) AS pad, SLEEP(0.002) AS s /* {tag} */ FROM n"
+        );
+        let res = a.run_sql_stream(None, &sql, None, &mut sink).await;
+        killer.await.unwrap();
+        assert!(matches!(res, Err(DbError::SqlEngine(_))), "{key}: {res:?}");
+        assert!(received > 0 && received < 1000, "{key}: {received} rows kept");
+
+        let next = a.run_sql(None, "SELECT 2").await.unwrap();
+        assert_eq!(rows(&next), vec![vec![Some("2".into())]], "{key}");
+    }
+}
+
+/// AC-16: a grid edit blocked by another session's row lock fails with the
+/// server's code and message, and the same edit (still staged in the grid)
+/// lands once the lock is gone. Shortens the server's lock wait to 1 second
+/// for connections opened meanwhile, then puts the default back.
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_a_lock_wait_shows_the_server_error_and_can_be_retried() {
+    use sqlx::{Connection as _, Executor as _};
+    for (key, url) in urls() {
+        let mut holder = sqlx::MySqlConnection::connect(&url).await.unwrap();
+        let t = table();
+        holder.execute(format!("CREATE TABLE {t} (id INT PRIMARY KEY, note VARCHAR(10))").as_str()).await.unwrap();
+        holder.execute(format!("INSERT INTO {t} VALUES (1, 'a')").as_str()).await.unwrap();
+        holder.execute("SET GLOBAL innodb_lock_wait_timeout = 1").await.unwrap();
+        let a = connect(&url, serde_json::json!({})).await;
+
+        holder.execute("START TRANSACTION").await.unwrap();
+        holder.execute(format!("SELECT * FROM {t} WHERE id = 1 FOR UPDATE").as_str()).await.unwrap();
+        let edit = QueryOp::Update { table: t.clone(), set: map(&[("note", Some("b"))]), match_row: map(&[("id", Some("1")), ("note", Some("a"))]) };
+        let blocked = a.execute_op(None, &edit).await;
+        // After the edit: the pool may open its connection only now.
+        sqlx::query("SET GLOBAL innodb_lock_wait_timeout = DEFAULT").execute(&mut holder).await.unwrap();
+        let message = match blocked {
+            Err(e @ DbError::SqlEngine(_)) => e.to_string(),
+            other => panic!("{key}: {:?}", other.map(|o| o.sql)),
+        };
+        assert!(message.contains("1205") && message.to_lowercase().contains("lock wait"), "{key}: {message}");
+
+        holder.execute("ROLLBACK").await.unwrap();
+        assert_eq!(a.execute_op(None, &edit).await.unwrap().result.rows_affected, 1, "{key}");
+        holder.execute(format!("DROP TABLE {t}").as_str()).await.unwrap();
+    }
+}
+
+fn filter(column: &str, op: crate::api::FilterOp, value: &str) -> crate::api::GridFilterCond {
+    crate::api::GridFilterCond { column: column.into(), op, value: value.into(), values: vec![], conjunction: None }
+}
+
+/// AC-14 and AC-27 on `BIT` and `JSON` columns, on both flavors: rows match
+/// by what the grid shows, `BIT` writes store the number their text spells,
+/// and the equality and ordering filters find the row.
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_bit_and_json_rows_match_by_displayed_text() {
+    use crate::api::FilterOp;
+    for (key, url) in urls() {
+        let a = connect(&url, serde_json::json!({})).await;
+        let mysql = a.server().flavor == Flavor::Mysql;
+        let t = table();
+        a.run_sql(None, &format!("CREATE TABLE {t} (b BIT(4), j JSON, note VARCHAR(10))")).await.unwrap();
+        a.run_sql(
+            None,
+            &format!("INSERT INTO {t} VALUES (b'0101', '{{\"a\": [1, 2]}}', 'one'), (b'0001', 'null', 'n'), (b'0010', '[]', 'e')"),
+        )
+        .await
+        .unwrap();
+        let shown = a.execute_op(None, &page(&t)).await.unwrap().result;
+        let match_row = |r: &[Option<String>]| -> std::collections::BTreeMap<String, Option<String>> {
+            shown.columns.iter().cloned().zip(r.iter().cloned()).collect()
+        };
+        let first = shown.rows[0].clone();
+        assert_eq!(first[0].as_deref(), Some("b'0101'"), "{key}");
+
+        // Every row matches by its shown text, `null` and `[]` included.
+        for r in &shown.rows {
+            let set = QueryOp::Update { table: t.clone(), set: map(&[("note", Some("x"))]), match_row: match_row(r) };
+            let res = a.execute_op(None, &set).await.unwrap();
+            assert_eq!(res.result.rows_affected, 1, "{key}: {:?}", res.sql);
+        }
+
+        // Filters on the first row.
+        let count = |filters: Vec<crate::api::GridFilterCond>| {
+            let op = QueryOp::Count { table: t.clone(), filters, custom_where: None };
+            let a = &a;
+            async move { a.execute_op(None, &op).await.map(|o| o.result.rows_affected) }
+        };
+        assert_eq!(count(vec![filter("b", FilterOp::Eq, "b'0101'")]).await.unwrap(), 1, "{key}");
+        assert_eq!(count(vec![filter("b", FilterOp::Eq, "5")]).await.unwrap(), 1, "{key}");
+        assert_eq!(count(vec![filter("b", FilterOp::Gt, "b'0100'")]).await.unwrap(), 1, "{key}");
+        let distinct = QueryOp::SelectDistinct { table: t.clone(), column: "j".into(), limit: None };
+        let listed = a.execute_op(None, &distinct).await.unwrap().result.rows;
+        let doc = first[1].clone().unwrap();
+        assert!(listed.contains(&vec![Some(doc.clone())]), "{key}: {listed:?}");
+        let mut picked = filter("j", FilterOp::In, "");
+        picked.values = vec![doc.clone()];
+        assert_eq!(count(vec![picked]).await.unwrap(), 1, "{key}");
+        let mut bits = filter("b", FilterOp::In, "");
+        bits.values = vec!["b'0101'".into(), "b'0001'".into()];
+        assert_eq!(count(vec![bits]).await.unwrap(), 2, "{key}");
+        let paged = QueryOp::Select {
+            table: t.clone(),
+            filters: vec![filter("b", FilterOp::Eq, "b'0101'")],
+            custom_where: None,
+            order_by: vec![],
+            limit: Some(50),
+            offset: None,
+        };
+        assert_eq!(a.execute_op(None, &paged).await.unwrap().result.rows.len(), 1, "{key}");
+        assert_eq!(count(vec![filter("j", FilterOp::Eq, &doc)]).await.unwrap(), 1, "{key}");
+        if mysql {
+            let bad = count(vec![filter("j", FilterOp::Eq, "{oops")]).await;
+            assert!(matches!(bad, Err(DbError::SqlEngine(_))), "{key}: {bad:?}");
+        }
+
+        // `BIT` writes: the shown form, then a plain number; anything else
+        // gets the server's own error.
+        let shown_now = a.execute_op(None, &page(&t)).await.unwrap().result;
+        let current = shown_now.columns.iter().cloned().zip(shown_now.rows[0].iter().cloned()).collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(current.get("note").cloned().flatten().as_deref(), Some("x"), "{key}");
+        let write = |set: &[(&str, Option<&str>)], match_row: std::collections::BTreeMap<String, Option<String>>| QueryOp::Update {
+            table: t.clone(),
+            set: map(set),
+            match_row,
+        };
+        let numbers = format!("SELECT b + 0 FROM {t} WHERE note = 'm'");
+        a.execute_op(None, &write(&[("b", Some("b'0110'")), ("note", Some("m"))], current.clone())).await.unwrap();
+        assert_eq!(rows(&a.run_sql(None, &numbers).await.unwrap()), vec![vec![Some("6".into())]], "{key}");
+        let shown_now = a.execute_op(None, &page(&t)).await.unwrap().result;
+        let current = shown_now.columns.iter().cloned().zip(shown_now.rows[0].iter().cloned()).collect::<std::collections::BTreeMap<_, _>>();
+        a.execute_op(None, &write(&[("b", Some("9"))], current.clone())).await.unwrap();
+        assert_eq!(rows(&a.run_sql(None, &numbers).await.unwrap()), vec![vec![Some("9".into())]], "{key}");
+        let shown_now = a.execute_op(None, &page(&t)).await.unwrap().result;
+        let current = shown_now.columns.iter().cloned().zip(shown_now.rows[0].iter().cloned()).collect::<std::collections::BTreeMap<_, _>>();
+        let refused = a.execute_op(None, &write(&[("b", Some("abc"))], current.clone())).await;
+        assert!(matches!(refused, Err(DbError::SqlEngine(_))), "{key}: {:?}", refused.map(|o| o.sql));
+
+        // A `JSON` write reads back as that JSON.
+        a.execute_op(None, &write(&[("j", Some(r#"{"b": 2}"#))], current)).await.unwrap();
+        let j = a.run_sql(None, &format!("SELECT j FROM {t} WHERE note = 'm'")).await.unwrap();
+        assert_eq!(rows(&j), vec![vec![Some(r#"{"b": 2}"#.into())]], "{key}");
+
+        // And the delete matches exactly one row.
+        let shown_now = a.execute_op(None, &page(&t)).await.unwrap().result;
+        let current = shown_now.columns.iter().cloned().zip(shown_now.rows[0].iter().cloned()).collect();
+        let delete = QueryOp::Delete { table: t.clone(), match_row: current };
+        assert_eq!(a.execute_op(None, &delete).await.unwrap().result.rows_affected, 1, "{key}");
+        a.run_sql(None, &format!("DROP TABLE {t}")).await.unwrap();
+    }
+}
+
+/// The app never changes `sql_mode` (spec 0025 key invariants). sqlx asks
+/// for `CLIENT_IGNORE_SPACE` in the handshake, which adds `IGNORE_SPACE` to
+/// the session; every pooled connection takes it off again, so a name like
+/// `count (` parses as it does in the stock client.
+#[tokio::test]
+#[ignore = "requires DH_TEST_MYSQL_URL / DH_TEST_MARIADB_URL"]
+async fn mysql_live_sessions_keep_the_server_sql_mode() {
+    for (key, url) in urls() {
+        let a = connect(&url, serde_json::json!({})).await;
+        let modes = super::rows::fetch_text(&a.pool, "SELECT @@session.sql_mode, @@global.sql_mode", &[])
+            .await
+            .unwrap();
+        assert_eq!(modes[0][0], modes[0][1], "{key}");
+        a.run_sql(None, "CREATE TEMPORARY TABLE count (i INT)").await.unwrap();
     }
 }

@@ -26,6 +26,9 @@ import {
   Blocks,
   Network,
   Activity,
+  Zap,
+  CalendarClock,
+  Server,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -60,7 +63,8 @@ export type IconType =
   | "folder"
   | "users"
   | "layers"
-  | "extension";
+  | "extension"
+  | "server";
 
 export const TAB_ICON_CLASS: Record<
   | "table"
@@ -93,6 +97,9 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   function: <FunctionSquare className="text-obj-routine size-3 shrink-0" />,
   sequence: <ListOrdered className="text-obj-type size-3 shrink-0" />,
   type: <Shapes className="text-obj-type size-3 shrink-0" />,
+  trigger: <Zap className="text-obj-routine size-3 shrink-0" />,
+  event: <CalendarClock className="text-obj-routine size-3 shrink-0" />,
+  server: <Server className="text-obj-container size-3 shrink-0" />,
   database: <DatabaseIcon className="text-obj-container size-3 shrink-0" />,
   folder: <FolderIcon className="text-obj-container size-3 shrink-0" />,
   users: <UsersIcon className="text-obj-security size-3 shrink-0" />,

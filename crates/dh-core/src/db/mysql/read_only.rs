@@ -14,6 +14,7 @@ use super::MySqlAdapter;
 use super::cancel::{connection_id, conn_reusable, kill_query, RunConn};
 use super::connect::Flavor;
 use super::sql_text::q;
+use super::bytes::BytesRule;
 use super::stream::stream_statement;
 
 /// MySQL `ER_QUERY_TIMEOUT` (3024) and MariaDB `ER_STATEMENT_TIMEOUT` (1969).
@@ -60,7 +61,7 @@ impl MySqlAdapter {
                 (None, _) => trimmed.to_string(),
             };
             (&mut *conn).execute("START TRANSACTION READ ONLY").await.map_err(DbError::SqlEngine)?;
-            let streamed = stream_statement(&mut conn, &statement, &[], true, run, sink).await;
+            let streamed = stream_statement(&mut conn, &statement, &[], true, BytesRule::Fallback, run, sink).await;
             let rolled = (&mut *conn).execute("ROLLBACK").await;
             if time_ms.is_some() && self.server.flavor == Flavor::Mysql {
                 let _ = (&mut *conn).execute("SET SESSION MAX_EXECUTION_TIME = 0").await;

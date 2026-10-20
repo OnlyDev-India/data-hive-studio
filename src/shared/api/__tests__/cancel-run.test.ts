@@ -37,9 +37,11 @@ describe("canCancelRun", () => {
     expect(canCancelRun(undefined)).toBe(false);
   });
 
-  it("offers Stop on the web for PostgreSQL and MongoDB, which stream", async () => {
+  it("offers Stop on the web for PostgreSQL, MySQL and MongoDB, which stream", async () => {
     const { canCancelRun } = await loadQuery(true);
     expect(canCancelRun("postgres")).toBe(true);
+    expect(canCancelRun("mysql")).toBe(true);
+    expect(canCancelRun("mariadb")).toBe(true);
     expect(canCancelRun("mongodb")).toBe(true);
     expect(canCancelRun("sqlite")).toBe(false);
     expect(canCancelRun(undefined)).toBe(false);

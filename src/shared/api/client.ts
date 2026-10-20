@@ -18,3 +18,4 @@ export * from "./pipeline";
 export * from "./sql-builder";
 export * from "./local-connections";
 export * from "./workspace-state";
+export * from "./mysql-charsets";

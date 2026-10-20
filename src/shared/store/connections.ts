@@ -111,6 +111,9 @@ export function connectionActions(set: SetState) {
           monitorSettings[conn.id] = normalizeMonitorSettings(
             pending.monitorSettings,
           );
+        const showSystemDatabases = { ...state.showSystemDatabases };
+        if (pending.showSystemDatabases === true)
+          showSystemDatabases[conn.id] = true;
         return {
           open,
           recent,
@@ -130,6 +133,7 @@ export function connectionActions(set: SetState) {
           },
           relationLayouts,
           monitorSettings,
+          showSystemDatabases,
           pendingWorkspaceRestore,
           pausedTabs,
         };
@@ -154,6 +158,8 @@ export function connectionActions(set: SetState) {
         delete relationLayouts[id];
         const monitorSettings = { ...state.monitorSettings };
         delete monitorSettings[id];
+        const showSystemDatabases = { ...state.showSystemDatabases };
+        delete showSystemDatabases[id];
         if (open.length === 0) {
           const workspaces = { ...state.workspaces };
           delete workspaces[id];
@@ -164,6 +170,7 @@ export function connectionActions(set: SetState) {
             workspaces,
             relationLayouts,
             monitorSettings,
+            showSystemDatabases,
             pendingWorkspaceRestore,
             // The landing page shares the SAME left-panel state as a
             // connection's workspace — without this, disconnecting while
@@ -178,6 +185,7 @@ export function connectionActions(set: SetState) {
           activeId: state.activeId === id ? open[0].id : state.activeId,
           relationLayouts,
           monitorSettings,
+          showSystemDatabases,
           pendingWorkspaceRestore,
         };
       });

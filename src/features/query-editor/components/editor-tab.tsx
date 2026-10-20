@@ -909,7 +909,9 @@ function SqlEditorBody({
         ? "postgres"
         : conn?.kind === "mongodb"
           ? "mongodb"
-          : "sqlite",
+          : isMysqlKind(conn?.kind)
+            ? conn.kind
+            : "sqlite",
     database: target_database,
     keep_all_tabs,
     on_open: openBottomPanel,
@@ -1322,7 +1324,9 @@ function SqlEditorBody({
         }
         on_open_in_builder={
           on_open_in_builder &&
-          (conn?.kind === "postgres" || conn?.kind === "sqlite")
+          (conn?.kind === "postgres" ||
+            conn?.kind === "sqlite" ||
+            isMysqlKind(conn?.kind))
             ? () => {
                 // Every statement in the selection, or in the whole editor
                 // when nothing is selected.

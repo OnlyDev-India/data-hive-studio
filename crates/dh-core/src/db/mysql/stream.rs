@@ -8,6 +8,7 @@ use sqlx::{Column as _, Either, Executor as _, MySqlConnection, Row as _, Statem
 use crate::db::stream::Batcher;
 use crate::db::{BatchSink, DbResult, RunHandle};
 use super::cancel::run_error;
+use super::bytes::{BytesRule, Param};
 use super::rows::{bind_all, row_to_vec, Wire};
 
 /// What a finished stream reports. The rows themselves went to the sink.
@@ -19,7 +20,8 @@ pub(super) struct Streamed {
 /// Run `sql` on `conn` and send its rows to `sink` in batches. Without
 /// `params` it goes over the text protocol (the server's own text, and
 /// statements that can't be prepared, like `CREATE PROCEDURE`); with them,
-/// as a prepared statement.
+/// as a prepared statement. `bytes` is how each cell's bytes versus text
+/// is decided (the binary column rule).
 ///
 /// Columns come from the first row. A row returning statement with no rows
 /// is described once afterwards, so it still reports real names. On an
@@ -28,13 +30,15 @@ pub(super) struct Streamed {
 pub(super) async fn stream_statement(
     conn: &mut MySqlConnection,
     sql: &str,
-    params: &[Option<String>],
+    params: &[Param],
     describe_if_empty: bool,
+    bytes: BytesRule<'_>,
     run: Option<&RunHandle>,
     sink: BatchSink<'_>,
 ) -> DbResult<Streamed> {
     let mut batcher = Batcher::new(sink);
     let mut columns: Option<Vec<String>> = None;
+    let mut mask: Vec<Option<bool>> = Vec::new();
     let mut rows_affected = 0u64;
     let wire = if params.is_empty() { Wire::Text } else { Wire::Binary };
 
@@ -62,9 +66,10 @@ pub(super) async fn stream_statement(
                     if columns.is_none() {
                         let names: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
                         batcher.set_columns(names.clone());
+                        mask = bytes.mask(&names);
                         columns = Some(names);
                     }
-                    if let Err(e) = batcher.push(row_to_vec(&row, wire)) {
+                    if let Err(e) = batcher.push(row_to_vec(&row, wire, &mask)) {
                         break Err(e);
                     }
                 }

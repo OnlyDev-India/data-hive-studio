@@ -17,9 +17,8 @@ const DB_KIND_ITEMS: KindItem[] = [
   { id: "documentdb", label: "Amazon DocumentDB", icon: DBIcons.documentdb },
 ];
 
-/** The web build has no local files, so no SQLite. MySQL reaches the web
- *  build with the team server route (spec 0025 build plan slice 5). */
-const WEB_HIDDEN: SavedDbKind[] = ["sqlite", "mysql", "mariadb"];
+/** The web build has no local files, so no SQLite. */
+const WEB_HIDDEN: SavedDbKind[] = ["sqlite"];
 export const KIND_ITEMS = WEB
   ? DB_KIND_ITEMS.filter((i) => !WEB_HIDDEN.includes(i.id))
   : DB_KIND_ITEMS;

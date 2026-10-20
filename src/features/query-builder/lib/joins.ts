@@ -3,6 +3,7 @@ import type { Clause } from "@/shared/store";
 import { queryTables } from "./compose";
 import type { OnPair } from "./forms/tables";
 import {
+  hasSchemas,
   quoteIdent,
   refName,
   unquote,
@@ -60,11 +61,11 @@ export function joinSuggestions(
     dialect,
   );
   const schemaOf = (t: TableRef) =>
-    dialect === "sqlite" ? null : t.schema ? unquote(t.schema) : home;
+    !hasSchemas(dialect) ? null : t.schema ? unquote(t.schema) : home;
   const inQuery = (schema: string | null, name: string) =>
     refs.find(
       (t) =>
-        (dialect === "sqlite" || schemaOf(t) === (schema ?? home)) &&
+        (!hasSchemas(dialect) || schemaOf(t) === (schema ?? home)) &&
         sameName(t.name, name, dialect),
     );
   const out: JoinSuggestion[] = [];

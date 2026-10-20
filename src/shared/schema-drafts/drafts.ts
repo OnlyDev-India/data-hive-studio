@@ -1,4 +1,11 @@
-import type { DefaultMode, SchemaOp, TableSchema } from "@/shared/api";
+import type {
+  ColumnAttrs,
+  DefaultMode,
+  SchemaOp,
+  TableOptions,
+  TableSchema,
+} from "@/shared/api";
+import { mysqlDefaultSql } from "./mysql-default";
 import type {
   DdlColumnRow,
   DdlDiffSection,
@@ -45,6 +52,89 @@ export interface ColDraft {
    *  `auto_increment`, `on update CURRENT_TIMESTAMP`, and the comment. */
   extra?: string;
   comment?: string;
+  /** MySQL's editable attributes (spec 0025 AC-18), with what was loaded
+   *  (`orig`, absent on a new column). Absent on other engines. */
+  mysql?: { now: MysqlColAttrs; orig?: MysqlColAttrs };
+}
+
+export interface MysqlColAttrs {
+  auto_increment: boolean;
+  /** `ON UPDATE CURRENT_TIMESTAMP`. */
+  on_update: boolean;
+  comment: string;
+}
+
+/** A MySQL column's attributes as `EXTRA` and the comment report them. */
+export function mysql_attrs_of(
+  extra: string | null | undefined,
+  comment: string | null | undefined,
+): MysqlColAttrs {
+  const e = (extra ?? "").toLowerCase();
+  return {
+    auto_increment: e.includes("auto_increment"),
+    on_update: e.includes("on update"),
+    comment: comment ?? "",
+  };
+}
+
+/** The attributes that changed, as the op carries them: absent keeps what
+ *  the column has, `""` removes `on_update` or `comment`. */
+function changed_attrs(c: ColDraft): ColumnAttrs | null {
+  const m = c.mysql;
+  if (!m) return null;
+  const was = m.orig ?? {
+    auto_increment: false,
+    on_update: false,
+    comment: "",
+  };
+  const out: ColumnAttrs = {};
+  if (m.now.auto_increment !== was.auto_increment)
+    out.auto_increment = m.now.auto_increment;
+  if (m.now.on_update !== was.on_update)
+    out.on_update = m.now.on_update ? "CURRENT_TIMESTAMP" : "";
+  if (m.now.comment !== was.comment) out.comment = m.now.comment;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** The type with its MySQL attributes, for the review grid's Type cell. */
+function type_label(type: string, a: MysqlColAttrs | undefined): string {
+  if (!a) return type;
+  return [
+    type,
+    a.auto_increment && "auto_increment",
+    a.on_update && "on update CURRENT_TIMESTAMP",
+    a.comment && `comment '${a.comment}'`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** A MySQL table's editable options as loaded and as drafted. */
+export interface TableOptsDraft {
+  orig: TableOptions;
+  now: TableOptions;
+}
+
+/** The `set_table_options` op for what changed, or none. */
+export function table_options_op(
+  table: string,
+  t: TableOptsDraft | undefined,
+): SchemaOp | null {
+  if (!t) return null;
+  const op: Extract<SchemaOp, { kind: "set_table_options" }> = {
+    kind: "set_table_options",
+    table,
+  };
+  if (t.now.charset && t.now.charset !== t.orig.charset)
+    op.charset = t.now.charset;
+  if (t.now.collation && t.now.collation !== t.orig.collation)
+    op.collation = t.now.collation;
+  if (t.now.comment !== t.orig.comment) op.comment = t.now.comment;
+  return op.charset !== undefined ||
+    op.collation !== undefined ||
+    op.comment !== undefined
+    ? op
+    : null;
 }
 
 /** Editable mirror of one table index (same snapshot pattern). `system`
@@ -107,22 +197,40 @@ let uid_seq = 0;
 /** Fresh id for a draft row that has no counterpart in the loaded schema. */
 export const next_id = () => `n${++uid_seq}`;
 
-export function cols_from_schema(schema: TableSchema): ColDraft[] {
-  return schema.columns.map((c, i) => ({
-    id: `o${i}`,
-    orig_name: c.name,
-    orig_data_type: c.data_type,
-    orig_not_null: c.not_null,
-    orig_default: c.default ?? null,
-    name: c.name,
-    data_type: c.data_type,
-    not_null: c.not_null,
-    default_text: c.default ?? "",
-    primary_key: c.primary_key,
-    dropped: false,
-    ...(c.extra ? { extra: c.extra } : {}),
-    ...(c.comment ? { comment: c.comment } : {}),
-  }));
+export function cols_from_schema(
+  schema: TableSchema,
+  is_mysql = false,
+): ColDraft[] {
+  return schema.columns.map((c, i) => {
+    // MySQL reports a default's raw value (`anon`); the editor shows and
+    // takes SQL (`'anon'`), as on Postgres.
+    const dflt = is_mysql
+      ? mysqlDefaultSql(c.default ?? null, c.extra ?? "") || null
+      : (c.default ?? null);
+    return {
+      id: `o${i}`,
+      orig_name: c.name,
+      orig_data_type: c.data_type,
+      orig_not_null: c.not_null,
+      orig_default: dflt,
+      name: c.name,
+      data_type: c.data_type,
+      not_null: c.not_null,
+      default_text: dflt ?? "",
+      primary_key: c.primary_key,
+      dropped: false,
+      ...(c.extra ? { extra: c.extra } : {}),
+      ...(c.comment ? { comment: c.comment } : {}),
+      ...(is_mysql
+        ? {
+            mysql: {
+              now: mysql_attrs_of(c.extra, c.comment),
+              orig: mysql_attrs_of(c.extra, c.comment),
+            },
+          }
+        : {}),
+    };
+  });
 }
 
 export function idxs_from_schema(schema: TableSchema): IdxDraft[] {
@@ -170,7 +278,8 @@ export function col_is_dirty(c: ColDraft): boolean {
     c.name.trim() !== c.orig_name ||
     c.data_type.trim() !== (c.orig_data_type ?? "") ||
     c.not_null !== !!c.orig_not_null ||
-    c.default_text !== (c.orig_default ?? "")
+    c.default_text !== (c.orig_default ?? "") ||
+    changed_attrs(c) !== null
   );
 }
 
@@ -380,6 +489,7 @@ export function build_ops(
   trigs: TriggerDraft[] = [],
   fks: FkDraft[] = [],
   schema_pk: string[] = [],
+  table_opts?: TableOptsDraft,
 ): SchemaOp[] {
   const ops: SchemaOp[] = [];
   const T = new_table;
@@ -401,6 +511,7 @@ export function build_ops(
       data_type: c.data_type.trim(),
       ...(c.not_null ? { not_null: true } : {}),
       ...(c.default_text !== "" ? { default: c.default_text } : {}),
+      ...(changed_attrs(c) ? { attrs: changed_attrs(c) ?? undefined } : {}),
     });
   }
   for (const c of cols) {
@@ -409,7 +520,14 @@ export function build_ops(
     const type_changed = c.data_type.trim() !== (c.orig_data_type ?? "");
     const nn_changed = c.not_null !== !!c.orig_not_null;
     const def_changed = c.default_text !== (c.orig_default ?? "");
-    if (!type_changed && !nn_changed && !def_changed && name === c.orig_name)
+    const attrs = changed_attrs(c);
+    if (
+      !type_changed &&
+      !nn_changed &&
+      !def_changed &&
+      !attrs &&
+      name === c.orig_name
+    )
       continue;
     ops.push({
       kind: "alter_column",
@@ -426,6 +544,7 @@ export function build_ops(
             ...(c.default_text !== "" ? { default_value: c.default_text } : {}),
           }
         : {}),
+      ...(attrs ? { attrs } : {}),
     });
   }
   ops.push(...build_index_ops(T, idxs, resolve));
@@ -474,6 +593,8 @@ export function build_ops(
       ...(f.on_update ? { on_update: f.on_update } : {}),
     });
   }
+  const opts = table_options_op(T, table_opts);
+  if (opts) ops.push(opts);
   return ops;
 }
 
@@ -500,6 +621,7 @@ export function describe_schema_changes(
   trigs: TriggerDraft[] = [],
   fks: FkDraft[] = [],
   schema_pk: string[] = [],
+  table_opts?: TableOptsDraft,
 ): DdlDiffSection[] {
   const sections: DdlDiffSection[] = [];
   let n = 0;
@@ -513,6 +635,22 @@ export function describe_schema_changes(
       before: orig_table,
       after: new_table,
     });
+  }
+  const opts = table_options_op(new_table, table_opts);
+  if (opts && opts.kind === "set_table_options" && table_opts) {
+    for (const [label, key] of [
+      ["Charset", "charset"],
+      ["Collation", "collation"],
+      ["Comment", "comment"],
+    ] as const) {
+      if (opts[key] === undefined) continue;
+      table_rows.push({
+        id: next(),
+        label,
+        before: table_opts.orig[key],
+        after: table_opts.now[key],
+      });
+    }
   }
   if (table_rows.length) sections.push({ entity: "table", rows: table_rows });
 
@@ -540,7 +678,7 @@ export function describe_schema_changes(
       kind: "insert",
       after: {
         name,
-        type: c.data_type.trim(),
+        type: type_label(c.data_type.trim(), c.mysql?.now),
         nullable: !c.not_null,
         default: c.default_text,
       },
@@ -553,19 +691,27 @@ export function describe_schema_changes(
     const nn_changed = c.not_null !== !!c.orig_not_null;
     const def_changed = c.default_text !== (c.orig_default ?? "");
     const renamed = name !== c.orig_name;
-    if (!renamed && !type_changed && !nn_changed && !def_changed) continue;
+    const attrs_changed = changed_attrs(c) !== null;
+    if (
+      !renamed &&
+      !type_changed &&
+      !nn_changed &&
+      !def_changed &&
+      !attrs_changed
+    )
+      continue;
     column_rows.push({
       id: next(),
       kind: "update",
       before: {
         name: c.orig_name,
-        type: c.orig_data_type ?? "",
+        type: type_label(c.orig_data_type ?? "", c.mysql?.orig),
         nullable: !c.orig_not_null,
         default: c.orig_default ?? "",
       },
       after: {
         name,
-        type: c.data_type.trim(),
+        type: type_label(c.data_type.trim(), c.mysql?.now),
         nullable: !c.not_null,
         default: c.default_text,
       },

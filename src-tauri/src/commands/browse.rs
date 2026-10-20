@@ -73,6 +73,20 @@ pub async fn list_schema_objects(
         .map_err(to_err)
 }
 
+/// The definition of one view, routine, trigger or event (MySQL `SHOW
+/// CREATE`), for the sidebar's definition tab.
+#[tauri::command]
+pub async fn object_definition(
+    conn_id: String,
+    database: Option<String>,
+    kind: crate::db::SchemaObjectKind,
+    name: String,
+) -> Result<String, String> {
+    crate::db::object_definition(&conn_id, database.as_deref(), kind, &name)
+        .await
+        .map_err(to_err)
+}
+
 /// Fetch a page of documents from a MongoDB collection.
 #[tauri::command]
 pub async fn list_documents(

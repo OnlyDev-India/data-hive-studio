@@ -3,15 +3,15 @@
 //! ignored and `list_schemas` is empty (spec 0025 data model).
 
 use std::collections::HashMap;
-use crate::api::{ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo, TableSchema, TriggerInfo};
-use crate::db::{CatalogOverview, DbResult, SchemaObject, SchemaObjectKind};
+use crate::api::{ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo, TableOptions, TableSchema, TriggerInfo};
+use crate::db::{CatalogOverview, DbResult};
 use super::MySqlAdapter;
 use super::connect::Flavor;
 use super::rows::fetch_text;
 
 type Rows = Vec<Vec<Option<String>>>;
 
-fn col(row: &[Option<String>], i: usize) -> String {
+pub(super) fn col(row: &[Option<String>], i: usize) -> String {
     row.get(i).cloned().flatten().unwrap_or_default()
 }
 
@@ -104,36 +104,13 @@ impl MySqlAdapter {
             .collect())
     }
 
-    pub(super) async fn list_schema_objects(
-        &self,
-        database: Option<&str>,
-        kind: SchemaObjectKind,
-    ) -> DbResult<Vec<SchemaObject>> {
-        let db = self.require_target(database)?;
-        let table_type = match kind {
-            SchemaObjectKind::Table => "BASE TABLE",
-            SchemaObjectKind::View => "VIEW",
-            // Routines, triggers and events arrive with the full sidebar
-            // (build plan slice 6); the tree shows those groups empty.
-            _ => return Ok(Vec::new()),
-        };
-        let rows = fetch_text(
-            &self.pool,
-            "SELECT TABLE_NAME FROM information_schema.TABLES \
-             WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = ? ORDER BY TABLE_NAME",
-            &[db, table_type],
-        )
-        .await?;
-        Ok(rows.iter().map(|r| SchemaObject { name: col(r, 0), extra: None }).collect())
-    }
-
     pub(super) async fn table_schema(
         &self,
         database: Option<&str>,
         table: &str,
     ) -> DbResult<(TableSchema, Vec<String>)> {
         let db = self.require_target(database)?;
-        let sql_kind = "SELECT TABLE_TYPE FROM information_schema.TABLES \
+        let sql_kind = "SELECT TABLE_TYPE, ENGINE, TABLE_COLLATION, TABLE_COMMENT FROM information_schema.TABLES \
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?";
         let sql_cols = "SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, \
              EXTRA, COLUMN_COMMENT FROM information_schema.COLUMNS \
@@ -228,6 +205,18 @@ impl MySqlAdapter {
             .collect();
 
         let table_type = kind.first().map(|r| col(r, 0)).unwrap_or_default();
+        let table_options = kind.first().filter(|_| !table_type.contains("VIEW")).map(|r| {
+            let collation = col(r, 2);
+            TableOptions {
+                engine: col(r, 1),
+                // A collation's name starts with its charset's (no charset
+                // name has an underscore), which avoids MariaDB's charset
+                // agnostic collations matching several rows in a join.
+                charset: collation.split('_').next().unwrap_or_default().to_string(),
+                collation,
+                comment: col(r, 3),
+            }
+        });
         Ok((
             TableSchema {
                 kind: if table_type.contains("VIEW") { "view".into() } else { "table".into() },
@@ -235,6 +224,7 @@ impl MySqlAdapter {
                 foreign_keys,
                 indexes,
                 triggers,
+                table_options,
             },
             statements,
         ))

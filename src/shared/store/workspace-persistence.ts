@@ -203,15 +203,18 @@ export function savedWorkspaceOf(
   const relationLayouts =
     layouts && Object.keys(layouts).length > 0 ? layouts : undefined;
   const monitorSettings = state.monitorSettings[conn.id];
+  const showSystemDatabases = state.showSystemDatabases[conn.id] === true;
   const found = state.workspaces[conn.id];
   const ws = found && found.tabs.length > 0 ? found : null;
-  if (!ws && !relationLayouts && !monitorSettings) return null;
+  if (!ws && !relationLayouts && !monitorSettings && !showSystemDatabases)
+    return null;
   if (!ws)
     return {
       workspace: found ?? DEFAULT_WORKSPACE,
       sqlSeeds: {},
       ...(relationLayouts ? { relationLayouts } : {}),
       ...(monitorSettings ? { monitorSettings } : {}),
+      ...(showSystemDatabases ? { showSystemDatabases } : {}),
     };
   const sqlSeeds: Record<string, string> = {};
   const seedFilePaths: Record<string, string> = {};
@@ -242,6 +245,7 @@ export function savedWorkspaceOf(
       : {}),
     ...(relationLayouts ? { relationLayouts } : {}),
     ...(monitorSettings ? { monitorSettings } : {}),
+    ...(showSystemDatabases ? { showSystemDatabases } : {}),
   };
 }
 

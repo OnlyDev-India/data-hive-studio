@@ -1,6 +1,6 @@
 use super::{empty_or, json_or, Live};
 use crate::bodies::{
-    ActiveSchemaBody, DisconnectDatabaseBody, ExtensionsBody, SchemaObjectsBody, SchemasInBody,
+    ActiveSchemaBody, DefinitionBody, DisconnectDatabaseBody, ExtensionsBody, SchemaObjectsBody, SchemasInBody,
 };
 use axum::extract::{Path, Query};
 use axum::response::Response;
@@ -76,6 +76,11 @@ pub(super) async fn schema_objects(Live(a): Live, Json(b): Json<SchemaObjectsBod
         a.list_schema_objects(b.database.as_deref(), &b.schema, b.kind)
             .await,
     )
+}
+
+/// A read: `SHOW CREATE` changes nothing.
+pub(super) async fn definition(Live(a): Live, Json(b): Json<DefinitionBody>) -> Response {
+    json_or(a.object_definition(b.database.as_deref(), b.kind, &b.name).await)
 }
 
 pub(super) async fn roles(Live(a): Live) -> Response {

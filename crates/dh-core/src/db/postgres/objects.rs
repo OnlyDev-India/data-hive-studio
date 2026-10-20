@@ -109,6 +109,7 @@ impl PgAdapter {
                         valid_until,
                         comment,
                         member_of: member_of.unwrap_or_default(),
+                        grants: Vec::new(),
                     }
                 },
             )
@@ -194,6 +195,9 @@ impl PgAdapter {
                     .map(|(name, last)| SchemaObject { name, extra: last })
                     .collect())
             }
+            // Postgres lists triggers per table (`table_schema`), and has no
+            // events.
+            SchemaObjectKind::Trigger | SchemaObjectKind::Event => Ok(Vec::new()),
             SchemaObjectKind::Type => {
                 // Same shape psql's own `\dT` uses: base/enum/composite/range/
                 // domain types actually defined in this schema — excludes

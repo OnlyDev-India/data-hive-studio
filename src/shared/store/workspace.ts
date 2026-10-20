@@ -346,6 +346,15 @@ export function workspaceActions(set: SetState, get: GetState) {
         },
       }));
     },
+    showSystemDatabases: {},
+    setShowSystemDatabases(connId: string, show: boolean) {
+      set((state) => {
+        const next = { ...state.showSystemDatabases };
+        if (show) next[connId] = true;
+        else delete next[connId];
+        return { showSystemDatabases: next };
+      });
+    },
     openCompare(connId: string, left?: TableRef) {
       openTab((state) => {
         const cur = getWs(state.workspaces, connId);

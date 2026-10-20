@@ -8,15 +8,34 @@ mod params;
 mod connect;
 mod sql_text;
 mod rows;
+mod bytes;
 mod filters;
 mod cancel;
 mod stream;
 mod query;
+mod edit;
 mod read_only;
 mod catalog;
+mod objects;
+mod users;
+mod ddl;
+mod schema_plan;
+mod schema_apply;
+mod import_rows;
+mod graph;
+mod compare;
+mod explain;
 mod adapter;
 #[cfg(test)]
 mod live_tests;
+#[cfg(test)]
+mod sidebar_live_tests;
+#[cfg(test)]
+mod schema_live_tests;
+#[cfg(test)]
+mod import_live_tests;
+#[cfg(test)]
+mod parity_live_tests;
 
 pub use connect::{Flavor, ServerInfo};
 pub use params::MySqlParams;

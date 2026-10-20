@@ -14,6 +14,15 @@ export type SavedDbKind = DbKind;
 
 /** The MySQL family (spec 0025): both picker entries run on one adapter,
  *  which follows the server it detects, not the entry picked. */
+/** MySQL's own databases, hidden in the sidebar unless "Show system
+ *  databases" is on (spec 0025 AC-6). */
+export const MYSQL_SYSTEM_DATABASES = [
+  "mysql",
+  "sys",
+  "information_schema",
+  "performance_schema",
+];
+
 export function isMysqlKind(
   kind: DbKind | undefined,
 ): kind is "mysql" | "mariadb" {
@@ -104,7 +113,9 @@ export type SchemaObjectKind =
   | "procedure"
   | "function"
   | "sequence"
-  | "type";
+  | "type"
+  | "trigger"
+  | "event";
 
 /** One row in a `listSchemaObjects`/`listRoles` result — `extra` is optional
  *  secondary context shown alongside the name (a function's signature, a
@@ -125,6 +136,8 @@ export interface RoleDetail {
   valid_until: string | null;
   comment: string | null;
   member_of: string[];
+  /** MySQL: the account's `SHOW GRANTS FOR` lines. Empty on Postgres. */
+  grants?: string[];
 }
 
 export interface IndexInfo {
@@ -287,6 +300,16 @@ export interface TableSchema {
   foreign_keys: ForeignKeyInfo[];
   indexes: IndexInfo[];
   triggers: TriggerInfo[];
+  /** MySQL: the table's engine, default charset and collation, and comment
+   *  (spec 0025 AC-18). */
+  table_options?: TableOptions;
+}
+
+export interface TableOptions {
+  engine: string;
+  charset: string;
+  collation: string;
+  comment: string;
 }
 
 /** One schema's tables and foreign keys, for the relation diagram. Mirrors
@@ -546,7 +569,12 @@ export function resultRowCount(result: {
 }
 
 /** Which engine's explain produced a plan. Mirrors Rust `PlanDialect`. */
-export type PlanDialect = "postgres" | "sqlite" | "mongodb";
+export type PlanDialect =
+  | "postgres"
+  | "sqlite"
+  | "mongodb"
+  | "mysql"
+  | "mariadb";
 
 /** `estimate` never runs the statement; `analyze` runs it for real timings. */
 export type PlanMode = "estimate" | "analyze";
@@ -820,6 +848,26 @@ export type QueryOp =
 /** How alter_column treats the column's DEFAULT clause. */
 export type DefaultMode = "keep" | "set" | "drop";
 
+/** MySQL column attributes (spec 0025 AC-18) on an add or alter column op;
+ *  other engines ignore them. On an alter, an absent field keeps what the
+ *  column has now, and `""` removes `on_update` or `comment`. */
+export interface ColumnAttrs {
+  auto_increment?: boolean;
+  /** e.g. `CURRENT_TIMESTAMP`. */
+  on_update?: string;
+  comment?: string;
+}
+
+/** How one statement of a schema apply ended (spec 0025 AC-19). */
+export type StatementStatus = "applied" | "failed" | "not_run";
+
+/** Every statement a schema apply planned, in order. Postgres and SQLite
+ *  apply in one transaction, so they only ever report all applied (a
+ *  failure throws); MySQL stops at the first failure. */
+export interface SchemaApplyReport {
+  statements: { sql: string; status: StatementStatus; message?: string }[];
+}
+
 export type SchemaOp =
   | { kind: "rename_table"; table: string; new_name: string }
   /** SQLite cannot add NOT NULL without DEFAULT to a non-empty table; the
@@ -831,6 +879,7 @@ export type SchemaOp =
       data_type: string;
       not_null?: boolean;
       default?: string | null;
+      attrs?: ColumnAttrs;
     }
   | { kind: "drop_column"; table: string; name: string }
   /** Fields left undefined keep their current value; only-name changes run a
@@ -845,6 +894,7 @@ export type SchemaOp =
       default_mode?: DefaultMode;
       /** Literal for default_mode 'set' (normalized backend-side). */
       default_value?: string | null;
+      attrs?: ColumnAttrs;
     }
   | {
       kind: "create_index";
@@ -884,7 +934,16 @@ export type SchemaOp =
       on_update?: string;
     }
   /** Drop a named constraint (Postgres; covers FK constraints). */
-  | { kind: "drop_constraint"; table: string; name: string };
+  | { kind: "drop_constraint"; table: string; name: string }
+  /** A table's default charset, collation and comment (MySQL). An absent
+   *  field keeps the current value; an empty comment removes it. */
+  | {
+      kind: "set_table_options";
+      table: string;
+      charset?: string;
+      collation?: string;
+      comment?: string;
+    };
 /** Snapshot of a grid's rows, captured by the data-export feature. Lives in
  *  shared/api because the store's GridBridge hands it to the export menu. */
 export interface ExportPayload {

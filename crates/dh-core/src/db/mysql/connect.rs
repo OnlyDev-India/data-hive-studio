@@ -26,6 +26,20 @@ pub(super) const MYSQL_FLOOR: (u16, u16, u16) = (8, 0, 0);
 pub(super) const MARIADB_FLOOR: (u16, u16, u16) = (10, 6, 0);
 
 impl ServerInfo {
+    /// What the frontend learns about the server: the app's connect reply
+    /// and the team server's both carry it, so the editor dialect follows
+    /// the detected flavor (AC-2, AC-9).
+    pub fn descriptor(&self) -> crate::api::ServerDescriptor {
+        let (a, b, c) = self.version;
+        crate::api::ServerDescriptor {
+            flavor: match self.flavor {
+                Flavor::Mysql => "mysql".into(),
+                Flavor::Mariadb => "mariadb".into(),
+            },
+            version: format!("{a}.{b}.{c}"),
+        }
+    }
+
     /// Read `VERSION()` text: `8.4.3`, `10.6.18-MariaDB-log`,
     /// `11.4.4-MariaDB-ubu2404`. A `-MariaDB` marker means MariaDB.
     pub fn parse(version: &str) -> Self {

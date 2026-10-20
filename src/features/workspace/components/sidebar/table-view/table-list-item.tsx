@@ -32,6 +32,8 @@ export function TableListItem({
   on_open,
   on_view_structure,
   on_copy,
+  on_definition,
+  on_rename,
   on_duplicate,
   on_import,
   on_drop,
@@ -55,6 +57,9 @@ export function TableListItem({
   /** Postgres only: the caller leaves it out elsewhere. */
   on_view_grants?: () => void;
   on_copy?: () => void;
+  /** MySQL: a view's `SHOW CREATE VIEW` in a SQL tab. */
+  on_definition?: () => void;
+  on_rename?: () => void;
   on_duplicate?: () => void;
   on_import?: () => void;
   on_drop?: () => void;
@@ -80,6 +85,8 @@ export function TableListItem({
     query_builder: on_query_builder,
     grants: on_view_grants,
     copy: on_copy,
+    definition: on_definition,
+    rename: on_rename,
     duplicate: on_duplicate,
     import: on_import,
     refresh_matview: on_refresh_matview,

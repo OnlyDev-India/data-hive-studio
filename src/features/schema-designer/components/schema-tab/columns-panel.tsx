@@ -16,18 +16,31 @@ import {
   type ColDraft,
 } from "@/shared/schema-drafts/drafts";
 import { EditableText } from "./editable-text";
+import {
+  MysqlAttrCells,
+  MysqlCommentCell,
+  MysqlTypeCell,
+} from "./mysql-column-cells";
 
 const col_grid =
   "grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_3rem_2.5rem_minmax(0,1.1fr)_1.75rem] items-center gap-2";
-const col_header = cn(
-  col_grid,
-  "sticky top-0 z-10 border-b bg-muted px-3 py-2 text-small font-medium text-muted-foreground",
-);
-const col_row = cn(col_grid, "border-b px-3 py-1.5 text-body last:border-0");
+/** MySQL adds Attributes and Comment (spec 0025 AC-18). */
+const mysql_grid =
+  "grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_3rem_2.5rem_minmax(0,0.9fr)_15rem_minmax(0,1fr)_1.75rem] items-center gap-2";
+const header_style =
+  "sticky top-0 z-10 border-b bg-muted px-3 py-2 text-small font-medium text-muted-foreground";
+const row_style = "border-b px-3 py-1.5 text-body last:border-0";
 
 /** A blank column, as the tab bar's Add button appends it. */
-export function new_col_draft(): ColDraft {
+export function new_col_draft(is_mysql = false): ColDraft {
   return {
+    ...(is_mysql
+      ? {
+          mysql: {
+            now: { auto_increment: false, on_update: false, comment: "" },
+          },
+        }
+      : {}),
     id: next_id(),
     orig_name: null,
     orig_data_type: null,
@@ -46,10 +59,14 @@ export function new_col_draft(): ColDraft {
 export function ColumnsPanel({
   cols,
   disabled = false,
+  is_mysql = false,
   on_update,
   on_replace,
 }: {
   cols: ColDraft[];
+  /** MySQL: free type text with the MySQL type list, plus attributes and
+   *  comment. */
+  is_mysql?: boolean;
   /** True while an Apply is in flight — all editing is locked. */
   disabled?: boolean;
   on_update: (id: string, patch: Partial<ColDraft>) => void;
@@ -59,12 +76,14 @@ export function ColumnsPanel({
   return (
     <>
       <div>
-        <div className={col_header}>
+        <div className={cn(is_mysql ? mysql_grid : col_grid, header_style)}>
           <span>Name</span>
           <span>Type</span>
           <span title="NOT NULL">Null</span>
           <span title="Primary key">PK</span>
           <span>Default</span>
+          {is_mysql && <span>Attributes</span>}
+          {is_mysql && <span>Comment</span>}
           <span />
         </div>
         {cols.map((c) => (
@@ -72,6 +91,7 @@ export function ColumnsPanel({
             key={c.id}
             c={c}
             disabled={disabled}
+            is_mysql={is_mysql}
             on_update={on_update}
             on_replace={on_replace}
           />
@@ -84,16 +104,24 @@ export function ColumnsPanel({
 function ColumnRow({
   c,
   disabled = false,
+  is_mysql = false,
   on_update,
   on_replace,
 }: {
   c: ColDraft;
   disabled?: boolean;
+  is_mysql?: boolean;
   on_update: (id: string, patch: Partial<ColDraft>) => void;
   on_replace: (updater: (cs: ColDraft[]) => ColDraft[]) => void;
 }) {
   return (
-    <div className={cn(col_row, c.dropped && "opacity-50")}>
+    <div
+      className={cn(
+        is_mysql ? mysql_grid : col_grid,
+        row_style,
+        c.dropped && "opacity-50",
+      )}
+    >
       <div className="flex min-w-0 flex-col">
         <div className="flex min-w-0 items-center gap-1.5">
           {c.primary_key && (
@@ -110,7 +138,7 @@ function ColumnRow({
             />
           )}
         </div>
-        {(c.extra || c.comment) && (
+        {!is_mysql && (c.extra || c.comment) && (
           <span
             className="text-muted-foreground text-caption truncate"
             title={[c.extra, c.comment].filter(Boolean).join(" · ")}
@@ -123,6 +151,8 @@ function ColumnRow({
         <span className="text-muted-foreground truncate line-through">
           {c.data_type}
         </span>
+      ) : is_mysql ? (
+        <MysqlTypeCell c={c} disabled={disabled} on_update={on_update} />
       ) : (
         <Select
           value={c.data_type}
@@ -183,6 +213,12 @@ function ColumnRow({
           disabled={disabled}
           on_commit={(v) => on_update(c.id, { default_text: v })}
         />
+      )}
+      {is_mysql && (
+        <MysqlAttrCells c={c} disabled={disabled} on_update={on_update} />
+      )}
+      {is_mysql && (
+        <MysqlCommentCell c={c} disabled={disabled} on_update={on_update} />
       )}
       <Button
         variant="ghost"

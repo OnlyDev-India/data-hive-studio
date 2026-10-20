@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { PostgreSQL, SQLite, sql } from "@codemirror/lang-sql";
+import { MySQL, PostgreSQL, SQLite, sql } from "@codemirror/lang-sql";
 import { EditorView, tooltips } from "@codemirror/view";
 import { completeFromList } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
@@ -64,7 +64,14 @@ export function SqlFragmentEditor({
       appEditorTheme,
       fragmentTooltips,
       tooltipStackingTheme,
-      sql({ dialect: dialect === "postgresql" ? PostgreSQL : SQLite }),
+      sql({
+        dialect:
+          dialect === "postgresql"
+            ? PostgreSQL
+            : dialect === "mysql"
+              ? MySQL
+              : SQLite,
+      }),
       EditorState.languageData.of(() => [
         {
           autocomplete: completeFromList(

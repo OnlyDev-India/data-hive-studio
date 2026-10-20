@@ -612,6 +612,13 @@ export function useCatalogTree({
       return next.size === cur.size ? cur : next;
     });
   }, []);
+  /** Open every row in `ids` (MySQL's Expand all). */
+  const expand_ids = useCallback((ids: string[]) => {
+    setTreeExpanded((cur) => {
+      if (ids.every((id) => cur.has(id))) return cur;
+      return new Set([...cur, ...ids]);
+    });
+  }, []);
   /** Open a schema and all its category headers, fetching each list once. */
   const expand_all_categories = useCallback(
     (database: string, schema: string) => {
@@ -740,6 +747,9 @@ export function useCatalogTree({
     refresh_extensions,
     refresh_objects_under,
   ]);
+  /** Refetch the database list (MySQL's server row Refresh, and after it
+   *  creates or drops a database). */
+  const refresh_databases = useCallback(() => setDdlRev((r) => r + 1), []);
   /** Open an object found anywhere in the catalog tree. Browsing never
    *  touches the connection's active database/schema, and opening one stays
    *  on THIS SAME connection either way: a sibling database's or a
@@ -995,6 +1005,7 @@ export function useCatalogTree({
     tree_expanded,
     toggle_tree,
     disconnect_database,
+    close_database_tabs,
     ddl_dialog,
     setDdlDialog,
     ddl_name,
@@ -1016,7 +1027,9 @@ export function useCatalogTree({
     refresh_database,
     collapse_all,
     expand_all_categories,
+    expand_ids,
     refresh_everything,
+    refresh_databases,
     open_object,
     filtered_tables,
     searching,

@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import { Blocks, GitCompareArrows, Network, Workflow } from "lucide-react";
 import { openAggregationPicked } from "@/features/aggregation-builder";
 import { openQueryBuilderPicked } from "@/features/query-builder";
-import { getActiveSchema, type DbKind } from "@/shared/api";
+import { getActiveSchema, isMysqlKind, type DbKind } from "@/shared/api";
 import { useStudioStore, type ToolId } from "@/shared/store";
 
 export interface Tool {
@@ -21,8 +21,8 @@ export function toolsFor(kind: DbKind | undefined): Tool[] {
 }
 
 /** The relation diagram of the connection's current database and schema: the
- *  active schema on Postgres, the active database on Mongo, the whole file
- *  on SQLite. */
+ *  active schema on Postgres, the active database on Mongo and MySQL, the
+ *  whole file on SQLite. */
 export async function openActiveRelationDiagram(
   conn_id: string,
 ): Promise<void> {
@@ -34,7 +34,11 @@ export async function openActiveRelationDiagram(
     const active = await getActiveSchema(conn_id);
     s.openRelationDiagram(
       conn_id,
-      conn.kind === "mongodb" ? { database: active } : { schema: active },
+      conn.kind === "mongodb"
+        ? { database: active }
+        : isMysqlKind(conn.kind)
+          ? { database: active || undefined }
+          : { schema: active },
     );
   } catch (e) {
     s.pushNotification({
@@ -70,6 +74,6 @@ export const TOOLS: Tool[] = [
     label: "Query builder",
     icon: Blocks,
     run: (conn_id) => openQueryBuilderPicked(conn_id),
-    kinds: ["postgres", "sqlite"],
+    kinds: ["postgres", "sqlite", "mysql", "mariadb"],
   },
 ];

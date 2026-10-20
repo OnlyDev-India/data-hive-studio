@@ -109,7 +109,7 @@ impl SqliteAdapter {
         }
 
         Ok((
-            TableSchema { kind: "table".into(), columns, foreign_keys, indexes, triggers },
+            TableSchema { kind: "table".into(), columns, foreign_keys, indexes, triggers, table_options: None },
             statements,
         ))
     }

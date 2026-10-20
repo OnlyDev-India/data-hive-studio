@@ -211,6 +211,13 @@ pub struct SchemaObjectsBody {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
+pub struct DefinitionBody {
+    pub database: Option<String>,
+    pub kind: dh_core::db::SchemaObjectKind,
+    pub name: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct ExtensionsBody {
     pub database: Option<String>,
 }

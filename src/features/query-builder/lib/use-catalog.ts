@@ -12,9 +12,10 @@ import {
 import type { Clause } from "@/shared/store";
 import { queryTables } from "./compose";
 import type { ColumnsOf } from "./columns";
-import { unquote, type Dialect, type TableRef } from "./sql-text";
+import { hasSchemas, unquote, type Dialect, type TableRef } from "./sql-text";
 
-/** A table a picker offers, by the schema it sits in (null on SQLite). */
+/** A table a picker offers, by the schema it sits in (null on SQLite and
+ *  MySQL). */
 export interface PickTable {
   schema: string | null;
   name: string;
@@ -67,7 +68,7 @@ export function keySets(t: TableSchema): string[][] {
 }
 
 /** Whether identifier `ident` (as written) names catalog name `name`. Bare
- *  names fold to lower case on Postgres; SQLite ignores case. */
+ *  names fold to lower case on Postgres; SQLite and MySQL ignore case. */
 export function sameName(ident: string, name: string, dialect: Dialect) {
   const quoted = /^["`[]/.test(ident);
   const bare = unquote(ident);
@@ -125,7 +126,8 @@ export function useCatalog({
         listSchemaObjects(conn_id, s, "table", db),
         listSchemaObjects(conn_id, s, "view", db).catch(() => []),
       ]);
-      return [...tables, ...views].map((t) => ({ schema: s, name: t.name }));
+      const schema = hasSchemas(dialect) ? s : null;
+      return [...tables, ...views].map((t) => ({ schema, name: t.name }));
     },
     [conn_id, dialect, db],
   );
@@ -154,7 +156,7 @@ export function useCatalog({
   const refs = queryTables(clauses, dialect);
   const schemaOf = useCallback(
     (t: TableRef) =>
-      dialect === "sqlite" ? "" : t.schema ? unquote(t.schema) : home,
+      !hasSchemas(dialect) ? "" : t.schema ? unquote(t.schema) : home,
     [dialect, home],
   );
   const wanted = [...new Set([home, ...refs.map(schemaOf)])].sort().join("\n");

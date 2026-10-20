@@ -46,6 +46,9 @@ export interface SavedWorkspace {
   /** The server monitor's rate, slow limit and Show idle (spec 0025).
    *  Absent on older snapshots. */
   monitorSettings?: MonitorSettings;
+  /** MySQL: the sidebar lists `mysql`, `sys`, `information_schema` and
+   *  `performance_schema` too (spec 0025 AC-6). Absent = hidden. */
+  showSystemDatabases?: boolean;
 }
 
 export interface XY {
@@ -1058,6 +1061,11 @@ export interface StudioStore {
    *  Filed into the snapshot under `stableConnKey`. Absent = defaults. */
   monitorSettings: Record<string, MonitorSettings>;
   setMonitorSettings: (connId: string, patch: Partial<MonitorSettings>) => void;
+  /** MySQL connections whose sidebar shows the system databases, keyed by
+   *  `conn_id` (spec 0025 AC-6). Filed into the snapshot under
+   *  `stableConnKey`. Absent = hidden. */
+  showSystemDatabases: Record<string, true>;
+  setShowSystemDatabases: (connId: string, show: boolean) => void;
   /** Open a new compare tab, its left side prefilled when given. */
   openCompare: (connId: string, left?: TableRef) => void;
   /** Open (or focus) the relation diagram tab of one database and schema.

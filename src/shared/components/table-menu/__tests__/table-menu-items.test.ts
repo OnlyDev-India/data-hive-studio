@@ -25,6 +25,21 @@ const shape = (items: ReturnType<typeof tableMenuItems>) =>
   );
 
 describe("tableMenuItems", () => {
+  it("offers a MySQL table Rename and a MySQL view Show definition", () => {
+    const labels = (objectKind: string) =>
+      tableMenuItems({
+        mongo: false,
+        pg: false,
+        objectKind,
+        readOnly: true,
+        offer: ALL_TABLE_ACTIONS,
+      }).map((i) => [i.label, i.disabled]);
+    expect(labels("table")).toContainEqual(["Rename table…", true]);
+    expect(labels("table")).not.toContainEqual(["Show definition", false]);
+    expect(labels("view")).toContainEqual(["Show definition", false]);
+    expect(labels("view").map(([l]) => l)).not.toContain("Rename table…");
+  });
+
   for (const k of kinds)
     for (const readOnly of [false, true])
       it(`gives the sidebar and the canvas one list: ${k.name}, read only ${readOnly}`, () => {
@@ -34,7 +49,16 @@ describe("tableMenuItems", () => {
           objectKind: "table",
           readOnly,
         };
-        const sidebar = tableMenuItems({ ...base, offer: ALL_TABLE_ACTIONS });
+        // Rename and Show definition are the MySQL sidebar's own; only a
+        // MySQL row passes their handlers.
+        const sidebar = tableMenuItems({
+          ...base,
+          offer: new Set(
+            [...ALL_TABLE_ACTIONS].filter(
+              (a) => a !== "rename" && a !== "definition",
+            ),
+          ),
+        });
         const canvas = tableMenuItems({
           ...base,
           offer: DIAGRAM_TABLE_ACTIONS,

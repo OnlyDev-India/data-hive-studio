@@ -114,7 +114,7 @@ impl PgAdapter {
                 SchemaOp::RenameTable { table, new_name } => {
                     vec![format!("ALTER TABLE {} RENAME TO {}", q(table), q(new_name))]
                 }
-                SchemaOp::AddColumn { table, name, data_type, not_null, default } => {
+                SchemaOp::AddColumn { table, name, data_type, not_null, default, .. } => {
                     let nn = if *not_null && default.is_some() { " NOT NULL" } else { "" };
                     let dflt = default
                         .as_deref()
@@ -130,7 +130,7 @@ impl PgAdapter {
                 SchemaOp::DropColumn { table, name } => {
                     vec![format!("ALTER TABLE {} DROP COLUMN {}", q(table), q(name))]
                 }
-                SchemaOp::AlterColumn { table, column, new_name, data_type, not_null, default_mode, default_value } => {
+                SchemaOp::AlterColumn { table, column, new_name, data_type, not_null, default_mode, default_value, .. } => {
                     // Postgres handles every change IN PLACE — no rebuild
                     // needed (unlike SQLite). Rename is its own statement;
                     // the rest compose into one ALTER with clause list.
@@ -270,6 +270,11 @@ impl PgAdapter {
                         q(table),
                         q(name)
                     )]
+                }
+                SchemaOp::SetTableOptions { .. } => {
+                    return Err(DbError::InvalidOperation(
+                        "table charset and collation options are MySQL only".into(),
+                    ));
                 }
             };
             for st in &stmts {

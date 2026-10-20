@@ -34,6 +34,7 @@ import type { SavedConnParams } from "@/shared/store";
 import {
   canMonitor,
   getActiveSchema,
+  isMysqlKind,
   listDatabases,
   listSchemaObjects,
   listSchemasIn,
@@ -370,7 +371,11 @@ export function buildCommandItems(theme: {
         icon: <SquarePlus className="size-4" />,
         run: () => s.openNewTable(active_conn.id),
       });
-      if (active_conn.kind === "postgres" || active_conn.kind === "sqlite")
+      if (
+        active_conn.kind === "postgres" ||
+        active_conn.kind === "sqlite" ||
+        isMysqlKind(active_conn.kind)
+      )
         list.push({
           id: "tab.query-builder",
           label: "New query builder",

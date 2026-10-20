@@ -3,6 +3,8 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Copy,
+  Eye,
+  EyeOff,
   FileCode,
   FolderPlus,
   Network,
@@ -32,6 +34,8 @@ export type TreeAction =
   | "server_monitor"
   | "close_tabs"
   | "drop_schema"
+  | "drop_database"
+  | "toggle_system_databases"
   | "disconnect";
 
 export type TreeMenuItem = MenuEntry<TreeAction>;
@@ -55,9 +59,15 @@ export type TreeNode =
   | { kind: "pg_extensions"; readOnly: boolean }
   | { kind: "pg_roles"; readOnly: boolean }
   | { kind: "mongo_database"; readOnly: boolean; canSetDefault: boolean }
-  /** MySQL and MariaDB (spec 0025). New table, Drop and the system
-   *  database toggle arrive with the full sidebar (build plan slice 6). */
-  | { kind: "mysql_database" }
+  /** MySQL and MariaDB (spec 0025 AC-7): the server row above the
+   *  databases, each database, and the group headers under it. */
+  | { kind: "mysql_server"; readOnly: boolean; showSystem: boolean }
+  | { kind: "mysql_database"; readOnly: boolean }
+  | { kind: "mysql_group"; readOnly: boolean; group: SchemaObjectKind }
+  | { kind: "mysql_users"; readOnly: boolean }
+  /** A row that opens its definition in a SQL tab (a MySQL routine,
+   *  trigger or event). */
+  | { kind: "definition_leaf" }
   | { kind: "sqlite_group"; readOnly: boolean; group: "table" | "view" }
   | { kind: "leaf" };
 
@@ -69,13 +79,15 @@ const CREATE_LABEL: Record<SchemaObjectKind, string> = {
   function: "New function",
   sequence: "New sequence",
   type: "New type",
+  trigger: "New trigger",
+  event: "New event",
 };
 
 /** The menu for one sidebar tree row. Create items are disabled on a read
  *  only connection; everything else stays enabled. */
 export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
   const readOnly =
-    node.kind !== "leaf" && node.kind !== "mysql_database" && node.readOnly;
+    node.kind !== "leaf" && node.kind !== "definition_leaf" && node.readOnly;
   const ro = readOnly ? READ_ONLY_TITLE : undefined;
   const item = (
     action: TreeAction,
@@ -115,6 +127,8 @@ export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
       return [refresh(), create(CREATE_LABEL[node.group])];
     case "leaf":
       return [copy()];
+    case "definition_leaf":
+      return [item("open", "Open definition", FileCode), copy()];
     case "pg_database":
       return [
         refresh(),
@@ -152,13 +166,39 @@ export function treeMenuItems(node: TreeNode): TreeMenuItem[] {
             ]
           : []),
       ];
-    case "mysql_database":
+    case "mysql_server":
       return [
-        refresh("Refresh tables"),
-        sqlTab,
-        copy("Copy database name"),
+        refresh(),
+        create("New database…", FolderPlus),
+        node.showSystem
+          ? item("toggle_system_databases", "Hide system databases", EyeOff)
+          : item("toggle_system_databases", "Show system databases", Eye),
+        copy(),
         collapse,
       ];
+    case "mysql_database":
+      return [
+        refresh(),
+        create("New table"),
+        sqlTab,
+        diagram,
+        copy("Copy database name"),
+        item("expand_all", "Expand all", ChevronsUpDown),
+        collapse,
+        {
+          action: "drop_database",
+          label: "Drop database…",
+          icon: Trash2,
+          disabled: readOnly,
+          title: ro,
+          destructive: true,
+          separatorBefore: true,
+        },
+      ];
+    case "mysql_group":
+      return [refresh(), create(CREATE_LABEL[node.group])];
+    case "mysql_users":
+      return [item("open", "Open", ShieldCheck), refresh(), create("New user")];
     case "mongo_database":
       return [
         refresh("Refresh collections"),

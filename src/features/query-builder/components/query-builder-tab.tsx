@@ -85,6 +85,8 @@ import { openChains, searchQueries } from "../lib/search";
 import { readCte } from "../lib/sql-text";
 import { useQueryRuns } from "../lib/use-query-runs";
 import type { Dialect } from "../lib/sql-text";
+import { sqlDialectOf } from "@/shared/lib/sql-ident";
+import { isMysqlKind } from "@/shared/api";
 import { useSqlPreviews } from "../lib/use-sql-previews";
 import { OutputPanel, type OutputTab } from "./output-panel";
 import { PasteDialog } from "./paste-dialog";
@@ -186,20 +188,24 @@ export function QueryBuilderTab({
   const setup = stored ?? DEFAULT_QUERY_BUILDER_SETUP;
   const setSetup = useStudioStore((s) => s.setQueryBuilderSetup);
   const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  // A MySQL connection's name is `user@host` when it has no default
+  // database, so only its saved database counts.
   const own_database = useStudioStore(
-    (s) => s.recentParams[conn_id]?.database ?? conn?.name ?? "",
+    (s) =>
+      s.recentParams[conn_id]?.database ??
+      (isMysqlKind(conn?.kind) ? "" : (conn?.name ?? "")),
   );
   const keyword_case = useStudioStore((s) => s.sqlFormatKeywordCase);
   const indent_width = useStudioStore((s) => s.sqlFormatIndentWidth);
   // A restored tab may load before its connection opens; only Postgres
-  // tabs keep a schema.
+  // tabs keep a schema, and only MySQL tabs keep a database without one.
   const dialect: Dialect = conn
-    ? conn.kind === "postgres"
-      ? "postgresql"
-      : "sqlite"
+    ? sqlDialectOf(conn.kind)
     : setup.schema !== null
       ? "postgresql"
-      : "sqlite";
+      : setup.database !== null
+        ? "mysql"
+        : "sqlite";
 
   const readSetup = useCallback(
     () =>
@@ -939,6 +945,7 @@ export function QueryBuilderTab({
         conn_id={conn_id}
         connected={!!conn}
         postgres={dialect === "postgresql"}
+        mysql={dialect === "mysql"}
         ownDatabase={own_database}
         database={setup.database}
         schema={setup.schema}

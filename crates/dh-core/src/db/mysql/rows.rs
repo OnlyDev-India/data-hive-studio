@@ -6,6 +6,7 @@
 use sqlx::mysql::{MySqlArguments, MySqlRow};
 use sqlx::{Column as _, Executor as _, MySql, MySqlConnection, MySqlPool, Row as _, TypeInfo as _};
 use crate::db::{DbError, DbResult};
+use super::bytes::Param;
 
 /// Which protocol a row came in on. Unparameterized runs use the text
 /// protocol (the server's own text); prepared statements use the binary one.
@@ -15,12 +16,13 @@ pub(super) enum Wire {
     Binary,
 }
 
-/// Render one row as text cells.
-pub(super) fn row_to_vec(row: &MySqlRow, wire: Wire) -> Vec<Option<String>> {
-    (0..row.columns().len()).map(|i| cell(row, i, wire)).collect()
+/// Render one row as text cells. `mask` is the binary column rule's
+/// decision per column ([`super::bytes::BytesRule::mask`]).
+pub(super) fn row_to_vec(row: &MySqlRow, wire: Wire, mask: &[Option<bool>]) -> Vec<Option<String>> {
+    (0..row.columns().len()).map(|i| cell(row, i, wire, mask.get(i).copied().flatten())).collect()
 }
 
-fn cell(row: &MySqlRow, i: usize, wire: Wire) -> Option<String> {
+fn cell(row: &MySqlRow, i: usize, wire: Wire, is_bytes: Option<bool>) -> Option<String> {
     // Not `Option<&[u8]>`: sqlx reads a binary zero date (length 0) as NULL,
     // which is exactly the coercion this rule exists to avoid. A real NULL
     // has no bytes at all, so the plain decode fails only for NULL.
@@ -30,7 +32,10 @@ fn cell(row: &MySqlRow, i: usize, wire: Wire) -> Option<String> {
     if ty == "BIT" {
         return Some(bit_literal(bytes, bit_width(info)));
     }
-    if is_binary_string(ty) {
+    // Catalog says bytes, or (no known table) the driver says GEOMETRY. A
+    // BINARY flagged cell with no catalog answer falls through to `text`,
+    // which shows hex only when its bytes aren't valid UTF-8.
+    if is_bytes.unwrap_or(ty == "GEOMETRY") {
         return Some(hex(bytes));
     }
     Some(match wire {
@@ -39,14 +44,9 @@ fn cell(row: &MySqlRow, i: usize, wire: Wire) -> Option<String> {
     })
 }
 
-/// Whether a string column holds bytes rather than text, so it renders as
-/// `0x` hex.
-///
-/// PENDING spec 0025 amendment (`/architect`): the spec's source is the
-/// column's binary charset (63), which sqlx does not expose. The type name
-/// below comes from the column's BINARY flag, which MySQL and MariaDB also
-/// set on `_bin` collated text columns, so such a column renders as hex here
-/// until the spec settles the source.
+/// Whether sqlx names a column as a binary string: the column's BINARY
+/// flag, which `_bin` collated text and MariaDB `JSON` also carry. Only a
+/// hint, never the bytes versus text decision (that is [`super::bytes`]).
 fn is_binary_string(ty: &str) -> bool {
     matches!(
         ty,
@@ -223,14 +223,15 @@ fn catalog_row(row: &MySqlRow, wire: Wire) -> Vec<Option<String>> {
         .collect()
 }
 
-/// Bind string parameters the grid and builders send (`None` is NULL).
-pub(super) fn bind_all<'q>(
-    sql: &'q str,
-    params: &[Option<String>],
-) -> sqlx::query::Query<'q, MySql, MySqlArguments> {
+/// Bind typed parameters: text as a string (`None` is NULL), bytes as a
+/// binary parameter.
+pub(super) fn bind_all<'q>(sql: &'q str, params: &[Param]) -> sqlx::query::Query<'q, MySql, MySqlArguments> {
     let mut q = sqlx::query(sql);
     for p in params {
-        q = q.bind(p.clone());
+        q = match p {
+            Param::Text(v) => q.bind(v.clone()),
+            Param::Bytes(b) => q.bind(b.clone()),
+        };
     }
     q
 }

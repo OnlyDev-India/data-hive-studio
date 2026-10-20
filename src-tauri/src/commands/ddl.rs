@@ -1,9 +1,18 @@
-use crate::api::SchemaOp;
+use crate::api::{SchemaApplyReport, SchemaOp};
 use super::to_err;
 
-forward_cmd! {
-    /// Create a database on the same server (Postgres).
-    create_pg_database(conn_id: String, name: String) -> () => create_database
+/// Create a database on the same server (Postgres, MySQL). `charset` and
+/// `collation` are MySQL's options; other engines refuse them.
+#[tauri::command]
+pub async fn create_pg_database(
+    conn_id: String,
+    name: String,
+    charset: Option<String>,
+    collation: Option<String>,
+) -> Result<(), String> {
+    crate::db::create_database_with(&conn_id, &name, charset.as_deref(), collation.as_deref())
+        .await
+        .map_err(to_err)
 }
 
 forward_cmd! {
@@ -83,17 +92,32 @@ pub async fn duplicate_table(
         .map_err(to_err)
 }
 
-/// Apply staged schema (DDL) ops in order; returns every statement that
-/// ran. `database`/`schema`: `None` = this connection's own primary
-/// database / active schema.
+/// Apply staged schema (DDL) ops in order; reports every statement and how
+/// it ended (MySQL stops at the first failure, spec 0025 AC-19).
+/// `database`/`schema`: `None` = this connection's own primary database /
+/// active schema.
 #[tauri::command]
 pub async fn apply_schema_ops(
     conn_id: String,
     database: Option<String>,
     schema: Option<String>,
     ops: Vec<SchemaOp>,
-) -> Result<Vec<String>, String> {
+) -> Result<SchemaApplyReport, String> {
     crate::db::apply_schema_ops(&conn_id, database.as_deref(), schema.as_deref(), &ops)
+        .await
+        .map_err(to_err)
+}
+
+/// The statements `apply_schema_ops` would run, without running them
+/// (MySQL), for the review dialog.
+#[tauri::command]
+pub async fn plan_schema_ops(
+    conn_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    ops: Vec<SchemaOp>,
+) -> Result<Vec<String>, String> {
+    crate::db::plan_schema_ops(&conn_id, database.as_deref(), schema.as_deref(), &ops)
         .await
         .map_err(to_err)
 }

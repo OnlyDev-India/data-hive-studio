@@ -5,6 +5,11 @@ import { quoteIdent, type SqlDialect } from "@/shared/lib/sql-ident";
 export type Dialect = SqlDialect;
 export { quoteIdent };
 
+/** Whether a dialect has schemas inside a database. SQLite has none, and
+ *  on MySQL a qualifier names another database, which the builder leaves
+ *  as written. */
+export const hasSchemas = (dialect: Dialect) => dialect === "postgresql";
+
 /** One identifier: double quoted, backticked, bracketed, or bare. */
 const IDENT = String.raw`(?:"(?:[^"]|"")+"|\x60[^\x60]+\x60|\[[^\]]+\]|[A-Za-z_][\w$]*)`;
 const KEYWORDS = new Set([

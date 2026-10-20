@@ -14,15 +14,29 @@ use crate::api::{DiffKind, TableRef};
 pub enum ScriptSyntax {
     Sqlite,
     Postgres,
+    /// MySQL and MariaDB: backtick names, and backslashes escaped in strings.
+    Mysql,
     Mongosh,
 }
 
-fn quote_text(s: &str) -> String {
+fn quote_text(s: &str, syntax: ScriptSyntax) -> String {
+    let s = if syntax == ScriptSyntax::Mysql { s.replace('\\', "\\\\") } else { s.to_string() };
     format!("'{}'", s.replace('\'', "''"))
 }
 
-fn quote_ident(s: &str) -> String {
-    format!("\"{}\"", s.replace('"', "\"\""))
+fn quote_ident(s: &str, syntax: ScriptSyntax) -> String {
+    if syntax == ScriptSyntax::Mysql {
+        format!("`{}`", s.replace('`', "``"))
+    } else {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    }
+}
+
+/// `b'0101'`, the form the MySQL grid shows a `BIT` value in.
+fn is_bit_literal(s: &str) -> bool {
+    s.strip_prefix("b'")
+        .and_then(|r| r.strip_suffix('\''))
+        .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b == b'0' || b == b'1'))
 }
 
 /// A value as a SQL literal the engine reads back as the same value. Values
@@ -30,11 +44,15 @@ fn quote_ident(s: &str) -> String {
 /// own output text, which it accepts as input.
 pub fn sql_literal(v: &CanonVal, display: Option<&str>, syntax: ScriptSyntax) -> String {
     let pg = syntax == ScriptSyntax::Postgres;
-    let shown = |fallback: String| quote_text(display.map_or(fallback.as_str(), |d| d));
+    let shown = |fallback: String| quote_text(display.map_or(fallback.as_str(), |d| d), syntax);
     match v {
         CanonVal::Null => "NULL".into(),
+        // A `BIT` value is written as its unquoted literal, the same bits.
+        CanonVal::Num(_) if syntax == ScriptSyntax::Mysql && display.is_some_and(is_bit_literal) => {
+            display.unwrap_or_default().to_string()
+        }
         CanonVal::Num(d) => d.to_plain(),
-        CanonVal::Text(s) => quote_text(s),
+        CanonVal::Text(s) => quote_text(s, syntax),
         CanonVal::Bool(b) if pg => if *b { "TRUE" } else { "FALSE" }.into(),
         CanonVal::Bool(b) => if *b { "1" } else { "0" }.into(),
         CanonVal::Bytes(b) if pg => format!("'\\x{}'::bytea", hex::encode(b)),
@@ -66,12 +84,20 @@ impl ScriptWriter {
         }
     }
 
+    fn ident(&self, s: &str) -> String {
+        quote_ident(s, self.syntax)
+    }
+
     fn table(&self) -> String {
-        match &self.right.schema {
-            Some(s) if self.syntax == ScriptSyntax::Postgres => {
-                format!("{}.{}", quote_ident(s), quote_ident(&self.right.table))
-            }
-            _ => quote_ident(&self.right.table),
+        let qualifier = match self.syntax {
+            ScriptSyntax::Postgres => self.right.schema.as_deref(),
+            // No schema level: the database qualifies the table.
+            ScriptSyntax::Mysql => self.right.database.as_deref(),
+            _ => None,
+        };
+        match qualifier {
+            Some(q) => format!("{}.{}", self.ident(q), self.ident(&self.right.table)),
+            None => self.ident(&self.right.table),
         }
     }
 
@@ -85,7 +111,7 @@ impl ScriptWriter {
 
     fn sql_where(&self, row: &ScanRow) -> String {
         let parts: Vec<String> = (0..self.key_columns.len())
-            .map(|i| format!("{} = {}", quote_ident(&self.key_columns[i]), self.key_lit(row, i)))
+            .map(|i| format!("{} = {}", self.ident(&self.key_columns[i]), self.key_lit(row, i)))
             .collect();
         parts.join(" AND ")
     }
@@ -94,7 +120,7 @@ impl ScriptWriter {
         let t = self.table();
         match (d.kind, &d.left, &d.right) {
             (DiffKind::LeftOnly, Some(l), _) => {
-                let cols: Vec<String> = self.key_columns.iter().chain(&self.columns).map(|c| quote_ident(c)).collect();
+                let cols: Vec<String> = self.key_columns.iter().chain(&self.columns).map(|c| self.ident(c)).collect();
                 let vals: Vec<String> = (0..self.key_columns.len())
                     .map(|i| self.key_lit(l, i))
                     .chain((0..self.columns.len()).map(|i| self.val_lit(l, i)))
@@ -106,7 +132,7 @@ impl ScriptWriter {
                 let set: Vec<String> = d
                     .changed
                     .iter()
-                    .map(|&i| format!("{} = {}", quote_ident(&self.columns[i]), self.val_lit(l, i)))
+                    .map(|&i| format!("{} = {}", self.ident(&self.columns[i]), self.val_lit(l, i)))
                     .collect();
                 writeln!(w, "UPDATE {t} SET {} WHERE {};", set.join(", "), self.sql_where(r))
             }
@@ -301,6 +327,29 @@ mod tests {
         let r = row(one(), vec![CanonVal::Null, CanonVal::Null], vec![None, None]);
         let del = render(&mut w, Diff { kind: DiffKind::RightOnly, left: None, right: Some(r), changed: vec![] });
         assert_eq!(del, "DELETE FROM \"public\".\"b\" WHERE \"id\" = 1;\n");
+    }
+
+    #[test]
+    fn mysql_scripts_use_backticks_the_database_and_bit_literals() {
+        let my = ScriptSyntax::Mysql;
+        assert_eq!(sql_literal(&CanonVal::Text("a\\b'c".into()), None, my), "'a\\\\b''c'");
+        assert_eq!(sql_literal(&CanonVal::Num(Dec::from_i64(5)), Some("b'0101'"), my), "b'0101'");
+        assert_eq!(sql_literal(&CanonVal::Num(Dec::from_i64(5)), Some("5"), my), "5");
+        assert_eq!(sql_literal(&CanonVal::Bytes(vec![1, 255]), None, my), "X'01ff'");
+        assert_eq!(sql_literal(&CanonVal::Bool(true), None, my), "1");
+        let side = |t: &str| TableRef {
+            conn_id: "c".into(),
+            conn_key: String::new(),
+            database: Some("shop".into()),
+            schema: None,
+            table: t.into(),
+        };
+        let mut w = ScriptWriter::new(my, &side("a"), &side("b"), &["id".into()], &["bits".into()]);
+        let one = || vec![CanonVal::Num(Dec::from_i64(1))];
+        let l = row(one(), vec![CanonVal::Num(Dec::from_i64(6))], vec![Some("b'0110'")]);
+        let r = row(one(), vec![CanonVal::Num(Dec::from_i64(5))], vec![Some("b'0101'")]);
+        let upd = render(&mut w, Diff { kind: DiffKind::Changed, left: Some(l), right: Some(r), changed: vec![0] });
+        assert_eq!(upd, "UPDATE `shop`.`b` SET `bits` = b'0110' WHERE `id` = 1;\n");
     }
 
     #[test]
