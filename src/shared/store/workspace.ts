@@ -4,6 +4,10 @@ import { tabEquals, tabKey, type StudioTab } from "./tab-utils";
 import { useRelationGraphs } from "./relation-graphs";
 import type { TableRef } from "../api/types";
 import {
+  normalizeMonitorSettings,
+  type MonitorSettings,
+} from "./monitor-settings";
+import {
   DEFAULT_AGGREGATION_SETUP,
   DEFAULT_QUERY_BUILDER_SETUP,
   EMPTY_COMPARE_SETUP,
@@ -30,6 +34,7 @@ import {
 } from "./pane-layout";
 
 type SetState = StoreApi<StudioStore>["setState"];
+type GetState = StoreApi<StudioStore>["getState"];
 
 export const DEFAULT_WORKSPACE: WorkspaceTabs = {
   tabs: [],
@@ -201,7 +206,7 @@ function withNewTableTab(
   );
 }
 
-export function workspaceActions(set: SetState) {
+export function workspaceActions(set: SetState, get: GetState) {
   // Opening (or jumping to) a tab always means "go look at this tab" — but
   // the connection's Home/landing screen (`view: "home"`) is a separate
   // piece of top-level state that nothing here otherwise touches, so a tab
@@ -303,6 +308,51 @@ export function workspaceActions(set: SetState) {
             addTabToFocusedPane({ ...cur, tabs: [...cur.tabs, tab] }, tab),
           ),
         };
+      });
+    },
+    /** Singleton server monitor tab: focus it if present, else create + select. */
+    openMonitor(connId: string) {
+      openTab((state) => {
+        const cur = getWs(state.workspaces, connId);
+        const existing = cur.tabs.find((t) => t.kind === "monitor");
+        if (existing) {
+          return {
+            workspaces: putWs(
+              state.workspaces,
+              connId,
+              focusExistingTab(cur, existing),
+            ),
+          };
+        }
+        const tab: StudioTab = { kind: "monitor" };
+        return {
+          workspaces: putWs(
+            state.workspaces,
+            connId,
+            addTabToFocusedPane({ ...cur, tabs: [...cur.tabs, tab] }, tab),
+          ),
+        };
+      });
+    },
+    monitorSettings: {},
+    setMonitorSettings(connId: string, patch: Partial<MonitorSettings>) {
+      set((state) => ({
+        monitorSettings: {
+          ...state.monitorSettings,
+          [connId]: normalizeMonitorSettings({
+            ...state.monitorSettings[connId],
+            ...patch,
+          }),
+        },
+      }));
+    },
+    showSystemDatabases: {},
+    setShowSystemDatabases(connId: string, show: boolean) {
+      set((state) => {
+        const next = { ...state.showSystemDatabases };
+        if (show) next[connId] = true;
+        else delete next[connId];
+        return { showSystemDatabases: next };
       });
     },
     openCompare(connId: string, left?: TableRef) {
@@ -738,6 +788,15 @@ export function workspaceActions(set: SetState) {
           }),
         };
       });
+    },
+    focusFileTab(connId: string, path: string) {
+      const s = get();
+      const cur = s.workspaces[connId];
+      const tab = cur?.tabs.find((t) => s.seedFilePaths[tabKey(t)] === path);
+      const owner = tab && findOwnerLeaf(cur.layout, tabKey(tab));
+      if (!tab || !owner) return false;
+      s.selectTab(connId, owner.id, tab);
+      return true;
     },
     closeTab(connId: string, tab: StudioTab) {
       set((state) => {

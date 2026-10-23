@@ -10,6 +10,23 @@ pub async fn connect_postgres(
     crate::db::connect_postgres(params).await.map_err(to_err)
 }
 
+/// Connect to a MySQL or MariaDB server and register the connection.
+/// `kind` is the picker entry (`mysql` or `mariadb`).
+#[tauri::command]
+pub async fn connect_mysql(
+    params: crate::db::MySqlParams,
+    kind: DbKind,
+) -> Result<ConnectionInfo, String> {
+    log::info!(
+        "connecting to {} {}:{}/{}",
+        kind.pretty(),
+        params.host,
+        params.port,
+        params.database.as_deref().unwrap_or("")
+    );
+    crate::db::connect_mysql(params, kind).await.map_err(to_err)
+}
+
 /// Connect to a MongoDB server and register the connection.
 #[tauri::command]
 pub async fn connect_mongodb(

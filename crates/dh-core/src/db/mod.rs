@@ -30,6 +30,7 @@ macro_rules! named_ddl_op {
 mod mongo_json;
 mod mongo_sql;
 mod mongodb;
+mod mysql;
 mod explain;
 mod postgres;
 mod read_only;
@@ -50,6 +51,7 @@ mod import_rows;
 mod compare;
 mod pipeline;
 mod sql_builder;
+mod monitor;
 
 pub use types::*;
 pub use adapter::*;
@@ -61,6 +63,10 @@ pub use query::*;
 pub use ddl::*;
 pub use explain::{explain_mongo, explain_sql, MAX_PLAN_NODES};
 pub use import_rows::*;
+pub use monitor::{
+    app_name, instance_tag, monitor_kill, monitor_kill_on, monitor_snapshot, monitor_snapshot_on, set_app_label,
+    KillCtx, MAX_MONITOR_ROWS, MONITOR_UNAVAILABLE_PREFIX,
+};
 pub use pipeline::*;
 pub use sql_builder::{sql_builder_preview, sql_builder_preview_on, SqlPreviewSink};
 pub use compare::{
@@ -72,6 +78,7 @@ use crate::api::QueryChunk;
 pub use mongo_json::{parse as parse_mongo_json, render as render_mongo_json};
 pub use mongodb::{mongo_script_class, MongoAdapter, MongoParams};
 pub use postgres::{PgAdapter, PgParams};
+pub use mysql::{Flavor, MySqlAdapter, MySqlParams, ServerInfo};
 pub use read_only::{Dialect, ReadOnlyGuard, READ_ONLY_PREFIX};
 pub use stmt_class::{sql_class, StmtClass};
 pub use runs::{cancel as cancel_run, CancelOutcome, CancelState, RunHandle};

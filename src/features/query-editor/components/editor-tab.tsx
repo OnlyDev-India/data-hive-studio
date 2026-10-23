@@ -35,6 +35,7 @@ import {
   canCancelRun,
   canExplain,
   canExplainAnalyze,
+  isMysqlKind,
   cancelRun,
   createRowAccumulator,
   catalogOverview,
@@ -72,6 +73,7 @@ import { usePlanTabs } from "../lib/use-plan-tabs";
 import { isPlanStale, PlanView } from "@/shared/components/plan-view";
 import {
   MONGO_WRITE_NOTE,
+  MONITOR_STOP_NOTE,
   stoppedStatusLine,
   WINDING_DOWN_NOTE,
 } from "../lib/stopped-status";
@@ -280,6 +282,15 @@ export function useUnsavedQueryTracking(
     () => useStudioStore.getState().seedFilePaths[tab_key] ?? null,
   );
   const file_name = file_path ? basename(file_path) : null;
+  // Mirrored into the store so a reconnect restores the tab still tied to
+  // its file, and so opening the same file again finds this tab.
+  const tie_to_file = useCallback(
+    (path: string) => {
+      setFilePath(path);
+      useStudioStore.getState().setSeedFilePath(tab_key, path);
+    },
+    [tab_key],
+  );
   const is_dirty = text.trim().length > 0 && text !== saved_baseline;
   // `save` always writes the LATEST text even if a stale closure fires
   // after a fast edit — mirrors the pre-merge components' own ref pattern.
@@ -302,16 +313,16 @@ export function useUnsavedQueryTracking(
       return false;
     }
     setSavedBaseline(saved_text);
-    setFilePath(path);
+    tie_to_file(path);
     return true;
-  }, [file_path, pick_path]);
+  }, [file_path, pick_path, tie_to_file]);
   const open = useCallback(async () => {
     try {
       const file = await pickSqlFile();
       if (!file) return;
       set_text(file.text);
       setSavedBaseline(file.text);
-      setFilePath(file.path);
+      tie_to_file(file.path);
     } catch (e) {
       useStudioStore.getState().pushNotification({
         kind: "error",
@@ -319,7 +330,7 @@ export function useUnsavedQueryTracking(
         detail: String(e),
       });
     }
-  }, [set_text]);
+  }, [set_text, tie_to_file]);
   return { is_dirty, file_path, file_name, save, open };
 }
 
@@ -490,6 +501,11 @@ function SqlEditorBody({
   // targets whichever database is currently selected.
   const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
   const is_pg = conn?.kind === "postgres";
+  // MySQL and MariaDB follow the server the connection detected, not the
+  // picker entry (spec 0025 AC-2, AC-9).
+  const mysql_flavor = isMysqlKind(conn?.kind)
+    ? (conn?.server?.flavor ?? conn?.kind)
+    : undefined;
   const supports_multi_db = conn?.kind !== "sqlite";
   const recent_params = useStudioStore((s) => s.recentParams[conn_id]);
   const own_database = recent_params?.database ?? conn?.name ?? "";
@@ -689,7 +705,7 @@ function SqlEditorBody({
             ? "postgresql"
             : conn?.kind === "sqlite"
               ? "sqlite"
-              : "sql",
+              : (mysql_flavor ?? "sql"),
           keywordCase: format_keyword_case,
           tabWidth: format_indent_width,
         }),
@@ -699,7 +715,15 @@ function SqlEditorBody({
       // parse (mid-edit, a dialect quirk it doesn't know); silently doing
       // nothing beats replacing a query the user was actively writing.
     }
-  }, [sql_text, is_pg, conn, setSql, format_keyword_case, format_indent_width]);
+  }, [
+    sql_text,
+    is_pg,
+    conn,
+    mysql_flavor,
+    setSql,
+    format_keyword_case,
+    format_indent_width,
+  ]);
   const compress_sql = useCallback(() => {
     setSql(compressSql(sql_text));
   }, [sql_text, setSql]);
@@ -885,7 +909,9 @@ function SqlEditorBody({
         ? "postgres"
         : conn?.kind === "mongodb"
           ? "mongodb"
-          : "sqlite",
+          : isMysqlKind(conn?.kind)
+            ? conn.kind
+            : "sqlite",
     database: target_database,
     keep_all_tabs,
     on_open: openBottomPanel,
@@ -1298,7 +1324,9 @@ function SqlEditorBody({
         }
         on_open_in_builder={
           on_open_in_builder &&
-          (conn?.kind === "postgres" || conn?.kind === "sqlite")
+          (conn?.kind === "postgres" ||
+            conn?.kind === "sqlite" ||
+            isMysqlKind(conn?.kind))
             ? () => {
                 // Every statement in the selection, or in the whole editor
                 // when nothing is selected.
@@ -1346,6 +1374,7 @@ function SqlEditorBody({
           tables={effective_tables}
           schema={schema}
           schemaTables={is_pg ? schema_tables : undefined}
+          sqlDialect={mysql_flavor ?? "sqlite"}
           lintEnabled={lint_enabled}
           lintReady={lint_ready}
           showInsertLabels={insert_labels_enabled}
@@ -1468,6 +1497,7 @@ function SqlEditorBody({
                     elapsed_ms={active.result.elapsed_ms}
                     rows_loaded={resultRowCount(active.result)}
                     winding_down={active.winding_down}
+                    from_monitor={active.result.cancel_source === "monitor"}
                   />
                   {active.result.is_select && (
                     <div className="min-h-0 flex-1">
@@ -1543,11 +1573,14 @@ function StoppedNote({
   rows_loaded,
   winding_down,
   note,
+  from_monitor = false,
 }: {
   elapsed_ms: number;
   rows_loaded: number;
   winding_down: boolean;
   note?: string;
+  /** The server monitor stopped it, not this tab's Stop. */
+  from_monitor?: boolean;
 }) {
   return (
     <div
@@ -1556,6 +1589,7 @@ function StoppedNote({
     >
       <Square className="size-3 shrink-0" />
       <span>{stoppedStatusLine(elapsed_ms, rows_loaded)}</span>
+      {from_monitor && <span>· {MONITOR_STOP_NOTE}</span>}
       {winding_down && <span>· {WINDING_DOWN_NOTE}</span>}
       {note && <span>· {note}</span>}
     </div>
@@ -2476,6 +2510,7 @@ function MongoEditorBody({
                     rows_loaded={resultRowCount(active.result)}
                     winding_down={active.winding_down}
                     note={MONGO_WRITE_NOTE}
+                    from_monitor={active.result.cancel_source === "monitor"}
                   />
                   {resultRowCount(active.result) > 0 && (
                     <div className="min-h-0 flex-1">

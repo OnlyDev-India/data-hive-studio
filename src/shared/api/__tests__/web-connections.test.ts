@@ -28,6 +28,22 @@ function stored(): Record<string, unknown>[] {
 beforeEach(() => localStorage.clear());
 
 describe("saved connections in the browser (AC-4)", () => {
+  it("keeps a MySQL or MariaDB connection's kind and SSL mode", () => {
+    const my: SavedConnParams = {
+      ...pg,
+      name: "shop",
+      kind: "mariadb",
+      port: 3306,
+      database: "",
+      ssl_mode: "REQUIRED",
+    };
+    writeWebConnections({ shop: my, inv: { ...my, name: "inv", kind: "mysql" } });
+    const back = readWebConnections();
+    expect(back.shop).toMatchObject({ kind: "mariadb", ssl_mode: "REQUIRED", port: 3306 });
+    expect(back.inv.kind).toBe("mysql");
+    expect(stored()[0]).not.toHaveProperty("srv");
+  });
+
   it("writes the password only when the connection remembers its secret", () => {
     writeWebConnections({
       keep: { ...pg, name: "keep", remember_secret: true },

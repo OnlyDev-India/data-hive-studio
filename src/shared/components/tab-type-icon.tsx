@@ -1,4 +1,5 @@
 import {
+  Activity,
   Code,
   GitCompareArrows,
   History,
@@ -68,6 +69,12 @@ export function TabTypeIcon({
       return (
         <Blocks
           className={cn("size-3.5", TAB_ICON_CLASS["query-builder"], className)}
+        />
+      );
+    case "monitor":
+      return (
+        <Activity
+          className={cn("size-3.5", TAB_ICON_CLASS.monitor, className)}
         />
       );
     case "relation-diagram":

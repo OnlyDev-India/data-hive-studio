@@ -25,7 +25,40 @@ import {
 } from "./fields";
 import { FormRow, FormRowPlain } from "./form-row";
 
-const SSL_MODES = ["disable", "prefer", "require", "verify-ca", "verify-full"];
+/** What differs between the SQL server forms: Postgres, and MySQL with
+ *  MariaDB (spec 0025), which share every field but these. */
+const ENGINES = {
+  postgres: {
+    sslModes: ["disable", "prefer", "require", "verify-ca", "verify-full"],
+    defaultSsl: "prefer",
+    verifyModes: ["verify-ca", "verify-full"],
+    tlsModes: ["require", "verify-ca", "verify-full"],
+    url: "postgres://user:pass@host:5432/db",
+    database: "Optional, defaults to postgres",
+    caHint:
+      "Used by verify-ca and verify-full. Only needed for a self signed or private CA server.",
+    certHint: "Optional, for mTLS. Needs require or stricter.",
+  },
+  mysql: {
+    sslModes: [
+      "DISABLED",
+      "PREFERRED",
+      "REQUIRED",
+      "VERIFY_CA",
+      "VERIFY_IDENTITY",
+    ],
+    defaultSsl: "PREFERRED",
+    verifyModes: ["VERIFY_CA", "VERIFY_IDENTITY"],
+    tlsModes: ["REQUIRED", "VERIFY_CA", "VERIFY_IDENTITY"],
+    url: "mysql://user:pass@host:3306/db",
+    database: "Optional, leave empty to browse every database",
+    caHint:
+      "Used by VERIFY_CA and VERIFY_IDENTITY. Only needed for a self signed or private CA server.",
+    certHint: "Optional, for mTLS. Needs REQUIRED or stricter.",
+  },
+};
+
+export type SqlServerKind = "postgres" | "mysql" | "mariadb";
 
 const ADVANCED_ROWS = [
   { key: "pool_max", label: "Max pool", placeholder: "12" },
@@ -51,20 +84,29 @@ const ADVANCED_ROWS = [
 ] as const;
 
 export function PgForm({
+  kind = "postgres",
   values: v,
   patch,
   tab,
   errors,
   onChangeKind,
 }: {
+  kind?: SqlServerKind;
   values: PgFormValues;
   patch: (p: Partial<PgFormValues>) => void;
   tab: FormTabKey;
   errors: (field: string) => string | undefined;
   onChangeKind: () => void;
 }) {
+  const engine = ENGINES[kind === "postgres" ? "postgres" : "mysql"];
   if (tab === "safety") {
-    return <GuardFields idPrefix="pg" value={v} onChange={patch} />;
+    return (
+      <GuardFields
+        idPrefix={kind === "postgres" ? "pg" : "mysql"}
+        value={v}
+        onChange={patch}
+      />
+    );
   }
   if (tab === "ssh") {
     return (
@@ -79,21 +121,21 @@ export function PgForm({
     );
   }
   if (tab === "ssl") {
-    const verifies = v.ssl_mode === "verify-ca" || v.ssl_mode === "verify-full";
-    const tls = v.ssl_mode === "require" || verifies;
+    const verifies = engine.verifyModes.includes(v.ssl_mode);
+    const tls = engine.tlsModes.includes(v.ssl_mode);
     return (
       <div className="flex flex-col gap-3">
         <FormRow label="SSL mode" htmlFor={fieldId("ssl_mode")}>
           <Select
             value={v.ssl_mode}
-            onValueChange={(m) => patch({ ssl_mode: m ?? "prefer" })}
+            onValueChange={(m) => patch({ ssl_mode: m ?? engine.defaultSsl })}
           >
-            <SelectTrigger id={fieldId("ssl_mode")} className="w-40" size="sm">
+            <SelectTrigger id={fieldId("ssl_mode")} className="w-44" size="sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                {SSL_MODES.map((m) => (
+                {engine.sslModes.map((m) => (
                   <SelectItem key={m} value={m}>
                     {m}
                   </SelectItem>
@@ -107,7 +149,7 @@ export function PgForm({
             <FormRow
               label="CA certificate"
               disabled={!verifies}
-              hint="Used by verify-ca and verify-full. Only needed for a self signed or private CA server."
+              hint={engine.caHint}
             >
               <FilePathInput
                 disabled={!verifies}
@@ -119,7 +161,7 @@ export function PgForm({
             <FormRow
               label="Client certificate"
               disabled={!tls}
-              hint="Optional, for mTLS. Needs require or stricter."
+              hint={engine.certHint}
             >
               <FilePathInput
                 disabled={!tls}
@@ -130,11 +172,7 @@ export function PgForm({
                 }
               />
             </FormRow>
-            <FormRow
-              label="Client key"
-              disabled={!tls}
-              hint="Optional, for mTLS. Needs require or stricter."
-            >
+            <FormRow label="Client key" disabled={!tls} hint={engine.certHint}>
               <FilePathInput
                 disabled={!tls}
                 placeholder="/path/to/client-key.pem"
@@ -165,9 +203,12 @@ export function PgForm({
   return (
     <div className="flex flex-col gap-3">
       <UrlRow
-        placeholder="postgres://user:pass@host:5432/db"
+        placeholder={engine.url}
         onImport={(raw) => {
-          const r = parseConnectionUrl("postgres", raw);
+          const r =
+            kind === "postgres"
+              ? parseConnectionUrl("postgres", raw)
+              : parseConnectionUrl(kind, raw);
           if (!r.ok) return r.message;
           patch(r.patch);
           return null;
@@ -180,7 +221,7 @@ export function PgForm({
         value={v.name}
         onChange={(name) => patch({ name })}
       />
-      <TypeRow kind="postgres" onChange={onChangeKind} />
+      <TypeRow kind={kind} onChange={onChangeKind} />
       <HostPortRow
         host={v.host}
         port={v.port}
@@ -208,7 +249,7 @@ export function PgForm({
       <TextRow
         field="database"
         label="Database"
-        placeholder="Optional, defaults to postgres"
+        placeholder={engine.database}
         value={v.database}
         onChange={(database) => patch({ database })}
       />

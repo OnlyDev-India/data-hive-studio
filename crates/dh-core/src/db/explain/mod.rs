@@ -9,6 +9,7 @@ mod tree;
 pub(crate) mod sqlite;
 pub(crate) mod postgres;
 pub(crate) mod mongo;
+pub(crate) mod mysql;
 
 pub use tree::MAX_PLAN_NODES;
 pub(crate) use support::check as check_statement;

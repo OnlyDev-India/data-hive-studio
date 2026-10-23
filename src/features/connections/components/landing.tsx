@@ -55,7 +55,7 @@ export function Landing({ showMark = false }: { showMark?: boolean }) {
           )}
           {drafts.step === "pick" ? (
             <KindPicker
-              selected={drafts.kind}
+              selected={drafts.picked ? drafts.kind : null}
               onSelect={drafts.pickKind}
               onNext={drafts.openForm}
               showNew={!isFreshCard(drafts)}

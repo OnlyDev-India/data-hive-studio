@@ -12,8 +12,12 @@ use crate::api::{
     ImportCapabilities,
     ImportReport,
     ImportRequest,
+    KillOutcome,
+    KillRequest,
+    MonitorSnapshot,
     QueryOp,
     QueryResult,
+    SchemaApplyReport,
     SchemaGraph,
     SchemaOp,
     TableInfo,
@@ -181,6 +185,31 @@ pub trait DbAdapter: Send + Sync {
         schema: Option<&str>,
         ops: &[SchemaOp],
     ) -> DbResult<Vec<String>>;
+    /// [`Self::apply_schema_ops_batch`] reported per statement. An engine
+    /// that applies the batch in one transaction reports every statement
+    /// applied, and a failure stays an error. MySQL, which can't roll DDL
+    /// back, runs statement by statement and reports where it stopped.
+    async fn apply_schema_ops_report(
+        &self,
+        database: Option<&str>,
+        schema: Option<&str>,
+        ops: &[SchemaOp],
+    ) -> DbResult<SchemaApplyReport> {
+        Ok(SchemaApplyReport::all_applied(self.apply_schema_ops_batch(database, schema, ops).await?))
+    }
+    /// The exact statements Apply would run, without running them (MySQL,
+    /// for the review dialog). Engines that build their DDL as they go
+    /// don't offer it.
+    async fn plan_schema_ops(
+        &self,
+        _database: Option<&str>,
+        _schema: Option<&str>,
+        _ops: &[SchemaOp],
+    ) -> DbResult<Vec<String>> {
+        Err(DbError::InvalidOperation(
+            "a statement preview is not supported by this adapter".into(),
+        ))
+    }
     /// The language a data sync script for this engine is written in.
     fn script_syntax(&self) -> ScriptSyntax;
     /// Read one side of a table data diff, ordered by the key and read only,
@@ -464,6 +493,35 @@ pub trait DbAdapter: Send + Sync {
             "creating databases is not supported by this adapter".into(),
         ))
     }
+    /// [`Self::create_database`] with a default charset and collation
+    /// (MySQL). Engines without those options take only the name and refuse
+    /// either option.
+    async fn create_database_with(
+        &self,
+        name: &str,
+        charset: Option<&str>,
+        collation: Option<&str>,
+    ) -> DbResult<()> {
+        if charset.is_some() || collation.is_some() {
+            return Err(DbError::InvalidOperation(
+                "a charset or collation for a new database is not supported by this adapter".into(),
+            ));
+        }
+        self.create_database(name).await
+    }
+    /// The text that creates one view, routine, trigger or event, as the
+    /// server writes it (MySQL `SHOW CREATE ...`), for the sidebar's
+    /// definition tab. `database` as in `table_schema`.
+    async fn object_definition(
+        &self,
+        _database: Option<&str>,
+        _kind: SchemaObjectKind,
+        _name: &str,
+    ) -> DbResult<String> {
+        Err(DbError::InvalidOperation(
+            "showing an object's definition is not supported by this adapter".into(),
+        ))
+    }
     /// Drop a database on the same server. Dropping the database this
     /// connection is attached to is rejected by the server itself.
     async fn drop_database(&self, _name: &str) -> DbResult<()> {
@@ -493,6 +551,17 @@ pub trait DbAdapter: Send + Sync {
         Err(DbError::InvalidOperation(
             "dropping schemas is not supported by this adapter".into(),
         ))
+    }
+    /// One whole server snapshot for the server monitor (spec 0025), read in
+    /// one short bounded read. Never logged.
+    async fn monitor_snapshot(&self) -> DbResult<MonitorSnapshot> {
+        Err(DbError::InvalidOperation("the server monitor is not available for this connection".into()))
+    }
+    /// Cancel, terminate or kill the session `req` names, only while it is
+    /// still that session. Never passes through `ReadOnlyGuard`: a kill
+    /// changes no data. Logs its own outcome.
+    async fn monitor_kill(&self, _req: KillRequest, _ctx: &super::monitor::KillCtx) -> DbResult<KillOutcome> {
+        Err(DbError::InvalidOperation("the server monitor is not available for this connection".into()))
     }
     /// Storage-only concepts for file-backed adapters (WAL merge, byte export).
     /// Network adapters never override these.

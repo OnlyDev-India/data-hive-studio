@@ -66,7 +66,8 @@ pub struct CatalogOverview {
 
 /// A category of schema-scoped object the sidebar's catalog tree can list —
 /// one fixed set of rows under every Postgres schema node. MongoDB only ever
-/// uses `Table` (its collections); the rest don't apply there.
+/// uses `Table` (its collections); the rest don't apply there. MySQL uses
+/// `Table`, `View`, `Procedure`, `Function`, `Trigger` and `Event`.
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SchemaObjectKind {
@@ -77,6 +78,8 @@ pub enum SchemaObjectKind {
     Function,
     Sequence,
     Type,
+    Trigger,
+    Event,
 }
 
 /// One row in a `list_schema_objects`/`list_roles` result — just a name plus
@@ -101,4 +104,8 @@ pub struct RoleDetail {
     pub valid_until: Option<String>,
     pub comment: Option<String>,
     pub member_of: Vec<String>,
+    /// The account's grants as the server writes them (MySQL `SHOW GRANTS
+    /// FOR`). Empty on Postgres, whose privileges live per object.
+    #[serde(default)]
+    pub grants: Vec<String>,
 }

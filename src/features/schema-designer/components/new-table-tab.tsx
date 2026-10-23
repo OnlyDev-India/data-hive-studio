@@ -18,7 +18,9 @@ import {
 } from "@/shared/components/ui/select";
 import {
   catalogOverview,
+  isMysqlKind,
   listSchemaObjects,
+  MYSQL_SYSTEM_DATABASES,
   listSchemasIn,
   runSql,
   tableSchema,
@@ -45,6 +47,11 @@ import {
   type RefTableMeta,
 } from "./new-table/model";
 import { TabBar, type DesignerTab } from "./new-table/tab-bar";
+import {
+  EMPTY_TABLE_OPTIONS,
+  MysqlTableOptionsRow,
+  type MysqlTableOptions,
+} from "./new-table/mysql-table-options";
 
 interface NewTableTabProps {
   conn_id: string;
@@ -65,11 +72,20 @@ export function NewTableTab({
   on_created,
 }: NewTableTabProps) {
   const [table_name, setTableName] = useState("");
-  const [columns, set_columns] = useState<ColumnDef[]>([defaultColumn()]);
+  // MySQL and MariaDB (spec 0025 AC-18): MySQL types and attributes, table
+  // options, and one CREATE TABLE statement.
+  const is_mysql = useStudioStore((s) =>
+    isMysqlKind(s.open.find((c) => c.id === conn_id)?.kind),
+  );
+  const [columns, set_columns] = useState<ColumnDef[]>(() => [
+    defaultColumn(is_mysql),
+  ]);
   // Every edit passes through here so Auto Increment is unticked the moment
   // a change (another primary key, a different type) makes it invalid.
   const setColumns = (update: (cols: ColumnDef[]) => ColumnDef[]) =>
-    set_columns((prev) => normalizeAuto(update(prev)));
+    set_columns((prev) => normalizeAuto(update(prev), is_mysql));
+  const [table_options, setTableOptions] =
+    useState<MysqlTableOptions>(EMPTY_TABLE_OPTIONS);
   const [fks, setFks] = useState<FkDef[]>([]);
   const [indexes, setIndexes] = useState<IndexDef[]>([]);
   const [constraints, setConstraints] = useState<ConstraintDef[]>([]);
@@ -141,6 +157,29 @@ export function NewTableTab({
   const schemas_cache = useRef<
     Record<string, { list: string[]; default_schema: string }>
   >({});
+
+  // MySQL: the database list only (no schema level). A connection with no
+  // default database starts on the first one listed.
+  useEffect(() => {
+    if (!is_mysql) return;
+    let cancelled = false;
+    void catalogOverview(conn_id).then(
+      (overview) => {
+        if (cancelled) return;
+        const dbs = overview.databases.filter(
+          (d) => !MYSQL_SYSTEM_DATABASES.includes(d.toLowerCase()),
+        );
+        setDatabases(dbs);
+        setDatabase((cur) => (dbs.includes(cur) ? cur : (dbs[0] ?? cur)));
+      },
+      () => {
+        /* the picker keeps the starting database */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [conn_id, is_mysql]);
 
   useEffect(() => {
     if (!is_pg) return;
@@ -233,7 +272,12 @@ export function NewTableTab({
               "table",
               target_database,
             )
-          : await listSchemaObjects(conn_id, "", "table");
+          : await listSchemaObjects(
+              conn_id,
+              "",
+              "table",
+              is_mysql ? target_database : undefined,
+            );
         if (!cancelled) setTableNames(objects.map((o) => o.name));
       } catch {
         if (!cancelled) setTableNames([]);
@@ -242,7 +286,7 @@ export function NewTableTab({
     return () => {
       cancelled = true;
     };
-  }, [conn_id, is_pg, schema, target_database]);
+  }, [conn_id, is_pg, is_mysql, schema, target_database]);
 
   /** Load a referenced table's metadata once: columns, PK, and which columns
    *  are legal FK targets. */
@@ -310,6 +354,8 @@ export function NewTableTab({
       constraints,
       schema: target_schema,
       is_pg,
+      is_mysql,
+      table_options,
     });
     if (!built.ok) {
       push_notification({
@@ -363,8 +409,20 @@ export function NewTableTab({
         constraints,
         schema: is_pg ? schema : undefined,
         is_pg,
+        is_mysql,
+        table_options,
       }),
-    [table_name, columns, fks, indexes, constraints, is_pg, schema],
+    [
+      table_name,
+      columns,
+      fks,
+      indexes,
+      constraints,
+      is_pg,
+      is_mysql,
+      table_options,
+      schema,
+    ],
   );
 
   // Publish the Create action to the action bar — but ONLY while this tab is
@@ -381,12 +439,13 @@ export function NewTableTab({
   const valid = preview.ok;
   const has_draft =
     table_name.trim() !== "" ||
+    table_options.comment !== "" ||
     columns.some((c, i) => {
       if (i === 0) {
         // The seeded first column counts as untouched only in its default form.
         return (
           c.name !== "id" ||
-          c.data_type !== "INTEGER" ||
+          c.data_type !== defaultColumn(is_mysql).data_type ||
           !c.primary_key ||
           !c.auto_increment ||
           c.not_null ||
@@ -473,7 +532,7 @@ export function NewTableTab({
             onChange={(e) => setTableName(e.target.value)}
           />
         </div>
-        {is_pg && (
+        {(is_pg || is_mysql) && (
           <>
             <div className="grid gap-2">
               <label className="text-body font-medium">Database</label>
@@ -495,32 +554,34 @@ export function NewTableTab({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
-              <label className="text-body font-medium">Schema</label>
-              <Select
-                // `null`, not `undefined`: Base UI decides controlled vs
-                // uncontrolled on the first render, and the schema is empty
-                // until the catalog loads, so `undefined` would ignore it.
-                value={schema || null}
-                disabled={schemas_loading}
-                onValueChange={(v) => v && setSchema(v)}
-              >
-                <SelectTrigger className="w-36" size="sm">
-                  <SelectValue
-                    placeholder={schemas_loading ? "Loading…" : undefined}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {schemas.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
+            {is_pg && (
+              <div className="grid gap-2">
+                <label className="text-body font-medium">Schema</label>
+                <Select
+                  // `null`, not `undefined`: Base UI decides controlled vs
+                  // uncontrolled on the first render, and the schema is empty
+                  // until the catalog loads, so `undefined` would ignore it.
+                  value={schema || null}
+                  disabled={schemas_loading}
+                  onValueChange={(v) => v && setSchema(v)}
+                >
+                  <SelectTrigger className="w-36" size="sm">
+                    <SelectValue
+                      placeholder={schemas_loading ? "Loading…" : undefined}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {schemas.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </>
         )}
         <div className="flex items-end">
@@ -547,6 +608,15 @@ export function NewTableTab({
           </Button>
         </div>
       </div>
+
+      {is_mysql && (
+        <MysqlTableOptionsRow
+          conn_id={conn_id}
+          database={database || undefined}
+          value={table_options}
+          on_change={setTableOptions}
+        />
+      )}
 
       {/* The tabs and their tools sit on top of the grid, in one box, so they
           read as part of the table. */}
@@ -614,6 +684,7 @@ export function NewTableTab({
               columns={columns}
               query={query}
               is_pg={is_pg}
+              is_mysql={is_mysql}
               onPatch={patch}
               onRemove={(idx) =>
                 setColumns((cols) => cols.filter((_, i) => i !== idx))
@@ -667,6 +738,7 @@ export function NewTableTab({
           tables={table_names}
           database={target_database}
           schema={is_pg ? schema : undefined}
+          is_mysql={is_mysql}
           onCopy={(cols) =>
             setColumns((cs) => {
               // The untouched seeded `id` column makes way for the copies.

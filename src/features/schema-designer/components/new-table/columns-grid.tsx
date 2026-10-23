@@ -23,6 +23,13 @@ import {
   defaultSuggestions,
   type ColumnDef,
 } from "./model";
+import {
+  MYSQL_COLUMN_TYPES,
+  MYSQL_LENGTH_TYPES,
+  MYSQL_NUMERIC_TYPES,
+  MYSQL_ON_UPDATE_TYPES,
+  MYSQL_VALUE_TYPES,
+} from "./mysql-model";
 import { EMPTY_HINT, TD, TH, ROW_PAD, TD_NUM, TH_NUM } from "./grid-styles";
 
 interface Props {
@@ -30,6 +37,9 @@ interface Props {
   /** Only rows whose name contains this (case blind) are shown. */
   query: string;
   is_pg?: boolean;
+  /** MySQL (spec 0025 AC-18): its types, plus Unsigned, On update and
+   *  Comment columns. An ENUM or SET column's values go in Length. */
+  is_mysql?: boolean;
   onPatch: (idx: number, f: (c: ColumnDef) => void) => void;
   onRemove: (idx: number) => void;
   onDuplicate: (idx: number) => void;
@@ -41,10 +51,24 @@ export function ColumnsGrid({
   columns,
   query,
   is_pg,
+  is_mysql = false,
   onPatch,
   onRemove,
   onDuplicate,
 }: Props) {
+  const types = is_mysql ? MYSQL_COLUMN_TYPES : COLUMN_TYPES;
+  const takes_length = (t: string) =>
+    is_mysql
+      ? MYSQL_LENGTH_TYPES.has(t) || MYSQL_VALUE_TYPES.has(t)
+      : LENGTH_TYPES.has(t);
+  const length_hint = (t: string) =>
+    MYSQL_VALUE_TYPES.has(t)
+      ? "a, b, c"
+      : t.endsWith("CHAR")
+        ? "255"
+        : t === "DECIMAL"
+          ? "10,2"
+          : "";
   const q = query.trim().toLowerCase();
   const rows = columns
     .map((col, idx) => ({ col, idx }))
@@ -62,7 +86,10 @@ export function ColumnsGrid({
           <th className={`${TH} w-24`}>Primary Key</th>
           <th className={`${TH} w-24`}>Auto Increment</th>
           <th className={`${TH} w-24`}>Unique</th>
+          {is_mysql && <th className={`${TH} w-24`}>Unsigned</th>}
           <th className={`${TH} min-w-36`}>Default</th>
+          {is_mysql && <th className={`${TH} w-28`}>On update</th>}
+          {is_mysql && <th className={`${TH} min-w-36`}>Comment</th>}
         </tr>
       </thead>
       <tbody>
@@ -110,7 +137,7 @@ export function ColumnsGrid({
                 onValueChange={(v) =>
                   onPatch(idx, (c) => {
                     c.data_type = v ?? "";
-                    if (!LENGTH_TYPES.has(c.data_type)) c.length = "";
+                    if (!takes_length(c.data_type)) c.length = "";
                   })
                 }
               >
@@ -123,7 +150,7 @@ export function ColumnsGrid({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {COLUMN_TYPES.map((t) => (
+                    {types.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
                       </SelectItem>
@@ -135,9 +162,13 @@ export function ColumnsGrid({
             <td className={`${TD} ${ROW_PAD}`}>
               <Input
                 className="font-mono"
-                disabled={!LENGTH_TYPES.has(col.data_type)}
-                placeholder={col.data_type.endsWith("CHAR") ? "255" : ""}
-                aria-label={`Length of column ${idx + 1}`}
+                disabled={!takes_length(col.data_type)}
+                placeholder={length_hint(col.data_type)}
+                aria-label={
+                  MYSQL_VALUE_TYPES.has(col.data_type) && is_mysql
+                    ? `Values of column ${idx + 1}`
+                    : `Length of column ${idx + 1}`
+                }
                 value={col.length}
                 onChange={(e) =>
                   onPatch(idx, (c) => (c.length = e.target.value))
@@ -171,11 +202,13 @@ export function ColumnsGrid({
               <div className="flex justify-center">
                 <Checkbox
                   checked={col.auto_increment}
-                  disabled={!canAutoIncrement(col, columns)}
+                  disabled={!canAutoIncrement(col, columns, is_mysql)}
                   title={
-                    canAutoIncrement(col, columns)
+                    canAutoIncrement(col, columns, is_mysql)
                       ? undefined
-                      : "Needs an INTEGER column that is the only primary key"
+                      : is_mysql
+                        ? "Needs an integer column that is the only primary key"
+                        : "Needs an INTEGER column that is the only primary key"
                   }
                   aria-label={`Column ${idx + 1} auto increments`}
                   onCheckedChange={(v) =>
@@ -195,9 +228,23 @@ export function ColumnsGrid({
                 />
               </div>
             </td>
+            {is_mysql && (
+              <td className={`${TD} ${ROW_PAD}`}>
+                <div className="flex justify-center">
+                  <Checkbox
+                    checked={!!col.unsigned}
+                    disabled={!MYSQL_NUMERIC_TYPES.has(col.data_type)}
+                    aria-label={`Column ${idx + 1} is unsigned`}
+                    onCheckedChange={(v) =>
+                      onPatch(idx, (c) => (c.unsigned = v === true))
+                    }
+                  />
+                </div>
+              </td>
+            )}
             <td className={`${TD} ${ROW_PAD}`}>
               {(() => {
-                const options = defaultSuggestions(col, is_pg);
+                const options = defaultSuggestions(col, is_pg, is_mysql);
                 return (
                   <div className="flex items-center gap-1">
                     <Input
@@ -243,11 +290,39 @@ export function ColumnsGrid({
                 );
               })()}
             </td>
+            {is_mysql && (
+              <td className={`${TD} ${ROW_PAD}`}>
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={!!col.on_update}
+                    disabled={!MYSQL_ON_UPDATE_TYPES.has(col.data_type)}
+                    title="ON UPDATE CURRENT_TIMESTAMP"
+                    aria-label={`Column ${idx + 1} updates its time on every change`}
+                    onCheckedChange={(v) =>
+                      onPatch(idx, (c) => (c.on_update = v === true))
+                    }
+                  />
+                  Now
+                </label>
+              </td>
+            )}
+            {is_mysql && (
+              <td className={`${TD} ${ROW_PAD}`}>
+                <Input
+                  placeholder="what it holds"
+                  aria-label={`Comment of column ${idx + 1}`}
+                  value={col.comment ?? ""}
+                  onChange={(e) =>
+                    onPatch(idx, (c) => (c.comment = e.target.value))
+                  }
+                />
+              </td>
+            )}
           </tr>
         ))}
         {rows.length === 0 && (
           <tr>
-            <td colSpan={10} className={EMPTY_HINT}>
+            <td colSpan={is_mysql ? 13 : 10} className={EMPTY_HINT}>
               <ListChecks className="mr-2 inline size-4" />
               {columns.length === 0
                 ? "No columns yet. Add one, or copy fields from another table."

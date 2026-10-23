@@ -4,8 +4,12 @@ import { stableConnKey } from "@/shared/store";
 
 export type Engine = "sqlite" | "postgres" | "mysql" | "mongodb";
 
+/** The engine a connection kind compares as. MariaDB is MySQL here, so a
+ *  table can be compared across the two (spec 0025 AC-24). */
 export function engine_of(kind: string): Engine {
-  return kind === "documentdb" ? "mongodb" : (kind as Engine);
+  if (kind === "documentdb") return "mongodb";
+  if (kind === "mariadb") return "mysql";
+  return kind as Engine;
 }
 
 /** The engine a side was picked on, known even while its connection is

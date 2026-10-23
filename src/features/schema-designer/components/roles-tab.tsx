@@ -162,6 +162,24 @@ export function RolesTab({ conn_id }: { conn_id: string; tab_key: string }) {
             </div>
 
             {active.comment && <Field label="Comment">{active.comment}</Field>}
+
+            {active.grants && active.grants.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="text-muted-foreground text-small font-medium">
+                  Grants
+                </span>
+                <ul className="rounded-control border">
+                  {active.grants.map((g) => (
+                    <li
+                      key={g}
+                      className="wrap-break-words text-small border-b px-3 py-1.5 font-mono last:border-b-0"
+                    >
+                      {g}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>

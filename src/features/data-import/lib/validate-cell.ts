@@ -9,7 +9,8 @@ export type ColumnKind = "integer" | "decimal" | "boolean" | "text" | "other";
 export function columnKind(c: ColumnInfo): ColumnKind {
   if (c.is_array) return "other";
   const t = c.data_type.toLowerCase().trim();
-  if (/^bool/.test(t)) return "boolean";
+  // MySQL's `boolean` is `tinyint(1)`.
+  if (/^bool/.test(t) || /^tinyint\(1\)/.test(t)) return "boolean";
   if (/^(tiny|small|medium|big)?(int|integer|serial)\d*\b/.test(t))
     return "integer";
   if (/^(numeric|decimal|real|float\d*|double|number)\b/.test(t)) {
@@ -33,7 +34,8 @@ function shown(cell: Cell): string {
 }
 
 /** Check one non-empty cell against its column and give back the value to send.
- *  A boolean goes as `1`/`0` on SQLite and `true`/`false` elsewhere. */
+ *  A boolean goes as `1`/`0` on SQLite and MySQL (a `tinyint(1)` there) and
+ *  `true`/`false` elsewhere. */
 export function checkCell(
   cell: Cell,
   kind: ColumnKind,
@@ -65,7 +67,8 @@ export function checkCell(
     if (b === null) {
       return { ok: false, message: `${shown(cell)} is not true or false` };
     }
-    return { ok: true, value: db === "sqlite" ? (b ? 1 : 0) : b };
+    const numeric = db === "sqlite" || db === "mysql" || db === "mariadb";
+    return { ok: true, value: numeric ? (b ? 1 : 0) : b };
   }
   return { ok: true, value: cell };
 }

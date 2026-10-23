@@ -1,4 +1,9 @@
 import { quoteIdent } from "@/shared/api";
+import {
+  buildCreateMysql,
+  mysqlCanAutoIncrement,
+  mysqlDefaultSuggestions,
+} from "./mysql-model";
 
 export const COLUMN_TYPES = [
   "INTEGER",
@@ -42,6 +47,12 @@ export interface ColumnDef {
   not_null: boolean;
   unique: boolean;
   default: string;
+  /** MySQL only (spec 0025 AC-18). An ENUM or SET column keeps its values
+   *  list in `length`. */
+  unsigned?: boolean;
+  /** `ON UPDATE CURRENT_TIMESTAMP` on a TIMESTAMP or DATETIME column. */
+  on_update?: boolean;
+  comment?: string;
 }
 
 export interface FkDef {
@@ -92,13 +103,14 @@ export function newColumn(): ColumnDef {
   };
 }
 
-export function defaultColumn(): ColumnDef {
+export function defaultColumn(is_mysql = false): ColumnDef {
   return {
     ...newColumn(),
     name: "id",
-    data_type: "INTEGER",
+    data_type: is_mysql ? "INT" : "INTEGER",
     primary_key: true,
     auto_increment: true,
+    ...(is_mysql ? { unsigned: true } : {}),
   };
 }
 
@@ -140,7 +152,12 @@ export function splitType(raw: string): { data_type: string; length: string } {
 
 /** Ready made values for a column's DEFAULT, from its type and flags. Only
  *  what the database can take as written: Postgres gets its own functions. */
-export function defaultSuggestions(c: ColumnDef, is_pg?: boolean): string[] {
+export function defaultSuggestions(
+  c: ColumnDef,
+  is_pg?: boolean,
+  is_mysql?: boolean,
+): string[] {
+  if (is_mysql) return mysqlDefaultSuggestions(c);
   // An identity column fills itself, so a default would be refused.
   if (c.auto_increment) return [];
   const out: string[] = [];
@@ -180,7 +197,12 @@ export function defaultSuggestions(c: ColumnDef, is_pg?: boolean): string[] {
 }
 
 /** An identity column must be the table's only primary key, and an INTEGER. */
-export function canAutoIncrement(c: ColumnDef, cols: ColumnDef[]): boolean {
+export function canAutoIncrement(
+  c: ColumnDef,
+  cols: ColumnDef[],
+  is_mysql = false,
+): boolean {
+  if (is_mysql) return mysqlCanAutoIncrement(c, cols);
   return (
     c.data_type === "INTEGER" &&
     c.primary_key &&
@@ -191,14 +213,14 @@ export function canAutoIncrement(c: ColumnDef, cols: ColumnDef[]): boolean {
 /** Untick Auto Increment wherever it is no longer allowed, so the form never
  *  holds a combination the database would refuse. Returns the same array when
  *  nothing changes. */
-export function normalizeAuto(cols: ColumnDef[]): ColumnDef[] {
-  if (!cols.some((c) => c.auto_increment && !canAutoIncrement(c, cols)))
-    return cols;
-  return cols.map((c) =>
-    c.auto_increment && !canAutoIncrement(c, cols)
-      ? { ...c, auto_increment: false }
-      : c,
-  );
+export function normalizeAuto(
+  cols: ColumnDef[],
+  is_mysql = false,
+): ColumnDef[] {
+  const bad = (c: ColumnDef) =>
+    c.auto_increment && !canAutoIncrement(c, cols, is_mysql);
+  if (!cols.some(bad)) return cols;
+  return cols.map((c) => (bad(c) ? { ...c, auto_increment: false } : c));
 }
 
 export interface Draft {
@@ -209,6 +231,10 @@ export interface Draft {
   constraints: ConstraintDef[];
   schema?: string;
   is_pg?: boolean;
+  /** MySQL (spec 0025): one statement, backticks, MySQL attributes. */
+  is_mysql?: boolean;
+  /** MySQL table options; empty fields take the database's defaults. */
+  table_options?: { charset: string; collation: string; comment: string };
 }
 
 export type Built =
@@ -221,6 +247,7 @@ function indexName(table: string, ix: IndexDef): string {
 
 /** The CREATE TABLE statement, then one CREATE INDEX per index. */
 export function buildCreate(d: Draft): Built {
+  if (d.is_mysql) return buildCreateMysql(d);
   const { cols, fks, schema, is_pg } = d;
   const table_name = d.table.trim();
   if (!table_name) return { ok: false, error: "Table name is required." };

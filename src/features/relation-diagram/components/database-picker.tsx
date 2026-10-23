@@ -9,7 +9,8 @@ import {
 } from "@/shared/components/ui/select";
 
 /** Which database on the connection the diagram draws. Lists only the
- *  current one when the list can't be read. */
+ *  current one when the list can't be read. An empty `database` (a MySQL
+ *  connection with no default one) shows a prompt to pick. */
 export function DatabasePicker({
   conn_id,
   database,
@@ -19,12 +20,14 @@ export function DatabasePicker({
   database: string;
   onChange: (database: string) => void;
 }) {
-  const [databases, setDatabases] = useState<string[]>([database]);
+  const own = database ? [database] : [];
+  const [databases, setDatabases] = useState<string[]>(own);
   useEffect(() => {
     let live = true;
+    const cur = database ? [database] : [];
     listDatabases(conn_id).then(
-      (d) => live && setDatabases(d.includes(database) ? d : [database, ...d]),
-      () => live && setDatabases([database]),
+      (d) => live && setDatabases(d.includes(database) ? d : [...cur, ...d]),
+      () => live && setDatabases(cur),
     );
     return () => {
       live = false;
@@ -33,7 +36,7 @@ export function DatabasePicker({
   return (
     <Select value={database} onValueChange={(v) => v && onChange(String(v))}>
       <SelectTrigger size="sm" aria-label="Database" className="h-7 min-w-28">
-        <SelectValue />
+        <SelectValue placeholder="Pick a database" />
       </SelectTrigger>
       <SelectContent>
         {databases.map((d) => (

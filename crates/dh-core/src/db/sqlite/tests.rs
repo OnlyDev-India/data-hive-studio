@@ -136,6 +136,7 @@ async fn successful_batch_commits() {
             data_type: "TEXT".into(),
             not_null: false,
             default: None,
+            attrs: Default::default(),
         },
         SchemaOp::CreateIndex {
             table: "t".into(),

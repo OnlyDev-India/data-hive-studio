@@ -367,6 +367,9 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         // Set alongside sqlSeeds only when the seed came from a real file
         // (openFileTab) — see the doc comment on the type.
         seedFilePaths: {},
+        setSeedFilePath(key, path) {
+          set((s) => ({ seedFilePaths: { ...s.seedFilePaths, [key]: path } }));
+        },
         sqlTargets: {},
         newTableTargets: {},
 
@@ -577,6 +580,10 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         setPgConnecting(v) {
           set({ pgConnecting: v });
         },
+        mysqlConnecting: false,
+        setMysqlConnecting(v) {
+          set({ mysqlConnecting: v });
+        },
         /** True while a MongoDB connect is in flight — GLOBAL so navigating
          *  between home/studio can't lose the spinner or double-connect. */
         mongoConnecting: false,
@@ -591,7 +598,7 @@ export const useStudioStore: UseBoundStore<StoreApi<StudioStore>> =
         ...notificationsActions(set, get),
         ...schemaDesignerActions(set),
         ...connectionActions(set),
-        ...workspaceActions(set),
+        ...workspaceActions(set, get),
         ...tableDialogActions(set),
         ...libraryActions(set, get),
       }),

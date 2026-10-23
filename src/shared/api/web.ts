@@ -20,7 +20,7 @@
  * through vite's `/v1` proxy).
  */
 import { readNdjson, type StreamEvent } from "./ndjson";
-import type { QueryResult } from "./types";
+import type { QueryResult, ServerDescriptor } from "./types";
 
 export const WEB = !(
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -135,7 +135,7 @@ function refusalText(status: number, text: string): string | null {
   try {
     const parsed = JSON.parse(text) as { error?: string; field?: string };
     if (parsed.error === "unsupported_field") {
-      return `The web version cannot use "${parsed.field}". Only PostgreSQL and MongoDB, and SSH by password, work here.`;
+      return `The web version cannot use "${parsed.field}". Only PostgreSQL, MySQL, MariaDB and MongoDB, and SSH by password, work here.`;
     }
   } catch {
     // not JSON: fall through
@@ -143,24 +143,32 @@ function refusalText(status: number, text: string): string | null {
   return null;
 }
 
-async function openHandle(details: Record<string, unknown>): Promise<string> {
+/** What `POST /v1/connect` answers: the handle, plus the server it
+ *  detected for a MySQL or MariaDB connection (spec 0025 AC-26). */
+interface Opened {
+  handle: string;
+  server?: ServerDescriptor;
+}
+
+async function openHandle(details: Record<string, unknown>): Promise<Opened> {
   const res = await raw("POST", "/v1/connect", details);
   if (res.status === 401) rejectKey();
   if (!res.ok) {
     const text = (await res.text()).trim();
     throw new Error(refusalText(res.status, text) ?? errorFrom(res, text));
   }
-  return ((await res.json()) as { handle: string }).handle;
+  return (await res.json()) as Opened;
 }
 
-/** Open a connection and return its id. `details` is the body of
- *  `POST /v1/connect`; it stays in memory so the page can reconnect. */
+/** Open a connection and return its id (the first handle) and the server
+ *  it detected. `details` is the body of `POST /v1/connect`; it stays in
+ *  memory so the page can reconnect. */
 export async function webConnect(
   details: Record<string, unknown>,
-): Promise<string> {
-  const handle = await openHandle(details);
+): Promise<{ id: string; server?: ServerDescriptor }> {
+  const { handle, server } = await openHandle(details);
   entries.set(handle, { details, handle, reconnecting: null });
-  return handle;
+  return { id: handle, server };
 }
 
 /** The server handle a connection id reaches right now, for a call that
@@ -203,7 +211,7 @@ export function webRelease(connId: string): void {
 /** Reconnect one entry, sharing a single attempt between simultaneous calls. */
 function reconnect(entry: Entry): Promise<void> {
   entry.reconnecting ??= openHandle(entry.details)
-    .then((handle) => {
+    .then(({ handle }) => {
       entry.handle = handle;
     })
     .finally(() => {

@@ -22,6 +22,7 @@ beforeEach(() => {
     activeId: null,
     workspaces: {},
     sqlSeeds: {},
+    seedFilePaths: {},
     recentParams: {},
     pendingWorkspaceRestore: {},
     pausedTabs: {},
@@ -89,8 +90,43 @@ describe("disconnect then reconnect", () => {
     expect(useStudioStore.getState().pausedTabs).toEqual({});
   });
 
+  it("keeps a SQL tab tied to its file", () => {
+    open_with_tabs(first);
+    useStudioStore
+      .getState()
+      .setSeedFilePath(tabKey(query), "/work/report.sql");
+    useStudioStore.getState().closeConn(first.id);
+    useStudioStore.getState().openConn(again);
+
+    expect(useStudioStore.getState().seedFilePaths[tabKey(query)]).toBe(
+      "/work/report.sql",
+    );
+  });
+
   it("does not hold back tabs on a first connect", () => {
     open_with_tabs(first);
     expect(useStudioStore.getState().pausedTabs).toEqual({});
+  });
+});
+
+describe("opening a file that is already open", () => {
+  it("focuses its tab instead of opening another", () => {
+    const s = useStudioStore.getState();
+    s.openConn(first);
+    s.openSql(first.id, "select 1", "/work/report.sql");
+    s.openSql(first.id);
+    const [report] = useStudioStore.getState().workspaces[first.id]!.tabs;
+
+    expect(s.focusFileTab(first.id, "/work/report.sql")).toBe(true);
+    const ws = useStudioStore.getState().workspaces[first.id];
+    expect(ws?.active).toEqual(report);
+    expect(ws?.tabs).toHaveLength(2);
+  });
+
+  it("reports no tab for a file that is not open", () => {
+    const s = useStudioStore.getState();
+    s.openConn(first);
+    s.openSql(first.id, "select 1", "/work/report.sql");
+    expect(s.focusFileTab(first.id, "/work/other.sql")).toBe(false);
   });
 });

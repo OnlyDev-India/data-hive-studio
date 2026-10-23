@@ -262,6 +262,7 @@ pub async fn run_sql_stream_on(
     match res {
         Err(DbError::Cancelled) => Ok(QueryResult {
             cancelled: true,
+            cancel_source: run.as_ref().and_then(|r| r.cancel_source()),
             elapsed_ms: t.elapsed().as_millis(),
             ..Default::default()
         }),

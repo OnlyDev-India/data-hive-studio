@@ -4,8 +4,16 @@ import type {
   CompletionResult,
   CompletionSource,
 } from "@codemirror/autocomplete";
-import { sql as sqlLang, SQLite as SQLiteDialect } from "@codemirror/lang-sql";
+import {
+  MariaSQL,
+  MySQL,
+  sql as sqlLang,
+  SQLite as SQLiteDialect,
+} from "@codemirror/lang-sql";
 import { statementRanges } from "@/shared/lib/utils";
+
+/** Which lang-sql dialect highlights the editor. */
+export type EditorSqlDialect = "sqlite" | "mysql" | "mariadb";
 
 /** lang-sql's SQLite support (highlighting + built-in keyword/schema
  * completion). Keyword suggestions, and so the text inserted on accept, are
@@ -17,9 +25,17 @@ export function sqlLanguageSupport(
   keyword_case: "preserve" | "upper" | "lower",
   schema: Record<string, Completion[]> | undefined,
   tables: Completion[],
+  dialect: EditorSqlDialect = "sqlite",
 ) {
   return sqlLang({
-    dialect: SQLiteDialect,
+    // MySQL family by the DETECTED server (spec 0025 AC-9); everything else
+    // keeps the SQLite dialect it always had.
+    dialect:
+      dialect === "mysql"
+        ? MySQL
+        : dialect === "mariadb"
+          ? MariaSQL
+          : SQLiteDialect,
     schema,
     tables,
     upperCaseKeywords: keyword_case === "upper",

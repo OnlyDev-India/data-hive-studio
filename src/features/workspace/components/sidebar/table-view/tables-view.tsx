@@ -1,4 +1,4 @@
-import { Network, RefreshCw, Search } from "lucide-react";
+import { Activity, Network, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -9,6 +9,7 @@ import { DbSchemaDdlDialog } from "./catalog-dialogs";
 import { useCatalogTree } from "./use-catalog-tree";
 import { PgTree } from "./pg-tree";
 import { MongoTree } from "./mongo-tree";
+import { MySqlTree } from "./mysql-tree";
 import { SqliteList } from "./sqlite-list";
 
 /** Database browser: the search row, then the Postgres or Mongo catalog
@@ -53,14 +54,15 @@ export function TablesBrowser({
     search,
     object_created,
   });
-  const { conn_info, is_pg, is_mongo, pg_databases } = tree;
+  const { conn_info, is_pg, is_mongo, is_mysql, pg_databases } = tree;
   const open_relation_diagram = useStudioStore((s) => s.openRelationDiagram);
+  const open_monitor = useStudioStore((s) => s.openMonitor);
   // Saved settings changed while this connection was open (spec 0007): the
   // live one keeps its old flag and label until it reconnects.
   const pending_change = usePendingGuardChange(conn_id);
 
   const loading = tables === null || reloading;
-  const pg_loading = (is_pg || is_mongo) && pg_databases === null;
+  const pg_loading = (is_pg || is_mongo || is_mysql) && pg_databases === null;
 
   return (
     <>
@@ -100,7 +102,7 @@ export function TablesBrowser({
             onKeyDown={tree.handle_nav_keys}
           />
         </div>
-        {!is_pg && !is_mongo && (
+        {!is_pg && !is_mongo && !is_mysql && (
           <Button
             size="iconSm"
             variant="outline"
@@ -111,6 +113,18 @@ export function TablesBrowser({
             onClick={() => open_relation_diagram(conn_id)}
           >
             <Network className="size-3.5" />
+          </Button>
+        )}
+        {(is_pg || is_mongo) && (
+          <Button
+            size="iconSm"
+            variant="outline"
+            aria-label="Open server monitor"
+            title="Open server monitor"
+            className="size-7"
+            onClick={() => open_monitor(conn_id)}
+          >
+            <Activity className="size-3.5" />
           </Button>
         )}
         <Button
@@ -126,7 +140,7 @@ export function TablesBrowser({
         </Button>
       </div>
 
-      {(is_pg || is_mongo) && pg_loading && (
+      {(is_pg || is_mongo || is_mysql) && pg_loading && (
         <p className="text-muted-foreground text-small px-1.5 py-1">
           Loading databases…
         </p>
@@ -135,7 +149,8 @@ export function TablesBrowser({
       {is_mongo && !pg_loading && (
         <MongoTree tree={tree} on_refresh={on_refresh} />
       )}
-      {!is_pg && !is_mongo && (
+      {is_mysql && !pg_loading && <MySqlTree tree={tree} />}
+      {!is_pg && !is_mongo && !is_mysql && (
         <SqliteList
           tree={tree}
           tables={tables}

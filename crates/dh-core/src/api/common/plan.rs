@@ -7,6 +7,8 @@ pub enum PlanDialect {
     Postgres,
     Sqlite,
     Mongodb,
+    Mysql,
+    Mariadb,
 }
 
 /// `Estimate` never runs the statement; `Analyze` runs it for real timings.

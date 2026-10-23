@@ -7,6 +7,8 @@ const EXPLAIN_KINDS: ReadonlySet<DbKind> = new Set([
   "sqlite",
   "postgres",
   "mongodb",
+  "mysql",
+  "mariadb",
 ]);
 
 /** Whether the SQL editor can offer Explain for a connection of this kind.
@@ -36,8 +38,8 @@ function forOldServers<T>(call: Promise<T>): Promise<T> {
 }
 
 /** Ask the database for the plan of `sql`. Explain never runs the statement;
- *  `analyze` does run it for real timings (on PostgreSQL inside a transaction
- *  that is always rolled back). A database error and a statement Explain does
+ *  `analyze` does run it for real timings (on PostgreSQL, MySQL and MariaDB
+ *  inside a transaction that is always rolled back). A database error and a statement Explain does
  *  not accept come back inside the result (for the Plan tab to show); a
  *  rejection means the call itself failed.
  *
@@ -111,8 +113,9 @@ export function explainMongo(
   );
 }
 
-/** Whether the editor can offer Explain Analyze: PostgreSQL and MongoDB
- *  (SQLite has no timings to give). */
+/** Whether the editor can offer Explain Analyze: PostgreSQL, MongoDB, MySQL
+ *  and MariaDB (SQLite has no timings to give). A MySQL server older than
+ *  8.0.18 answers with a message naming its version. */
 export function canExplainAnalyze(kind: DbKind | undefined): boolean {
-  return canExplain(kind) && (kind === "postgres" || kind === "mongodb");
+  return canExplain(kind) && kind !== "sqlite";
 }

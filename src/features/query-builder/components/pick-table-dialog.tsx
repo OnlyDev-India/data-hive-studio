@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import {
   getActiveSchema,
+  isMysqlKind,
   listDatabases,
   listSchemaObjects,
   listSchemasIn,
@@ -80,8 +81,12 @@ function Field({
 
 function PickTableDialog({ conn_id }: { conn_id: string }) {
   const conn = useStudioStore((s) => s.open.find((c) => c.id === conn_id));
+  const my = isMysqlKind(conn?.kind);
+  // A MySQL connection's name is `user@host` when it has no default
+  // database, so only its saved database counts.
   const own = useStudioStore(
-    (s) => s.recentParams[conn_id]?.database ?? conn?.name ?? "",
+    (s) =>
+      s.recentParams[conn_id]?.database ?? (my ? "" : (conn?.name ?? "")),
   );
   const pg = conn?.kind === "postgres";
   const [databases, setDatabases] = useState<string[] | null>(null);
@@ -98,7 +103,7 @@ function PickTableDialog({ conn_id }: { conn_id: string }) {
     setError(e instanceof Error ? e.message : String(e));
 
   useEffect(() => {
-    if (!pg) return;
+    if (!pg && !my) return;
     let live = true;
     void listDatabases(conn_id)
       .then((all) => live && setDatabases(all))
@@ -106,7 +111,7 @@ function PickTableDialog({ conn_id }: { conn_id: string }) {
     return () => {
       live = false;
     };
-  }, [conn_id, pg]);
+  }, [conn_id, pg, my]);
 
   useEffect(() => {
     if (!pg) return;
@@ -128,13 +133,17 @@ function PickTableDialog({ conn_id }: { conn_id: string }) {
 
   useEffect(() => {
     if (pg && !schema) return;
+    // MySQL needs a database to list; a connection with no default one
+    // waits for the pick.
+    if (my && !database) return;
     let live = true;
-    const load = pg
-      ? Promise.all([
-          listSchemaObjects(conn_id, schema, "table", db),
-          listSchemaObjects(conn_id, schema, "view", db).catch(() => []),
-        ]).then(([t, v]) => [...t, ...v].map((o) => o.name))
-      : listTables(conn_id).then((t) => t.map((o) => o.name));
+    const load =
+      pg || my
+        ? Promise.all([
+            listSchemaObjects(conn_id, schema, "table", db),
+            listSchemaObjects(conn_id, schema, "view", db).catch(() => []),
+          ]).then(([t, v]) => [...t, ...v].map((o) => o.name))
+        : listTables(conn_id).then((t) => t.map((o) => o.name));
     void load
       .then((names) => {
         if (!live) return;
@@ -146,7 +155,7 @@ function PickTableDialog({ conn_id }: { conn_id: string }) {
     return () => {
       live = false;
     };
-  }, [conn_id, pg, db, schema]);
+  }, [conn_id, pg, my, database, db, schema]);
 
   return (
     <Dialog open onOpenChange={(o) => !o && close()}>
@@ -170,21 +179,23 @@ function PickTableDialog({ conn_id }: { conn_id: string }) {
             close();
           }}
         >
+          {(pg || my) && (
+            <Field
+              id="qb-database"
+              label="Database"
+              value={database}
+              options={databases}
+              empty="No databases"
+              onValue={(d) => {
+                setDatabase(d);
+                setSchemas(null);
+                setTables(null);
+                setTable("");
+              }}
+            />
+          )}
           {pg && (
             <>
-              <Field
-                id="qb-database"
-                label="Database"
-                value={database}
-                options={databases}
-                empty="No databases"
-                onValue={(d) => {
-                  setDatabase(d);
-                  setSchemas(null);
-                  setTables(null);
-                  setTable("");
-                }}
-              />
               <Field
                 id="qb-schema"
                 label="Schema"

@@ -66,6 +66,7 @@ impl SqliteAdapter {
                 not_null,
                 default_mode,
                 default_value,
+                ..
             } => {
                 // Plans AND executes internally (rename-only or full rebuild).
                 Self::alter_column(
@@ -138,6 +139,7 @@ impl SqliteAdapter {
                 data_type,
                 not_null,
                 default,
+                ..
             } => {
                 let def = RawColumn {
                     name: name.clone(),
@@ -190,7 +192,8 @@ impl SqliteAdapter {
             }
             SchemaOp::SetPrimaryKey { .. }
             | SchemaOp::AddForeignKey { .. }
-            | SchemaOp::DropConstraint { .. } => {
+            | SchemaOp::DropConstraint { .. }
+            | SchemaOp::SetTableOptions { .. } => {
                 return Err(DbError::InvalidOperation(
                     "primary-key / foreign-key editing requires a table rebuild and is \
                      currently supported on PostgreSQL connections only"

@@ -33,7 +33,7 @@ import {
   useEditorTheme,
 } from "@/shared/theme/codemirror-theme";
 import { useStudioStore } from "@/shared/store";
-import { cn, statementRanges } from "@/shared/lib/utils";
+import { cn, statementRanges, type SplitDialect } from "@/shared/lib/utils";
 import {
   useAppShortcut,
   useShortcuts,
@@ -52,7 +52,11 @@ import { DelimitedListDialog } from "./delimited-list-dialog";
 import { EditorContextMenu } from "./editor-context-menu";
 import { EditorSearchBar } from "./editor-search-bar";
 import { getTooltipRoot } from "./tooltip-root";
-import { schemaCompletions, sqlLanguageSupport } from "./sql-completions";
+import {
+  schemaCompletions,
+  sqlLanguageSupport,
+  type EditorSqlDialect,
+} from "./sql-completions";
 import { sqlLinter } from "./sql-lint";
 import { nosqlSyntaxLinter } from "./nosql-lint";
 import {
@@ -239,6 +243,9 @@ interface QueryEditorProps {
   /** "sql" (SQLite dialect) or "js" (JavaScript highlighting + colors —
    * used by the MongoDB console). */
   language?: "sql" | "js";
+  /** The SQL dialect for highlighting and statement splitting: `mysql` and
+   *  `mariadb` (spec 0025) by the server the connection detected. */
+  sqlDialect?: EditorSqlDialect;
   /** Extra completion labels offered in "js" (Mongo console) mode — e.g. the
    *  collection names, suggested after `db.`. */
   jsCompletions?: string[];
@@ -272,6 +279,10 @@ interface QueryEditorProps {
   saveToLibrary?: boolean;
 }
 
+/** MySQL and MariaDB split scripts by MySQL's own rules (spec 0025 AC-10). */
+const splitOf = (dialect: EditorSqlDialect): SplitDialect =>
+  dialect === "mysql" || dialect === "mariadb" ? "mysql" : "default";
+
 /**
  * SQL editor backed by CodeMirror 6 with the SQLite dialect. Its theme is
  * driven by the app's own design tokens (see codemirror-theme.ts), so it stays
@@ -299,6 +310,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       className,
       placeholder,
       language = "sql",
+      sqlDialect = "sqlite",
       height = "160px",
       showLineNumber = true,
       readOnly = false,
@@ -586,7 +598,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         if (!view) return [];
         const { from, to, empty } = view.state.selection.main;
         const doc = view.state.doc.toString();
-        const ranges = statementRanges(doc);
+        const ranges = statementRanges(doc, splitOf(sqlDialect));
         if (!empty) {
           // Run exactly what's highlighted — not whichever enclosing
           // statement(s) the selection happens to touch. Still split on `;`
@@ -598,7 +610,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
           // one `statementRanges` span) ran the ENTIRE script for a
           // selection of just one line.
           const selected = doc.slice(from, to);
-          return statementRanges(selected)
+          return statementRanges(selected, splitOf(sqlDialect))
             .map((r) => ({
               text: selected.slice(r.start, r.end),
               from: from + r.start,
@@ -783,7 +795,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         editorSearch,
         editorSearchMatchTheme,
         editorSelectOccurrenceKeymap,
-        sqlLanguageSupport(keywordCase, schema, completions),
+        sqlLanguageSupport(keywordCase, schema, completions, sqlDialect),
         // Register the schema-aware source alongside lang-sql's built-ins.
         EditorState.languageData.of(() => [{ autocomplete: schemaSource }]),
         ...(readOnly ? [] : [sqlLibrarySource]),
@@ -816,10 +828,14 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
         // Run-button gutter before the line-number gutter (basicSetup's own
         // `lineNumbers` is disabled below) so it renders to the LEFT of the
         // numbers — see the identical comment in the "js" branch above.
-        ...(readOnly || !showLineNumber ? [] : [statementGutter(runAtCursor)]),
+        ...(readOnly || !showLineNumber
+          ? []
+          : [statementGutter(runAtCursor, splitOf(sqlDialect))]),
         ...(showLineNumber ? [lineNumbers()] : []),
         ...(readOnly || !showLineNumber ? [] : [lucideFoldGutter()]),
-        ...(readOnly || !frameLayer ? [] : [statementFrameLayer()]),
+        ...(readOnly || !frameLayer
+          ? []
+          : [statementFrameLayer(splitOf(sqlDialect))]),
         ...(disableWrapping ? [] : [EditorView.lineWrapping]),
         ...(disableEnter ? [disableEnterKeymap] : []),
         ...(readOnly ? [] : [textCommandsKeymap]),
@@ -829,6 +845,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       schema,
       schemaTables,
       language,
+      sqlDialect,
       jsCompletions,
       connId,
       disableWrapping,

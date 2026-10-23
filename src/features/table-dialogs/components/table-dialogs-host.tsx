@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import {
   duplicateTable,
   executeOp,
-  quoteIdent,
+  getAdapter,
+  isMysqlKind,
   runSql,
   type ConnectionInfo,
 } from "@/shared/api";
@@ -57,6 +58,7 @@ export function TableDialogsHost() {
   const [rows, setRows] = useState<(string | null)[][] | null>(null);
   const conn = last ? conns.find((c) => c.id === last.connId) : undefined;
   const mongo = conn?.kind === "mongodb";
+  const mysql = isMysqlKind(conn?.kind);
   if (target && target !== last) {
     const isMongo =
       conns.find((c) => c.id === target.connId)?.kind === "mongodb";
@@ -122,10 +124,12 @@ export function TableDialogsHost() {
         );
         return;
       }
-      // `runSql` takes no schema, so it goes into the SQL text.
+      // `runSql` takes no schema, so it goes into the SQL text, quoted the
+      // engine's way (backticks on MySQL).
+      const sql = getAdapter(conn?.kind ?? "sqlite");
       const qualified = t.schema
-        ? `${quoteIdent(t.schema)}.${quoteIdent(t.table)}`
-        : quoteIdent(t.table);
+        ? `${sql.quoteIdent(t.schema)}.${sql.quoteIdent(t.table)}`
+        : sql.quoteIdent(t.table);
       await runSql(
         t.connId,
         `DROP VIEW IF EXISTS ${qualified}`,
@@ -156,7 +160,7 @@ export function TableDialogsHost() {
           t.connId,
           t.table,
           next,
-          true,
+          mysql ? copyData : true,
           t.database,
           t.schema,
         );
@@ -186,6 +190,9 @@ export function TableDialogsHost() {
         name={last?.table ?? ""}
         value={name}
         on_value_change={setName}
+        {...(mysql
+          ? { copy_data: copyData, on_copy_data_change: setCopyData }
+          : {})}
         error={error}
         submitting={busy}
         on_confirm={duplicate}

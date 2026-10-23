@@ -41,6 +41,7 @@ impl SqliteAdapter {
                 error: None,
                 elapsed_ms: start.elapsed().as_millis(),
                 cancelled: false,
+                cancel_source: None,
             }
         } else {
             let mut conn = self.pool.acquire().await.map_err(DbError::SqlEngine)?;
@@ -57,6 +58,7 @@ impl SqliteAdapter {
                 error: None,
                 elapsed_ms: start.elapsed().as_millis(),
                 cancelled: false,
+                cancel_source: None,
             }
         };
         Ok(result)
@@ -105,6 +107,7 @@ impl SqliteAdapter {
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
             cancelled: false,
+            cancel_source: None,
         })
     }
 
@@ -155,6 +158,7 @@ impl SqliteAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(super::inline_placeholders(&q.sql, &q.params, false) + ";"),
                 })
@@ -192,6 +196,7 @@ impl SqliteAdapter {
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
             cancelled: false,
+            cancel_source: None,
         })
     }
 }

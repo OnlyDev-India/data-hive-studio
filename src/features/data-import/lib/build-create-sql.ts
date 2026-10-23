@@ -1,4 +1,9 @@
-import { quoteIdent, type ColumnInfo, type DbKind } from "@/shared/api";
+import {
+  getAdapter,
+  quoteIdent,
+  type ColumnInfo,
+  type DbKind,
+} from "@/shared/api";
 import { isDocumentDb } from "./typed-cell";
 import { inferKind, type InferredKind } from "./infer-types";
 import type { Mapping } from "./mapping";
@@ -35,6 +40,26 @@ const POSTGRES: Record<InferredKind, string> = {
   text: "text",
 };
 
+/** MySQL and MariaDB. `double` like SQLite's `REAL`, since a bare `decimal`
+ *  would round every value to a whole number. `datetime` rather than
+ *  `timestamp`, which MySQL shifts by the session time zone and caps at 2038.
+ *  `boolean` is `tinyint(1)`, so cells go as `1`/`0`. */
+const MYSQL: Record<InferredKind, string> = {
+  integer: "int",
+  bigint: "bigint",
+  decimal: "double",
+  boolean: "boolean",
+  date: "date",
+  timestamp: "datetime",
+  json: "json",
+  text: "text",
+};
+
+/** Whether a kind is MySQL or MariaDB. */
+export function isMysql(db: DbKind | undefined): boolean {
+  return db === "mysql" || db === "mariadb";
+}
+
 /** Names a new collection's fields carry. They match what the Mongo schema
  *  view reports, so the same checks apply. */
 const DOCUMENT: Record<InferredKind, string> = {
@@ -51,7 +76,21 @@ const DOCUMENT: Record<InferredKind, string> = {
 /** The type name a dialect uses for a kind. */
 export function typeName(kind: InferredKind, db: DbKind | undefined): string {
   if (isDocumentDb(db)) return DOCUMENT[kind];
+  if (isMysql(db)) return MYSQL[kind];
   return (db === "postgres" ? POSTGRES : SQLITE)[kind];
+}
+
+/** A new column's type. MySQL can't key a `text` or `json` column without a
+ *  prefix length, so a key column of either kind becomes `varchar(255)`. */
+function columnType(c: NewColumn, db: DbKind | undefined): string {
+  if (isMysql(db) && c.primaryKey && (c.kind === "text" || c.kind === "json"))
+    return "varchar(255)";
+  return typeName(c.kind, db);
+}
+
+/** An identifier in the target's own quoting (backticks on MySQL). */
+function quoteFor(name: string, db: DbKind | undefined): string {
+  return isMysql(db) && db ? getAdapter(db).quoteIdent(name) : quoteIdent(name);
 }
 
 /** A table name from a file name: `Sales 2024.csv` gives `sales_2024`. */
@@ -74,13 +113,13 @@ export function buildCreateSql(
 ): string {
   const lines = columns.map(
     (c) =>
-      `${quoteIdent(c.name.trim())} ${typeName(c.kind, db)}${c.primaryKey ? " NOT NULL" : ""}`,
+      `${quoteFor(c.name.trim(), db)} ${columnType(c, db)}${c.primaryKey ? " NOT NULL" : ""}`,
   );
   const keys = columns
     .filter((c) => c.primaryKey)
-    .map((c) => quoteIdent(c.name.trim()));
+    .map((c) => quoteFor(c.name.trim(), db));
   if (keys.length > 0) lines.push(`PRIMARY KEY (${keys.join(", ")})`);
-  return `CREATE TABLE ${quoteIdent(table)} (\n  ${lines.join(",\n  ")}\n)`;
+  return `CREATE TABLE ${quoteFor(table, db)} (\n  ${lines.join(",\n  ")}\n)`;
 }
 
 /** The columns as the mapping and type check already understand them, and the
@@ -94,7 +133,7 @@ export function asTarget(
     mapping[c.name.trim()] = c.from;
     return {
       name: c.name.trim(),
-      data_type: typeName(c.kind, db),
+      data_type: columnType(c, db),
       not_null: c.primaryKey,
       primary_key: c.primaryKey,
       default: null,

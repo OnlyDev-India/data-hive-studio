@@ -38,10 +38,13 @@ export async function runSql(
   });
 }
 
-/** Engines whose runs the backend can stop so far (spec 0006). */
+/** Engines whose runs the backend can stop so far (spec 0006). MySQL and
+ *  MariaDB stop with `KILL QUERY` (spec 0025 AC-12). */
 const CANCELLABLE_KINDS: ReadonlySet<DbKind> = new Set([
   "sqlite",
   "postgres",
+  "mysql",
+  "mariadb",
   "mongodb",
 ]);
 

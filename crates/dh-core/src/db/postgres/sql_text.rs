@@ -46,12 +46,12 @@ pub(super) fn dollar_placeholders(sql: &str) -> String {
 }
 
 /// Whether `trimmed` (already `$n` converted and trimmed) reads rows, by its
-/// first keyword.
+/// first keyword. The same words the read only guard treats as reads.
 pub(super) fn is_select_statement(trimmed: &str) -> bool {
     let first_word = trimmed
         .split(|c: char| c == ' ' || c == '\n' || c == '\t')
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
-    first_word == "select" || first_word == "with"
+    matches!(first_word.as_str(), "select" | "with" | "values" | "table" | "show" | "explain")
 }

@@ -63,6 +63,8 @@ export function DuplicateDialog({
   name,
   value,
   on_value_change,
+  copy_data,
+  on_copy_data_change,
   error,
   submitting,
   on_confirm,
@@ -72,17 +74,24 @@ export function DuplicateDialog({
   name: string;
   value: string;
   on_value_change: (v: string) => void;
+  /** MySQL: whether the rows are copied too (spec 0025 AC-20). Left out,
+   *  the copy always takes every row. */
+  copy_data?: boolean;
+  on_copy_data_change?: (v: boolean) => void;
   error: string | null;
   submitting: boolean;
   on_confirm: () => void;
 }) {
+  const choose = copy_data !== undefined && on_copy_data_change !== undefined;
   return (
     <Dialog open={open} onOpenChange={on_open_change}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Duplicate table</DialogTitle>
           <DialogDescription>
-            Create a copy of “{name}” with all of its data.
+            {choose
+              ? `Create a copy of “${name}” with its columns, keys and indexes. Rows only if you choose to below.`
+              : `Create a copy of “${name}” with all of its data.`}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
@@ -98,6 +107,15 @@ export function DuplicateDialog({
             autoFocus
           />
         </div>
+        {choose && (
+          <label className="text-body flex items-center gap-2">
+            <Checkbox
+              checked={copy_data}
+              onCheckedChange={(v) => on_copy_data_change(v === true)}
+            />
+            Copy all rows too
+          </label>
+        )}
         {error && (
           <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-control text-body border px-3 py-2">
             {error}

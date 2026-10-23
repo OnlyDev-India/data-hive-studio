@@ -38,6 +38,8 @@ impl SqliteAdapter {
                     default,
                     enum_values: Vec::new(),
                     is_array: false,
+                    extra: None,
+                    comment: None,
                 });
             }
         }
@@ -107,7 +109,7 @@ impl SqliteAdapter {
         }
 
         Ok((
-            TableSchema { kind: "table".into(), columns, foreign_keys, indexes, triggers },
+            TableSchema { kind: "table".into(), columns, foreign_keys, indexes, triggers, table_options: None },
             statements,
         ))
     }

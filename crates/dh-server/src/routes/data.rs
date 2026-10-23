@@ -78,7 +78,15 @@ pub(super) async fn schema_ops(
         return r;
     }
     json_or(
-        a.apply_schema_ops_batch(b.database.as_deref(), b.schema.as_deref(), &b.ops)
+        a.apply_schema_ops_report(b.database.as_deref(), b.schema.as_deref(), &b.ops)
+            .await,
+    )
+}
+
+/// The statements `schema_ops` would run. A read: only catalog lookups.
+pub(super) async fn schema_ops_plan(Live(a): Live, Json(b): Json<SchemaOpsBody>) -> Response {
+    json_or(
+        a.plan_schema_ops(b.database.as_deref(), b.schema.as_deref(), &b.ops)
             .await,
     )
 }

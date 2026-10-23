@@ -20,17 +20,34 @@ import {
 } from "@/shared/components/ui/select";
 import { tableSchema, type ColumnInfo } from "@/shared/api";
 import { newColumn, splitType, type ColumnDef } from "./model";
+import { mysqlDefaultSql, splitMysqlType } from "./mysql-model";
 
 interface Props {
   connId: string;
   tables: string[];
   database?: string;
   schema?: string;
+  /** MySQL: types, defaults and attributes map the MySQL way. */
+  is_mysql?: boolean;
   onCopy: (cols: ColumnDef[]) => void;
   onClose: () => void;
 }
 
-function fromInfo(c: ColumnInfo): ColumnDef {
+function fromInfo(c: ColumnInfo, is_mysql: boolean): ColumnDef {
+  if (is_mysql) {
+    const extra = (c.extra ?? "").toLowerCase();
+    return {
+      ...newColumn(),
+      ...splitMysqlType(c.data_type),
+      name: c.name,
+      primary_key: c.primary_key,
+      not_null: c.not_null,
+      auto_increment: extra.includes("auto_increment"),
+      on_update: extra.includes("on update"),
+      default: mysqlDefaultSql(c.default ?? null, extra),
+      comment: c.comment ?? "",
+    };
+  }
   return {
     ...newColumn(),
     ...splitType(c.data_type),
@@ -47,6 +64,7 @@ export function CopyFieldsDialog({
   tables,
   database,
   schema,
+  is_mysql = false,
   onCopy,
   onClose,
 }: Props) {
@@ -164,7 +182,11 @@ export function CopyFieldsDialog({
           <Button
             disabled={picked.size === 0}
             onClick={() => {
-              onCopy(cols.filter((c) => picked.has(c.name)).map(fromInfo));
+              onCopy(
+                cols
+                  .filter((c) => picked.has(c.name))
+                  .map((c) => fromInfo(c, is_mysql)),
+              );
               onClose();
             }}
           >

@@ -30,6 +30,7 @@ mod import_rows;
 mod import_tests;
 mod ddl;
 mod explain;
+mod monitor;
 mod pipeline;
 pub use pipeline::{
     compose_pipeline, filter_to_match, parse_pipeline, preview_activity_text, render_stage, spec_write_stage,
@@ -57,6 +58,9 @@ pub struct MongoAdapter {
     /// guard plus the console's parsed method is all there is: a guardrail,
     /// not a wall.
     guard: ReadOnlyGuard,
+    /// The server monitor's view of the user's rights and the node's role,
+    /// with when it was read (spec 0025, cached for a minute).
+    monitor_cache: std::sync::Mutex<Option<(std::time::Instant, monitor::MonitorInfo)>>,
     /// Kept alive for as long as this adapter is — dropping it tears the
     /// tunnel down out from under the client. `None` when this connection
     /// doesn't go through SSH.

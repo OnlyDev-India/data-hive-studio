@@ -252,6 +252,7 @@ mod read_only_tests {
             client,
             database: std::sync::RwLock::new("app".into()),
             guard: ReadOnlyGuard::new(read_only),
+            monitor_cache: std::sync::Mutex::new(None),
             _ssh_tunnel: None,
         }
     }

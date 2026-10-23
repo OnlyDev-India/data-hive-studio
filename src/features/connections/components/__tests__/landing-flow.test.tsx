@@ -55,11 +55,19 @@ async function openKind(kind: string) {
 }
 
 describe("step one", () => {
-  it("starts on a picker with PostgreSQL selected and no tabs", () => {
+  it("starts on a picker with nothing selected and no tabs", () => {
     render(<Landing />);
     expect(screen.getByText("New Connection")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "PostgreSQL" })).toBeChecked();
-    const names = ["SQLite", "PostgreSQL", "MongoDB", "Amazon DocumentDB"];
+    screen.getAllByRole("radio").forEach((r) => expect(r).not.toBeChecked());
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    const names = [
+      "SQLite",
+      "PostgreSQL",
+      "MySQL",
+      "MariaDB",
+      "MongoDB",
+      "Amazon DocumentDB",
+    ];
     screen
       .getAllByRole("radio")
       .forEach((r, i) => expect(r).toHaveAccessibleName(names[i]));
@@ -239,7 +247,7 @@ describe("moving between steps", () => {
     await openKind("PostgreSQL");
     await type("Name", "Pg one");
     await click("button", /new connection/i);
-    expect(screen.getByRole("radio", { name: "PostgreSQL" })).toBeChecked();
+    screen.getAllByRole("radio").forEach((r) => expect(r).not.toBeChecked());
     await openKind("PostgreSQL");
     expect(screen.getByLabelText("Name")).toHaveValue("");
   });

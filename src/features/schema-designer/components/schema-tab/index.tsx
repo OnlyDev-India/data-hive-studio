@@ -3,7 +3,15 @@ import { Check, Loader2, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { applySchemaOps, tableSchema, type TableSchema } from "@/shared/api";
+import {
+  applySchemaOps,
+  applySchemaOpsReport,
+  isMysqlKind,
+  planSchemaOps,
+  tableSchema,
+  type SchemaApplyReport,
+  type TableSchema,
+} from "@/shared/api";
 import {
   useStudioStore,
   type SchemaEditHandle,
@@ -21,8 +29,10 @@ import {
   pk_from_schema,
   trig_is_dirty,
   trigs_from_schema,
+  table_options_op,
   validate_drafts,
   type ColDraft,
+  type TableOptsDraft,
   type FkDraft,
   type IdxDraft,
   type TriggerDraft,
@@ -34,6 +44,8 @@ import { TriggersPanel } from "./triggers-panel";
 import { TabBar } from "../new-table/tab-bar";
 import { DropTableDialog } from "./drop-table-dialog";
 import { ApplyChangesDialog } from "@/shared/components/apply-changes-dialog";
+import { ApplyReportDialog } from "./apply-report-dialog";
+import { MysqlTableOptionsRow } from "../new-table/mysql-table-options";
 import type { DdlDiffSection } from "@/shared/components/diff-grid";
 import type { SchemaOp } from "@/shared/api";
 
@@ -178,8 +190,21 @@ function SchemaEditor({
   // keying off a revision counter would race — the counter changes before the
   // fresh schema has been fetched, so the drafts would be rebuilt from the
   // STALE schema and newly applied DDL (e.g. a created index) never appeared.
+  // MySQL and MariaDB (spec 0025 AC-18, AC-19): column attributes, table
+  // options, an exact statement preview, and a per statement report.
+  const is_mysql = useStudioStore((s) =>
+    isMysqlKind(s.open.find((c) => c.id === conn_id)?.kind),
+  );
+  const opts_of = (s: TableSchema): TableOptsDraft | undefined =>
+    s.table_options
+      ? { orig: s.table_options, now: { ...s.table_options } }
+      : undefined;
+  const [table_opts, setTableOpts] = useState(() => opts_of(schema));
+  const [report, setReport] = useState<SchemaApplyReport | null>(null);
   const [loaded_schema, setLoaded_schema] = useState(schema);
-  const [cols, setCols] = useState<ColDraft[]>(() => cols_from_schema(schema));
+  const [cols, setCols] = useState<ColDraft[]>(() =>
+    cols_from_schema(schema, is_mysql),
+  );
   const [idxs, setIdxs] = useState<IdxDraft[]>(() => idxs_from_schema(schema));
   const [trigs, setTrigs] = useState<TriggerDraft[]>(() =>
     trigs_from_schema(schema),
@@ -196,11 +221,12 @@ function SchemaEditor({
 
   if (loaded_schema !== schema) {
     setLoaded_schema(schema);
-    setCols(cols_from_schema(schema));
+    setCols(cols_from_schema(schema, is_mysql));
     setIdxs(idxs_from_schema(schema));
     setTrigs(trigs_from_schema(schema));
     setFks(fks_from_schema(schema));
-    setOrig_pk(pk_from_schema(cols_from_schema(schema)));
+    setOrig_pk(pk_from_schema(cols_from_schema(schema, is_mysql)));
+    setTableOpts(opts_of(schema));
     setTable_name(table);
     setEditing_name(false);
   }
@@ -223,7 +249,8 @@ function SchemaEditor({
     idxs.some((ix) => idx_is_dirty(ix, resolve_col)) ||
     trigs.some(trig_is_dirty) ||
     pk_changed ||
-    fks.some(fk_is_dirty);
+    fks.some(fk_is_dirty) ||
+    table_options_op(table, table_opts) !== null;
 
   const update_col = (id: string, patch: Partial<ColDraft>) => {
     setCols((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -250,16 +277,17 @@ function SchemaEditor({
   }, [item_total, adding]);
 
   const add = () => {
-    if (tab === "columns") setCols((cs) => [...cs, new_col_draft()]);
+    if (tab === "columns") setCols((cs) => [...cs, new_col_draft(is_mysql)]);
     else setAdding(tab);
   };
 
   const discard = () => {
-    setCols(cols_from_schema(schema));
+    setCols(cols_from_schema(schema, is_mysql));
     setIdxs(idxs_from_schema(schema));
     setTrigs(trigs_from_schema(schema));
     setFks(fks_from_schema(schema));
-    setOrig_pk(pk_from_schema(cols_from_schema(schema)));
+    setOrig_pk(pk_from_schema(cols_from_schema(schema, is_mysql)));
+    setTableOpts(opts_of(schema));
     setTable_name(table);
   };
 
@@ -272,6 +300,9 @@ function SchemaEditor({
   const [confirm_apply, setConfirmApply] = useState<{
     ops: SchemaOp[];
     ddl: DdlDiffSection[];
+    /** MySQL: the exact statements, `null` while loading, a string when
+     *  the preview failed. */
+    statements?: string[] | string | null;
   } | null>(null);
 
   /** Validates the drafts and builds the ops batch. Returns `null` (after
@@ -296,6 +327,7 @@ function SchemaEditor({
       trigs,
       fks,
       orig_pk.map(resolve_col),
+      table_opts,
     );
   };
 
@@ -332,11 +364,67 @@ function SchemaEditor({
       trigs,
       fks,
       orig_pk.map(resolve_col),
+      table_opts,
     );
-    setConfirmApply({ ops, ddl });
+    if (!is_mysql) {
+      setConfirmApply({ ops, ddl });
+      return;
+    }
+    setConfirmApply({ ops, ddl, statements: null });
+    const fill = (statements: string[] | string) =>
+      setConfirmApply((cur) =>
+        cur && cur.ops === ops ? { ...cur, statements } : cur,
+      );
+    planSchemaOps(conn_id, ops, database).then(fill, (e: unknown) =>
+      fill(String(e)),
+    );
+  };
+
+  /** MySQL: run statement by statement; a failure stops the batch, keeps
+   *  what landed, and shows where it stopped (AC-19). */
+  const run_apply_mysql = async (ops: SchemaOp[]) => {
+    setApplying(true);
+    try {
+      const result = await applySchemaOpsReport(conn_id, ops, database);
+      const ran = result.statements.filter((x) => x.status === "applied");
+      const failed = result.statements.find((x) => x.status === "failed");
+      if (failed) {
+        setReport(result);
+        push_notification({
+          kind: "error",
+          title:
+            ran.length > 0
+              ? `Schema change stopped: ${ran.length} of ${result.statements.length} statements applied`
+              : "Schema change failed, nothing changed",
+          detail: failed.message ?? failed.sql,
+        });
+        if (ran.length > 0) {
+          on_modified();
+          on_refresh();
+        }
+        return;
+      }
+      push_notification({
+        kind: "success",
+        title: `Schema updated — ${ran.length} statement${ran.length === 1 ? "" : "s"} applied`,
+        detail: ran.map((x) => x.sql).join("\n"),
+      });
+      on_modified();
+      on_refresh();
+      on_applied?.();
+    } catch (e) {
+      push_notification({
+        kind: "error",
+        title: "Schema changes failed, nothing changed",
+        detail: String(e),
+      });
+    } finally {
+      setApplying(false);
+    }
   };
 
   const run_apply = async (ops: SchemaOp[]) => {
+    if (is_mysql) return run_apply_mysql(ops);
     setApplying(true);
     try {
       const ran = await applySchemaOps(conn_id, ops, database, schema_name);
@@ -381,6 +469,7 @@ function SchemaEditor({
         trigs,
         fks,
         orig_pk.map(resolve_col),
+        table_opts,
       ).length
     : 0;
   const apply_ref = useRef(apply_now);
@@ -450,9 +539,26 @@ function SchemaEditor({
           {applying && (
             <div className="border-primary/30 bg-primary/5 text-muted-foreground rounded-control text-small flex items-center gap-2 border px-3 py-2">
               <Loader2 className="text-primary size-3.5 animate-spin" />
-              Applying {pending_count} change{pending_count === 1 ? "" : "s"} in
-              one transaction…
+              {is_mysql
+                ? `Applying ${pending_count} change${pending_count === 1 ? "" : "s"}, one table at a time…`
+                : `Applying ${pending_count} change${pending_count === 1 ? "" : "s"} in one transaction…`}
             </div>
+          )}
+
+          {is_mysql && table_opts && (
+            <MysqlTableOptionsRow
+              conn_id={conn_id}
+              database={database}
+              engine={table_opts.orig.engine}
+              disabled={applying}
+              value={table_opts.now}
+              on_change={(now) =>
+                setTableOpts({
+                  ...table_opts,
+                  now: { ...table_opts.now, ...now },
+                })
+              }
+            />
           )}
 
           {/* The tabs and their Add button sit on top of the list, in one
@@ -486,6 +592,7 @@ function SchemaEditor({
                 <ColumnsPanel
                   cols={cols}
                   disabled={applying}
+                  is_mysql={is_mysql}
                   on_update={update_col}
                   on_replace={setCols}
                 />
@@ -539,6 +646,10 @@ function SchemaEditor({
         </div>
       </div>
 
+      {report && (
+        <ApplyReportDialog report={report} on_close={() => setReport(null)} />
+      )}
+
       <DropTableDialog
         conn_id={conn_id}
         table={table}
@@ -554,6 +665,20 @@ function SchemaEditor({
           title="Review schema changes"
           ddl={confirm_apply.ddl}
           applying={applying}
+          {...(is_mysql
+            ? {
+                statements: confirm_apply.statements,
+                description:
+                  "Each table's changes run as one statement, in order, and the batch stops at the first failure.",
+                notice: Array.isArray(confirm_apply.statements) &&
+                  confirm_apply.statements.length > 1 && (
+                    <p className="border-warning/40 bg-warning-light text-warning-dark rounded-control text-small border px-3 py-2">
+                      MySQL can't roll back schema changes. If one table fails,
+                      the tables before it stay changed.
+                    </p>
+                  ),
+              }
+            : {})}
           on_apply={() => {
             const { ops } = confirm_apply;
             void run_apply(ops);

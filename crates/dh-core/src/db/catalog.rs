@@ -51,6 +51,22 @@ pub async fn list_roles(conn_id: &str) -> DbResult<Vec<SchemaObject>> {
     with_connection(conn_id, |a| async move { a.list_roles().await }).await
 }
 
+/// The definition text of one view, routine, trigger or event (MySQL), for
+/// the sidebar's definition tab. `database`: `None` = this connection's own.
+pub async fn object_definition(
+    conn_id: &str,
+    database: Option<&str>,
+    kind: SchemaObjectKind,
+    name: &str,
+) -> DbResult<String> {
+    let database = database.map(str::to_string);
+    let name = name.to_string();
+    with_connection(conn_id, |a| async move {
+        a.object_definition(database.as_deref(), kind, &name).await
+    })
+    .await
+}
+
 /// Full role attribute set — the Users & Privileges tab.
 pub async fn list_role_details(conn_id: &str) -> DbResult<Vec<RoleDetail>> {
     with_connection(conn_id, |a| async move { a.list_role_details().await }).await

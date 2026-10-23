@@ -10,6 +10,77 @@ pub enum DefaultMode {
     Drop,
 }
 
+/// MySQL column attributes (spec 0025 AC-18) that ride on an add or alter
+/// column op. Other engines ignore them. On an alter, `None` keeps what the
+/// column has now.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ColumnAttrs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_increment: Option<bool>,
+    /// The `ON UPDATE` expression, e.g. `CURRENT_TIMESTAMP`. `Some("")`
+    /// removes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_update: Option<String>,
+    /// `Some("")` removes the comment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+impl ColumnAttrs {
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// How one statement of a schema apply ended (spec 0025 AC-19).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StatementStatus {
+    Applied,
+    Failed,
+    NotRun,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StatementOutcome {
+    pub sql: String,
+    pub status: StatementStatus,
+    /// The server's message, on the failed statement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Every statement a schema apply planned, in order, with how each ended.
+/// An engine that applies the batch in one transaction only ever reports
+/// all applied; a failure there is an error instead.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SchemaApplyReport {
+    pub statements: Vec<StatementOutcome>,
+}
+
+impl SchemaApplyReport {
+    pub fn all_applied(sqls: Vec<String>) -> Self {
+        Self {
+            statements: sqls
+                .into_iter()
+                .map(|sql| StatementOutcome { sql, status: StatementStatus::Applied, message: None })
+                .collect(),
+        }
+    }
+
+    pub fn failed(&self) -> Option<&StatementOutcome> {
+        self.statements.iter().find(|s| s.status == StatementStatus::Failed)
+    }
+
+    pub fn applied(&self) -> Vec<String> {
+        self.statements
+            .iter()
+            .filter(|s| s.status == StatementStatus::Applied)
+            .map(|s| s.sql.clone())
+            .collect()
+    }
+}
+
 /// A structured schema (DDL) change request. Like [`QueryOp`], the frontend
 /// describes WHAT should change; the adapter decides how to say it in its
 /// dialect (including falling back to a full table rebuild when SQLite has no
@@ -29,6 +100,8 @@ pub enum SchemaOp {
         not_null: bool,
         #[serde(default)]
         default: Option<String>,
+        #[serde(default, skip_serializing_if = "ColumnAttrs::is_empty")]
+        attrs: ColumnAttrs,
     },
     DropColumn { table: String, name: String },
     /// Change one existing column. Fields left as `null` keep their current
@@ -51,6 +124,8 @@ pub enum SchemaOp {
         /// Literal for [`DefaultMode::Set`] (already normalized by the caller).
         #[serde(default)]
         default_value: Option<String>,
+        #[serde(default, skip_serializing_if = "ColumnAttrs::is_empty")]
+        attrs: ColumnAttrs,
     },
     CreateIndex {
         table: String,
@@ -115,5 +190,16 @@ pub enum SchemaOp {
     DropConstraint {
         table: String,
         name: String,
+    },
+    /// Change a table's default charset, collation or comment (MySQL).
+    /// `None` keeps the current value; an empty comment removes it.
+    SetTableOptions {
+        table: String,
+        #[serde(default)]
+        charset: Option<String>,
+        #[serde(default)]
+        collation: Option<String>,
+        #[serde(default)]
+        comment: Option<String>,
     },
 }
