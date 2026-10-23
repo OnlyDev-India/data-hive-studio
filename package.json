@@ -2,7 +2,7 @@
   "name": "dh-studio",
   "description": "DH Studio — a native multi database desktop client",
   "private": true,
-  "version": "0.5.6",
+  "version": "0.5.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
