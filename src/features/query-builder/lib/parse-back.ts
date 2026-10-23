@@ -713,9 +713,10 @@ const NAME_LINE = /^--\s*name:\s*(.*?)\s*$/i;
  *  statements are dropped; comments inside a statement stay. */
 export function splitStatements(
   sql: string,
+  dialect?: Dialect,
 ): { text: string; name: string | null }[] {
   const out: { text: string; name: string | null }[] = [];
-  for (const r of statementRanges(sql)) {
+  for (const r of statementRanges(sql, dialect === "mysql" ? "mysql" : "default")) {
     const piece = sql.slice(r.start, r.end);
     let i = 0;
     let name: string | null = null;
@@ -746,7 +747,7 @@ export function splitStatements(
  *  the cards hold becomes cards, anything else a statement query kept as
  *  written. */
 export function parseStatements(sql: string, dialect: Dialect): BuilderQuery[] {
-  return splitStatements(sql).map(({ text, name }) => {
+  return splitStatements(sql, dialect).map(({ text, name }) => {
     const r = parseBack(text, dialect);
     if (!r.ok) return statementQuery(text, name);
     return { id: crypto.randomUUID(), kind: r.kind, name, clauses: r.clauses };

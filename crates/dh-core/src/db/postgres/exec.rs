@@ -26,6 +26,7 @@ pub(super) async fn exec_statement(
             error: null_error(),
             elapsed_ms: start.elapsed().as_millis(),
             cancelled: false,
+            cancel_source: None,
         });
     }
     let res = sqlx::query(trimmed)
@@ -40,6 +41,7 @@ pub(super) async fn exec_statement(
         error: null_error(),
         elapsed_ms: start.elapsed().as_millis(),
         cancelled: false,
+        cancel_source: None,
     })
 }
 
@@ -89,6 +91,7 @@ pub(super) async fn run_sql_prebound(
         error: null_error(),
         elapsed_ms: start.elapsed().as_millis(),
         cancelled: false,
+        cancel_source: None,
     })
 }
 

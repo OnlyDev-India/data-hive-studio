@@ -25,6 +25,10 @@ export function stoppedStatusLine(
 export const WINDING_DOWN_NOTE =
   "Stopped, the database is still winding it down";
 
+/** Extra note for a run stopped from the server monitor's Cancel query or
+ *  Kill operation (spec 0025, AC-18). */
+export const MONITOR_STOP_NOTE = "Stopped from the server monitor";
+
 /** Extra note for a stopped MongoDB console run: MongoDB has no rollback
  *  here, so anything a stopped write already changed stays changed. Shown on
  *  every stopped console run (spec 0006, AC-8). */

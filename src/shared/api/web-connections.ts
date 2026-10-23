@@ -17,7 +17,7 @@ const LEGACY_KEYS = ["saved.local", "dh.web.servers", "dh.web.last"];
 export interface WebSavedConnection {
   id: string;
   name: string;
-  kind: "postgres" | "mongodb";
+  kind: "postgres" | "mysql" | "mariadb" | "mongodb";
   host: string;
   port: number;
   user: string;
@@ -69,6 +69,8 @@ export function writeWebConnections(
     .filter(
       ([, p]) =>
         p.kind === "postgres" ||
+        p.kind === "mysql" ||
+        p.kind === "mariadb" ||
         p.kind === "mongodb" ||
         p.kind === "documentdb",
     )
@@ -110,11 +112,15 @@ export function toSaved(
   id: string,
 ): WebSavedConnection {
   const remember = p.remember_secret === true;
-  const mongo = p.kind !== "postgres";
+  const sqlKind =
+    p.kind === "postgres" || p.kind === "mysql" || p.kind === "mariadb"
+      ? p.kind
+      : null;
+  const mongo = sqlKind === null;
   const out: WebSavedConnection = {
     id,
     name,
-    kind: mongo ? "mongodb" : "postgres",
+    kind: sqlKind ?? "mongodb",
     host: p.host,
     port: p.port,
     user: p.user,

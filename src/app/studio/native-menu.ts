@@ -69,6 +69,7 @@ export function handleMenuAction(id: string) {
         try {
           const file = await pickSqlFile();
           if (!file) return;
+          if (s.focusFileTab(conn.id, file.path)) return;
           if (file.name.toLowerCase().endsWith(".js")) {
             void openMongoDatabaseAndConsole(conn.id, file.text, file.path);
           } else {

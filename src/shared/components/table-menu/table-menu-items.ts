@@ -2,6 +2,8 @@ import {
   Copy,
   CopyPlus,
   Eye,
+  FileCode,
+  PencilLine,
   GitCompareArrows,
   RefreshCw,
   ShieldCheck,
@@ -21,6 +23,8 @@ export type TableAction =
   | "query_builder"
   | "grants"
   | "copy"
+  | "definition"
+  | "rename"
   | "duplicate"
   | "import"
   | "refresh_matview"
@@ -50,15 +54,20 @@ export const ALL_TABLE_ACTIONS: ReadonlySet<TableAction> = new Set([
   "query_builder",
   "grants",
   "copy",
+  "definition",
+  "rename",
   "duplicate",
   "import",
   "refresh_matview",
   "drop",
 ]);
 
-/** What the diagram offers: everything but refreshing a materialized view. */
+/** What the diagram offers: everything but refreshing a materialized view
+ *  and the sidebar's MySQL only rename and definition items. */
 export const DIAGRAM_TABLE_ACTIONS: ReadonlySet<TableAction> = new Set(
-  [...ALL_TABLE_ACTIONS].filter((a) => a !== "refresh_matview"),
+  [...ALL_TABLE_ACTIONS].filter(
+    (a) => a !== "refresh_matview" && a !== "rename" && a !== "definition",
+  ),
 );
 
 const isMatview = (kind: string) =>
@@ -138,6 +147,25 @@ export function tableMenuItems({
     icon: Copy,
     disabled: false,
   });
+  add(
+    {
+      action: "definition",
+      label: "Show definition",
+      icon: FileCode,
+      disabled: false,
+    },
+    !tableLike,
+  );
+  add(
+    {
+      action: "rename",
+      label: `Rename ${noun}…`,
+      icon: PencilLine,
+      disabled: busy || readOnly,
+      title: ro,
+    },
+    tableLike,
+  );
   add({
     action: "duplicate",
     label: `Duplicate ${noun}`,

@@ -1,6 +1,7 @@
 import type { DbKind, SchemaObjectKind } from "@/shared/api";
 import DocumentDbIcon from "./documentDb";
 import MongoIcon from "./mongo";
+import MariaDbIcon from "./mariadb";
 import MySqlIcon from "./mysql";
 import PGIcon from "./pg";
 import SqliteIcon from "./sqlite";
@@ -24,6 +25,10 @@ import {
   Workflow,
   Blocks,
   Network,
+  Activity,
+  Zap,
+  CalendarClock,
+  Server,
 } from "lucide-react";
 import type { StudioTab } from "@/shared/store";
 import { cn } from "@/shared/lib/utils";
@@ -45,6 +50,7 @@ export type DbIconKind = DbKind | "documentdb";
 export const DBIcons: Record<DbIconKind, React.ComponentType<IconProps>> = {
   mongodb: MongoIcon,
   mysql: MySqlIcon,
+  mariadb: MariaDbIcon,
   postgres: PGIcon,
   sqlite: SqliteIcon,
   documentdb: DocumentDbIcon,
@@ -57,7 +63,8 @@ export type IconType =
   | "folder"
   | "users"
   | "layers"
-  | "extension";
+  | "extension"
+  | "server";
 
 export const TAB_ICON_CLASS: Record<
   | "table"
@@ -67,7 +74,8 @@ export const TAB_ICON_CLASS: Record<
   | "compare"
   | "relation-diagram"
   | "aggregation"
-  | "query-builder",
+  | "query-builder"
+  | "monitor",
   string
 > = {
   table: "text-obj-relation",
@@ -78,6 +86,7 @@ export const TAB_ICON_CLASS: Record<
   "relation-diagram": "text-obj-relation",
   aggregation: "text-primary",
   "query-builder": "text-primary",
+  monitor: "text-primary",
 };
 
 export const IconTypeMap: Record<IconType, React.ReactNode> = {
@@ -88,6 +97,9 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   function: <FunctionSquare className="text-obj-routine size-3 shrink-0" />,
   sequence: <ListOrdered className="text-obj-type size-3 shrink-0" />,
   type: <Shapes className="text-obj-type size-3 shrink-0" />,
+  trigger: <Zap className="text-obj-routine size-3 shrink-0" />,
+  event: <CalendarClock className="text-obj-routine size-3 shrink-0" />,
+  server: <Server className="text-obj-container size-3 shrink-0" />,
   database: <DatabaseIcon className="text-obj-container size-3 shrink-0" />,
   folder: <FolderIcon className="text-obj-container size-3 shrink-0" />,
   users: <UsersIcon className="text-obj-security size-3 shrink-0" />,
@@ -103,6 +115,7 @@ export const IconTypeMap: Record<IconType, React.ReactNode> = {
   ),
   activity: <History className={cn("text-muted-foreground size-3.5")} />,
   roles: <UsersIcon className="text-obj-security size-3 shrink-0" />,
+  monitor: <Activity className={cn("size-3.5", TAB_ICON_CLASS.monitor)} />,
   "relation-diagram": (
     <Network className={cn("size-3.5", TAB_ICON_CLASS["relation-diagram"])} />
   ),

@@ -4,6 +4,7 @@ import { dedupe, dispatchDbCall, hinted, serverUnsupported } from "./dispatch";
 import { connGuardOf } from "./read-only";
 import type {
   ActivityEntry,
+  CancelSource,
   CatalogOverview,
   ConnGuard,
   ConnectionInfo,
@@ -12,6 +13,7 @@ import type {
   SchemaObject,
   SchemaGraphResult,
   SchemaObjectKind,
+  SchemaApplyReport,
   SchemaOp,
   TableInfo,
   TableSchema,
@@ -104,6 +106,25 @@ export async function connectPostgres(
   return invoke("connect_postgres", { params });
 }
 
+/** Parameters for connecting to a MySQL or MariaDB server (spec 0025). The
+ *  same shape as Postgres, with MySQL's own SSL mode names and an optional
+ *  database (empty lands on the server). */
+export interface MySqlConnectParams extends Omit<PgConnectParams, "database"> {
+  database?: string;
+  /** DISABLED | PREFERRED | REQUIRED | VERIFY_CA | VERIFY_IDENTITY */
+  ssl_mode?: string;
+}
+
+/** Connect to a MySQL or MariaDB server. `kind` is the picker entry; the
+ *  adapter follows the server it detects (`ConnectionInfo.server`). */
+export async function connectMysql(
+  params: MySqlConnectParams,
+  kind: "mysql" | "mariadb",
+): Promise<ConnectionInfo> {
+  if (WEB) return webOpen(kind, params);
+  return invoke("connect_mysql", { params, kind });
+}
+
 /** Parameters for connecting to a MongoDB server. */
 export interface MongoConnectParams extends ConnGuard {
   host: string;
@@ -146,8 +167,8 @@ export async function connectMongo(
  *  The id is the server's handle. The guard fields the form set come along,
  *  but the server's own `DH_READ_ONLY` switch is what really refuses writes. */
 async function webOpen(
-  kind: "postgres" | "mongodb",
-  params: PgConnectParams | MongoConnectParams,
+  kind: "postgres" | "mysql" | "mariadb" | "mongodb",
+  params: PgConnectParams | MySqlConnectParams | MongoConnectParams,
 ): Promise<ConnectionInfo> {
   const { ssh, ...rest } = params;
   const details: Record<string, unknown> = { ...rest, kind };
@@ -155,11 +176,14 @@ async function webOpen(
     details.ssh = { host: ssh.host, port: ssh.port, user: ssh.user };
     details.ssh_password = ssh.password;
   }
-  const id = await webConnect(details);
+  const { id, server } = await webConnect(details);
   return {
     id,
-    name: params.database,
+    // A MySQL connection with no database is named `user@host`, as on the
+    // desktop app, so it never keys on an empty name.
+    name: params.database?.trim() || `${params.user}@${params.host}`,
     kind,
+    ...(server ? { server } : {}),
     ...connGuardOf(params),
   };
 }
@@ -238,6 +262,24 @@ export async function listSchemaObjects(
     httpBody: { database: database ?? null, schema, kind },
     localCmd: "list_schema_objects",
     args: { connId, database: database ?? null, schema, kind },
+  });
+}
+
+/** The text that creates one view, routine, trigger or event, as the server
+ *  writes it (MySQL `SHOW CREATE ...`), for the sidebar's definition tab.
+ *  `database` omitted = this connection's own. */
+export async function objectDefinition(
+  connId: string,
+  kind: SchemaObjectKind,
+  name: string,
+  database?: string,
+): Promise<string> {
+  return dispatchDbCall<string>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/definition`,
+    httpBody: { database: database ?? null, kind, name },
+    localCmd: "object_definition",
+    args: { connId, database: database ?? null, kind, name },
   });
 }
 
@@ -401,6 +443,8 @@ export interface MongoRunResult {
    *  stopped write already changed stay changed. Absent from an older
    *  server's reply. */
   cancelled?: boolean;
+  /** Who stopped it, when not the run's own Stop (spec 0025). */
+  cancel_source?: CancelSource;
   /** A streamed result: how many entries of `rows` are valid (see
    *  `QueryResult.row_count`). Absent means all of them. */
   row_count?: number;
@@ -458,13 +502,22 @@ export async function disconnectDatabase(
   });
 }
 
-/** Create a database on the same server (Postgres). */
+/** Create a database on the same server (Postgres, MySQL). `charset` and
+ *  `collation` are MySQL's options; other engines refuse them. */
 export async function createPgDatabase(
   connId: string,
   name: string,
+  options?: { charset?: string; collation?: string },
 ): Promise<void> {
   serverUnsupported();
-  return hinted(invoke("create_pg_database", { connId, name }));
+  return hinted(
+    invoke("create_pg_database", {
+      connId,
+      name,
+      charset: options?.charset || null,
+      collation: options?.collation || null,
+    }),
+  );
 }
 
 /** Drop a database on the same server (Postgres). */
@@ -646,10 +699,54 @@ export async function setSaveAppActivity(enabled: boolean): Promise<void> {
   return invoke("set_save_app_activity", { enabled });
 }
 
+/** Apply staged schema (DDL) ops in order and report every statement and
+ *  how it ended. On MySQL a failure stops the batch partway and comes back
+ *  in the report (spec 0025 AC-19); elsewhere it throws and nothing landed.
+ *  `database`/`schema`: omitted = this connection's own primary
+ *  database/active schema. */
+export async function applySchemaOpsReport(
+  connId: string,
+  ops: SchemaOp[],
+  database?: string,
+  schema?: string,
+): Promise<SchemaApplyReport> {
+  return dispatchDbCall<SchemaApplyReport>(connId, {
+    httpMethod: "POST",
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schema-ops`,
+    httpBody: { ops, database: database ?? null, schema: schema ?? null },
+    localCmd: "apply_schema_ops",
+    args: { connId, database: database ?? null, schema: schema ?? null, ops },
+  });
+}
+
 /** Apply staged schema (DDL) ops in order; returns every statement that ran
- * (for display/copy). Throws on the first failing op. `database`/`schema`:
- * omitted = this connection's own primary database/active schema. */
+ * (for display/copy). Throws on the first failing op, naming how many
+ * statements before it already landed when the engine can't undo them. */
 export async function applySchemaOps(
+  connId: string,
+  ops: SchemaOp[],
+  database?: string,
+  schema?: string,
+): Promise<string[]> {
+  const report = await applySchemaOpsReport(connId, ops, database, schema);
+  const applied = report.statements
+    .filter((s) => s.status === "applied")
+    .map((s) => s.sql);
+  const failed = report.statements.find((s) => s.status === "failed");
+  if (failed) {
+    throw new Error(
+      applied.length > 0
+        ? `${failed.message ?? "Failed"} (${applied.length} statement${applied.length === 1 ? "" : "s"} before it stay applied)`
+        : (failed.message ?? "Failed"),
+    );
+  }
+  return applied;
+}
+
+/** The exact statements `applySchemaOps` would run (MySQL), for the review
+ *  dialog. Runs only catalog reads. Throws on engines that build their DDL
+ *  as they go. */
+export async function planSchemaOps(
   connId: string,
   ops: SchemaOp[],
   database?: string,
@@ -657,9 +754,9 @@ export async function applySchemaOps(
 ): Promise<string[]> {
   return dispatchDbCall<string[]>(connId, {
     httpMethod: "POST",
-    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schema-ops`,
+    httpPath: (id) => `/v1/c/${encodeURIComponent(id)}/schema-ops/plan`,
     httpBody: { ops, database: database ?? null, schema: schema ?? null },
-    localCmd: "apply_schema_ops",
+    localCmd: "plan_schema_ops",
     args: { connId, database: database ?? null, schema: schema ?? null, ops },
   });
 }

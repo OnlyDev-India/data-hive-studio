@@ -5,12 +5,29 @@
 // which entry was chosen. One shared `DbKind` covers both uses rather than
 // a second parallel type, mirroring the Rust `DbKind` enum this is typed
 // against.
-export type DbKind = "sqlite" | "postgres" | "mysql" | "mongodb" | "documentdb";
+export type DbKind =
+  "sqlite" | "postgres" | "mysql" | "mariadb" | "mongodb" | "documentdb";
 
-/** Kinds a saved/local connection can be — everything `DbKind` covers
- *  except "mysql" (no local/saved MySQL support yet). Derive from `DbKind`
- *  rather than re-listing kinds so adding one only means editing `DbKind`. */
-export type SavedDbKind = Exclude<DbKind, "mysql">;
+/** Kinds a saved/local connection can be: every `DbKind`. Kept as its own
+ *  name so call sites say which use they mean. */
+export type SavedDbKind = DbKind;
+
+/** The MySQL family (spec 0025): both picker entries run on one adapter,
+ *  which follows the server it detects, not the entry picked. */
+/** MySQL's own databases, hidden in the sidebar unless "Show system
+ *  databases" is on (spec 0025 AC-6). */
+export const MYSQL_SYSTEM_DATABASES = [
+  "mysql",
+  "sys",
+  "information_schema",
+  "performance_schema",
+];
+
+export function isMysqlKind(
+  kind: DbKind | undefined,
+): kind is "mysql" | "mariadb" {
+  return kind === "mysql" || kind === "mariadb";
+}
 
 /** How careful to be with a connection (spec 0007). Mirrors the Rust
  *  `ConnGuard`, which flattens these four fields into every struct that saves,
@@ -35,6 +52,15 @@ export interface ConnectionInfo extends ConnGuard {
   /** Real file path this connection was opened from (or saved to). Null for
    *  freshly created databases that only live in a temp file. */
   source_path?: string | null;
+  /** MySQL family only (spec 0025 AC-2): the server the adapter detected,
+   *  which may differ from the picker entry in `kind`. */
+  server?: ServerDescriptor;
+}
+
+export interface ServerDescriptor {
+  flavor: "mysql" | "mariadb";
+  /** `major.minor.patch`. */
+  version: string;
 }
 
 export interface TableInfo {
@@ -52,6 +78,10 @@ export interface ColumnInfo {
   enum_values?: string[];
   /** Postgres only: true when the column is an array type. */
   is_array?: boolean;
+  /** MySQL only: the column's EXTRA text (`auto_increment`, `on update CURRENT_TIMESTAMP`). */
+  extra?: string;
+  /** MySQL only: the column comment. */
+  comment?: string;
 }
 
 export interface ForeignKeyInfo {
@@ -83,7 +113,9 @@ export type SchemaObjectKind =
   | "procedure"
   | "function"
   | "sequence"
-  | "type";
+  | "type"
+  | "trigger"
+  | "event";
 
 /** One row in a `listSchemaObjects`/`listRoles` result — `extra` is optional
  *  secondary context shown alongside the name (a function's signature, a
@@ -104,6 +136,8 @@ export interface RoleDetail {
   valid_until: string | null;
   comment: string | null;
   member_of: string[];
+  /** MySQL: the account's `SHOW GRANTS FOR` lines. Empty on Postgres. */
+  grants?: string[];
 }
 
 export interface IndexInfo {
@@ -266,6 +300,16 @@ export interface TableSchema {
   foreign_keys: ForeignKeyInfo[];
   indexes: IndexInfo[];
   triggers: TriggerInfo[];
+  /** MySQL: the table's engine, default charset and collation, and comment
+   *  (spec 0025 AC-18). */
+  table_options?: TableOptions;
+}
+
+export interface TableOptions {
+  engine: string;
+  charset: string;
+  collation: string;
+  comment: string;
 }
 
 /** One schema's tables and foreign keys, for the relation diagram. Mirrors
@@ -507,6 +551,8 @@ export interface QueryResult {
   /** The user stopped this run (spec 0006). Not an error: rows already
    *  streamed stay with the caller. Absent from an older server's reply. */
   cancelled?: boolean;
+  /** Who stopped it, when not the run's own Stop (spec 0025). */
+  cancel_source?: CancelSource;
   /** A streamed result: how many entries of `rows` are valid. `rows` is one
    *  append only array shared by every update of the run, so its length can
    *  run ahead of what was last handed to the UI. Absent means every entry
@@ -523,7 +569,12 @@ export function resultRowCount(result: {
 }
 
 /** Which engine's explain produced a plan. Mirrors Rust `PlanDialect`. */
-export type PlanDialect = "postgres" | "sqlite" | "mongodb";
+export type PlanDialect =
+  | "postgres"
+  | "sqlite"
+  | "mongodb"
+  | "mysql"
+  | "mariadb";
 
 /** `estimate` never runs the statement; `analyze` runs it for real timings. */
 export type PlanMode = "estimate" | "analyze";
@@ -575,6 +626,100 @@ export interface CancelOutcome {
   state: CancelState;
 }
 
+/** Who stopped a run, when it was not the run's own Stop button. */
+export type CancelSource = "monitor";
+
+// ---------------------------------------------------------------------------
+//  Server monitor (spec 0025). Mirrors `crates/dh-core/src/api/common/monitor.rs`.
+// ---------------------------------------------------------------------------
+
+export type MonitorEngine = "postgres" | "mongodb";
+
+/** `waiting` is an active session stuck on a lock. */
+export type SessionState = "active" | "idle" | "idle_in_tx" | "waiting";
+
+export interface SessionRow {
+  /** Postgres pid, or Mongo opid (`shard0:123` through mongos). */
+  id: string;
+  user: string | null;
+  database: string | null;
+  state: SessionState;
+  /** Time since the current query started. Null for idle sessions. */
+  query_ms: number | null;
+  /** Age of the open transaction. */
+  xact_ms: number | null;
+  /** Postgres only: the server's own text, sent back with a kill. */
+  backend_start: string | null;
+  wait: string | null;
+  /** Mongo `op`. */
+  op_type: string | null;
+  query: string | null;
+  query_hidden: boolean;
+  client: string | null;
+  app_name: string | null;
+  is_this_app: boolean;
+  shard: string | null;
+  run_id: string | null;
+  can_cancel: boolean;
+  /** Always false on Mongo. */
+  can_terminate: boolean;
+}
+
+/** `waiter_id` waits on a lock `blocker_id` holds. Postgres only. */
+export interface BlockEdge {
+  waiter_id: string;
+  blocker_id: string;
+  lock_mode: string | null;
+  relation: string | null;
+  wait_ms: number;
+}
+
+/** Counts over the whole server, even when `sessions` is capped. */
+export interface MonitorCounts {
+  total: number;
+  active: number;
+  idle: number;
+  idle_in_tx: number;
+  waiting: number;
+  blocked: number;
+  slow_at_5s: number;
+}
+
+export interface Visibility {
+  level: "full" | "partial";
+  /** `pg_read_all_stats`, `pg_signal_backend`, `inprog`, `killop`. */
+  missing: string[];
+}
+
+export interface MonitorSnapshot {
+  taken_at: string;
+  engine: MonitorEngine;
+  server_version: string;
+  node_note: string | null;
+  app_name_self: string;
+  visibility: Visibility;
+  counts: MonitorCounts;
+  total_sessions: number;
+  sessions: SessionRow[];
+  blocks: BlockEdge[];
+}
+
+export type KillAction = "cancel" | "terminate" | "kill_op";
+
+export interface KillRequest {
+  action: KillAction;
+  id: string;
+  backend_start?: string | null;
+  run_id?: string | null;
+}
+
+export type KillResult = "done" | "gone" | "refused" | "stopped_run";
+
+export interface KillOutcome {
+  result: KillResult;
+  message: string | null;
+}
+
 export function prettyKind(kind: DbKind): string {
   switch (kind) {
     case "sqlite":
@@ -583,6 +728,8 @@ export function prettyKind(kind: DbKind): string {
       return "PostgreSQL";
     case "mysql":
       return "MySQL";
+    case "mariadb":
+      return "MariaDB";
     case "mongodb":
       return "MongoDB";
     case "documentdb":
@@ -701,6 +848,26 @@ export type QueryOp =
 /** How alter_column treats the column's DEFAULT clause. */
 export type DefaultMode = "keep" | "set" | "drop";
 
+/** MySQL column attributes (spec 0025 AC-18) on an add or alter column op;
+ *  other engines ignore them. On an alter, an absent field keeps what the
+ *  column has now, and `""` removes `on_update` or `comment`. */
+export interface ColumnAttrs {
+  auto_increment?: boolean;
+  /** e.g. `CURRENT_TIMESTAMP`. */
+  on_update?: string;
+  comment?: string;
+}
+
+/** How one statement of a schema apply ended (spec 0025 AC-19). */
+export type StatementStatus = "applied" | "failed" | "not_run";
+
+/** Every statement a schema apply planned, in order. Postgres and SQLite
+ *  apply in one transaction, so they only ever report all applied (a
+ *  failure throws); MySQL stops at the first failure. */
+export interface SchemaApplyReport {
+  statements: { sql: string; status: StatementStatus; message?: string }[];
+}
+
 export type SchemaOp =
   | { kind: "rename_table"; table: string; new_name: string }
   /** SQLite cannot add NOT NULL without DEFAULT to a non-empty table; the
@@ -712,6 +879,7 @@ export type SchemaOp =
       data_type: string;
       not_null?: boolean;
       default?: string | null;
+      attrs?: ColumnAttrs;
     }
   | { kind: "drop_column"; table: string; name: string }
   /** Fields left undefined keep their current value; only-name changes run a
@@ -726,6 +894,7 @@ export type SchemaOp =
       default_mode?: DefaultMode;
       /** Literal for default_mode 'set' (normalized backend-side). */
       default_value?: string | null;
+      attrs?: ColumnAttrs;
     }
   | {
       kind: "create_index";
@@ -765,7 +934,16 @@ export type SchemaOp =
       on_update?: string;
     }
   /** Drop a named constraint (Postgres; covers FK constraints). */
-  | { kind: "drop_constraint"; table: string; name: string };
+  | { kind: "drop_constraint"; table: string; name: string }
+  /** A table's default charset, collation and comment (MySQL). An absent
+   *  field keeps the current value; an empty comment removes it. */
+  | {
+      kind: "set_table_options";
+      table: string;
+      charset?: string;
+      collation?: string;
+      comment?: string;
+    };
 /** Snapshot of a grid's rows, captured by the data-export feature. Lives in
  *  shared/api because the store's GridBridge hands it to the export menu. */
 export interface ExportPayload {

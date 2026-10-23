@@ -175,6 +175,10 @@ async fn build_options(params: &MongoParams) -> DbResult<ClientOptions> {
     if let Some(secs) = params.max_idle_time_secs {
         options.max_idle_time = Some(std::time::Duration::from_secs(secs as u64));
     }
+    // Every client names itself `DH Studio (<tag>)` (spec 0025 AC-11).
+    if options.app_name.is_none() {
+        options.app_name = Some(crate::db::app_name());
+    }
     Ok(options)
 }
 
@@ -247,6 +251,7 @@ impl MongoAdapter {
             client,
             database: std::sync::RwLock::new(params.database.clone()),
             guard: ReadOnlyGuard::new(params.guard.read_only),
+            monitor_cache: std::sync::Mutex::new(None),
             _ssh_tunnel: tunnel,
         })
     }

@@ -64,6 +64,7 @@ describe("treeMenuItems", () => {
       "New SQL tab here",
       "Copy name",
       "Collapse all",
+      "Server monitor",
       "Set as default",
       "Disconnect",
     ]);
@@ -75,6 +76,7 @@ describe("treeMenuItems", () => {
       "New SQL tab here",
       "Copy name",
       "Collapse all",
+      "Server monitor",
     ]);
     const disconnect = byLabel(pgDb, "Disconnect");
     expect(disconnect?.destructive).toBe(true);
@@ -115,6 +117,7 @@ describe("treeMenuItems", () => {
       "New console here",
       "Copy database name",
       "Open relation diagram",
+      "Server monitor",
       "Set as default",
       "Disconnect",
     ]);

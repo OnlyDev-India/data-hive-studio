@@ -113,6 +113,7 @@ export function TreeToggleRow({
 }
 
 const LEAF_MENU = treeMenuItems({ kind: "leaf" });
+const DEFINITION_MENU = treeMenuItems({ kind: "definition_leaf" });
 
 /** The line a list shows when its fetch failed (`null`) or came back empty. */
 function EmptyLine({
@@ -143,12 +144,16 @@ export function LazyObjectRows({
   depth,
   collapsible_extra = false,
   on_copy,
+  on_open,
 }: {
   state: "loading" | SchemaObject[] | null | undefined;
   empty_label: string;
   depth: number;
   collapsible_extra?: boolean;
   on_copy: (name: string) => void;
+  /** MySQL routines, triggers and events: double click, Enter or the menu's
+   *  Open definition shows the object's definition. */
+  on_open?: (name: string) => void;
 }) {
   const pad = depthPadding(depth);
   const [open_names, setOpenNames] = useState<Set<string>>(new Set());
@@ -164,12 +169,24 @@ export function LazyObjectRows({
         {state.map((obj) => (
           <TreeRowMenu
             key={obj.name}
-            items={LEAF_MENU}
-            onPick={() => on_copy(obj.name)}
+            items={on_open ? DEFINITION_MENU : LEAF_MENU}
+            onPick={(a) =>
+              a === "open" && on_open ? on_open(obj.name) : on_copy(obj.name)
+            }
           >
             <div
               tabIndex={0}
-              className="text-foreground/80 text-body focus-visible:bg-muted/50 truncate rounded py-0.5 font-mono outline-none"
+              className={cn(
+                "text-foreground/80 text-body focus-visible:bg-muted/50 truncate rounded py-0.5 font-mono outline-none",
+                on_open && "hover:bg-muted/50 cursor-pointer",
+              )}
+              onDoubleClick={on_open && (() => on_open(obj.name))}
+              onKeyDown={
+                on_open &&
+                ((e) => {
+                  if (e.key === "Enter") on_open(obj.name);
+                })
+              }
               style={pad}
               title={obj.extra ? `${obj.name} — ${obj.extra}` : obj.name}
             >
@@ -256,6 +273,8 @@ export function LazyTableRows({
   on_view_structure,
   on_view_grants,
   on_copy,
+  on_definition,
+  on_rename,
   on_duplicate,
   on_import,
   on_drop,
@@ -281,6 +300,8 @@ export function LazyTableRows({
   on_view_structure?: (name: string) => void;
   on_view_grants?: (name: string) => void;
   on_copy?: (name: string) => void;
+  on_definition?: (name: string) => void;
+  on_rename?: (name: string) => void;
   on_duplicate?: (name: string) => void;
   on_import?: (name: string) => void;
   on_drop?: (name: string) => void;
@@ -320,6 +341,8 @@ export function LazyTableRows({
             }
             on_view_grants={on_view_grants && (() => on_view_grants(obj.name))}
             on_copy={on_copy && (() => on_copy(obj.name))}
+            on_definition={on_definition && (() => on_definition(obj.name))}
+            on_rename={on_rename && (() => on_rename(obj.name))}
             on_duplicate={on_duplicate && (() => on_duplicate(obj.name))}
             on_import={on_import && (() => on_import(obj.name))}
             on_drop={on_drop && (() => on_drop(obj.name))}

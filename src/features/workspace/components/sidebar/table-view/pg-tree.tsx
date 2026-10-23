@@ -62,6 +62,7 @@ export function PgTree({
   } = tree;
   const open_structure = useStudioStore((s) => s.openStructure);
   const openRolesTab = useStudioStore((s) => s.openRolesTab);
+  const open_monitor = useStudioStore((s) => s.openMonitor);
   const push_notification = useStudioStore((s) => s.pushNotification);
   const open_import = useStudioStore((s) => s.openImport);
   const open_table_dialog = useStudioStore((s) => s.openTableDialog);
@@ -99,6 +100,8 @@ export function PgTree({
         return collapse_all(`db:${db}`);
       case "set_default":
         return set_default_database(db);
+      case "server_monitor":
+        return open_monitor(conn_id);
       case "disconnect":
         // Any database but the LAST one connected just drops that one. The
         // last one falls through to the whole connection teardown, same as

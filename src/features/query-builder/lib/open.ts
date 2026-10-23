@@ -1,8 +1,9 @@
 import { getActiveSchema } from "@/shared/api";
+import { sqlDialectOf } from "@/shared/lib/sql-ident";
 import { openQueryBuilderFor, useStudioStore } from "@/shared/store";
 import { MAX_STATEMENTS, parseStatements, splitStatements } from "./parse-back";
 
-/** Open a new query builder tab on a Postgres or SQLite connection,
+/** Open a new query builder tab on a Postgres, SQLite or MySQL connection,
  *  starting with a FROM card for `table` when given. With no schema named,
  *  a Postgres tab takes the connection's active one. */
 export async function openQueryBuilderOn(
@@ -29,7 +30,8 @@ export async function openQueryBuilderText(
   const s = useStudioStore.getState();
   const conn = s.open.find((c) => c.id === conn_id);
   if (!conn) return false;
-  const statements = splitStatements(text);
+  const dialect = sqlDialectOf(conn.kind);
+  const statements = splitStatements(text, dialect);
   if (statements.length > MAX_STATEMENTS) {
     s.pushNotification({
       kind: "error",
@@ -38,10 +40,7 @@ export async function openQueryBuilderText(
     });
     return false;
   }
-  const queries = parseStatements(
-    text,
-    conn.kind === "postgres" ? "postgresql" : "sqlite",
-  );
+  const queries = parseStatements(text, dialect);
   if (queries.length === 0) return false;
   const schema =
     conn.kind === "postgres" && target.schema === undefined

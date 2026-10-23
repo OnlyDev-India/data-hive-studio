@@ -156,12 +156,16 @@ function addable(
   if (k === "having" && !present.has("group")) return false;
   if (k === "join" && !present.has("from")) return false;
   if (k === "using" && dialect === "sqlite") return false;
+  // MySQL writes upserts as ON DUPLICATE KEY UPDATE and has no RETURNING.
+  if ((k === "conflict" || k === "returning") && dialect === "mysql")
+    return false;
   return true;
 }
 
 /** The kinds a card added at `index` may be: only the ones that fit
  *  between its neighbours and are not there yet; HAVING only after a
- *  GROUP BY, JOIN only after a FROM, USING never on SQLite. Fixed cards are
+ *  GROUP BY, JOIN only after a FROM, USING never on SQLite, ON CONFLICT and
+ *  RETURNING never on MySQL. Fixed cards are
  *  never offered, they are always there. */
 export function slotKinds(
   clauses: Clause[],

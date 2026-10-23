@@ -7,6 +7,7 @@ mod plan;
 mod compare;
 mod graph;
 mod sql_builder;
+mod monitor;
 
 pub use sql_builder::{
     SqlBuilderPreviewRequest,
@@ -36,7 +37,7 @@ pub use compare::{
     RowsRead,
     TableRef,
 };
-pub use connection::{DbKind, ConnGuard, ENV_COLOR_KEYS, ENV_LABEL_MAX_CHARS, ConnectionInfo};
+pub use connection::{DbKind, ConnGuard, ENV_COLOR_KEYS, ENV_LABEL_MAX_CHARS, ConnectionInfo, ServerDescriptor};
 pub use schema::{
     TableInfo,
     ColumnInfo,
@@ -44,11 +45,12 @@ pub use schema::{
     FieldShape,
     ForeignKeyInfo,
     IndexInfo,
+    TableOptions,
     TableSchema,
     TriggerInfo,
 };
 pub use query::{QueryResult, QueryChunk, FilterOp, GridFilterCond, OrderByCond, QueryOp};
-pub use schema_ops::{DefaultMode, SchemaOp};
+pub use schema_ops::{ColumnAttrs, DefaultMode, SchemaApplyReport, SchemaOp, StatementOutcome, StatementStatus};
 pub use import::{
     ImportCapabilities,
     ImportData,
@@ -58,5 +60,20 @@ pub use import::{
     ImportRequest,
     RowFailure,
     MAX_KEPT_FAILURES,
+};
+pub use monitor::{
+    BlockEdge,
+    CancelSource,
+    KillAction,
+    KillOutcome,
+    KillRequest,
+    KillResult,
+    MonitorCounts,
+    MonitorEngine,
+    MonitorSnapshot,
+    SessionRow,
+    SessionState,
+    Visibility,
+    VisibilityLevel,
 };
 pub use plan::{PlanDialect, PlanMode, PlanNode, PlanResult};

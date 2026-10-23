@@ -1,4 +1,4 @@
-import { quoteIdent } from "@/shared/lib/sql-ident";
+import { quoteIdent, sqlDialectOf } from "@/shared/lib/sql-ident";
 import { useStudioStore } from "./store";
 import { selectQuery, type BuilderQuery } from "./types";
 
@@ -16,11 +16,13 @@ export function openQueryBuilderFor(
   },
 ) {
   const pg = conn.kind === "postgres";
-  if (!pg && conn.kind !== "sqlite") return;
-  const body = t.table ? quoteIdent(t.table, pg ? "postgresql" : "sqlite") : "";
+  const my = conn.kind === "mysql" || conn.kind === "mariadb";
+  if (!pg && !my && conn.kind !== "sqlite") return;
+  const body = t.table ? quoteIdent(t.table, sqlDialectOf(conn.kind)) : "";
   const queries = t.queries ?? [selectQuery(body)];
   useStudioStore.getState().openQueryBuilder(conn.id, {
-    database: pg ? (t.database ?? null) : null,
+    // MySQL keeps the database, never a schema.
+    database: pg || my ? (t.database ?? null) : null,
     schema: pg ? (t.schema ?? "public") : null,
     queries,
     picked_query_ids: queries.length > 0 ? [queries[0].id] : [],

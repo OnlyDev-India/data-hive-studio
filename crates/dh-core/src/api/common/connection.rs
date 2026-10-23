@@ -8,8 +8,11 @@ pub enum DbKind {
     Sqlite,
     #[allow(dead_code)]
     Postgres,
-    #[allow(dead_code)]
     Mysql,
+    /// MariaDB: served by the same adapter as `Mysql` (spec 0025), which
+    /// branches on the server it detects, never on this variant. Kept so a
+    /// saved connection remembers which picker entry and icon it came from.
+    Mariadb,
     #[allow(dead_code)]
     Mongodb,
     /// Amazon DocumentDB — speaks the MongoDB wire protocol, so it's
@@ -27,6 +30,7 @@ impl DbKind {
             DbKind::Sqlite => "SQLite",
             DbKind::Postgres => "PostgreSQL",
             DbKind::Mysql => "MySQL",
+            DbKind::Mariadb => "MariaDB",
             DbKind::Mongodb => "MongoDB",
             DbKind::DocumentDb => "Amazon DocumentDB",
         }
@@ -113,8 +117,22 @@ pub struct ConnectionInfo {
     /// for databases that only exist in-memory/temp (e.g. freshly created).
     #[serde(default)]
     pub source_path: Option<String>,
+    /// MySQL and MariaDB only (spec 0025 AC-2): the server the adapter
+    /// detected at connect, which may differ from the picker entry (`kind`).
+    /// The editor picks its SQL dialect from this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<ServerDescriptor>,
     #[serde(flatten)]
     pub guard: ConnGuard,
+}
+
+/// The detected server behind a MySQL family connection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ServerDescriptor {
+    /// `mysql` or `mariadb`.
+    pub flavor: String,
+    /// `major.minor.patch`.
+    pub version: String,
 }
 
 #[cfg(test)]
@@ -185,6 +203,7 @@ mod conn_guard_tests {
             name: "db".into(),
             kind: DbKind::Postgres,
             source_path: None,
+            server: None,
             guard: ConnGuard {
                 read_only: true,
                 env_label: Some("Production".into()),

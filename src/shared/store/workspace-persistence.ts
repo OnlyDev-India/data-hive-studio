@@ -31,16 +31,23 @@ export function stableConnKey(
 }
 
 /** The `stableConnKey` of the connection a saved entry opens. A blank
- *  Postgres database connects to `postgres` (see `pgConnectParams`), and
- *  DocumentDB connects as `mongodb`. */
+ *  Postgres database connects to `postgres` (see `pgConnectParams`),
+ *  DocumentDB connects as `mongodb`, and a MySQL connection with no database
+ *  is named `user@host` (spec 0025). */
 export function stableKeyOfSaved(
-  params: Pick<SavedConnParams, "kind" | "database" | "source_path">,
+  params: Pick<
+    SavedConnParams,
+    "kind" | "database" | "source_path" | "user" | "host"
+  >,
 ): string {
   switch (params.kind) {
     case "sqlite":
       return `sqlite:${params.source_path ?? ""}`;
     case "postgres":
       return `postgres:${params.database.trim() || "postgres"}`;
+    case "mysql":
+    case "mariadb":
+      return `${params.kind}:${params.database.trim() || `${params.user}@${params.host}`}`;
     default:
       return `mongodb:${params.database.trim()}`;
   }
@@ -167,6 +174,13 @@ function rekeySaved(
     sqlSeeds: Object.fromEntries(
       Object.entries(saved.sqlSeeds).map(([k, v]) => [rekey(k), v]),
     ),
+    ...(saved.seedFilePaths
+      ? {
+          seedFilePaths: Object.fromEntries(
+            Object.entries(saved.seedFilePaths).map(([k, v]) => [rekey(k), v]),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -188,16 +202,22 @@ export function savedWorkspaceOf(
       : state.relationLayouts[conn.id];
   const relationLayouts =
     layouts && Object.keys(layouts).length > 0 ? layouts : undefined;
+  const monitorSettings = state.monitorSettings[conn.id];
+  const showSystemDatabases = state.showSystemDatabases[conn.id] === true;
   const found = state.workspaces[conn.id];
   const ws = found && found.tabs.length > 0 ? found : null;
-  if (!ws && !relationLayouts) return null;
+  if (!ws && !relationLayouts && !monitorSettings && !showSystemDatabases)
+    return null;
   if (!ws)
     return {
       workspace: found ?? DEFAULT_WORKSPACE,
       sqlSeeds: {},
-      relationLayouts,
+      ...(relationLayouts ? { relationLayouts } : {}),
+      ...(monitorSettings ? { monitorSettings } : {}),
+      ...(showSystemDatabases ? { showSystemDatabases } : {}),
     };
   const sqlSeeds: Record<string, string> = {};
+  const seedFilePaths: Record<string, string> = {};
   const compareSetups: Record<string, CompareSetup> = {};
   const aggregationSetups: Record<string, AggregationSetup> = {};
   const queryBuilderSetups: Record<string, QueryBuilderSetup> = {};
@@ -205,6 +225,8 @@ export function savedWorkspaceOf(
     const tk = tabKey(tab);
     const seed = state.sqlSeeds[tk];
     if (seed !== undefined) sqlSeeds[tk] = seed;
+    const file = state.seedFilePaths[tk];
+    if (file !== undefined) seedFilePaths[tk] = file;
     const setup = state.compareTabs[tk];
     if (setup) compareSetups[tk] = setup;
     const pipeline = state.aggregationTabs[tk];
@@ -215,12 +237,15 @@ export function savedWorkspaceOf(
   return {
     workspace: ws,
     sqlSeeds,
+    ...(Object.keys(seedFilePaths).length > 0 ? { seedFilePaths } : {}),
     ...(Object.keys(compareSetups).length > 0 ? { compareSetups } : {}),
     ...(Object.keys(aggregationSetups).length > 0 ? { aggregationSetups } : {}),
     ...(Object.keys(queryBuilderSetups).length > 0
       ? { queryBuilderSetups }
       : {}),
     ...(relationLayouts ? { relationLayouts } : {}),
+    ...(monitorSettings ? { monitorSettings } : {}),
+    ...(showSystemDatabases ? { showSystemDatabases } : {}),
   };
 }
 

@@ -42,6 +42,9 @@ pub struct MongoRunResult {
     /// here). Absent from an older server's reply.
     #[serde(default)]
     pub cancelled: bool,
+    /// Who stopped it, when not the run's own Stop (spec 0025).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_source: Option<crate::api::CancelSource>,
 }
 
 /// An aggregation builder pipeline, the cards in order.

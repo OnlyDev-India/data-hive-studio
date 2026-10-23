@@ -14,7 +14,7 @@ export function KindPicker({
   showNew,
   onNew,
 }: {
-  selected: SavedDbKind;
+  selected: SavedDbKind | null;
   onSelect: (kind: SavedDbKind) => void;
   onNext: () => void;
   showNew: boolean;
@@ -23,7 +23,7 @@ export function KindPicker({
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const visible = KIND_ITEMS.filter((i) => i.label.toLowerCase().includes(q));
-  const current = kindItem(selected);
+  const current = selected ? kindItem(selected) : null;
 
   const choose = (kind: SavedDbKind) => {
     onSelect(kind);
@@ -38,16 +38,22 @@ export function KindPicker({
       footer={
         <>
           <span className="text-muted-foreground text-small flex min-w-0 items-center gap-2">
-            Selected:
-            <current.icon aria-hidden className="size-4 shrink-0" />
-            <span className="text-foreground truncate font-medium">
-              {current.label}
-            </span>
+            {current ? (
+              <>
+                Selected:
+                <current.icon aria-hidden className="size-4 shrink-0" />
+                <span className="text-foreground truncate font-medium">
+                  {current.label}
+                </span>
+              </>
+            ) : (
+              "Choose a database type"
+            )}
           </span>
           <Button
             className="ml-auto"
             onClick={onNext}
-            disabled={visible.length === 0}
+            disabled={!current || visible.length === 0}
           >
             Next
             <ArrowRight className="size-3.5" />

@@ -89,6 +89,8 @@ export function ApplyChangesDialog({
   selectable = false,
   applying = false,
   notice,
+  description,
+  statements,
   disabled_reason,
   on_apply,
   on_close,
@@ -107,6 +109,12 @@ export function ApplyChangesDialog({
   applying?: boolean;
   /** Shown above the changes (warnings about what applying does). */
   notice?: React.ReactNode;
+  /** Replaces the default "one transaction, all or nothing" line, for an
+   *  engine that doesn't apply that way (MySQL). */
+  description?: string;
+  /** The exact statements Apply runs (MySQL's preview): `null` while they
+   *  load, a string when the preview failed. Absent = not shown. */
+  statements?: string[] | string | null;
   /** Why Apply is off, when it is (a read only target). */
   disabled_reason?: string;
   on_apply: (keepIds: Set<string>) => void;
@@ -187,9 +195,10 @@ export function ApplyChangesDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">{title}</DialogTitle>
           <DialogDescription>
-            {selectable
-              ? `${all} staged change${all === 1 ? "" : "s"}. Uncheck anything you don’t want to apply.`
-              : `${all} change${all === 1 ? "" : "s"} will run as one transaction — all or nothing.`}
+            {description ??
+              (selectable
+                ? `${all} staged change${all === 1 ? "" : "s"}. Uncheck anything you don’t want to apply.`
+                : `${all} change${all === 1 ? "" : "s"} will run as one transaction — all or nothing.`)}
           </DialogDescription>
         </DialogHeader>
 
@@ -234,12 +243,46 @@ export function ApplyChangesDialog({
           )}
         </div>
 
+        {statements !== undefined && (
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-small font-medium">
+              Statements that will run, in order
+            </span>
+            <div className="rounded-control bg-muted/40 max-h-48 overflow-y-auto border p-2">
+              {statements === null ? (
+                <p className="text-muted-foreground text-small">Loading…</p>
+              ) : typeof statements === "string" ? (
+                <p className="text-destructive text-small font-mono">
+                  {statements}
+                </p>
+              ) : (
+                <ol className="flex list-decimal flex-col gap-1.5 pl-5">
+                  {statements.map((sql, i) => (
+                    <li
+                      key={i}
+                      className="wrap-break-words text-small font-mono whitespace-pre-wrap"
+                    >
+                      {sql};
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="outline" disabled={applying} onClick={on_close}>
             Cancel
           </Button>
           <Button
-            disabled={applying || checked === 0 || !!disabled_reason}
+            disabled={
+              applying ||
+              checked === 0 ||
+              !!disabled_reason ||
+              statements === null ||
+              typeof statements === "string"
+            }
             title={disabled_reason}
             onClick={confirm}
           >

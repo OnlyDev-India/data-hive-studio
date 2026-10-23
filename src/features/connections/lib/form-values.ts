@@ -31,6 +31,10 @@ export interface PgFormValues extends GuardFormValues, SshFormValue {
   max_lifetime_secs: string;
 }
 
+/** MySQL and MariaDB (spec 0025): the Postgres fields, with MySQL's SSL
+ *  mode names and an optional database. */
+export type MySqlFormValues = PgFormValues;
+
 export interface MongoFormValues extends GuardFormValues, SshFormValue {
   name: string;
   host: string;

@@ -88,7 +88,9 @@ export function validateForm(draft: FormDraft, web = WEB): FieldError[] {
         });
       }
       break;
-    case "postgres": {
+    case "postgres":
+    case "mysql":
+    case "mariadb": {
       const v = draft.values;
       checkPort(v.port, out);
       checkSsh(v, web, out);

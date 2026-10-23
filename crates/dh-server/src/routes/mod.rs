@@ -5,6 +5,7 @@
 mod browse;
 mod compare;
 mod data;
+mod monitor;
 mod mongo;
 mod pipeline;
 mod sql_builder;
@@ -13,6 +14,8 @@ mod stream;
 mod tests;
 #[cfg(test)]
 mod stream_tests;
+#[cfg(test)]
+mod mysql_tests;
 
 use crate::config::Config;
 use crate::connect::{self, ConnectError};
@@ -156,13 +159,16 @@ async fn connect_route(State(st): State<Shared>, Json(body): Json<Value>) -> Res
         Ok(p) => p,
         Err(e) => return connect_error(e),
     };
-    let adapter = match connect::open(params, &secrets).await {
-        Ok(a) => a,
+    let opened = match connect::open(params, &secrets).await {
+        Ok(o) => o,
         Err(e) => return connect_error(e),
     };
     let handle = new_handle();
-    close_all(st.handles.insert(handle.clone(), adapter));
-    Json(json!({"handle": handle})).into_response()
+    close_all(st.handles.insert(handle.clone(), opened.adapter));
+    match opened.server {
+        Some(server) => Json(json!({"handle": handle, "server": server})).into_response(),
+        None => Json(json!({"handle": handle})).into_response(),
+    }
 }
 
 fn connect_error(e: ConnectError) -> Response {
@@ -230,6 +236,7 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
             "/v1/c/{handle}/schema-objects",
             post(browse::schema_objects),
         )
+        .route("/v1/c/{handle}/definition", post(browse::definition))
         .route("/v1/c/{handle}/roles", get(browse::roles))
         .route("/v1/c/{handle}/extensions", post(browse::extensions))
         .route("/v1/c/{handle}/role-details", get(browse::role_details))
@@ -248,8 +255,11 @@ pub fn router(state: Shared, static_dir: Option<&str>) -> Router {
         .route("/v1/c/{handle}/compare/data", post(compare::data))
         .route("/v1/c/{handle}/compare/file", post(compare::file))
         .route("/v1/c/{handle}/explain", post(data::explain))
+        .route("/v1/c/{handle}/monitor", get(monitor::snapshot))
+        .route("/v1/c/{handle}/monitor/kill", post(monitor::kill))
         .route("/v1/c/{handle}/op", post(data::op))
         .route("/v1/c/{handle}/schema-ops", post(data::schema_ops))
+        .route("/v1/c/{handle}/schema-ops/plan", post(data::schema_ops_plan))
         .route("/v1/c/{handle}/duplicate", post(data::duplicate))
         .route(
             "/v1/c/{handle}/import",

@@ -1,5 +1,9 @@
 import type { SavedDbKind } from "@/shared/api";
-import type { MongoFormValues, PgFormValues } from "./form-values";
+import type {
+  MongoFormValues,
+  MySqlFormValues,
+  PgFormValues,
+} from "./form-values";
 
 export type UrlImportResult<T> =
   { ok: true; patch: Partial<T> } | { ok: false; message: string };
@@ -11,6 +15,8 @@ const SCHEME_KIND: Record<string, { kind: SavedDbKind; label: string }> = {
   "postgresql:": { kind: "postgres", label: "PostgreSQL" },
   "mongodb:": { kind: "mongodb", label: "MongoDB" },
   "mongodb+srv:": { kind: "mongodb", label: "MongoDB" },
+  "mysql:": { kind: "mysql", label: "MySQL" },
+  "mariadb:": { kind: "mariadb", label: "MariaDB" },
 };
 
 function accepts(kind: SavedDbKind, protocol: string): boolean {
@@ -19,6 +25,9 @@ function accepts(kind: SavedDbKind, protocol: string): boolean {
   if (kind === "mongodb")
     return protocol === "mongodb:" || protocol === "mongodb+srv:";
   if (kind === "documentdb") return protocol === "mongodb:";
+  // One adapter serves both, so either scheme fits either entry.
+  if (kind === "mysql" || kind === "mariadb")
+    return protocol === "mysql:" || protocol === "mariadb:";
   return false;
 }
 
@@ -34,6 +43,10 @@ export function parseConnectionUrl(
   kind: "postgres",
   raw: string,
 ): UrlImportResult<PgFormValues>;
+export function parseConnectionUrl(
+  kind: "mysql" | "mariadb",
+  raw: string,
+): UrlImportResult<MySqlFormValues>;
 export function parseConnectionUrl(
   kind: "mongodb" | "documentdb",
   raw: string,
@@ -73,6 +86,17 @@ export function parseConnectionUrl(
     set(patch, "ssl_ca_file", q.get("sslrootcert"));
     set(patch, "ssl_client_cert_file", q.get("sslcert"));
     set(patch, "ssl_client_key_file", q.get("sslkey"));
+    return { ok: true, patch };
+  }
+
+  if (kind === "mysql" || kind === "mariadb") {
+    const patch: Partial<MySqlFormValues> = { ...common };
+    if (u.port) patch.port = u.port;
+    const mode = q.get("ssl-mode") ?? q.get("sslMode") ?? q.get("ssl_mode");
+    if (mode) patch.ssl_mode = mode.toUpperCase().replaceAll("-", "_");
+    set(patch, "ssl_ca_file", q.get("ssl-ca"));
+    set(patch, "ssl_client_cert_file", q.get("ssl-cert"));
+    set(patch, "ssl_client_key_file", q.get("ssl-key"));
     return { ok: true, patch };
   }
 

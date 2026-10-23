@@ -30,16 +30,17 @@ afterEach(() => {
 });
 
 describe("canExplain", () => {
-  it("offers Explain on SQLite, PostgreSQL and MongoDB", async () => {
+  it("offers Explain on SQLite, PostgreSQL, MongoDB, MySQL and MariaDB", async () => {
     const { canExplain } = await loadExplain(false);
     expect(canExplain("sqlite")).toBe(true);
     expect(canExplain("postgres")).toBe(true);
     expect(canExplain("mongodb")).toBe(true);
+    expect(canExplain("mysql")).toBe(true);
+    expect(canExplain("mariadb")).toBe(true);
   });
 
   it("does not offer Explain for engines with no plan support", async () => {
     const { canExplain } = await loadExplain(false);
-    expect(canExplain("mysql")).toBe(false);
     expect(canExplain("documentdb")).toBe(false);
     expect(canExplain(undefined)).toBe(false);
   });
@@ -51,10 +52,12 @@ describe("canExplain", () => {
 });
 
 describe("canExplainAnalyze", () => {
-  it("offers Explain Analyze on PostgreSQL and MongoDB", async () => {
+  it("offers Explain Analyze on PostgreSQL, MongoDB, MySQL and MariaDB", async () => {
     const { canExplainAnalyze } = await loadExplain(false);
     expect(canExplainAnalyze("postgres")).toBe(true);
     expect(canExplainAnalyze("mongodb")).toBe(true);
+    expect(canExplainAnalyze("mysql")).toBe(true);
+    expect(canExplainAnalyze("mariadb")).toBe(true);
   });
 
   it("hides Explain Analyze on SQLite, which has no timings", async () => {
@@ -64,7 +67,7 @@ describe("canExplainAnalyze", () => {
 
   it("hides Explain Analyze when the engine cannot explain at all", async () => {
     const { canExplainAnalyze } = await loadExplain(false);
-    expect(canExplainAnalyze("mysql")).toBe(false);
+    expect(canExplainAnalyze("documentdb")).toBe(false);
     expect(canExplainAnalyze(undefined)).toBe(false);
   });
 });

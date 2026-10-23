@@ -23,6 +23,7 @@ mod graph_tests;
 mod objects;
 mod query;
 mod explain;
+mod monitor;
 mod edit;
 mod ddl;
 mod import_rows;

@@ -143,14 +143,16 @@ function Pickers({
   const engine = conn ? engine_of(conn.kind) : null;
   const own_db = conn ? recentParams[conn.id]?.database : undefined;
 
+  const named_db = engine === "mongodb" || engine === "mysql";
   const dbs = useAsync(
-    conn && (engine === "postgres" || engine === "mongodb")
-      ? `dbs:${conn.id}`
-      : null,
+    conn && (engine === "postgres" || named_db) ? `dbs:${conn.id}` : null,
     () => listDatabases(conn_id),
   );
   // Mongo always names its database; Postgres leaves the own one implicit.
   const mongo_db = database || own_db || dbs.data?.[0] || "";
+  // MySQL names it too, but never guesses one for a connection with no
+  // default database: the first in the list would be a system one.
+  const mysql_db = database || own_db || "";
 
   const schemas = useAsync(
     conn && engine === "postgres" ? `schemas:${conn.id}:${database}` : null,
@@ -176,7 +178,11 @@ function Pickers({
         ? mongo_db
           ? `tables:${conn.id}:${mongo_db}`
           : null
-        : `tables:${conn.id}`;
+        : engine === "mysql"
+          ? mysql_db
+            ? `tables:${conn.id}:${mysql_db}`
+            : null
+          : `tables:${conn.id}`;
   const tables = useAsync(tables_key, async () => {
     const id = conn_id;
     if (engine === "postgres")
@@ -185,6 +191,10 @@ function Pickers({
       ).map((o) => o.name);
     if (engine === "mongodb")
       return (await listSchemaObjects(id, "", "table", mongo_db)).map(
+        (o) => o.name,
+      );
+    if (engine === "mysql")
+      return (await listSchemaObjects(id, "", "table", mysql_db)).map(
         (o) => o.name,
       );
     return (await listTables(id))
@@ -205,7 +215,9 @@ function Pickers({
         ? { ...(database ? { database } : {}), schema: pg_schema }
         : engine === "mongodb"
           ? { database: mongo_db }
-          : {}),
+          : engine === "mysql"
+            ? { database: mysql_db }
+            : {}),
       table,
     });
   };
@@ -238,12 +250,18 @@ function Pickers({
             clear();
           }}
         />
-        {conn && (engine === "postgres" || engine === "mongodb") && (
+        {conn && (engine === "postgres" || named_db) && (
           <Picker
             aria="Database"
             placeholder="Database"
             loading={dbs.loading}
-            value={engine === "postgres" ? database || OWN_DB : mongo_db}
+            value={
+              engine === "postgres"
+                ? database || OWN_DB
+                : engine === "mysql"
+                  ? mysql_db
+                  : mongo_db
+            }
             options={db_options}
             on_change={(d) => {
               setDatabase(d === OWN_DB ? "" : d);

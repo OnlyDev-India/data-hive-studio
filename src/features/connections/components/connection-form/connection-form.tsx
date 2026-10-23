@@ -102,6 +102,13 @@ export function ConnectionForm({ onNew }: { onNew: () => void }) {
         >
           {draft.kind === "postgres" ? (
             <PgForm values={draft.values} patch={d.patchPg} {...common} />
+          ) : draft.kind === "mysql" || draft.kind === "mariadb" ? (
+            <PgForm
+              kind={draft.kind}
+              values={draft.values}
+              patch={d.patchMysql}
+              {...common}
+            />
           ) : draft.kind === "sqlite" ? (
             <SqliteForm
               values={draft.values}

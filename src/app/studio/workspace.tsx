@@ -44,6 +44,7 @@ import { ActivityDetailsTab } from "@/features/activity";
 import { TablePane, MongoCollectionPane } from "@/features/table-explorer";
 import { MongoNewCollectionTab, RolesTab } from "@/features/schema-designer";
 import { CompareTab } from "@/features/compare";
+import { MonitorTab } from "@/features/server-monitor";
 import { RelationDiagramTab } from "@/features/relation-diagram";
 import {
   AggregationTab,
@@ -272,6 +273,9 @@ export default function Workspace({
         try {
           const file = await pickSqlFile();
           if (!file) return;
+          // Already open in a tab here: focus that tab, like VS Code.
+          if (useStudioStore.getState().focusFileTab(conn_id, file.path))
+            return;
           if (file.name.toLowerCase().endsWith(".js")) {
             openMongoConsoleTab(file.text, file.path, paneId);
           } else {
@@ -844,6 +848,8 @@ function WorkspaceContent({
               <ActivityDetailsTab conn_id={conn_id} tab_key={key} />
             ) : tab.kind === "roles" ? (
               <RolesTab conn_id={conn_id} tab_key={key} />
+            ) : tab.kind === "monitor" ? (
+              <MonitorTab conn_id={conn_id} tab_key={key} active={is_active} />
             ) : tab.kind === "compare" ? (
               <CompareTab
                 conn_id={conn_id}

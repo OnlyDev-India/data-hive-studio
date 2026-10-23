@@ -1,9 +1,11 @@
 //! `POST /v1/connect`: check the details the browser sent, then open a pool.
-//! Only Postgres and MongoDB are accepted, with no file paths of any kind
-//! and SSH by password only (AC-8): the server has no files of the user's to
-//! read, and nothing here is ever written to disk or a log.
+//! Only Postgres, MySQL, MariaDB and MongoDB are accepted, with no file
+//! paths of any kind and SSH by password only (AC-8; spec 0025 AC-26): the
+//! server has no files of the user's to read, and nothing here is ever
+//! written to disk or a log.
 
-use dh_core::db::{DbAdapter, MongoAdapter, MongoParams, PgAdapter, PgParams};
+use dh_core::api::ServerDescriptor;
+use dh_core::db::{DbAdapter, MongoAdapter, MongoParams, MySqlAdapter, MySqlParams, PgAdapter, PgParams};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -23,7 +25,17 @@ const SSL_FILE_FIELDS: [&str; 3] = ["ssl_ca_file", "ssl_client_cert_file", "ssl_
 /// What a valid request describes, before any pool is opened.
 pub enum Params {
     Postgres(PgParams),
+    /// `mysql` and `mariadb` alike: one adapter, which follows the server
+    /// it detects.
+    Mysql(MySqlParams),
     Mongodb(MongoParams),
+}
+
+/// An open pool, plus the server it detected (MySQL and MariaDB only), so
+/// the page follows the detected flavor as the desktop app does.
+pub struct Opened {
+    pub adapter: Arc<dyn DbAdapter>,
+    pub server: Option<ServerDescriptor>,
 }
 
 /// Check the request and build the adapter parameters. `force_read_only` is
@@ -33,7 +45,7 @@ pub fn parse(body: Value, force_read_only: bool) -> Result<(Params, Vec<String>)
         return Err(ConnectError::Invalid("expected a JSON object".into()));
     };
     let kind = match obj.get("kind").and_then(Value::as_str) {
-        Some(k @ ("postgres" | "mongodb")) => k.to_string(),
+        Some(k @ ("postgres" | "mysql" | "mariadb" | "mongodb")) => k.to_string(),
         _ => {
             return Err(ConnectError::Refused {
                 field: "kind".into(),
@@ -89,31 +101,47 @@ pub fn parse(body: Value, force_read_only: bool) -> Result<(Params, Vec<String>)
     obj.entry("database")
         .or_insert_with(|| Value::String(String::new()));
     let obj = Value::Object(obj);
-    let params = if kind == "postgres" {
-        let mut p: PgParams = from_value(obj)?;
-        p.guard.read_only |= force_read_only;
-        Params::Postgres(p)
-    } else {
-        let mut p: MongoParams = from_value(obj)?;
-        p.guard.read_only |= force_read_only;
-        Params::Mongodb(p)
+    let params = match kind.as_str() {
+        "postgres" => {
+            let mut p: PgParams = from_value(obj)?;
+            p.guard.read_only |= force_read_only;
+            Params::Postgres(p)
+        }
+        "mysql" | "mariadb" => {
+            let mut p: MySqlParams = from_value(obj)?;
+            p.guard.read_only |= force_read_only;
+            Params::Mysql(p)
+        }
+        _ => {
+            let mut p: MongoParams = from_value(obj)?;
+            p.guard.read_only |= force_read_only;
+            Params::Mongodb(p)
+        }
     };
     Ok((params, secrets))
 }
 
 /// Open the pool. Errors have every secret replaced before they leave.
-pub async fn open(params: Params, secrets: &[String]) -> Result<Arc<dyn DbAdapter>, ConnectError> {
-    let adapter: Result<Arc<dyn DbAdapter>, String> = match params {
+pub async fn open(params: Params, secrets: &[String]) -> Result<Opened, ConnectError> {
+    let plain = |adapter: Arc<dyn DbAdapter>| Opened { adapter, server: None };
+    let opened: Result<Opened, String> = match params {
         Params::Postgres(p) => PgAdapter::connect(&p)
             .await
-            .map(|a| Arc::new(a) as _)
+            .map(|a| plain(Arc::new(a)))
+            .map_err(|e| e.to_string()),
+        Params::Mysql(p) => MySqlAdapter::connect(&p)
+            .await
+            .map(|a| {
+                let server = Some(a.server().descriptor());
+                Opened { adapter: Arc::new(a), server }
+            })
             .map_err(|e| e.to_string()),
         Params::Mongodb(p) => MongoAdapter::connect(&p)
             .await
-            .map(|a| Arc::new(a) as _)
+            .map(|a| plain(Arc::new(a)))
             .map_err(|e| e.to_string()),
     };
-    adapter.map_err(|e| ConnectError::Unreachable(scrub(&e, secrets)))
+    opened.map_err(|e| ConnectError::Unreachable(scrub(&e, secrets)))
 }
 
 fn from_value<T: serde::de::DeserializeOwned>(v: Value) -> Result<T, ConnectError> {
@@ -130,8 +158,12 @@ fn present(v: Option<&Value>) -> bool {
 
 /// Replace every secret in `text`, so no error body carries one.
 pub fn scrub(text: &str, secrets: &[String]) -> String {
-    secrets
-        .iter()
+    // Longest first, so a secret that contains another one is hidden whole
+    // instead of leaving its tail behind (`hunter2` around `hunter`).
+    let mut ordered: Vec<&String> = secrets.iter().filter(|s| !s.is_empty()).collect();
+    ordered.sort_by_key(|s| std::cmp::Reverse(s.len()));
+    ordered
+        .into_iter()
         .fold(text.to_string(), |acc, s| acc.replace(s.as_str(), "***"))
 }
 
@@ -157,6 +189,56 @@ mod tests {
         assert!(parse(pg(), false).is_ok());
         let m = json!({"kind":"mongodb","host":"h","user":"u","password":"pw","database":"d","srv":true});
         assert!(parse(m, false).is_ok());
+    }
+
+    fn my(kind: &str) -> Value {
+        json!({"kind":kind,"host":"db","port":3306,"user":"u","password":"pw"})
+    }
+
+    #[test]
+    fn accepts_mysql_and_mariadb_with_the_same_parameters() {
+        for kind in ["mysql", "mariadb"] {
+            let (Params::Mysql(p), secrets) = parse(my(kind), false).unwrap() else {
+                panic!("{kind}")
+            };
+            assert_eq!((p.host.as_str(), p.port, p.database.as_deref()), ("db", 3306, None));
+            assert_eq!(secrets, vec!["pw".to_string()]);
+        }
+        let mut v = my("mariadb");
+        v["database"] = json!("shop");
+        v["ssl_mode"] = json!("REQUIRED");
+        let (Params::Mysql(p), _) = parse(v, false).unwrap() else {
+            panic!()
+        };
+        assert_eq!((p.database.as_deref(), p.ssl_mode.as_deref()), (Some("shop"), Some("REQUIRED")));
+    }
+
+    #[test]
+    fn mysql_refuses_file_paths_and_ssh_keys() {
+        for f in SSL_FILE_FIELDS {
+            let mut v = my("mysql");
+            v[f] = json!("/etc/ssl/x.pem");
+            assert_eq!(refused(v), f);
+        }
+        let mut v = my("mariadb");
+        v["ssh"] = json!({"host":"jump","port":22,"user":"me","key_file":"/k"});
+        assert_eq!(refused(v), "ssh.key_file");
+        let mut v = my("mysql");
+        v["ssh"] = json!({"host":"jump","port":22,"user":"me"});
+        v["ssh_password"] = json!("sshpw");
+        let (Params::Mysql(p), secrets) = parse(v, false).unwrap() else {
+            panic!()
+        };
+        assert_eq!(p.ssh.unwrap().password.as_deref(), Some("sshpw"));
+        assert!(secrets.contains(&"sshpw".to_string()));
+    }
+
+    #[test]
+    fn the_server_switch_locks_mysql_too() {
+        let (Params::Mysql(p), _) = parse(my("mysql"), true).unwrap() else {
+            panic!()
+        };
+        assert!(p.guard.read_only);
     }
 
     #[test]

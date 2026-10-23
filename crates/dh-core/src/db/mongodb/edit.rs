@@ -45,6 +45,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!("db.{table}.find({desc})")),
                 })
@@ -73,6 +74,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!("db.{table}.countDocuments({desc})")),
                 })
@@ -94,6 +96,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!("db.{table}.distinct(\"{column}\")")),
                 })
@@ -130,6 +133,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!(
                         "db.{table}.updateMany({desc}, {{$set: {{{column}: ...}}}})"
@@ -167,6 +171,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!(
                         "db.{table}.updateMany({}, {{$set: ...}})",
@@ -193,6 +198,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!(
                         "db.{table}.deleteMany({})",
@@ -238,6 +244,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!(
                         "db.{table}.insertOne({})",
@@ -262,6 +269,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!("db.{table}.drop()")),
                 })
@@ -309,6 +317,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!("db.{table}.find({})", filter_desc(&filter))),
                 })
@@ -342,6 +351,7 @@ impl MongoAdapter {
                         error: None,
                         elapsed_ms: start.elapsed().as_millis(),
                         cancelled: false,
+                        cancel_source: None,
                     },
                     sql: Some(format!("db.{table}.distinct(\"{column}\")")),
                 })
@@ -384,6 +394,7 @@ impl MongoAdapter {
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
             cancelled: false,
+            cancel_source: None,
         })
     }
 }

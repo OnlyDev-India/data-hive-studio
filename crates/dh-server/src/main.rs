@@ -18,6 +18,9 @@ use dh_server::routes::{router, spawn_sweeper, AppState};
 
 #[tokio::main]
 async fn main() {
+    // Every pool this server opens names itself `DH Studio web (<tag>)`, so
+    // the monitor tags the sessions of every browser on this server.
+    dh_core::db::set_app_label("DH Studio web");
     let cfg = Config::from_env();
     for line in cfg.warnings(|v| std::env::var_os(v).is_some()) {
         eprintln!("{line}");

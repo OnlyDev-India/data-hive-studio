@@ -21,6 +21,8 @@ const DIALECT_LABEL: Record<PlanResult["dialect"], string> = {
   postgres: "PostgreSQL",
   sqlite: "SQLite",
   mongodb: "MongoDB",
+  mysql: "MySQL",
+  mariadb: "MariaDB",
 };
 
 /** What a plan view needs of the call it shows. */

@@ -48,6 +48,8 @@ impl MongoAdapter {
                 default: None,
                 enum_values: Default::default(),
                 is_array: false,
+                extra: None,
+                comment: None,
             }]);
         }
         Ok(types
@@ -69,6 +71,8 @@ impl MongoAdapter {
                     default: None,
                     enum_values: Default::default(),
                     is_array,
+                    extra: None,
+                    comment: None,
                 }
             })
             .collect())
@@ -175,6 +179,7 @@ impl MongoAdapter {
                 foreign_keys: Vec::new(),
                 indexes,
                 triggers: Vec::new(),
+                table_options: None,
             },
             vec![
                 format!("db.{table}.find().limit(200) / sample to infer fields"),

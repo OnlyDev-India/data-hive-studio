@@ -1,6 +1,6 @@
 [package]
 name = "dh-studio"
-version = "0.5.6"
+version = "0.5.7"
 description = "DH Studio — a native multi database desktop client"
 authors = ["you"]
 license = ""

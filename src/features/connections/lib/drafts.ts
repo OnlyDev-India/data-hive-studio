@@ -4,6 +4,7 @@ import type { LandingEditTarget, SavedConnParams } from "@/shared/store";
 import {
   DOCUMENTDB_DEFAULTS,
   MONGO_DEFAULTS,
+  MYSQL_DEFAULTS,
   PG_DEFAULTS,
   SQLITE_DEFAULTS,
   withDocumentDbDefaults,
@@ -11,11 +12,13 @@ import {
 import type { GuardFormValues } from "./guard-form";
 import type {
   MongoFormValues,
+  MySqlFormValues,
   PgFormValues,
   SqliteFormValues,
 } from "./form-values";
 import {
   mongoFormFromSaved,
+  mysqlFormFromSaved,
   pgFormFromSaved,
   sqliteFormFromSaved,
 } from "./from-saved";
@@ -28,7 +31,10 @@ export type ConnectionStep = "pick" | "form";
 interface DraftsState {
   step: ConnectionStep;
   kind: SavedDbKind;
+  /** False on a fresh card, so the picker starts with no type selected. */
+  picked: boolean;
   pg: PgFormValues;
+  mysql: MySqlFormValues;
   mongo: MongoFormValues;
   sqlite: SqliteFormValues;
   edit: LandingEditTarget | null;
@@ -41,6 +47,7 @@ interface DraftsActions {
   openForm: () => void;
   backToPicker: () => void;
   patchPg: (patch: Partial<PgFormValues>) => void;
+  patchMysql: (patch: Partial<MySqlFormValues>) => void;
   patchMongo: (patch: Partial<MongoFormValues>) => void;
   patchSqlite: (patch: Partial<SqliteFormValues>) => void;
   setEdit: (edit: LandingEditTarget | null) => void;
@@ -55,7 +62,9 @@ interface DraftsActions {
 const FRESH: DraftsState = {
   step: "pick",
   kind: "postgres",
+  picked: false,
   pg: PG_DEFAULTS,
+  mysql: MYSQL_DEFAULTS,
   mongo: MONGO_DEFAULTS,
   sqlite: SQLITE_DEFAULTS,
   edit: null,
@@ -70,22 +79,36 @@ export const useConnectionDrafts = create<DraftsState & DraftsActions>()(
         const next = s.edit ? carryEntry(s, kind) : {};
         const mongo = next.mongo ?? s.mongo;
         return kind === "documentdb" && s.kind !== "documentdb"
-          ? { ...next, kind, mongo: withDocumentDbDefaults(mongo) }
-          : { ...next, kind };
+          ? {
+              ...next,
+              kind,
+              picked: true,
+              mongo: withDocumentDbDefaults(mongo),
+            }
+          : { ...next, kind, picked: true };
       }),
     openForm: () => set({ step: "form" }),
     backToPicker: () => set({ step: "pick" }),
     patchPg: (patch) => set((s) => ({ pg: { ...s.pg, ...patch } })),
+    patchMysql: (patch) => set((s) => ({ mysql: { ...s.mysql, ...patch } })),
     patchMongo: (patch) => set((s) => ({ mongo: { ...s.mongo, ...patch } })),
     patchSqlite: (patch) => set((s) => ({ sqlite: { ...s.sqlite, ...patch } })),
     setEdit: (edit) => set({ edit }),
     loadSaved: (kind, params, edit) =>
       set((s) => {
-        const base = { kind, edit, step: "form" as const, visit: s.visit + 1 };
+        const base = {
+          kind,
+          picked: true,
+          edit,
+          step: "form" as const,
+          visit: s.visit + 1,
+        };
         if (kind === "sqlite")
           return { ...base, sqlite: sqliteFormFromSaved(params) };
         if (kind === "postgres")
           return { ...base, pg: pgFormFromSaved(params) };
+        if (kind === "mysql" || kind === "mariadb")
+          return { ...base, mysql: mysqlFormFromSaved(params) };
         return { ...base, mongo: mongoFormFromSaved(params) };
       }),
     reset: () => set((s) => ({ ...FRESH, visit: s.visit + 1 })),
@@ -93,13 +116,19 @@ export const useConnectionDrafts = create<DraftsState & DraftsActions>()(
 );
 
 const draftGroup = (kind: SavedDbKind) =>
-  kind === "sqlite" ? "sqlite" : kind === "postgres" ? "pg" : "mongo";
+  kind === "sqlite"
+    ? "sqlite"
+    : kind === "postgres"
+      ? "pg"
+      : kind === "mysql" || kind === "mariadb"
+        ? "mysql"
+        : "mongo";
 
 /** Editing one saved entry under another kind keeps its name and safety settings. */
 function carryEntry(
   s: DraftsState,
   kind: SavedDbKind,
-): Partial<Pick<DraftsState, "pg" | "mongo" | "sqlite">> {
+): Partial<Pick<DraftsState, "pg" | "mysql" | "mongo" | "sqlite">> {
   const from = draftGroup(s.kind);
   const to = draftGroup(kind);
   if (from === to) return {};
@@ -121,6 +150,8 @@ function carryEntry(
 export function currentDraft(s: DraftsState): FormDraft {
   if (s.kind === "sqlite") return { kind: "sqlite", values: s.sqlite };
   if (s.kind === "postgres") return { kind: "postgres", values: s.pg };
+  if (s.kind === "mysql") return { kind: "mysql", values: s.mysql };
+  if (s.kind === "mariadb") return { kind: "mariadb", values: s.mysql };
   return { kind: s.kind, values: s.mongo };
 }
 
@@ -133,6 +164,7 @@ export function isFreshCard(s: DraftsState): boolean {
     s.step === "pick" &&
     s.edit === null &&
     same(s.pg, PG_DEFAULTS) &&
+    same(s.mysql, MYSQL_DEFAULTS) &&
     (same(s.mongo, MONGO_DEFAULTS) || same(s.mongo, DOCUMENTDB_DEFAULTS)) &&
     s.sqlite.path === null &&
     s.sqlite.name === "" &&

@@ -90,6 +90,7 @@ impl SqliteAdapter {
             error: None,
             elapsed_ms: start.elapsed().as_millis(),
             cancelled: false,
+            cancel_source: None,
         })
     }
 }

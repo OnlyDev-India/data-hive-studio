@@ -42,10 +42,17 @@ const details = { kind: "postgres", host: "db", password: "pw" };
 describe("connecting", () => {
   it("posts the details once and uses the handle as the connection id", async () => {
     fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
     expect(id).toBe("h1");
     expect(calls()[0]).toMatchObject({ url: "/v1/connect", method: "POST" });
     expect(JSON.parse(calls()[0].body!)).toEqual(details);
+  });
+
+  it("passes on the server a MySQL connect detected", async () => {
+    const server = { flavor: "mariadb", version: "11.4.4" };
+    fetchMock.mockResolvedValueOnce(json(200, { handle: "h1", server }));
+    const opened = await webConnect({ ...details, kind: "mysql" });
+    expect(opened).toEqual({ id: "h1", server });
   });
 
   it("says which field the server refused", async () => {
@@ -72,7 +79,7 @@ describe("a handle the server forgot (AC-3)", () => {
       .mockResolvedValueOnce(unknownHandle()) // first try
       .mockResolvedValueOnce(json(200, { handle: "h2" })) // reconnect
       .mockResolvedValueOnce(json(200, ["orders"])); // repeat
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
 
     await expect(wcall("GET", `/v1/c/${id}/tables`)).resolves.toEqual([
       "orders",
@@ -95,7 +102,7 @@ describe("a handle the server forgot (AC-3)", () => {
       .mockResolvedValueOnce(json(200, { handle: "h2" }))
       .mockResolvedValueOnce(json(200, []))
       .mockResolvedValueOnce(json(200, []));
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
     await wcall("GET", `/v1/c/${id}/tables`);
     await wcall("GET", `/v1/c/${id}/schemas`);
     expect(calls().at(-1)!.url).toBe("/v1/c/h2/schemas");
@@ -107,7 +114,7 @@ describe("a handle the server forgot (AC-3)", () => {
       .mockResolvedValueOnce(unknownHandle())
       .mockResolvedValueOnce(json(200, { handle: "h2" }))
       .mockResolvedValueOnce(unknownHandle());
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
     await expect(wcall("GET", `/v1/c/${id}/tables`)).rejects.toThrow(/404/);
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
@@ -118,7 +125,7 @@ describe("a handle the server forgot (AC-3)", () => {
       return url.startsWith("/v1/c/h1/") ? unknownHandle() : json(200, []);
     });
     fetchMock.mockResolvedValueOnce(json(200, { handle: "h1" }));
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
     await Promise.all([
       wcall("GET", `/v1/c/${id}/tables`),
       wcall("GET", `/v1/c/${id}/schemas`),
@@ -130,7 +137,7 @@ describe("a handle the server forgot (AC-3)", () => {
     fetchMock
       .mockResolvedValueOnce(json(200, { handle: "h1" }))
       .mockResolvedValueOnce(new Response("no such table", { status: 404 }));
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
     await expect(wcall("GET", `/v1/c/${id}/schema/x`)).rejects.toThrow(
       /no such table/,
     );
@@ -143,7 +150,7 @@ describe("closing", () => {
     fetchMock
       .mockResolvedValueOnce(json(200, { handle: "h1" }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const id = await webConnect(details);
+    const { id } = await webConnect(details);
     await webClose(id);
     expect(calls()[1]).toMatchObject({ url: "/v1/c/h1/close", method: "POST" });
   });

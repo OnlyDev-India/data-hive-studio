@@ -12,6 +12,10 @@ pub struct QueryResult {
     /// streamed stay with the caller. Absent from an older server's reply.
     #[serde(default)]
     pub cancelled: bool,
+    /// Who stopped it, when not the run's own Stop (the server monitor,
+    /// spec 0025). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_source: Option<super::CancelSource>,
 }
 
 /// One streamed batch of SELECT rows pushed to the frontend over an IPC
